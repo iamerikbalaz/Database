@@ -1,0 +1,39 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+secrets/
+*service-account*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# Node and React
+node_modules/
+dist/
+.vite/
+coverage/
+
+# Generated files
+generated/
+worker-output/
+temp/
+tmp/
+*.log
+*.tsbuildinfo
+
+# Editors
+.vscode/
+.idea/
+
+# Windows and macOS
+Thumbs.db
+Desktop.ini
+.DS_Store

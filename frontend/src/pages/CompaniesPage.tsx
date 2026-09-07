@@ -32,14 +32,14 @@ export function CompaniesPage({
           <h1>Companies</h1>
           <p>Manage clients, their published brands and related projects.</p>
         </div>
-        <button
-          disabled
-          title="Coming later"
+        <NavigationLink
           className="button button--primary"
+          href={"/companies/new"}
+          navigate={navigate}
         >
           <Icon name="plus" size={18} />
           Add company
-        </button>
+        </NavigationLink>
       </div>
       <div className="toolbar">
         <label className="search">

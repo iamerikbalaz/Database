@@ -38,14 +38,14 @@ export function ProjectsPage({
           <h1>Projects</h1>
           <p>Track current client work, progress and delivery dates.</p>
         </div>
-        <button
-          disabled
-          title="Coming later"
+        <NavigationLink
           className="button button--primary"
+          href={"/projects/new"}
+          navigate={navigate}
         >
           <Icon name="plus" size={18} />
           Add project
-        </button>
+        </NavigationLink>
       </div>
       {state === "loading" ? (
         <LoadingState label="Loading projects…" />

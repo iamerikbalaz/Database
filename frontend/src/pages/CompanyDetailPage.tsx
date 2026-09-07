@@ -58,13 +58,13 @@ export function CompanyDetailPage({
           </div>
           <p>{company.officialName}</p>
         </div>
-        <button
-          disabled
-          title="Coming later"
+        <NavigationLink
           className="button button--secondary"
+          href={"/companies/" + id + "/edit"}
+          navigate={navigate}
         >
           Edit company
-        </button>
+        </NavigationLink>
       </div>
       <div className="detail-grid">
         <article className="panel">
@@ -111,7 +111,13 @@ export function CompanyDetailPage({
               <p className="eyebrow">Library</p>
               <h2>Published brands</h2>
             </div>
-            <span className="count-pill">{company.brands.length}</span>
+            <NavigationLink
+              className="button"
+              href={"/companies/" + id + "/brands/new"}
+              navigate={navigate}
+            >
+              Add published brand
+            </NavigationLink>
           </div>
           {company.brands.length ? (
             <div className="brand-list">
@@ -121,13 +127,27 @@ export function CompanyDetailPage({
                     {b.name.slice(0, 2).toUpperCase()}
                   </div>
                   <div>
-                    <strong>{b.name}</strong>
+                    <NavigationLink
+                      href={"/brands/" + b.id}
+                      navigate={navigate}
+                    >
+                      <strong>{b.name}</strong>
+                    </NavigationLink>
                     <span>
                       {b.brandIdentifier} · {b.folderPrefix} · Next:{" "}
                       {b.nextSequenceNumber}
                     </span>
                   </div>
-                  <StatusBadge status={b.isActive ? "active" : "inactive"} />
+                  <div>
+                    <StatusBadge status={b.isActive ? "active" : "inactive"} />
+                    <NavigationLink
+                      href={"/brands/" + b.id + "/edit"}
+                      navigate={navigate}
+                      aria-label={"Edit " + b.name}
+                    >
+                      Edit
+                    </NavigationLink>
+                  </div>
                 </div>
               ))}
             </div>

@@ -61,13 +61,13 @@ export function ProjectDetailPage({
             {item.description ?? "Project details and production overview."}
           </p>
         </div>
-        <button
-          disabled
-          title="Coming later"
+        <NavigationLink
           className="button button--secondary"
+          href={"/projects/" + id + "/edit"}
+          navigate={navigate}
         >
           Edit project
-        </button>
+        </NavigationLink>
       </div>
       <article className="panel panel--wide">
         <div className="panel-title">

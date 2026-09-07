@@ -711,3 +711,71 @@ button:focus-visible {
 .compact-list > a {
   text-decoration: none;
 }
+
+.record-form {
+  max-width: 800px;
+}
+.record-form fieldset {
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 20px;
+}
+.form-field {
+  display: grid;
+  gap: 7px;
+}
+.form-field label {
+  font-weight: 650;
+  font-size: 14px;
+}
+.form-field input:not([type="checkbox"]),
+.form-field textarea,
+.form-field select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  font: inherit;
+  background: white;
+  color: inherit;
+}
+.form-field input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+}
+.form-field :focus-visible {
+  outline: 3px solid #a3c440;
+  outline-offset: 2px;
+}
+.form-field [aria-invalid="true"] {
+  border-color: #a52e20;
+}
+.form-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 26px;
+}
+.form-actions a,
+a.button {
+  text-decoration: none;
+}
+.form-error {
+  border: 1px solid #a52e20;
+  padding: 14px;
+  margin-bottom: 22px;
+  background: #fff4f0;
+}
+.field-error {
+  margin: 0;
+  color: #8a271b;
+}
+.success-notice {
+  padding: 16px;
+  border: 1px solid #628452;
+  background: #edf5e5;
+}
+.record-form fieldset:disabled {
+  opacity: 0.7;
+}

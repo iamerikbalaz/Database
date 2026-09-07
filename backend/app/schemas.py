@@ -16,7 +16,7 @@ Website = Annotated[HttpUrl, Field(max_length=2048)]
 
 
 class ApiSchema(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
 class CompanyFields(ApiSchema):
@@ -63,7 +63,6 @@ class PublishedBrandFields(ApiSchema):
     name: Name
     folder_prefix: Name
     brand_identifier: Name
-    next_sequence_number: int = Field(default=1, ge=1)
     is_active: bool = True
 
 
@@ -76,7 +75,6 @@ class PublishedBrandUpdate(ApiSchema):
     name: Name | None = None
     folder_prefix: Name | None = None
     brand_identifier: Name | None = None
-    next_sequence_number: int | None = Field(default=None, ge=1)
     is_active: bool | None = None
 
     @model_validator(mode="after")
@@ -86,7 +84,6 @@ class PublishedBrandUpdate(ApiSchema):
             "name",
             "folder_prefix",
             "brand_identifier",
-            "next_sequence_number",
             "is_active",
         ):
             if field_name in self.model_fields_set and getattr(self, field_name) is None:
@@ -96,6 +93,7 @@ class PublishedBrandUpdate(ApiSchema):
 
 class PublishedBrandRead(PublishedBrandFields):
     id: UUID
+    next_sequence_number: int = Field(ge=1, le=9999)
     created_at: datetime
     updated_at: datetime
 

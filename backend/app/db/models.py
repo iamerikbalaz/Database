@@ -66,8 +66,8 @@ class PublishedBrand(TimestampMixin, Base):
     __tablename__ = "published_brands"
     __table_args__ = (
         CheckConstraint(
-            "next_sequence_number >= 1",
-            name="ck_published_brands_next_sequence_number_positive",
+            "next_sequence_number BETWEEN 1 AND 9999",
+            name="ck_published_brands_next_sequence_number_range",
         ),
     )
 

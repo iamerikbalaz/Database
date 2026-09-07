@@ -1,101 +1,42 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { apiClient, type ApiClient } from "./api/client";
+import { AppShell } from "./components/AppShell";
+import { CompanyDetailPage } from "./pages/CompanyDetailPage";
+import { CompaniesPage } from "./pages/CompaniesPage";
+import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { ProjectDetailPage } from "./pages/ProjectDetailPage";
+import { ProjectsPage } from "./pages/ProjectsPage";
 
-type HealthStatus = "loading" | "connected" | "unavailable";
+interface AppProps { client?: ApiClient; initialPath?: string }
+const normalizePath = (path: string) => path.split(/[?#]/)[0].replace(/\/+$/, "") || "/";
 
-interface HealthResponse {
-  status: "ok" | "degraded";
-  database: "connected" | "unavailable";
-  service: string;
-  version: string;
-}
-
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "/api").replace(/\/$/, "");
-
-async function fetchBackendHealth(): Promise<HealthResponse> {
-  const response = await fetch(`${apiBaseUrl}/health`);
-  if (!response.ok) {
-    throw new Error(`Backend returned ${response.status}`);
-  }
-
-  return (await response.json()) as HealthResponse;
-}
-
-function App() {
-  const [health, setHealth] = useState<HealthStatus>("loading");
-  const [details, setDetails] = useState<HealthResponse | null>(null);
-
-  const checkBackend = useCallback(async () => {
-    try {
-      const payload = await fetchBackendHealth();
-      setDetails(payload);
-      setHealth(payload.status === "ok" ? "connected" : "unavailable");
-    } catch {
-      setDetails(null);
-      setHealth("unavailable");
-    }
-  }, []);
-
+function App({ client = apiClient, initialPath }: AppProps) {
+  const [path, setPath] = useState(() => normalizePath(initialPath ?? window.location.pathname));
   useEffect(() => {
-    let isActive = true;
-
-    void fetchBackendHealth()
-      .then((payload) => {
-        if (isActive) {
-          setDetails(payload);
-          setHealth(payload.status === "ok" ? "connected" : "unavailable");
-        }
-      })
-      .catch(() => {
-        if (isActive) {
-          setDetails(null);
-          setHealth("unavailable");
-        }
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, []);
-
-  const retryBackend = () => {
-    setHealth("loading");
-    void checkBackend();
+    if (initialPath) return;
+    const handlePopState = () => setPath(normalizePath(window.location.pathname));
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [initialPath]);
+  const navigate = (destination: string) => {
+    const nextPath = normalizePath(destination);
+    if (!initialPath) window.history.pushState({}, "", nextPath);
+    setPath(nextPath);
+    if (!initialPath) window.scrollTo({ top: 0, behavior: "smooth" });
   };
-
-  return (
-    <main className="page-shell">
-      <section className="status-card" aria-labelledby="app-title">
-        <p className="eyebrow">Interní systém</p>
-        <h1 id="app-title">REAWOTE</h1>
-        <p className="intro">Základ správy PBR materiálů a publikačního procesu.</p>
-
-        <div className={`status status--${health}`} role="status" aria-live="polite">
-          <span className="status__dot" aria-hidden="true" />
-          <div>
-            <span className="status__label">Backend</span>
-            <strong>
-              {health === "loading" && "Ověřuji spojení…"}
-              {health === "connected" && "Připojeno"}
-              {health === "unavailable" && "Nedostupné"}
-            </strong>
-          </div>
-        </div>
-
-        {details && (
-          <p className="details">
-            Databáze: {details.database === "connected" ? "připojena" : "nedostupná"} · API v
-            {details.version}
-          </p>
-        )}
-
-        {health === "unavailable" && (
-          <button type="button" onClick={retryBackend}>
-            Zkusit znovu
-          </button>
-        )}
-      </section>
-    </main>
-  );
+  const companyMatch = path.match(/^\/companies\/([^/]+)$/);
+  const projectMatch = path.match(/^\/projects\/([^/]+)$/);
+  let page;
+  if (path === "/" || path === "/dashboard") page = <PlaceholderPage title="Dashboard" description="Your workspace overview is coming next." />;
+  else if (path === "/companies") page = <CompaniesPage client={client} navigate={navigate} />;
+  else if (companyMatch) page = <CompanyDetailPage id={decodeURIComponent(companyMatch[1])} client={client} navigate={navigate} />;
+  else if (path === "/projects") page = <ProjectsPage client={client} navigate={navigate} />;
+  else if (projectMatch) page = <ProjectDetailPage id={decodeURIComponent(projectMatch[1])} client={client} navigate={navigate} />;
+  else {
+    const labels: Record<string, string> = { "/materials": "Materials", "/publication": "Publication", "/settings": "Settings" };
+    page = labels[path] ? <PlaceholderPage title={labels[path]} description="This section is ready for the next implementation phase." /> : <PlaceholderPage title="Page not found" description="The requested page does not exist." />;
+  }
+  return <AppShell currentPath={path} navigate={navigate}>{page}</AppShell>;
 }
-
 export default App;
+export type { AppProps };

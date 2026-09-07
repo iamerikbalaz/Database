@@ -18,6 +18,24 @@ Backend při startu automaticky spustí `alembic upgrade head`.
 
 Notion, Google Cloud Storage, NAS a vytváření ZIPů nejsou součástí této fáze.
 
+## Databázové API
+
+První doménová část eviduje firmy, jejich publikované značky a projekty. Všechny
+záznamy používají UUID a auditní časy `created_at` a `updated_at`. Projekt má stav
+`NOT_STARTED`, `IN_PROGRESS` nebo `DONE`; výchozí stav je `NOT_STARTED`.
+
+API poskytuje seznam, vytvoření, detail a částečnou aktualizaci:
+
+- `/api/companies` a `/api/companies/{id}`;
+- `/api/brands` a `/api/brands/{id}`;
+- `/api/projects` a `/api/projects/{id}`.
+
+Kolekce podporují `GET` a `POST`, detail podporuje `GET` a `PATCH`. Fyzické
+mazání záměrně není dostupné; zneaktivnění firmy nebo značky se provádí přes
+`PATCH` pole `is_active`. Duplicitní unikátní hodnota vrací `409 Conflict`,
+neexistující záznam nebo nadřazená firma `404 Not Found` a nevalidní vstup
+`422 Unprocessable Content`. Přesný kontrakt je dostupný v OpenAPI na `/docs`.
+
 ## Instalace a spuštění na Windows
 
 Požadavky:
@@ -90,5 +108,6 @@ Aktuální migrace lze ručně aplikovat příkazem:
 docker compose run --rm backend alembic upgrade head
 ```
 
-Výchozí migrace je úmyslně prázdná baseline. Doménový model bude doplněn v
-navazujících změnách podle dokumentace v `docs/`.
+Výchozí migrace je úmyslně prázdná baseline. Navazující migrace vytváří tabulky
+`companies`, `published_brands` a `projects` včetně cizích klíčů, unikátních
+omezení a kontrolních omezení.

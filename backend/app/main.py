@@ -6,11 +6,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import HealthDatabase, build_health_router
+from app.api.resources import SessionDatabase, build_resources_router
 from app.core.config import Settings, get_settings
 from app.db.session import Database
 
 
-class ApplicationDatabase(HealthDatabase, Protocol):
+class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
     def dispose(self) -> None: ...
 
 
@@ -36,10 +37,11 @@ def create_app(
         CORSMiddleware,
         allow_origins=app_settings.parsed_cors_origins,
         allow_credentials=False,
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST", "PATCH"],
         allow_headers=["*"],
     )
     application.include_router(build_health_router(app_database))
+    application.include_router(build_resources_router(app_database))
 
     @application.get("/", tags=["system"])
     def root() -> dict[str, str]:

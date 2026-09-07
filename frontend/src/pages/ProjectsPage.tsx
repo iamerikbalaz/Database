@@ -1,5 +1,105 @@
+import { NavigationLink } from "../components/NavigationLink";
 import { useResource } from "../api/useResource";
-import{useCallback}from"react";import type{ApiClient}from"../api/client";import type{Project}from"../types";import{EmptyState,ErrorState,LoadingState}from"../components/PageState";import{Icon}from"../components/Icon";import{StatusBadge}from"../components/StatusBadge";
+import { useCallback } from "react";
+import type { ApiClient } from "../api/client";
+import type { Project } from "../types";
+import { EmptyState, ErrorState, LoadingState } from "../components/PageState";
+import { Icon } from "../components/Icon";
+import { StatusBadge } from "../components/StatusBadge";
 
-const date=(value:string|null)=>value?new Intl.DateTimeFormat("en-GB",{day:"numeric",month:"short",year:"numeric"}).format(new Date(`${value}T00:00:00`)):"No deadline";
-export function ProjectsPage({client,navigate}:{client:ApiClient;navigate:(path:string)=>void}){const request=useCallback(()=>Promise.all([client.getProjects(),client.getCompanies()]),[client]);const {data,error,retry:load}=useResource(request);const items:Project[]=data?.[0]??[];const names=new Map(data?.[1].map(c=>[c.id,c.name]));const state=error?"error":data?"ready":"loading";return <section><div className="page-heading"><div><p className="eyebrow">Production</p><h1>Projects</h1><p>Track current client work, progress and delivery dates.</p></div><button disabled title="Coming later" className="button button--primary"><Icon name="plus" size={18}/>Add project</button></div>{state==="loading"?<LoadingState label="Loading projects…"/>:state==="error"?<ErrorState message="Projects are temporarily unavailable. Check your connection and try again." retry={load}/>:items.length===0?<EmptyState title="No projects yet" description="Create a project to start organising production work."/>:<div className="table-card"><table><thead><tr><th>Project</th><th>Client</th><th>Status</th><th>Deadline</th><th><span className="sr-only">Open</span></th></tr></thead><tbody>{items.map(p=><tr key={p.id}><td><span className="project-number">{p.number}</span><button className="table-link" onClick={()=>navigate(`/projects/${p.id}`)}>{p.name}</button></td><td>{names.get(p.companyId)??p.companyId}</td><td><StatusBadge status={p.status}/></td><td>{date(p.dueDate)}</td><td><Icon name="arrow" size={18}/></td></tr>)}</tbody></table></div>}</section>}
+const date = (value: string | null) =>
+  value
+    ? new Intl.DateTimeFormat("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      }).format(new Date(`${value}T00:00:00`))
+    : "No deadline";
+export function ProjectsPage({
+  client,
+  navigate,
+}: {
+  client: ApiClient;
+  navigate: (path: string) => void;
+}) {
+  const request = useCallback(
+    () => Promise.all([client.getProjects(), client.getCompanies()]),
+    [client],
+  );
+  const { data, error, retry: load } = useResource(request);
+  const items: Project[] = data?.[0] ?? [];
+  const names = new Map(data?.[1].map((c) => [c.id, c.name]));
+  const state = error ? "error" : data ? "ready" : "loading";
+  return (
+    <section>
+      <div className="page-heading">
+        <div>
+          <p className="eyebrow">Production</p>
+          <h1>Projects</h1>
+          <p>Track current client work, progress and delivery dates.</p>
+        </div>
+        <button
+          disabled
+          title="Coming later"
+          className="button button--primary"
+        >
+          <Icon name="plus" size={18} />
+          Add project
+        </button>
+      </div>
+      {state === "loading" ? (
+        <LoadingState label="Loading projects…" />
+      ) : state === "error" ? (
+        <ErrorState
+          message="Projects are temporarily unavailable. Check your connection and try again."
+          retry={load}
+        />
+      ) : items.length === 0 ? (
+        <EmptyState
+          title="No projects yet"
+          description="Create a project to start organising production work."
+        />
+      ) : (
+        <div className="table-card">
+          <table>
+            <thead>
+              <tr>
+                <th>Project</th>
+                <th>Client</th>
+                <th>Status</th>
+                <th>Deadline</th>
+                <th>
+                  <span className="sr-only">Open</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    <span className="project-number">{p.number}</span>
+                    <NavigationLink
+                      className="table-link"
+                      href={`/projects/${p.id}`}
+                      navigate={navigate}
+                    >
+                      {p.name}
+                    </NavigationLink>
+                  </td>
+                  <td>{names.get(p.companyId) ?? p.companyId}</td>
+                  <td>
+                    <StatusBadge status={p.status} />
+                  </td>
+                  <td>{date(p.dueDate)}</td>
+                  <td>
+                    <Icon name="arrow" size={18} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}

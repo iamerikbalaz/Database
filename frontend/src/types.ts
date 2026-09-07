@@ -35,5 +35,10 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
 }
-export interface CompanyDetail extends Company { brands: PublishedBrand[]; projects: Project[] }
-export interface ProjectDetail extends Project { clientName: string }
+export interface CompanyDetail extends Company {
+  brands: PublishedBrand[];
+  projects: Project[];
+}
+export interface ProjectDetail extends Project {
+  clientName: string;
+}

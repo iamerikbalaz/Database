@@ -1,22 +1,25 @@
 from contextlib import AbstractContextManager
-from typing import Any, Protocol, TypeVar
+from typing import Annotated, Any, Protocol, TypeVar
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import Company, Project, PublishedBrand
 from app.schemas import (
     CompanyCreate,
+    CompanyListFilters,
     CompanyRead,
     CompanyUpdate,
     ProjectCreate,
+    ProjectListFilters,
     ProjectRead,
     ProjectUpdate,
     PublishedBrandCreate,
+    PublishedBrandListFilters,
     PublishedBrandRead,
     PublishedBrandUpdate,
 )
@@ -90,9 +93,14 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
     router = APIRouter(prefix="/api")
 
     @router.get("/companies", response_model=list[CompanyRead], tags=["companies"])
-    def list_companies() -> list[Company]:
+    def list_companies(filters: Annotated[CompanyListFilters, Query()]) -> list[Company]:
         with database.session() as session:
-            return list(session.scalars(select(Company).order_by(Company.created_at, Company.id)))
+            statement = select(Company)
+            if filters.search is not None:
+                statement = statement.where(Company.name.icontains(filters.search, autoescape=True))
+            if filters.is_active is not None:
+                statement = statement.where(Company.is_active == filters.is_active)
+            return list(session.scalars(statement.order_by(Company.created_at, Company.id)))
 
     @router.post(
         "/companies",
@@ -137,12 +145,27 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             return _commit(session, company)
 
     @router.get("/brands", response_model=list[PublishedBrandRead], tags=["brands"])
-    def list_brands() -> list[PublishedBrand]:
+    def list_brands(
+        filters: Annotated[PublishedBrandListFilters, Query()],
+    ) -> list[PublishedBrand]:
         with database.session() as session:
-            return list(
-                session.scalars(
-                    select(PublishedBrand).order_by(PublishedBrand.created_at, PublishedBrand.id)
+            statement = select(PublishedBrand)
+            if filters.company_id is not None:
+                statement = statement.where(PublishedBrand.company_id == filters.company_id)
+            if filters.is_active is not None:
+                statement = statement.where(PublishedBrand.is_active == filters.is_active)
+            if filters.search is not None:
+                statement = statement.where(
+                    or_(
+                        PublishedBrand.name.icontains(filters.search, autoescape=True),
+                        PublishedBrand.brand_identifier.icontains(
+                            filters.search,
+                            autoescape=True,
+                        ),
+                    )
                 )
+            return list(
+                session.scalars(statement.order_by(PublishedBrand.created_at, PublishedBrand.id))
             )
 
     @router.post(
@@ -198,9 +221,21 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             return _commit(session, brand)
 
     @router.get("/projects", response_model=list[ProjectRead], tags=["projects"])
-    def list_projects() -> list[Project]:
+    def list_projects(filters: Annotated[ProjectListFilters, Query()]) -> list[Project]:
         with database.session() as session:
-            return list(session.scalars(select(Project).order_by(Project.created_at, Project.id)))
+            statement = select(Project)
+            if filters.company_id is not None:
+                statement = statement.where(Project.company_id == filters.company_id)
+            if filters.status is not None:
+                statement = statement.where(Project.status == filters.status.value)
+            if filters.search is not None:
+                statement = statement.where(
+                    or_(
+                        Project.project_number.icontains(filters.search, autoescape=True),
+                        Project.name.icontains(filters.search, autoescape=True),
+                    )
+                )
+            return list(session.scalars(statement.order_by(Project.created_at, Project.id)))
 
     @router.post(
         "/projects",

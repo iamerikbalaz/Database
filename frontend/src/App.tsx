@@ -24,10 +24,12 @@ function App({ client = apiClient, initialPath }: AppProps) {
     setPath(nextPath);
     if (!initialPath) window.scrollTo({ top: 0, behavior: "smooth" });
   };
+  let invalidUrl = false; try { decodeURIComponent(path); } catch { invalidUrl = true; }
   const companyMatch = path.match(/^\/companies\/([^/]+)$/);
   const projectMatch = path.match(/^\/projects\/([^/]+)$/);
   let page;
-  if (path === "/" || path === "/dashboard") page = <PlaceholderPage title="Dashboard" description="Your workspace overview is coming next." />;
+  if (invalidUrl) page = <PlaceholderPage title="Page not found" description="The URL is malformed." />;
+  else if (path === "/" || path === "/dashboard") page = <PlaceholderPage title="Dashboard" description="Your workspace overview is coming next." />;
   else if (path === "/companies") page = <CompaniesPage client={client} navigate={navigate} />;
   else if (companyMatch) page = <CompanyDetailPage id={decodeURIComponent(companyMatch[1])} client={client} navigate={navigate} />;
   else if (path === "/projects") page = <ProjectsPage client={client} navigate={navigate} />;

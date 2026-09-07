@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { EditorPage } from "./pages/EditorPage";
+import { BrandDetailPage } from "./pages/BrandDetailPage";
+import { useEffect, useState, useRef } from "react";
 import { apiClient, type ApiClient } from "./api/client";
 import { AppShell } from "./components/AppShell";
 import { CompanyDetailPage } from "./pages/CompanyDetailPage";
@@ -15,17 +17,25 @@ const normalizePath = (path: string) =>
   path.split(/[?#]/)[0].replace(/\/+$/, "") || "/";
 
 function App({ client = apiClient, initialPath }: AppProps) {
+  const [notice, setNotice] = useState("");
   const [path, setPath] = useState(() =>
     normalizePath(initialPath ?? window.location.pathname),
   );
   useEffect(() => {
     if (initialPath) return;
-    const handlePopState = () =>
+    const handlePopState = () => {
+      setNotice("");
       setPath(normalizePath(window.location.pathname));
+    };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, [initialPath]);
-  const navigate = (destination: string) => {
+  const noticeRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (notice) noticeRef.current?.focus();
+  }, [notice, path]);
+  const navigate = (destination: string, message = "") => {
+    setNotice(message);
     const nextPath = normalizePath(destination);
     if (!initialPath) window.history.pushState({}, "", nextPath);
     setPath(nextPath);
@@ -39,12 +49,89 @@ function App({ client = apiClient, initialPath }: AppProps) {
   }
   const companyMatch = path.match(/^\/companies\/([^/]+)$/);
   const projectMatch = path.match(/^\/projects\/([^/]+)$/);
+  const companyEdit = path.match(/^\/companies\/([^/]+)\/edit$/);
+  const brandNew = path.match(/^\/companies\/([^/]+)\/brands\/new$/);
+  const brandEdit = path.match(/^\/brands\/([^/]+)\/edit$/);
+  const brandMatch = path.match(/^\/brands\/([^/]+)$/);
+  const projectEdit = path.match(/^\/projects\/([^/]+)\/edit$/);
   let page;
   if (invalidUrl)
     page = (
       <PlaceholderPage
         title="Page not found"
         description="The URL is malformed."
+      />
+    );
+  else if (path === "/companies/new")
+    page = (
+      <EditorPage
+        key={path}
+        kind="company"
+        client={client}
+        navigate={navigate}
+        onSaved={navigate}
+      />
+    );
+  else if (companyEdit)
+    page = (
+      <EditorPage
+        key={path}
+        kind="company"
+        id={decodeURIComponent(companyEdit[1])}
+        client={client}
+        navigate={navigate}
+        onSaved={navigate}
+      />
+    );
+  else if (brandNew)
+    page = (
+      <EditorPage
+        key={path}
+        kind="brand"
+        companyId={decodeURIComponent(brandNew[1])}
+        client={client}
+        navigate={navigate}
+        onSaved={navigate}
+      />
+    );
+  else if (brandEdit)
+    page = (
+      <EditorPage
+        key={path}
+        kind="brand"
+        id={decodeURIComponent(brandEdit[1])}
+        client={client}
+        navigate={navigate}
+        onSaved={navigate}
+      />
+    );
+  else if (brandMatch)
+    page = (
+      <BrandDetailPage
+        id={decodeURIComponent(brandMatch[1])}
+        client={client}
+        navigate={navigate}
+      />
+    );
+  else if (path === "/projects/new")
+    page = (
+      <EditorPage
+        key={path}
+        kind="project"
+        client={client}
+        navigate={navigate}
+        onSaved={navigate}
+      />
+    );
+  else if (projectEdit)
+    page = (
+      <EditorPage
+        key={path}
+        kind="project"
+        id={decodeURIComponent(projectEdit[1])}
+        client={client}
+        navigate={navigate}
+        onSaved={navigate}
       />
     );
   else if (path === "/" || path === "/dashboard")
@@ -94,6 +181,16 @@ function App({ client = apiClient, initialPath }: AppProps) {
   }
   return (
     <AppShell currentPath={path} navigate={navigate}>
+      {notice && (
+        <p
+          ref={noticeRef}
+          tabIndex={-1}
+          role="status"
+          className="success-notice"
+        >
+          {notice}
+        </p>
+      )}
       {page}
     </AppShell>
   );

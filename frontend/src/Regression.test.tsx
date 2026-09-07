@@ -193,7 +193,10 @@ describe("frontend regression coverage", () => {
     const { unmount } = render(
       <App client={mockApiClient} initialPath="/companies" />,
     );
-    expect(screen.getByRole("button", { name: "Add company" })).toBeDisabled();
+    expect(screen.getByRole("link", { name: "Add company" })).toHaveAttribute(
+      "href",
+      "/companies/new",
+    );
     expect(screen.getByRole("button", { name: "User menu" })).toBeDisabled();
     unmount();
     render(
@@ -203,8 +206,11 @@ describe("frontend regression coverage", () => {
       />,
     );
     expect(
-      await screen.findByRole("button", { name: "Edit project" }),
-    ).toBeDisabled();
+      await screen.findByRole("link", { name: "Edit project" }),
+    ).toHaveAttribute(
+      "href",
+      "/projects/20000000-0000-4000-8000-000000000001/edit",
+    );
   });
   it("ignores a late detail response after the ID changes", async () => {
     let finish: (

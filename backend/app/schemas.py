@@ -13,6 +13,9 @@ ShortText = Annotated[
 ]
 LongText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 Website = Annotated[HttpUrl, Field(max_length=2048)]
+SearchTerm = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)
+]
 
 
 class ApiSchema(BaseModel):
@@ -58,6 +61,11 @@ class CompanyRead(CompanyFields):
     updated_at: datetime
 
 
+class CompanyListFilters(ApiSchema):
+    search: SearchTerm | None = None
+    is_active: bool | None = None
+
+
 class PublishedBrandFields(ApiSchema):
     company_id: UUID
     name: Name
@@ -98,6 +106,12 @@ class PublishedBrandRead(PublishedBrandFields):
     updated_at: datetime
 
 
+class PublishedBrandListFilters(ApiSchema):
+    company_id: UUID | None = None
+    is_active: bool | None = None
+    search: SearchTerm | None = None
+
+
 class ProjectFields(ApiSchema):
     company_id: UUID
     project_number: ShortText
@@ -131,3 +145,9 @@ class ProjectRead(ProjectFields):
     id: UUID
     created_at: datetime
     updated_at: datetime
+
+
+class ProjectListFilters(ApiSchema):
+    company_id: UUID | None = None
+    status: ProjectStatus | None = None
+    search: SearchTerm | None = None

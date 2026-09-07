@@ -60,6 +60,10 @@ def create_project(
     return response.json()
 
 
+def stable_api_order(*items: dict[str, object]) -> list[dict[str, object]]:
+    return sorted(items, key=lambda item: (str(item["created_at"]), str(item["id"])))
+
+
 def test_company_crud_without_delete(client: TestClient) -> None:
     response = client.post(
         "/api/companies",
@@ -403,3 +407,169 @@ def test_project_status_is_validated(client: TestClient) -> None:
         },
     )
     assert invalid_project.status_code == 422
+
+
+def test_company_list_filters_can_be_combined(client: TestClient) -> None:
+    active_match = create_company(client, name="Alpha Materials")
+    inactive_match = create_company(client, name="Alpha Archive", is_active=False)
+    create_company(client, name="Beta Materials")
+
+    assert client.get("/api/companies", params={"search": "alpha"}).json() == stable_api_order(
+        active_match,
+        inactive_match,
+    )
+    assert client.get(
+        "/api/companies",
+        params={"search": "  ALPHA  ", "is_active": True},
+    ).json() == [active_match]
+    assert client.get(
+        "/api/companies",
+        params={"search": "missing", "is_active": True},
+    ).json() == []
+
+
+def test_published_brand_list_filters_can_be_combined(client: TestClient) -> None:
+    first_company = create_company(client, name="First")
+    second_company = create_company(client, name="Second")
+    name_match = create_brand(
+        client,
+        first_company["id"],
+        name="Stone Atelier",
+        folder_prefix="STONE",
+        brand_identifier="atelier-surfaces",
+    )
+    identifier_match = create_brand(
+        client,
+        first_company["id"],
+        name="Archive",
+        folder_prefix="ARCHIVE",
+        brand_identifier="stone-legacy",
+        is_active=False,
+    )
+    create_brand(
+        client,
+        second_company["id"],
+        name="Stone Elsewhere",
+        folder_prefix="OTHER",
+        brand_identifier="other-stone",
+    )
+
+    response = client.get(
+        "/api/brands",
+        params={"company_id": first_company["id"], "search": "STONE"},
+    )
+    assert response.status_code == 200
+    assert response.json() == stable_api_order(name_match, identifier_match)
+    assert client.get(
+        "/api/brands",
+        params={
+            "company_id": first_company["id"],
+            "is_active": False,
+            "search": "legacy",
+        },
+    ).json() == [identifier_match]
+    assert client.get(
+        "/api/brands",
+        params={"company_id": second_company["id"], "search": "missing"},
+    ).json() == []
+
+
+def test_project_list_filters_can_be_combined(client: TestClient) -> None:
+    first_company = create_company(client, name="First")
+    second_company = create_company(client, name="Second")
+    number_match = create_project(
+        client,
+        first_company["id"],
+        project_number="PRJ-STONE-001",
+        name="Initial survey",
+        status="IN_PROGRESS",
+    )
+    name_match = create_project(
+        client,
+        first_company["id"],
+        project_number="PRJ-002",
+        name="Stone library",
+        status="DONE",
+    )
+    create_project(
+        client,
+        second_company["id"],
+        project_number="PRJ-STONE-003",
+        name="External project",
+        status="IN_PROGRESS",
+    )
+
+    response = client.get(
+        "/api/projects",
+        params={"company_id": first_company["id"], "search": "stone"},
+    )
+    assert response.status_code == 200
+    assert response.json() == stable_api_order(number_match, name_match)
+    assert client.get(
+        "/api/projects",
+        params={
+            "company_id": first_company["id"],
+            "status": "IN_PROGRESS",
+            "search": "stone",
+        },
+    ).json() == [number_match]
+    assert client.get(
+        "/api/projects",
+        params={"company_id": first_company["id"], "status": "NOT_STARTED"},
+    ).json() == []
+
+
+@pytest.mark.parametrize(
+    ("url", "params"),
+    [
+        ("/api/companies", {"is_active": "not-a-boolean"}),
+        ("/api/companies", {"search": "   "}),
+        ("/api/brands", {"company_id": "not-a-uuid"}),
+        ("/api/brands", {"is_active": "not-a-boolean"}),
+        ("/api/projects", {"company_id": "not-a-uuid"}),
+        ("/api/projects", {"status": "UNKNOWN"}),
+        ("/api/projects", {"unsupported": "value"}),
+    ],
+)
+def test_list_filters_reject_invalid_parameters(
+    client: TestClient,
+    url: str,
+    params: dict[str, str],
+) -> None:
+    response = client.get(url, params=params)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("resource", ["companies", "brands", "projects"])
+def test_list_results_have_stable_order(client: TestClient, resource: str) -> None:
+    company = create_company(client, name="Ordering company")
+    if resource == "companies":
+        create_company(client, name="Second company")
+    elif resource == "brands":
+        create_brand(client, company["id"])
+        create_brand(
+            client,
+            company["id"],
+            name="Second brand",
+            folder_prefix="SECOND",
+            brand_identifier="second-brand",
+        )
+    else:
+        create_project(client, company["id"])
+        create_project(
+            client,
+            company["id"],
+            project_number="PRJ-002",
+            name="Second project",
+        )
+
+    first_response = client.get(f"/api/{resource}")
+    second_response = client.get(f"/api/{resource}")
+
+    assert first_response.status_code == 200
+    assert first_response.json() == second_response.json()
+    assert first_response.json() == sorted(
+        first_response.json(),
+        key=lambda item: (item["created_at"], item["id"]),
+    )

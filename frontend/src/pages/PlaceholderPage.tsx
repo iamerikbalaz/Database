@@ -1,0 +1,23 @@
+export function PlaceholderPage({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <section>
+      <div className="page-heading">
+        <div>
+          <p className="eyebrow">REAWOTE</p>
+          <h1>{title}</h1>
+          <p>{description}</p>
+        </div>
+      </div>
+      <div className="placeholder-panel">
+        <span>R</span>
+        <p>Section prepared for future development.</p>
+      </div>
+    </section>
+  );
+}

@@ -1,0 +1,168 @@
+import { NavigationLink } from "../components/NavigationLink";
+import { useResource } from "../api/useResource";
+import { useCallback } from "react";
+import type { ApiClient } from "../api/client";
+import type { CompanyDetail } from "../types";
+import { ErrorState, LoadingState } from "../components/PageState";
+import { Icon } from "../components/Icon";
+import { StatusBadge } from "../components/StatusBadge";
+
+export function CompanyDetailPage({
+  id,
+  client,
+  navigate,
+}: {
+  id: string;
+  client: ApiClient;
+  navigate: (path: string) => void;
+}) {
+  const request = useCallback(() => client.getCompany(id), [client, id]);
+  const {
+    data: company,
+    error,
+    retry: load,
+  } = useResource<CompanyDetail>(request);
+  if (error)
+    return (
+      <>
+        <NavigationLink
+          className="back-link"
+          href={"/companies"}
+          navigate={navigate}
+        >
+          <Icon name="back" size={18} />
+          Back to companies
+        </NavigationLink>
+        <ErrorState
+          message="This company could not be found or loaded."
+          retry={load}
+        />
+      </>
+    );
+  if (!company) return <LoadingState label="Loading company…" />;
+  return (
+    <section>
+      <NavigationLink
+        className="back-link"
+        href={"/companies"}
+        navigate={navigate}
+      >
+        <Icon name="back" size={18} />
+        Back to companies
+      </NavigationLink>
+      <div className="page-heading detail-heading">
+        <div>
+          <div className="title-row">
+            <h1>{company.name}</h1>
+            <StatusBadge status={company.status} />
+          </div>
+          <p>{company.officialName}</p>
+        </div>
+        <button
+          disabled
+          title="Coming later"
+          className="button button--secondary"
+        >
+          Edit company
+        </button>
+      </div>
+      <div className="detail-grid">
+        <article className="panel">
+          <div className="panel-title">
+            <div>
+              <p className="eyebrow">Profile</p>
+              <h2>Basic information</h2>
+            </div>
+          </div>
+          <dl className="info-list">
+            <div>
+              <dt>Official name</dt>
+              <dd>{company.officialName ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Country</dt>
+              <dd>{company.country ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>VAT ID</dt>
+              <dd>{company.vatId ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Address</dt>
+              <dd>{company.address ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Website</dt>
+              <dd>
+                {company.websiteUrl ? (
+                  <a href={company.websiteUrl}>
+                    {company.websiteUrl.replace(/^https?:\/\//, "")}
+                  </a>
+                ) : (
+                  "—"
+                )}
+              </dd>
+            </div>
+          </dl>
+        </article>
+        <article className="panel">
+          <div className="panel-title">
+            <div>
+              <p className="eyebrow">Library</p>
+              <h2>Published brands</h2>
+            </div>
+            <span className="count-pill">{company.brands.length}</span>
+          </div>
+          {company.brands.length ? (
+            <div className="brand-list">
+              {company.brands.map((b) => (
+                <div key={b.id}>
+                  <div className="company-monogram">
+                    {b.name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div>
+                    <strong>{b.name}</strong>
+                    <span>
+                      {b.brandIdentifier} · {b.folderPrefix} · Next:{" "}
+                      {b.nextSequenceNumber}
+                    </span>
+                  </div>
+                  <StatusBadge status={b.isActive ? "active" : "inactive"} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">No published brands.</p>
+          )}
+        </article>
+      </div>
+      <article className="panel panel--wide">
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">Work</p>
+            <h2>Company projects</h2>
+          </div>
+          <span className="count-pill">{company.projects.length}</span>
+        </div>
+        {company.projects.length ? (
+          <div className="compact-list">
+            {company.projects.map((p) => (
+              <NavigationLink
+                key={p.id}
+                href={`/projects/${p.id}`}
+                navigate={navigate}
+              >
+                <span className="project-number">{p.number}</span>
+                <strong>{p.name}</strong>
+                <StatusBadge status={p.status} />
+                <Icon name="arrow" size={18} />
+              </NavigationLink>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">No projects for this company.</p>
+        )}
+      </article>
+    </section>
+  );
+}

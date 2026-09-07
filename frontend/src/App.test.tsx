@@ -1,40 +1,67 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
 import App from "./App";
-
-describe("App", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("shows the connected backend state", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          status: "ok",
-          database: "connected",
-          service: "backend",
-          version: "0.1.0",
-        }),
-      }),
+import { mockApiClient, type ApiClient } from "./api/client";
+describe("REAWOTE frontend", () => {
+  afterEach(() => vi.restoreAllMocks());
+  it("navigates between primary sections", async () => {
+    render(<App client={mockApiClient} initialPath="/dashboard" />);
+    expect(
+      screen.getByRole("heading", { name: "Dashboard" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: /Companies/ }));
+    expect(
+      await screen.findByRole("heading", { name: "Companies" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Companies/ })).toHaveClass(
+      "active",
     );
-
-    render(<App />);
-
-    expect(screen.getByText("Ověřuji spojení…")).toBeInTheDocument();
-    expect(await screen.findByText("Připojeno")).toBeInTheDocument();
-    expect(screen.getByText(/Databáze: připojena/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: /Projects/ }));
+    expect(
+      await screen.findByRole("heading", { name: "Projects" }),
+    ).toBeInTheDocument();
   });
-
-  it("shows a retry action when the backend cannot be reached", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
-
-    render(<App />);
-
-    expect(await screen.findByText("Nedostupné")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Zkusit znovu" })).toBeInTheDocument();
+  it("shows and filters the company list", async () => {
+    render(<App client={mockApiClient} initialPath="/companies" />);
+    expect(
+      await screen.findByRole("link", { name: "Swisspearl" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Lasvit" })).toBeInTheDocument();
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search companies" }),
+      { target: { value: "Swiss" } },
+    );
+    expect(
+      screen.getByRole("link", { name: "Swisspearl" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Lasvit" }),
+    ).not.toBeInTheDocument();
+  });
+  it("shows an empty company state", async () => {
+    const client: ApiClient = {
+      ...mockApiClient,
+      getCompanies: vi.fn().mockResolvedValue([]),
+    };
+    render(<App client={client} initialPath="/companies" />);
+    expect(
+      await screen.findByRole("heading", { name: "No companies yet" }),
+    ).toBeInTheDocument();
+  });
+  it("shows a readable error and supports retry", async () => {
+    const getCompanies = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce([]);
+    const client: ApiClient = { ...mockApiClient, getCompanies };
+    render(<App client={client} initialPath="/companies" />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Companies are temporarily unavailable",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(
+      await screen.findByRole("heading", { name: "No companies yet" }),
+    ).toBeInTheDocument();
+    expect(getCompanies).toHaveBeenCalledTimes(2);
   });
 });

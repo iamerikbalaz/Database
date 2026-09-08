@@ -1,0 +1,2 @@
+# Preserve the audited fixture bytes, including line endings and trailing comma.
+metadata_legacy_web_app.json -text

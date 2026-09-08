@@ -158,7 +158,7 @@ export function RecordForm({
                   >
                     <option value="">Select {field.label.toLowerCase()}</option>
                     {field.options?.map((option) => (
-                      <option key={option.value} value={option.value}>
+                      <option key={option.value} value={option.value} disabled={option.disabled}>
                         {option.label}
                       </option>
                     ))}

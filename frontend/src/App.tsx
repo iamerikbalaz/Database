@@ -1,4 +1,8 @@
 import { EditorPage } from "./pages/EditorPage";
+import { MaterialsPage } from "./pages/MaterialsPage";
+import { MaterialDetailPage } from "./pages/MaterialDetailPage";
+import { MaterialEditorPage } from "./pages/MaterialEditorPage";
+import { isMaterialId } from "./api/materialDto";
 import { BrandDetailPage } from "./pages/BrandDetailPage";
 import { useEffect, useState, useRef } from "react";
 import { apiClient, type ApiClient } from "./api/client";
@@ -54,6 +58,7 @@ function App({ client = apiClient, initialPath }: AppProps) {
   const brandEdit = path.match(/^\/brands\/([^/]+)\/edit$/);
   const brandMatch = path.match(/^\/brands\/([^/]+)$/);
   const projectEdit = path.match(/^\/projects\/([^/]+)\/edit$/);
+  const materialMatch = path.match(/^\/materials\/([^/]+)(\/edit)?$/);
   let page;
   if (invalidUrl)
     page = (
@@ -62,6 +67,18 @@ function App({ client = apiClient, initialPath }: AppProps) {
         description="The URL is malformed."
       />
     );
+  else if (path === "/materials")
+    page = <MaterialsPage client={client} navigate={navigate} />;
+  else if (path === "/materials/new")
+    page = <MaterialEditorPage key={path} client={client} navigate={navigate} onSaved={navigate} />;
+  else if (materialMatch) {
+    const id = decodeURIComponent(materialMatch[1]);
+    page = !isMaterialId(id)
+      ? <section><h1>Invalid material ID</h1><p role="alert">The material URL must contain a valid UUID.</p></section>
+      : materialMatch[2]
+        ? <MaterialEditorPage key={path} id={id} client={client} navigate={navigate} onSaved={navigate} />
+        : <MaterialDetailPage key={path} id={id} client={client} navigate={navigate} />;
+  }
   else if (path === "/companies/new")
     page = (
       <EditorPage
@@ -163,7 +180,6 @@ function App({ client = apiClient, initialPath }: AppProps) {
     );
   else {
     const labels: Record<string, string> = {
-      "/materials": "Materials",
       "/publication": "Publication",
       "/settings": "Settings",
     };

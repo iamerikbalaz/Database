@@ -196,7 +196,7 @@ describe("HTTP forms", () => {
   it("creates a published brand owned by the route company without a sequence counter", async () => {
     const { writes } = backend();
     render(<App initialPath={"/companies/" + company.id + "/brands/new"} />);
-    await screen.findByLabelText("Name *");
+    expect(await screen.findByLabelText("Name *")).toHaveFocus();
     expect(screen.getByLabelText("Company *")).toBeDisabled();
     expect(screen.getByLabelText("Company *")).toHaveValue(company.id);
     fill("Name *", "New brand");
@@ -235,6 +235,7 @@ describe("HTTP forms", () => {
     const { writes } = backend();
     render(<App initialPath="/projects/new" />);
     await screen.findByLabelText("Name *");
+    expect(screen.getByLabelText("Company *")).toHaveFocus();
     fill("Company *", company.id);
     fill("Name *", "New project");
     fill("Project number *", "PRJ-NEW");
@@ -271,6 +272,20 @@ describe("HTTP forms", () => {
       method: "PATCH",
       body: { status: "DONE", due_date: null },
     });
+  });
+  it.each([
+    ["/companies/" + company.id + "/brands/new", "Name *"],
+    ["/projects/new", "Company *"],
+  ])("keeps validation summary focus on %s", async (path, firstLabel) => {
+    const { writes } = backend();
+    render(<App initialPath={path} />);
+    await screen.findByLabelText("Name *");
+    expect(screen.getByLabelText(firstLabel)).toHaveFocus();
+    await save();
+    expect(screen.getByRole("alert")).toHaveFocus();
+    fill("Name *", "Corrected name");
+    expect(screen.getByRole("alert")).toHaveFocus();
+    expect(writes).toHaveLength(0);
   });
   it("prevents duplicate submissions while the POST is pending", async () => {
     let finish: (response: Response) => void = () => {};

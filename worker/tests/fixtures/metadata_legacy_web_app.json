@@ -1,0 +1,24 @@
+{
+    "WEB_APP_PART": {
+        "TEXTURE_RESOLUTIONS": {
+            "16K": "16384x5890",
+            "1K": "1024x368",
+            "2K": "2048x736",
+            "4K": "4096x1473",
+            "8K": "8192x2945"
+        },
+        "IMAGE_RATIO": 0.359497,
+        "MAPS_SHORTCUTS": [
+            "AO",
+            "COL",
+            "DISP16",
+            "DISP",
+            "GLOSS",
+            "NRM16",
+            "NRM",
+            "ROUGH"
+        ]
+    },
+    "DESKTOP_APP_PART": {
+    },
+}

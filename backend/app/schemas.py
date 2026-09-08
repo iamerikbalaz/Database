@@ -266,7 +266,10 @@ class PBRMaterialRead(PBRMaterialFields):
 class PBRMaterialListFilters(ApiSchema):
     project_id: UUID | None = None
     published_brand_id: UUID | None = None
+    assigned_processor_id: UUID | None = None
+    main_category_code: CategoryCode | None = None
     workflow_status: MaterialWorkflowStatus | None = None
     validation_status: MaterialValidationStatus | None = None
     publication_status: MaterialPublicationStatus | None = None
     is_published: bool | None = None
+    search: SearchTerm | None = None

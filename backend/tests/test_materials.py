@@ -543,6 +543,260 @@ def test_brand_prefix_cannot_change_after_material_allocation(
     )
 
 
+def test_material_search_matches_part_of_name(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+    project, brand = setup_material_parents(client)
+    match = create_material(
+        client,
+        project["id"],
+        brand["id"],
+        material_name="Reflex Crystal White",
+    )
+    create_material(
+        client,
+        project["id"],
+        brand["id"],
+        material_name="Oak Natural",
+    )
+
+    response = client.get("/api/materials", params={"search": "Crystal"})
+
+    assert response.status_code == 200
+    assert response.json() == [match]
+
+
+def test_material_search_matches_technical_identity(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+    project, brand = setup_material_parents(client)
+    first = create_material(client, project["id"], brand["id"])
+    match = create_material(client, project["id"], brand["id"])
+
+    response = client.get("/api/materials", params={"search": "0002_G03"})
+
+    assert response.status_code == 200
+    assert response.json() == [match]
+    assert first["id"] != match["id"]
+
+
+def test_material_search_is_case_insensitive(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+    project, brand = setup_material_parents(client)
+    match = create_material(
+        client,
+        project["id"],
+        brand["id"],
+        material_name="Polished Granite",
+    )
+
+    response = client.get("/api/materials", params={"search": "pOLISHED gRANITE"})
+
+    assert response.status_code == 200
+    assert response.json() == [match]
+
+
+def test_material_search_treats_percent_as_literal(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+    project, brand = setup_material_parents(client)
+    match = create_material(
+        client,
+        project["id"],
+        brand["id"],
+        material_name="Recycled 50% Glass",
+    )
+    create_material(
+        client,
+        project["id"],
+        brand["id"],
+        material_name="Recycled Glass",
+    )
+
+    response = client.get("/api/materials", params={"search": "%"})
+
+    assert response.status_code == 200
+    assert response.json() == [match]
+
+
+def test_material_search_treats_underscore_as_literal(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, database = material_client
+    project, brand = setup_material_parents(client)
+    match = create_material(client, project["id"], brand["id"], material_name="Underscore")
+    other = create_material(client, project["id"], brand["id"], material_name="Plain")
+    with database.session() as session:
+        stored_match = session.get(PBRMaterial, UUID(str(match["id"])))
+        stored_other = session.get(PBRMaterial, UUID(str(other["id"])))
+        assert stored_match is not None
+        assert stored_other is not None
+        stored_match.technical_identity = "IDENTITY_WITH_UNDERSCORE"
+        stored_other.technical_identity = "PLAINIDENTITY"
+        session.commit()
+    match = client.get(f"/api/materials/{match['id']}").json()
+
+    response = client.get("/api/materials", params={"search": "_"})
+
+    assert response.status_code == 200
+    assert response.json() == [match]
+
+
+def test_material_search_treats_backslash_as_literal(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+    project, brand = setup_material_parents(client)
+    match = create_material(
+        client,
+        project["id"],
+        brand["id"],
+        material_name=r"Archive\Stone",
+    )
+    create_material(
+        client,
+        project["id"],
+        brand["id"],
+        material_name="Archive/Stone",
+    )
+
+    response = client.get("/api/materials", params={"search": "\\"})
+
+    assert response.status_code == 200
+    assert response.json() == [match]
+
+
+def test_material_search_is_parameterized_and_preserves_other_filters(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+    company = create_company(client)
+    first_project = create_project(client, company["id"])
+    second_project = create_project(client, company["id"], project_number="PRJ-002")
+    brand = create_brand(client, company["id"])
+    search = "%' OR 1=1 --"
+    match = create_material(
+        client,
+        first_project["id"],
+        brand["id"],
+        material_name=f"Literal {search} marker",
+    )
+    create_material(
+        client,
+        second_project["id"],
+        brand["id"],
+        material_name=f"Other {search} marker",
+    )
+    create_material(client, first_project["id"], brand["id"], material_name="Unrelated")
+
+    response = client.get(
+        "/api/materials",
+        params={"search": search, "project_id": first_project["id"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == [match]
+
+
+def test_material_search_trims_surrounding_whitespace(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+    project, brand = setup_material_parents(client)
+    match = create_material(
+        client,
+        project["id"],
+        brand["id"],
+        material_name="Brushed Copper",
+    )
+
+    response = client.get("/api/materials", params={"search": "  Copper  "})
+
+    assert response.status_code == 200
+    assert response.json() == [match]
+
+
+def test_material_search_rejects_empty_value(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+
+    response = client.get("/api/materials", params={"search": "   "})
+
+    assert response.status_code == 422
+
+
+def test_material_filter_by_assigned_processor(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+    project, brand = setup_material_parents(client)
+    processor = create_internal_user(client)
+    match = create_material(
+        client,
+        project["id"],
+        brand["id"],
+        assigned_processor_id=processor["id"],
+    )
+    create_material(client, project["id"], brand["id"])
+
+    response = client.get(
+        "/api/materials",
+        params={"assigned_processor_id": processor["id"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == [match]
+
+
+def test_material_filter_by_missing_assigned_processor_returns_empty_list(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+    project, brand = setup_material_parents(client)
+    create_material(client, project["id"], brand["id"])
+
+    response = client.get(
+        "/api/materials",
+        params={"assigned_processor_id": str(uuid4())},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_material_filter_by_main_category(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+    project, brand = setup_material_parents(client)
+    match = create_material(client, project["id"], brand["id"], main_category_code="G03")
+    create_material(client, project["id"], brand["id"], main_category_code="M01")
+
+    response = client.get("/api/materials", params={"main_category_code": "G03"})
+
+    assert response.status_code == 200
+    assert response.json() == [match]
+
+
+def test_material_category_filter_normalizes_lowercase_input(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+    project, brand = setup_material_parents(client)
+    match = create_material(client, project["id"], brand["id"], main_category_code="G03")
+
+    response = client.get("/api/materials", params={"main_category_code": "g03"})
+
+    assert response.status_code == 200
+    assert response.json() == [match]
+
+
 def test_material_filters_can_be_combined(
     material_client: tuple[TestClient, Database],
 ) -> None:
@@ -557,7 +811,14 @@ def test_material_filters_can_be_combined(
         name="Second brand",
         folder_prefix="SECOND",
     )
-    match = create_material(client, first_project["id"], first_brand["id"])
+    processor = create_internal_user(client)
+    match = create_material(
+        client,
+        first_project["id"],
+        first_brand["id"],
+        assigned_processor_id=processor["id"],
+        main_category_code="G03",
+    )
     warning = create_material(client, first_project["id"], first_brand["id"])
     create_material(client, second_project["id"], second_brand["id"])
     with database.session() as session:
@@ -578,6 +839,8 @@ def test_material_filters_can_be_combined(
         params={
             "project_id": first_project["id"],
             "published_brand_id": first_brand["id"],
+            "assigned_processor_id": processor["id"],
+            "main_category_code": "g03",
             "workflow_status": "DONE",
             "validation_status": "VALID",
             "publication_status": "PUBLISHED_CURRENT",
@@ -597,6 +860,9 @@ def test_material_filters_can_be_combined(
     ("field_name", "value"),
     [
         ("project_id", "not-a-uuid"),
+        ("published_brand_id", "not-a-uuid"),
+        ("assigned_processor_id", "not-a-uuid"),
+        ("main_category_code", "not a code"),
         ("workflow_status", "UNKNOWN"),
         ("validation_status", "UNKNOWN"),
         ("publication_status", "UNKNOWN"),
@@ -610,6 +876,16 @@ def test_material_filters_reject_invalid_values(
 ) -> None:
     client, _ = material_client
     assert client.get("/api/materials", params={field_name: value}).status_code == 422
+
+
+def test_material_filters_reject_unknown_parameter(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+
+    response = client.get("/api/materials", params={"unknown": "value"})
+
+    assert response.status_code == 422
 
 
 @pytest.mark.parametrize(

@@ -425,6 +425,8 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             for field_name in (
                 "project_id",
                 "published_brand_id",
+                "assigned_processor_id",
+                "main_category_code",
                 "workflow_status",
                 "validation_status",
                 "publication_status",
@@ -433,6 +435,16 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 value = getattr(filters, field_name)
                 if value is not None:
                     statement = statement.where(getattr(PBRMaterial, field_name) == value)
+            if filters.search is not None:
+                statement = statement.where(
+                    or_(
+                        PBRMaterial.material_name.icontains(filters.search, autoescape=True),
+                        PBRMaterial.technical_identity.icontains(
+                            filters.search,
+                            autoescape=True,
+                        ),
+                    )
+                )
             return list(
                 session.scalars(statement.order_by(PBRMaterial.created_at, PBRMaterial.id))
             )

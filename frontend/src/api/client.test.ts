@@ -113,7 +113,7 @@ describe("API contract", () => {
   it("rejects malformed payloads instead of trusting a type assertion", () => {
     expect(() => parseCompany({ ...companyDto, is_active: "true" })).toThrow();
     expect(() =>
-      parsePublishedBrand({ ...brandDto, next_sequence_number: 10000 }),
+      parsePublishedBrand({ ...brandDto, next_sequence_number: 10001 }),
     ).toThrow();
   });
   it("uses HTTP by default and preserves the /api prefix", async () => {

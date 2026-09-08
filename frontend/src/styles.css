@@ -779,3 +779,15 @@ a.button {
 .record-form fieldset:disabled {
   opacity: 0.7;
 }
+
+.material-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+  align-items: end;
+}
+.material-table { overflow-x: auto; }
+.material-table table { min-width: 1300px; }
+.material-table:focus-visible { outline: 3px solid #a3c440; }
+.material-facts dd { overflow-wrap: anywhere; }

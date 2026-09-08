@@ -8,6 +8,7 @@ export function useResource<T>(load: () => Promise<T>) {
     attempt: number;
     data?: T;
     error: boolean;
+    cause?: unknown;
   }>();
   useEffect(() => {
     let active = true;
@@ -17,8 +18,8 @@ export function useResource<T>(load: () => Promise<T>) {
         (data) => {
           if (active) setResult({ load, attempt, data, error: false });
         },
-        () => {
-          if (active) setResult({ load, attempt, error: true });
+        (cause: unknown) => {
+          if (active) setResult({ load, attempt, error: true, cause });
         },
       );
     return () => {
@@ -30,6 +31,7 @@ export function useResource<T>(load: () => Promise<T>) {
   return {
     data: current?.data,
     error: current?.error ?? false,
+    cause: current?.cause,
     retry: () => setAttempt((n) => n + 1),
   };
 }

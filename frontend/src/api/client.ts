@@ -1,4 +1,5 @@
 import { responseError } from "./errors";
+import { materialApi, type MaterialApi } from "./materialClient";
 import type {
   CompanyCreateDto,
   CompanyPatchDto,
@@ -24,7 +25,7 @@ import {
   parseProject,
   parseList,
 } from "./dto";
-export interface ApiClient {
+export interface ApiClient extends MaterialApi {
   getCompanies(): Promise<Company[]>;
   getCompanyRecord(id: string): Promise<Company>;
   getBrand(id: string): Promise<PublishedBrand>;
@@ -64,6 +65,7 @@ async function request(
   return response.json();
 }
 export const httpApiClient: ApiClient = {
+  ...materialApi(request),
   async getCompanyRecord(id) {
     return companyFromDto(
       parseCompany(await request("/companies/" + encodeURIComponent(id))),
@@ -161,6 +163,7 @@ const mockWriteDisabled = async (): Promise<never> => {
   throw new Error("Saving is unavailable in mock mode. Use the HTTP API.");
 };
 export const mockApiClient: ApiClient = {
+  ...materialApi(async () => { throw new Error("Materials require the HTTP API; mock data is unavailable."); }),
   createCompany: mockWriteDisabled,
   updateCompany: mockWriteDisabled,
   createBrand: mockWriteDisabled,

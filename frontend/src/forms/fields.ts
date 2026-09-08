@@ -14,7 +14,8 @@ export interface Field {
   required?: boolean;
   maxLength?: number;
   disabled?: boolean;
-  options?: { value: string; label: string }[];
+  pattern?: RegExp;
+  options?: { value: string; label: string; disabled?: boolean }[];
 }
 export const companyFields: Field[] = [
   {
@@ -194,6 +195,8 @@ export function validate(
     else if (field.maxLength && [...value].length > field.maxLength)
       errors[field.name] =
         field.label + " must be at most " + field.maxLength + " characters.";
+    else if (field.pattern && value && !field.pattern.test(value))
+      errors[field.name] = field.label + " must contain only letters, digits and hyphens.";
     else if (
       field.type === "select" &&
       value &&

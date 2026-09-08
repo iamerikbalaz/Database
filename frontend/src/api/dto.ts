@@ -162,19 +162,19 @@ export function parseProject(input: unknown): ProjectDto {
   };
 }
 
-function record(value: unknown): Record<string, unknown> {
+export function record(value: unknown): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value))
     throw new Error("Invalid API record");
   return Object.fromEntries(Object.entries(value));
 }
-function string(value: unknown): string {
+export function string(value: unknown): string {
   if (typeof value !== "string") throw new Error("Invalid API string");
   return value;
 }
-function nullable(value: unknown): string | null {
+export function nullable(value: unknown): string | null {
   return value === null ? null : string(value);
 }
-function boolean(value: unknown): boolean {
+export function boolean(value: unknown): boolean {
   if (typeof value !== "boolean") throw new Error("Invalid API boolean");
   return value;
 }
@@ -183,7 +183,7 @@ function sequence(value: unknown): number {
     typeof value !== "number" ||
     !Number.isInteger(value) ||
     value < 1 ||
-    value > 9999
+    value > 10000
   )
     throw new Error("Invalid brand sequence");
   return value;
@@ -218,7 +218,7 @@ export function parseList<T>(value: unknown, parse: (item: unknown) => T): T[] {
   return value.map(parse);
 }
 
-function uuid(value: unknown): string {
+export function uuid(value: unknown): string {
   const result = string(value);
   if (
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(

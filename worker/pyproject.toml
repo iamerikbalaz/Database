@@ -7,6 +7,7 @@ name = "reawote-worker"
 version = "0.1.0"
 description = "REAWOTE background worker foundation"
 requires-python = ">=3.13,<3.14"
+dependencies = ["tzdata>=2026.1"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.4,<10"]

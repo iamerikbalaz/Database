@@ -8,12 +8,29 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import Company, Project, PublishedBrand
+from app.db.models import (
+    Company,
+    InternalUser,
+    MaterialPublicationStatus,
+    MaterialValidationStatus,
+    MaterialWorkflowStatus,
+    PBRMaterial,
+    Project,
+    PublishedBrand,
+)
 from app.schemas import (
     CompanyCreate,
     CompanyListFilters,
     CompanyRead,
     CompanyUpdate,
+    InternalUserCreate,
+    InternalUserListFilters,
+    InternalUserRead,
+    InternalUserUpdate,
+    PBRMaterialCreate,
+    PBRMaterialListFilters,
+    PBRMaterialRead,
+    PBRMaterialUpdate,
     ProjectCreate,
     ProjectListFilters,
     ProjectRead,
@@ -29,7 +46,7 @@ class SessionDatabase(Protocol):
     def session(self) -> AbstractContextManager[Session]: ...
 
 
-ModelT = TypeVar("ModelT", Company, PublishedBrand, Project)
+ModelT = TypeVar("ModelT", Company, PublishedBrand, Project, InternalUser, PBRMaterial)
 
 
 def _get_or_404(session: Session, model: type[ModelT], item_id: UUID, label: str) -> ModelT:
@@ -44,6 +61,24 @@ def _get_or_404(session: Session, model: type[ModelT], item_id: UUID, label: str
 
 def _require_company(session: Session, company_id: UUID) -> None:
     _get_or_404(session, Company, company_id, "Company")
+
+
+def _require_active_internal_user(session: Session, user_id: UUID) -> InternalUser:
+    user = _get_or_404(session, InternalUser, user_id, "Internal user")
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Internal user is inactive.",
+        )
+    return user
+
+
+def _technical_identity(
+    brand: PublishedBrand,
+    sequence_number: int,
+    main_category_code: str,
+) -> str:
+    return f"{brand.folder_prefix}_{sequence_number:04d}_{main_category_code}"
 
 
 def _ensure_unique(
@@ -207,6 +242,20 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             values = _values(payload, exclude_unset=True)
             if "company_id" in values:
                 _require_company(session, values["company_id"])
+            if (
+                "folder_prefix" in values
+                and values["folder_prefix"] != brand.folder_prefix
+                and session.scalar(
+                    select(PBRMaterial.id)
+                    .where(PBRMaterial.published_brand_id == brand.id)
+                    .limit(1)
+                )
+                is not None
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="folder_prefix cannot be changed after materials have been created.",
+                )
             for field_name in ("folder_prefix", "brand_identifier"):
                 if field_name in values:
                     _ensure_unique(
@@ -280,5 +329,198 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 )
             _apply_update(project, values)
             return _commit(session, project)
+
+    @router.get(
+        "/internal-users",
+        response_model=list[InternalUserRead],
+        tags=["internal-users"],
+    )
+    def list_internal_users(
+        filters: Annotated[InternalUserListFilters, Query()],
+    ) -> list[InternalUser]:
+        with database.session() as session:
+            statement = select(InternalUser)
+            if filters.role is not None:
+                statement = statement.where(InternalUser.role == filters.role)
+            if filters.is_active is not None:
+                statement = statement.where(InternalUser.is_active == filters.is_active)
+            if filters.search is not None:
+                statement = statement.where(
+                    or_(
+                        InternalUser.display_name.icontains(filters.search, autoescape=True),
+                        InternalUser.email.icontains(filters.search, autoescape=True),
+                    )
+                )
+            return list(
+                session.scalars(statement.order_by(InternalUser.created_at, InternalUser.id))
+            )
+
+    @router.post(
+        "/internal-users",
+        response_model=InternalUserRead,
+        status_code=status.HTTP_201_CREATED,
+        tags=["internal-users"],
+    )
+    def create_internal_user(payload: InternalUserCreate) -> InternalUser:
+        with database.session() as session:
+            _ensure_unique(
+                session,
+                InternalUser,
+                InternalUser.email,
+                payload.email,
+                "email",
+            )
+            user = InternalUser(**_values(payload))
+            session.add(user)
+            return _commit(session, user)
+
+    @router.get(
+        "/internal-users/{user_id}",
+        response_model=InternalUserRead,
+        tags=["internal-users"],
+    )
+    def get_internal_user(user_id: UUID) -> InternalUser:
+        with database.session() as session:
+            return _get_or_404(session, InternalUser, user_id, "Internal user")
+
+    @router.patch(
+        "/internal-users/{user_id}",
+        response_model=InternalUserRead,
+        tags=["internal-users"],
+    )
+    def update_internal_user(user_id: UUID, payload: InternalUserUpdate) -> InternalUser:
+        with database.session() as session:
+            user = _get_or_404(session, InternalUser, user_id, "Internal user")
+            values = _values(payload, exclude_unset=True)
+            if "email" in values:
+                _ensure_unique(
+                    session,
+                    InternalUser,
+                    InternalUser.email,
+                    values["email"],
+                    "email",
+                    user.id,
+                )
+            _apply_update(user, values)
+            return _commit(session, user)
+
+    @router.get("/materials", response_model=list[PBRMaterialRead], tags=["materials"])
+    def list_materials(
+        filters: Annotated[PBRMaterialListFilters, Query()],
+    ) -> list[PBRMaterial]:
+        with database.session() as session:
+            statement = select(PBRMaterial)
+            for field_name in (
+                "project_id",
+                "published_brand_id",
+                "workflow_status",
+                "validation_status",
+                "publication_status",
+                "is_published",
+            ):
+                value = getattr(filters, field_name)
+                if value is not None:
+                    statement = statement.where(getattr(PBRMaterial, field_name) == value)
+            return list(
+                session.scalars(statement.order_by(PBRMaterial.created_at, PBRMaterial.id))
+            )
+
+    @router.post(
+        "/materials",
+        response_model=PBRMaterialRead,
+        status_code=status.HTTP_201_CREATED,
+        tags=["materials"],
+    )
+    def create_material(payload: PBRMaterialCreate) -> PBRMaterial:
+        with database.session() as session:
+            _get_or_404(session, Project, payload.project_id, "Project")
+            _require_active_internal_user(session, payload.assigned_processor_id)
+            brand = session.scalar(
+                select(PublishedBrand)
+                .where(PublishedBrand.id == payload.published_brand_id)
+                .with_for_update()
+            )
+            if brand is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Published brand not found.",
+                )
+
+            sequence_number = brand.next_sequence_number
+            if sequence_number > 9999:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Published brand sequence is exhausted.",
+                )
+
+            values = _values(payload)
+            material = PBRMaterial(
+                **values,
+                sequence_number=sequence_number,
+                technical_identity=_technical_identity(
+                    brand,
+                    sequence_number,
+                    payload.main_category_code,
+                ),
+                workflow_status=MaterialWorkflowStatus.IN_PROGRESS.value,
+                validation_status=MaterialValidationStatus.NOT_CHECKED.value,
+                is_published=False,
+                publication_status=MaterialPublicationStatus.NOT_PUBLISHED.value,
+            )
+            brand.next_sequence_number = sequence_number + 1
+            session.add(material)
+            return _commit(session, material)
+
+    @router.get("/materials/{material_id}", response_model=PBRMaterialRead, tags=["materials"])
+    def get_material(material_id: UUID) -> PBRMaterial:
+        with database.session() as session:
+            return _get_or_404(session, PBRMaterial, material_id, "PBR material")
+
+    @router.patch(
+        "/materials/{material_id}",
+        response_model=PBRMaterialRead,
+        tags=["materials"],
+    )
+    def update_material(material_id: UUID, payload: PBRMaterialUpdate) -> PBRMaterial:
+        with database.session() as session:
+            material = _get_or_404(session, PBRMaterial, material_id, "PBR material")
+            values = _values(payload, exclude_unset=True)
+            if "project_id" in values:
+                _get_or_404(session, Project, values["project_id"], "Project")
+            if "assigned_processor_id" in values:
+                _require_active_internal_user(session, values["assigned_processor_id"])
+            if (
+                "main_category_code" in values
+                and values["main_category_code"] != material.main_category_code
+            ):
+                if material.folder_path is not None:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=(
+                            "main_category_code cannot be changed while folder_path is set."
+                        ),
+                    )
+                brand = _get_or_404(
+                    session,
+                    PublishedBrand,
+                    material.published_brand_id,
+                    "Published brand",
+                )
+                technical_identity = _technical_identity(
+                    brand,
+                    material.sequence_number,
+                    values["main_category_code"],
+                )
+                _ensure_unique(
+                    session,
+                    PBRMaterial,
+                    PBRMaterial.technical_identity,
+                    technical_identity,
+                    "technical_identity",
+                    material.id,
+                )
+                material.technical_identity = technical_identity
+            _apply_update(material, values)
+            return _commit(session, material)
 
     return router

@@ -4,7 +4,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, StringConstraints, model_validator
 
-from app.db.models import ProjectStatus
+from app.db.models import (
+    InternalUserRole,
+    MaterialPublicationStatus,
+    MaterialValidationStatus,
+    MaterialWorkflowStatus,
+    ProjectStatus,
+)
 
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
@@ -15,6 +21,29 @@ LongText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)
 Website = Annotated[HttpUrl, Field(max_length=2048)]
 SearchTerm = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)
+]
+CategoryCode = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        to_upper=True,
+        min_length=1,
+        max_length=100,
+        pattern=r"^[A-Za-z0-9-]+$",
+    ),
+]
+FolderPath = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2048)
+]
+EmailAddress = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        to_lower=True,
+        min_length=3,
+        max_length=320,
+        pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
+    ),
 ]
 
 
@@ -101,7 +130,7 @@ class PublishedBrandUpdate(ApiSchema):
 
 class PublishedBrandRead(PublishedBrandFields):
     id: UUID
-    next_sequence_number: int = Field(ge=1, le=9999)
+    next_sequence_number: int = Field(ge=1, le=10000)
     created_at: datetime
     updated_at: datetime
 
@@ -151,3 +180,94 @@ class ProjectListFilters(ApiSchema):
     company_id: UUID | None = None
     status: ProjectStatus | None = None
     search: SearchTerm | None = None
+
+
+class InternalUserFields(ApiSchema):
+    display_name: Name
+    email: EmailAddress
+    role: InternalUserRole
+    is_active: bool = True
+
+
+class InternalUserCreate(InternalUserFields):
+    pass
+
+
+class InternalUserUpdate(ApiSchema):
+    display_name: Name | None = None
+    email: EmailAddress | None = None
+    role: InternalUserRole | None = None
+    is_active: bool | None = None
+
+    @model_validator(mode="after")
+    def required_fields_cannot_be_null(self) -> Self:
+        for field_name in ("display_name", "email", "role", "is_active"):
+            if field_name in self.model_fields_set and getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} cannot be null")
+        return self
+
+
+class InternalUserRead(InternalUserFields):
+    id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+class InternalUserListFilters(ApiSchema):
+    role: InternalUserRole | None = None
+    is_active: bool | None = None
+    search: SearchTerm | None = None
+
+
+class PBRMaterialFields(ApiSchema):
+    project_id: UUID
+    published_brand_id: UUID
+    material_name: Name
+    main_category_code: CategoryCode
+    assigned_processor_id: UUID
+    folder_path: FolderPath | None = None
+
+
+class PBRMaterialCreate(PBRMaterialFields):
+    pass
+
+
+class PBRMaterialUpdate(ApiSchema):
+    project_id: UUID | None = None
+    material_name: Name | None = None
+    main_category_code: CategoryCode | None = None
+    assigned_processor_id: UUID | None = None
+    folder_path: FolderPath | None = None
+
+    @model_validator(mode="after")
+    def required_fields_cannot_be_null(self) -> Self:
+        for field_name in (
+            "project_id",
+            "material_name",
+            "main_category_code",
+            "assigned_processor_id",
+        ):
+            if field_name in self.model_fields_set and getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} cannot be null")
+        return self
+
+
+class PBRMaterialRead(PBRMaterialFields):
+    id: UUID
+    sequence_number: int = Field(ge=1, le=9999)
+    technical_identity: str
+    workflow_status: MaterialWorkflowStatus
+    validation_status: MaterialValidationStatus
+    is_published: bool
+    publication_status: MaterialPublicationStatus
+    created_at: datetime
+    updated_at: datetime
+
+
+class PBRMaterialListFilters(ApiSchema):
+    project_id: UUID | None = None
+    published_brand_id: UUID | None = None
+    workflow_status: MaterialWorkflowStatus | None = None
+    validation_status: MaterialValidationStatus | None = None
+    publication_status: MaterialPublicationStatus | None = None
+    is_published: bool | None = None

@@ -136,7 +136,7 @@ def _request_holding_brand_lock(
         database.dispose()
 
 
-def _request_waiting_for_brand_lock(
+def _request_waiting_for_row_lock(
     database_url: str,
     method: str,
     path: str,
@@ -220,7 +220,7 @@ def test_prefix_patch_first_serializes_material_creation(
         try:
             assert first_locked.wait(timeout=10)
             second_future = executor.submit(
-                _request_waiting_for_brand_lock,
+                _request_waiting_for_row_lock,
                 migrated_postgresql_url,
                 "POST",
                 "/api/materials",
@@ -278,7 +278,7 @@ def test_material_creation_first_blocks_prefix_patch_and_returns_conflict(
         try:
             assert first_locked.wait(timeout=10)
             second_future = executor.submit(
-                _request_waiting_for_brand_lock,
+                _request_waiting_for_row_lock,
                 migrated_postgresql_url,
                 "PATCH",
                 brand_path,
@@ -379,6 +379,147 @@ def test_concurrent_material_creation_allocates_distinct_numbers(
         )
         assert stored_numbers == {1, 2}
     setup_engine.dispose()
+
+
+def _setup_material_path_race(migrated_postgresql_url: str) -> dict[str, object]:
+    setup_engine = create_engine(migrated_postgresql_url)
+    suffix = uuid4().hex
+    prefix = f"PATHRACE{suffix.upper()}"
+    with Session(setup_engine) as session:
+        company = Company(name=f"Material path race {suffix}")
+        session.add(company)
+        session.flush()
+        project = Project(
+            company_id=company.id,
+            project_number=f"PATH-RACE-{suffix}",
+            name="Material path race",
+        )
+        brand = PublishedBrand(
+            company_id=company.id,
+            name="Material path race brand",
+            folder_prefix=prefix,
+            brand_identifier=f"material-path-race-{suffix}",
+            next_sequence_number=2,
+        )
+        processor = InternalUser(
+            display_name="Material path race processor",
+            email=f"material-path-race-{suffix}@example.com",
+            role="PROCESSOR",
+        )
+        session.add_all([project, brand, processor])
+        session.flush()
+        material = PBRMaterial(
+            project_id=project.id,
+            published_brand_id=brand.id,
+            sequence_number=1,
+            material_name="Material path race",
+            main_category_code="G03",
+            assigned_processor_id=processor.id,
+            technical_identity=f"{prefix}_0001_G03",
+        )
+        session.add(material)
+        session.commit()
+        context: dict[str, object] = {
+            "material_id": material.id,
+            "technical_identity": material.technical_identity,
+            "folder_path": f"materials/{prefix}_0001_G03",
+        }
+    setup_engine.dispose()
+    return context
+
+
+def _simulate_future_system_link_transaction(
+    database_url: str,
+    material_id: object,
+    folder_path: str,
+    lock_acquired: Event,
+    release_lock: Event,
+) -> None:
+    """Simulate the future filesystem-verified link operation at the DB boundary."""
+    link_engine = create_engine(database_url)
+    try:
+        with Session(link_engine) as session:
+            material = session.scalar(
+                select(PBRMaterial)
+                .where(PBRMaterial.id == material_id)
+                .with_for_update()
+            )
+            assert material is not None
+            material.folder_path = folder_path
+            session.flush()
+            lock_acquired.set()
+            if not release_lock.wait(timeout=10):
+                raise TimeoutError("Timed out while holding the PBRMaterial row lock.")
+            session.commit()
+    finally:
+        link_engine.dispose()
+
+
+def test_concurrent_system_link_and_category_patch_use_locked_current_state(
+    migrated_postgresql_url: str,
+) -> None:
+    context = _setup_material_path_race(migrated_postgresql_url)
+    material_path = f"/api/materials/{context['material_id']}"
+    link_locked = Event()
+    release_link = Event()
+    patch_attempted = Event()
+    patch_acquired = Event()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        link_future = executor.submit(
+            _simulate_future_system_link_transaction,
+            migrated_postgresql_url,
+            context["material_id"],
+            context["folder_path"],
+            link_locked,
+            release_link,
+        )
+        try:
+            assert link_locked.wait(timeout=10)
+            patch_future = executor.submit(
+                _request_waiting_for_row_lock,
+                migrated_postgresql_url,
+                "PATCH",
+                material_path,
+                {"main_category_code": "G04"},
+                patch_attempted,
+                patch_acquired,
+            )
+            assert patch_attempted.wait(timeout=10)
+            assert not patch_acquired.wait(timeout=0.25)
+        finally:
+            release_link.set()
+        link_future.result(timeout=10)
+        patch_result = patch_future.result(timeout=10)
+
+    assert patch_acquired.is_set()
+    assert patch_result == (
+        409,
+        {"detail": "main_category_code cannot be changed while folder_path is set."},
+    )
+
+    database = Database(migrated_postgresql_url)
+    application = create_app(Settings(database_url=migrated_postgresql_url), database)
+    try:
+        with TestClient(application) as client:
+            stored_response = client.get(material_path)
+            follow_up_response = client.patch(
+                material_path,
+                json={"material_name": "Transaction remains usable"},
+            )
+    finally:
+        database.dispose()
+
+    assert stored_response.status_code == 200
+    stored = stored_response.json()
+    assert stored["main_category_code"] == "G03"
+    assert stored["technical_identity"] == context["technical_identity"]
+    assert stored["folder_path"] == context["folder_path"]
+    assert not (
+        stored["technical_identity"].endswith("_G04")
+        and stored["folder_path"].endswith("_G03")
+    )
+    assert follow_up_response.status_code == 200
 
 
 def test_sequence_9999_is_allocated_then_returns_controlled_conflict(

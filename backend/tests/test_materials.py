@@ -151,6 +151,7 @@ def test_create_material_assigns_first_number_and_defaults(
     assert material["published_brand_id"] == brand["id"]
     assert material["sequence_number"] == 1
     assert material["technical_identity"] == "ACME_0001_G03"
+    assert "folder_path" in material
     assert material["folder_path"] is None
     assert material["workflow_status"] == "IN_PROGRESS"
     assert material["validation_status"] == "NOT_CHECKED"
@@ -317,6 +318,25 @@ def test_sequence_number_cannot_be_supplied_on_create(
     assert response.json()["detail"][0]["type"] == "extra_forbidden"
 
 
+def test_folder_path_cannot_be_supplied_on_create(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+    project, brand = setup_material_parents(client)
+
+    response = client.post(
+        "/api/materials",
+        json=material_payload(
+            project["id"],
+            brand["id"],
+            folder_path="materials/ACME_0001_G03",
+        ),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["type"] == "extra_forbidden"
+
+
 @pytest.mark.parametrize("method", ["post", "patch"])
 @pytest.mark.parametrize(
     ("field_name", "value"),
@@ -431,7 +451,6 @@ def test_patch_updates_allowed_metadata(
             "project_id": other_project["id"],
             "material_name": "Updated name",
             "assigned_processor_id": processor["id"],
-            "folder_path": "materials/ACME_0001_G03",
         },
     )
 
@@ -446,84 +465,22 @@ def test_patch_updates_allowed_metadata(
     assert updated["publication_status"] == "NOT_PUBLISHED"
 
 
-def test_folder_path_can_be_set_once_and_repeated_as_noop(
+@pytest.mark.parametrize("folder_path", [None, "materials/ACME_0001_G03"])
+def test_folder_path_cannot_be_patched(
     material_client: tuple[TestClient, Database],
+    folder_path: str | None,
 ) -> None:
     client, _ = material_client
     project, brand = setup_material_parents(client)
     material = create_material(client, project["id"], brand["id"])
-    folder_path = "materials/ACME_0001_G03"
-
-    first_response = client.patch(
-        f"/api/materials/{material['id']}",
-        json={"folder_path": folder_path},
-    )
-    repeated_response = client.patch(
-        f"/api/materials/{material['id']}",
-        json={"folder_path": folder_path},
-    )
-
-    assert first_response.status_code == 200
-    assert first_response.json()["folder_path"] == folder_path
-    assert repeated_response.status_code == 200
-    assert repeated_response.json() == first_response.json()
-
-
-@pytest.mark.parametrize("replacement", ["materials/renamed", None])
-def test_existing_folder_path_cannot_be_changed_or_cleared(
-    material_client: tuple[TestClient, Database],
-    replacement: str | None,
-) -> None:
-    client, _ = material_client
-    project, brand = setup_material_parents(client)
-    material = create_material(
-        client,
-        project["id"],
-        brand["id"],
-        folder_path="materials/ACME_0001_G03",
-    )
 
     response = client.patch(
         f"/api/materials/{material['id']}",
-        json={"folder_path": replacement},
+        json={"folder_path": folder_path},
     )
 
-    assert response.status_code == 409
-    assert response.json()["detail"] == (
-        "folder_path cannot be changed after it has been set."
-    )
-    assert client.get(f"/api/materials/{material['id']}").json() == material
-
-
-def test_folder_path_cannot_be_cleared_to_enable_a_later_category_change(
-    material_client: tuple[TestClient, Database],
-) -> None:
-    client, _ = material_client
-    project, brand = setup_material_parents(client)
-    material = create_material(
-        client,
-        project["id"],
-        brand["id"],
-        folder_path="materials/ACME_0001_G03",
-    )
-
-    clear_response = client.patch(
-        f"/api/materials/{material['id']}",
-        json={"folder_path": None},
-    )
-    category_response = client.patch(
-        f"/api/materials/{material['id']}",
-        json={"main_category_code": "G04"},
-    )
-    restore_response = client.patch(
-        f"/api/materials/{material['id']}",
-        json={"folder_path": material["folder_path"]},
-    )
-
-    assert clear_response.status_code == 409
-    assert category_response.status_code == 409
-    assert restore_response.status_code == 200
-    assert restore_response.json() == material
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["type"] == "extra_forbidden"
     assert client.get(f"/api/materials/{material['id']}").json() == material
 
 
@@ -544,49 +501,31 @@ def test_category_change_without_folder_path_regenerates_identity(
     assert response.json()["technical_identity"] == "ACME_0001_G04"
 
 
-def test_category_and_first_folder_path_can_be_set_together_consistently(
-    material_client: tuple[TestClient, Database],
-) -> None:
-    client, _ = material_client
-    project, brand = setup_material_parents(client)
-    material = create_material(client, project["id"], brand["id"])
-
-    response = client.patch(
-        f"/api/materials/{material['id']}",
-        json={
-            "main_category_code": "G04",
-            "folder_path": "materials/ACME_0001_G04",
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["main_category_code"] == "G04"
-    assert response.json()["technical_identity"] == "ACME_0001_G04"
-    assert response.json()["folder_path"] == "materials/ACME_0001_G04"
-
-
 def test_category_change_with_folder_path_returns_conflict(
     material_client: tuple[TestClient, Database],
 ) -> None:
-    client, _ = material_client
+    client, database = material_client
     project, brand = setup_material_parents(client)
-    material = create_material(
-        client,
-        project["id"],
-        brand["id"],
-        folder_path="materials/ACME_0001_G03",
-    )
+    material = create_material(client, project["id"], brand["id"])
+    with database.session() as session:
+        stored_material = session.get(PBRMaterial, UUID(str(material["id"])))
+        assert stored_material is not None
+        stored_material.folder_path = "materials/ACME_0001_G03"
+        session.commit()
 
     response = client.patch(
         f"/api/materials/{material['id']}",
-        json={"main_category_code": "G04", "folder_path": None},
+        json={"main_category_code": "G04"},
     )
 
     assert response.status_code == 409
     assert response.json()["detail"] == (
         "main_category_code cannot be changed while folder_path is set."
     )
-    assert client.get(f"/api/materials/{material['id']}").json() == material
+    stored = client.get(f"/api/materials/{material['id']}").json()
+    assert stored["main_category_code"] == "G03"
+    assert stored["technical_identity"] == "ACME_0001_G03"
+    assert stored["folder_path"] == "materials/ACME_0001_G03"
 
 
 def test_brand_prefix_cannot_change_after_material_allocation(

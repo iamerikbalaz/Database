@@ -225,7 +225,6 @@ class PBRMaterialFields(ApiSchema):
     material_name: Name
     main_category_code: CategoryCode
     assigned_processor_id: UUID
-    folder_path: FolderPath | None = None
 
 
 class PBRMaterialCreate(PBRMaterialFields):
@@ -237,7 +236,6 @@ class PBRMaterialUpdate(ApiSchema):
     material_name: Name | None = None
     main_category_code: CategoryCode | None = None
     assigned_processor_id: UUID | None = None
-    folder_path: FolderPath | None = None
 
     @model_validator(mode="after")
     def required_fields_cannot_be_null(self) -> Self:
@@ -256,6 +254,7 @@ class PBRMaterialRead(PBRMaterialFields):
     id: UUID
     sequence_number: int = Field(ge=1, le=9999)
     technical_identity: str
+    folder_path: FolderPath | None
     workflow_status: MaterialWorkflowStatus
     validation_status: MaterialValidationStatus
     is_published: bool

@@ -474,6 +474,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                     sequence_number,
                     payload.main_category_code,
                 ),
+                folder_path=None,
                 workflow_status=MaterialWorkflowStatus.IN_PROGRESS.value,
                 validation_status=MaterialValidationStatus.NOT_CHECKED.value,
                 is_published=False,
@@ -495,9 +496,17 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
     )
     def update_material(material_id: UUID, payload: PBRMaterialUpdate) -> PBRMaterial:
         with database.session() as session:
-            material = _get_or_404(session, PBRMaterial, material_id, "PBR material")
+            material = session.scalar(
+                select(PBRMaterial)
+                .where(PBRMaterial.id == material_id)
+                .with_for_update()
+            )
+            if material is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="PBR material not found.",
+                )
             values = _values(payload, exclude_unset=True)
-            original_folder_path = material.folder_path
             if "project_id" in values:
                 _get_or_404(session, Project, values["project_id"], "Project")
             if "assigned_processor_id" in values:
@@ -506,7 +515,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 "main_category_code" in values
                 and values["main_category_code"] != material.main_category_code
             ):
-                if original_folder_path is not None:
+                if material.folder_path is not None:
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
                         detail=(
@@ -533,15 +542,6 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                     material.id,
                 )
                 material.technical_identity = technical_identity
-            if (
-                "folder_path" in values
-                and original_folder_path is not None
-                and values["folder_path"] != original_folder_path
-            ):
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="folder_path cannot be changed after it has been set.",
-                )
             _apply_update(material, values)
             return _commit(session, material)
 

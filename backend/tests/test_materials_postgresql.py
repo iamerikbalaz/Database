@@ -1,14 +1,14 @@
 import os
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from threading import Barrier
+from threading import Barrier, Event
 from uuid import uuid4
 
 import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
@@ -69,6 +69,243 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
     config = Config("alembic.ini")
 
     command.check(config)
+
+
+def _setup_prefix_race(migrated_postgresql_url: str) -> dict[str, object]:
+    setup_engine = create_engine(migrated_postgresql_url)
+    suffix = uuid4().hex[:12]
+    old_prefix = f"OLD{suffix.upper()}"
+    new_prefix = f"NEW{suffix.upper()}"
+    with Session(setup_engine) as session:
+        company = Company(name=f"Prefix race {suffix}")
+        session.add(company)
+        session.flush()
+        project = Project(
+            company_id=company.id,
+            project_number=f"PREFIX-{suffix}",
+            name="Prefix race",
+        )
+        brand = PublishedBrand(
+            company_id=company.id,
+            name="Prefix race brand",
+            folder_prefix=old_prefix,
+            brand_identifier=f"prefix-race-{suffix}",
+        )
+        processor = InternalUser(
+            display_name="Prefix race processor",
+            email=f"prefix-race-{suffix}@example.com",
+            role="PROCESSOR",
+        )
+        session.add_all([project, brand, processor])
+        session.commit()
+        result: dict[str, object] = {
+            "project_id": project.id,
+            "brand_id": brand.id,
+            "processor_id": processor.id,
+            "old_prefix": old_prefix,
+            "new_prefix": new_prefix,
+        }
+    setup_engine.dispose()
+    return result
+
+
+def _request_holding_brand_lock(
+    database_url: str,
+    method: str,
+    path: str,
+    payload: dict[str, object],
+    lock_acquired: Event,
+    release_lock: Event,
+) -> tuple[int, dict[str, object]]:
+    database = Database(database_url)
+
+    def hold_after_lock(*args: object) -> None:
+        statement = str(args[2])
+        if "FOR UPDATE" in statement.upper():
+            lock_acquired.set()
+            if not release_lock.wait(timeout=10):
+                raise TimeoutError("Timed out while holding the PublishedBrand row lock.")
+
+    event.listen(database.engine, "after_cursor_execute", hold_after_lock)
+    try:
+        application = create_app(Settings(database_url=database_url), database)
+        with TestClient(application) as client:
+            response = client.request(method, path, json=payload)
+            return response.status_code, response.json()
+    finally:
+        database.dispose()
+
+
+def _request_waiting_for_brand_lock(
+    database_url: str,
+    method: str,
+    path: str,
+    payload: dict[str, object],
+    lock_attempted: Event,
+    lock_acquired: Event,
+) -> tuple[int, dict[str, object]]:
+    database = Database(database_url)
+
+    def record_lock_attempt(*args: object) -> None:
+        statement = str(args[2])
+        if "FOR UPDATE" in statement.upper():
+            lock_attempted.set()
+
+    def record_lock_acquisition(*args: object) -> None:
+        statement = str(args[2])
+        if "FOR UPDATE" in statement.upper():
+            lock_acquired.set()
+
+    event.listen(database.engine, "before_cursor_execute", record_lock_attempt)
+    event.listen(database.engine, "after_cursor_execute", record_lock_acquisition)
+    try:
+        application = create_app(Settings(database_url=database_url), database)
+        with TestClient(application) as client:
+            response = client.request(method, path, json=payload)
+            return response.status_code, response.json()
+    finally:
+        database.dispose()
+
+
+def _assert_prefix_race_database_state(
+    database_url: str,
+    context: dict[str, object],
+    expected_prefix: object,
+) -> None:
+    setup_engine = create_engine(database_url)
+    with Session(setup_engine) as session:
+        stored_brand = session.get(PublishedBrand, context["brand_id"])
+        assert stored_brand is not None
+        assert stored_brand.folder_prefix == expected_prefix
+        materials = list(
+            session.scalars(
+                select(PBRMaterial).where(
+                    PBRMaterial.published_brand_id == context["brand_id"]
+                )
+            )
+        )
+        assert len(materials) == 1
+        assert materials[0].sequence_number == 1
+        assert materials[0].technical_identity == f"{expected_prefix}_0001_G03"
+    setup_engine.dispose()
+
+
+def test_prefix_patch_first_serializes_material_creation(
+    migrated_postgresql_url: str,
+) -> None:
+    context = _setup_prefix_race(migrated_postgresql_url)
+    brand_path = f"/api/brands/{context['brand_id']}"
+    material_payload = {
+        "project_id": str(context["project_id"]),
+        "published_brand_id": str(context["brand_id"]),
+        "material_name": "Material after prefix update",
+        "main_category_code": "G03",
+        "assigned_processor_id": str(context["processor_id"]),
+    }
+    first_locked = Event()
+    release_first = Event()
+    second_attempted = Event()
+    second_acquired = Event()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(
+            _request_holding_brand_lock,
+            migrated_postgresql_url,
+            "PATCH",
+            brand_path,
+            {"folder_prefix": context["new_prefix"]},
+            first_locked,
+            release_first,
+        )
+        try:
+            assert first_locked.wait(timeout=10)
+            second_future = executor.submit(
+                _request_waiting_for_brand_lock,
+                migrated_postgresql_url,
+                "POST",
+                "/api/materials",
+                material_payload,
+                second_attempted,
+                second_acquired,
+            )
+            assert second_attempted.wait(timeout=10)
+            assert not second_acquired.wait(timeout=0.25)
+        finally:
+            release_first.set()
+        patch_result = first_future.result(timeout=10)
+        post_result = second_future.result(timeout=10)
+
+    assert patch_result[0] == 200
+    assert patch_result[1]["folder_prefix"] == context["new_prefix"]
+    assert post_result[0] == 201
+    assert post_result[1]["technical_identity"] == (
+        f"{context['new_prefix']}_0001_G03"
+    )
+    _assert_prefix_race_database_state(
+        migrated_postgresql_url,
+        context,
+        context["new_prefix"],
+    )
+
+
+def test_material_creation_first_blocks_prefix_patch_and_returns_conflict(
+    migrated_postgresql_url: str,
+) -> None:
+    context = _setup_prefix_race(migrated_postgresql_url)
+    brand_path = f"/api/brands/{context['brand_id']}"
+    material_payload = {
+        "project_id": str(context["project_id"]),
+        "published_brand_id": str(context["brand_id"]),
+        "material_name": "Material before prefix update",
+        "main_category_code": "G03",
+        "assigned_processor_id": str(context["processor_id"]),
+    }
+    first_locked = Event()
+    release_first = Event()
+    second_attempted = Event()
+    second_acquired = Event()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(
+            _request_holding_brand_lock,
+            migrated_postgresql_url,
+            "POST",
+            "/api/materials",
+            material_payload,
+            first_locked,
+            release_first,
+        )
+        try:
+            assert first_locked.wait(timeout=10)
+            second_future = executor.submit(
+                _request_waiting_for_brand_lock,
+                migrated_postgresql_url,
+                "PATCH",
+                brand_path,
+                {"folder_prefix": context["new_prefix"]},
+                second_attempted,
+                second_acquired,
+            )
+            assert second_attempted.wait(timeout=10)
+            assert not second_acquired.wait(timeout=0.25)
+        finally:
+            release_first.set()
+        post_result = first_future.result(timeout=10)
+        patch_result = second_future.result(timeout=10)
+
+    assert post_result[0] == 201
+    assert post_result[1]["technical_identity"] == (
+        f"{context['old_prefix']}_0001_G03"
+    )
+    assert patch_result == (
+        409,
+        {"detail": "folder_prefix cannot be changed after materials have been created."},
+    )
+    _assert_prefix_race_database_state(
+        migrated_postgresql_url,
+        context,
+        context["old_prefix"],
+    )
 
 
 def test_concurrent_material_creation_allocates_distinct_numbers(

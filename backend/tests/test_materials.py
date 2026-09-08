@@ -446,6 +446,87 @@ def test_patch_updates_allowed_metadata(
     assert updated["publication_status"] == "NOT_PUBLISHED"
 
 
+def test_folder_path_can_be_set_once_and_repeated_as_noop(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+    project, brand = setup_material_parents(client)
+    material = create_material(client, project["id"], brand["id"])
+    folder_path = "materials/ACME_0001_G03"
+
+    first_response = client.patch(
+        f"/api/materials/{material['id']}",
+        json={"folder_path": folder_path},
+    )
+    repeated_response = client.patch(
+        f"/api/materials/{material['id']}",
+        json={"folder_path": folder_path},
+    )
+
+    assert first_response.status_code == 200
+    assert first_response.json()["folder_path"] == folder_path
+    assert repeated_response.status_code == 200
+    assert repeated_response.json() == first_response.json()
+
+
+@pytest.mark.parametrize("replacement", ["materials/renamed", None])
+def test_existing_folder_path_cannot_be_changed_or_cleared(
+    material_client: tuple[TestClient, Database],
+    replacement: str | None,
+) -> None:
+    client, _ = material_client
+    project, brand = setup_material_parents(client)
+    material = create_material(
+        client,
+        project["id"],
+        brand["id"],
+        folder_path="materials/ACME_0001_G03",
+    )
+
+    response = client.patch(
+        f"/api/materials/{material['id']}",
+        json={"folder_path": replacement},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "folder_path cannot be changed after it has been set."
+    )
+    assert client.get(f"/api/materials/{material['id']}").json() == material
+
+
+def test_folder_path_cannot_be_cleared_to_enable_a_later_category_change(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+    project, brand = setup_material_parents(client)
+    material = create_material(
+        client,
+        project["id"],
+        brand["id"],
+        folder_path="materials/ACME_0001_G03",
+    )
+
+    clear_response = client.patch(
+        f"/api/materials/{material['id']}",
+        json={"folder_path": None},
+    )
+    category_response = client.patch(
+        f"/api/materials/{material['id']}",
+        json={"main_category_code": "G04"},
+    )
+    restore_response = client.patch(
+        f"/api/materials/{material['id']}",
+        json={"folder_path": material["folder_path"]},
+    )
+
+    assert clear_response.status_code == 409
+    assert category_response.status_code == 409
+    assert restore_response.status_code == 200
+    assert restore_response.json() == material
+    assert client.get(f"/api/materials/{material['id']}").json() == material
+
+
 def test_category_change_without_folder_path_regenerates_identity(
     material_client: tuple[TestClient, Database],
 ) -> None:
@@ -461,6 +542,27 @@ def test_category_change_without_folder_path_regenerates_identity(
     assert response.status_code == 200
     assert response.json()["main_category_code"] == "G04"
     assert response.json()["technical_identity"] == "ACME_0001_G04"
+
+
+def test_category_and_first_folder_path_can_be_set_together_consistently(
+    material_client: tuple[TestClient, Database],
+) -> None:
+    client, _ = material_client
+    project, brand = setup_material_parents(client)
+    material = create_material(client, project["id"], brand["id"])
+
+    response = client.patch(
+        f"/api/materials/{material['id']}",
+        json={
+            "main_category_code": "G04",
+            "folder_path": "materials/ACME_0001_G04",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["main_category_code"] == "G04"
+    assert response.json()["technical_identity"] == "ACME_0001_G04"
+    assert response.json()["folder_path"] == "materials/ACME_0001_G04"
 
 
 def test_category_change_with_folder_path_returns_conflict(
@@ -667,12 +769,17 @@ def test_database_constraints_reject_invalid_material_rows(
 ) -> None:
     client, database = material_client
     project, brand = setup_material_parents(client)
+    processor = create_internal_user(
+        client,
+        display_name="Constraint processor",
+        email="constraint.processor@example.com",
+    )
     stored_values = {
         "project_id": UUID(str(project["id"])),
         "published_brand_id": UUID(str(brand["id"])),
         "material_name": "Invalid",
         "main_category_code": "G03",
-        "assigned_processor_id": uuid4(),
+        "assigned_processor_id": UUID(str(processor["id"])),
         "technical_identity": "ACME_0000_G03",
     }
 
@@ -695,6 +802,11 @@ def test_database_enforces_unique_brand_sequence_and_technical_identity(
     client, database = material_client
     project, brand = setup_material_parents(client)
     material = create_material(client, project["id"], brand["id"])
+    processor = create_internal_user(
+        client,
+        display_name="Unique constraint processor",
+        email="unique.constraint.processor@example.com",
+    )
 
     for technical_identity in ("ACME_DUPLICATE_G03", material["technical_identity"]):
         with database.session() as session:
@@ -707,7 +819,7 @@ def test_database_enforces_unique_brand_sequence_and_technical_identity(
                     ),
                     material_name="Duplicate",
                     main_category_code="G03",
-                    assigned_processor_id=uuid4(),
+                    assigned_processor_id=UUID(str(processor["id"])),
                     technical_identity=technical_identity,
                 )
             )

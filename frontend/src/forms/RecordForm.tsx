@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError } from "../api/errors";
 import { NavigationLink } from "../components/NavigationLink";
 import { validate, type Field, type Values } from "./fields";
@@ -27,15 +27,16 @@ export function RecordForm({
   } | null>(null);
   const locked = useRef(false);
   const active = useRef(true);
-  const form = useRef<HTMLFormElement>(null);
+  const firstField = useRef<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(null);
+  const firstFieldName = definition.fields.find((field) => !field.disabled)?.name;
   const summary = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    // Establish focus in the mount commit, before paint or DOM observers.
+    // Run only on mount so later renders cannot steal focus from the summary.
+    firstField.current?.focus();
+  }, []);
   useEffect(() => {
     active.current = true;
-    form.current
-      ?.querySelector<HTMLElement>(
-        "input:not(:disabled), select:not(:disabled), textarea",
-      )
-      ?.focus();
     return () => {
       active.current = false;
     };
@@ -95,7 +96,6 @@ export function RecordForm({
         </div>
       </div>
       <form
-        ref={form}
         className="panel record-form"
         aria-label={definition.title}
         noValidate
@@ -130,6 +130,11 @@ export function RecordForm({
             const id = "field-" + field.name;
             const error = failure?.fields[field.name];
             const props = {
+              ref: field.name === firstFieldName
+                ? (element: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null) => {
+                    firstField.current = element;
+                  }
+                : undefined,
               id,
               name: field.name,
               required: field.required,

@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Annotated, Self
 from uuid import UUID
 
@@ -6,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, StringConstraints, m
 
 from app.db.models import (
     InternalUserRole,
+    MaterialMetadataStatus,
     MaterialPublicationStatus,
     MaterialValidationStatus,
     MaterialWorkflowStatus,
@@ -34,6 +36,31 @@ CategoryCode = Annotated[
 ]
 FolderPath = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2048)
+]
+SourceFilename = Annotated[str, StringConstraints(min_length=1, max_length=255)]
+Sha256 = Annotated[
+    str,
+    StringConstraints(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    ),
+]
+HexColor = Annotated[
+    str,
+    StringConstraints(
+        min_length=7,
+        max_length=7,
+        pattern=r"^#[0-9A-F]{6}$",
+    ),
+]
+MasterResolution = Annotated[
+    str,
+    StringConstraints(
+        min_length=2,
+        max_length=16,
+        pattern=r"^[1-9][0-9]*K$",
+    ),
 ]
 EmailAddress = Annotated[
     str,
@@ -273,3 +300,35 @@ class PBRMaterialListFilters(ApiSchema):
     publication_status: MaterialPublicationStatus | None = None
     is_published: bool | None = None
     search: SearchTerm | None = None
+
+
+class MaterialMetadataWarning(ApiSchema):
+    code: ShortText
+    message: LongText
+    path: FolderPath | None = None
+
+
+class PBRMaterialMetadataFields(ApiSchema):
+    status: MaterialMetadataStatus
+    source_filename: SourceFilename | None
+    source_sha256: Sha256 | None
+    source_content: str | None
+    hex_color: HexColor | None
+    width_cm: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=4)
+    height_cm: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=4)
+    master_resolution: MasterResolution | None
+    warnings: list[MaterialMetadataWarning]
+    loaded_at: datetime | None
+
+
+class PBRMaterialMetadataRead(PBRMaterialMetadataFields):
+    material_id: UUID
+    current_snapshot_id: UUID | None
+    updated_at: datetime
+
+
+class PBRMaterialMetadataSnapshotRead(PBRMaterialMetadataFields):
+    id: UUID
+    material_id: UUID
+    sequence_number: int = Field(ge=1)
+    created_at: datetime

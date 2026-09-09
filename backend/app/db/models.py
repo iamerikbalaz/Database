@@ -1,22 +1,30 @@
 from datetime import date, datetime
+from decimal import Decimal
 from enum import StrEnum
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
+    JSON,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
     Uuid,
+    event,
     func,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.db.base import Base
 
@@ -47,6 +55,14 @@ class MaterialValidationStatus(StrEnum):
     METADATA_MISSING = "METADATA_MISSING"
 
 
+class MaterialMetadataStatus(StrEnum):
+    NOT_SCANNED = "NOT_SCANNED"
+    MISSING = "MISSING"
+    VALID = "VALID"
+    WARNING = "WARNING"
+    INVALID = "INVALID"
+
+
 class MaterialPublicationStatus(StrEnum):
     NOT_PUBLISHED = "NOT_PUBLISHED"
     PREPARING = "PREPARING"
@@ -69,6 +85,132 @@ class TimestampMixin:
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+_JSON_DOCUMENT = JSON().with_variant(JSONB(), "postgresql")
+
+
+def _strip_characters(expression: str, characters: str) -> str:
+    for character in characters:
+        expression = f"replace({expression}, '{character}', '')"
+    return expression
+
+
+_SHA256_REMAINDER = _strip_characters("source_sha256", "0123456789abcdef")
+_HEX_REMAINDER = _strip_characters("substr(hex_color, 2)", "0123456789ABCDEF")
+_RESOLUTION_REMAINDER = _strip_characters(
+    "substr(master_resolution, 1, length(master_resolution) - 1)",
+    "0123456789",
+)
+
+_MATERIAL_METADATA_WARNING_FIELDS = frozenset({"code", "message", "path"})
+
+
+def _validate_material_metadata_warnings(value: object) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise ValueError("Material metadata warnings must be a list.")
+    for index, warning in enumerate(value):
+        if not isinstance(warning, dict):
+            raise ValueError(f"Material metadata warning {index} must be an object.")
+        if not warning.keys() <= _MATERIAL_METADATA_WARNING_FIELDS:
+            raise ValueError(f"Material metadata warning {index} has unknown fields.")
+
+        code = warning.get("code")
+        if not isinstance(code, str) or not code.strip() or len(code) > 100:
+            raise ValueError(
+                f"Material metadata warning {index} code must be non-empty text "
+                "with at most 100 characters."
+            )
+        message = warning.get("message")
+        if not isinstance(message, str) or not message.strip():
+            raise ValueError(
+                f"Material metadata warning {index} message must be non-empty text."
+            )
+        path = warning.get("path")
+        if path is not None and (
+            not isinstance(path, str) or not path.strip() or len(path) > 2048
+        ):
+            raise ValueError(
+                f"Material metadata warning {index} path must be null or non-empty text "
+                "with at most 2048 characters."
+            )
+    return value
+
+
+def _material_metadata_constraints(table_name: str) -> tuple[CheckConstraint, ...]:
+    return (
+        CheckConstraint(
+            "status IN ('NOT_SCANNED', 'MISSING', 'VALID', 'WARNING', 'INVALID')",
+            name=f"ck_{table_name}_status",
+        ),
+        CheckConstraint(
+            "source_filename IS NULL OR "
+            "(length(source_filename) BETWEEN 1 AND 255 "
+            "AND replace(source_filename, '/', '') = source_filename "
+            "AND replace(source_filename, '\\', '') = source_filename)",
+            name=f"ck_{table_name}_source_filename",
+        ),
+        CheckConstraint(
+            "source_sha256 IS NULL OR "
+            f"(length(source_sha256) = 64 AND source_sha256 = lower(source_sha256) "
+            f"AND {_SHA256_REMAINDER} = '')",
+            name=f"ck_{table_name}_source_sha256",
+        ),
+        CheckConstraint(
+            "hex_color IS NULL OR "
+            f"(length(hex_color) = 7 AND substr(hex_color, 1, 1) = '#' "
+            f"AND hex_color = upper(hex_color) AND {_HEX_REMAINDER} = '')",
+            name=f"ck_{table_name}_hex_color",
+        ),
+        CheckConstraint(
+            "width_cm IS NULL OR width_cm > 0",
+            name=f"ck_{table_name}_width_cm_positive",
+        ),
+        CheckConstraint(
+            "height_cm IS NULL OR height_cm > 0",
+            name=f"ck_{table_name}_height_cm_positive",
+        ),
+        CheckConstraint(
+            "master_resolution IS NULL OR "
+            "(length(master_resolution) BETWEEN 2 AND 16 "
+            "AND substr(master_resolution, length(master_resolution), 1) = 'K' "
+            "AND substr(master_resolution, 1, 1) IN "
+            "('1', '2', '3', '4', '5', '6', '7', '8', '9') "
+            f"AND {_RESOLUTION_REMAINDER} = '')",
+            name=f"ck_{table_name}_master_resolution",
+        ),
+        CheckConstraint(
+            "pbr_material_metadata_warnings_are_valid(warnings)",
+            name=f"ck_{table_name}_warnings",
+        ).ddl_if(dialect="postgresql"),
+    )
+
+
+class MaterialMetadataFieldsMixin:
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=MaterialMetadataStatus.NOT_SCANNED.value,
+        server_default=text("'NOT_SCANNED'"),
+    )
+    source_filename: Mapped[str | None] = mapped_column(String(255))
+    source_sha256: Mapped[str | None] = mapped_column(String(64))
+    source_content: Mapped[str | None] = mapped_column(Text)
+    hex_color: Mapped[str | None] = mapped_column(String(7))
+    width_cm: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    height_cm: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    master_resolution: Mapped[str | None] = mapped_column(String(16))
+    warnings: Mapped[list[dict[str, Any]]] = mapped_column(
+        _JSON_DOCUMENT,
+        nullable=False,
+        default=list,
+        server_default=text("'[]'"),
+    )
+    loaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    @validates("warnings")
+    def _validate_warnings(self, _: str, value: object) -> list[dict[str, Any]]:
+        return _validate_material_metadata_warnings(value)
 
 
 class InternalUser(TimestampMixin, Base):
@@ -274,4 +416,105 @@ class PBRMaterial(TimestampMixin, Base):
     published_brand: Mapped[PublishedBrand] = relationship(back_populates="materials")
     assigned_processor: Mapped[InternalUser] = relationship(
         back_populates="assigned_materials"
+    )
+    metadata_state: Mapped["PBRMaterialMetadata"] = relationship(
+        back_populates="material",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        uselist=False,
+        foreign_keys="PBRMaterialMetadata.material_id",
+    )
+    metadata_snapshots: Mapped[list["PBRMaterialMetadataSnapshot"]] = relationship(
+        back_populates="material",
+        passive_deletes=True,
+        order_by="PBRMaterialMetadataSnapshot.sequence_number",
+    )
+
+
+class PBRMaterialMetadataSnapshot(MaterialMetadataFieldsMixin, Base):
+    __tablename__ = "pbr_material_metadata_snapshots"
+    __table_args__ = (
+        *_material_metadata_constraints("pbr_material_metadata_snapshots"),
+        CheckConstraint(
+            "sequence_number > 0",
+            name="ck_pbr_material_metadata_snapshots_sequence_number_positive",
+        ),
+        UniqueConstraint(
+            "material_id",
+            "sequence_number",
+            name="uq_pbr_material_metadata_snapshots_material_sequence",
+        ),
+        UniqueConstraint(
+            "material_id",
+            "id",
+            name="uq_pbr_material_metadata_snapshots_material_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("pbr_materials.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    sequence_number: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    material: Mapped[PBRMaterial] = relationship(back_populates="metadata_snapshots")
+
+
+class ImmutableAuditSnapshotError(RuntimeError):
+    """Raised when application code tries to mutate an audit snapshot."""
+
+
+@event.listens_for(PBRMaterialMetadataSnapshot, "before_update")
+def _reject_snapshot_update(*_: object) -> None:
+    raise ImmutableAuditSnapshotError(
+        "PBR material metadata snapshots are append-only and cannot be updated."
+    )
+
+
+@event.listens_for(PBRMaterialMetadataSnapshot, "before_delete")
+def _reject_snapshot_delete(*_: object) -> None:
+    raise ImmutableAuditSnapshotError(
+        "PBR material metadata snapshots are append-only and cannot be deleted."
+    )
+
+
+class PBRMaterialMetadata(MaterialMetadataFieldsMixin, Base):
+    __tablename__ = "pbr_material_metadata"
+    __table_args__ = (
+        *_material_metadata_constraints("pbr_material_metadata"),
+        ForeignKeyConstraint(
+            ["material_id", "current_snapshot_id"],
+            [
+                "pbr_material_metadata_snapshots.material_id",
+                "pbr_material_metadata_snapshots.id",
+            ],
+            name="fk_pbr_material_metadata_current_snapshot",
+            ondelete="RESTRICT",
+        ),
+    )
+
+    material_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("pbr_materials.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    current_snapshot_id: Mapped[UUID | None] = mapped_column(Uuid)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    material: Mapped[PBRMaterial] = relationship(
+        back_populates="metadata_state",
+        foreign_keys=[material_id],
     )

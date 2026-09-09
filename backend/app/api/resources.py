@@ -15,6 +15,8 @@ from app.db.models import (
     MaterialValidationStatus,
     MaterialWorkflowStatus,
     PBRMaterial,
+    PBRMaterialMetadata,
+    PBRMaterialMetadataSnapshot,
     Project,
     PublishedBrand,
 )
@@ -29,6 +31,8 @@ from app.schemas import (
     InternalUserUpdate,
     PBRMaterialCreate,
     PBRMaterialListFilters,
+    PBRMaterialMetadataRead,
+    PBRMaterialMetadataSnapshotRead,
     PBRMaterialRead,
     PBRMaterialUpdate,
     ProjectCreate,
@@ -492,6 +496,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 is_published=False,
                 publication_status=MaterialPublicationStatus.NOT_PUBLISHED.value,
             )
+            material.metadata_state = PBRMaterialMetadata()
             brand.next_sequence_number = sequence_number + 1
             session.add(material)
             return _commit(session, material)
@@ -500,6 +505,42 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
     def get_material(material_id: UUID) -> PBRMaterial:
         with database.session() as session:
             return _get_or_404(session, PBRMaterial, material_id, "PBR material")
+
+    @router.get(
+        "/materials/{material_id}/metadata",
+        response_model=PBRMaterialMetadataRead,
+        tags=["materials"],
+    )
+    def get_material_metadata(material_id: UUID) -> PBRMaterialMetadata:
+        with database.session() as session:
+            _get_or_404(session, PBRMaterial, material_id, "PBR material")
+            metadata = session.get(PBRMaterialMetadata, material_id)
+            if metadata is None:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="PBR material metadata state is missing.",
+                )
+            return metadata
+
+    @router.get(
+        "/materials/{material_id}/metadata/snapshots",
+        response_model=list[PBRMaterialMetadataSnapshotRead],
+        tags=["materials"],
+    )
+    def list_material_metadata_snapshots(
+        material_id: UUID,
+    ) -> list[PBRMaterialMetadataSnapshot]:
+        with database.session() as session:
+            _get_or_404(session, PBRMaterial, material_id, "PBR material")
+            statement = (
+                select(PBRMaterialMetadataSnapshot)
+                .where(PBRMaterialMetadataSnapshot.material_id == material_id)
+                .order_by(
+                    PBRMaterialMetadataSnapshot.sequence_number,
+                    PBRMaterialMetadataSnapshot.id,
+                )
+            )
+            return list(session.scalars(statement))
 
     @router.patch(
         "/materials/{material_id}",

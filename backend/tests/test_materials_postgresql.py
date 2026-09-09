@@ -1,3 +1,4 @@
+import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -11,8 +12,8 @@ from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, inspect, select, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.engine import make_url
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -622,15 +623,27 @@ def test_postgresql_metadata_schema_uses_exact_and_structured_types(
         assert columns["source_content"]["type"].__class__.__name__ == "TEXT"
 
     assert snapshot_columns["sequence_number"]["type"].__class__.__name__ == "BIGINT"
-    assert {
-        constraint["name"]
-        for constraint in schema.get_check_constraints("pbr_material_metadata")
-    } >= {
-        "ck_pbr_material_metadata_status",
-        "ck_pbr_material_metadata_source_sha256",
-        "ck_pbr_material_metadata_width_cm_positive",
-        "ck_pbr_material_metadata_height_cm_positive",
-    }
+    for table_name in (
+        "pbr_material_metadata",
+        "pbr_material_metadata_snapshots",
+    ):
+        assert {
+            constraint["name"]
+            for constraint in schema.get_check_constraints(table_name)
+        } >= {
+            f"ck_{table_name}_status",
+            f"ck_{table_name}_source_sha256",
+            f"ck_{table_name}_width_cm_positive",
+            f"ck_{table_name}_height_cm_positive",
+            f"ck_{table_name}_warnings",
+        }
+
+    snapshot_material_fk = next(
+        foreign_key
+        for foreign_key in schema.get_foreign_keys("pbr_material_metadata_snapshots")
+        if foreign_key["constrained_columns"] == ["material_id"]
+    )
+    assert snapshot_material_fk["options"]["ondelete"] == "RESTRICT"
     engine.dispose()
 
 
@@ -827,6 +840,309 @@ def test_postgresql_metadata_migration_backfills_existing_materials() -> None:
                 assert row.status == "NOT_SCANNED"
                 assert row.current_snapshot_id is None
                 assert row.warnings == []
+        finally:
+            engine.dispose()
+            if previous_database_url is None:
+                os.environ.pop("DATABASE_URL", None)
+            else:
+                os.environ["DATABASE_URL"] = previous_database_url
+            get_settings.cache_clear()
+
+
+def test_postgresql_current_metadata_remains_updatable(
+    migrated_postgresql_url: str,
+) -> None:
+    material_id = _create_postgresql_material_with_metadata(
+        migrated_postgresql_url,
+        uuid4().hex[:12],
+    )
+    engine = create_engine(migrated_postgresql_url)
+    valid_warnings = [{"code": "UPDATED", "message": "Current state changed."}]
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE pbr_material_metadata SET status = 'WARNING', "
+                "hex_color = '#A1B2C3', warnings = CAST(:warnings AS jsonb) "
+                "WHERE material_id = :material_id"
+            ),
+            {"warnings": json.dumps(valid_warnings), "material_id": material_id},
+        )
+
+    with engine.connect() as connection:
+        stored = connection.execute(
+            text(
+                "SELECT status, hex_color, warnings FROM pbr_material_metadata "
+                "WHERE material_id = :material_id"
+            ),
+            {"material_id": material_id},
+        ).one()
+    assert stored.status == "WARNING"
+    assert stored.hex_color == "#A1B2C3"
+    assert stored.warnings == valid_warnings
+    engine.dispose()
+
+
+def test_postgresql_snapshot_trigger_rejects_direct_update_and_delete(
+    migrated_postgresql_url: str,
+) -> None:
+    material_id = _create_postgresql_material_with_metadata(
+        migrated_postgresql_url,
+        uuid4().hex[:12],
+    )
+    engine = create_engine(migrated_postgresql_url)
+    original_warnings = [{"code": "ORIGINAL", "message": "Original warning."}]
+    with Session(engine) as session:
+        snapshot = PBRMaterialMetadataSnapshot(
+            material_id=material_id,
+            sequence_number=1,
+            hex_color="#A1B2C3",
+            warnings=original_warnings,
+        )
+        session.add(snapshot)
+        session.commit()
+        snapshot_id = snapshot.id
+
+    with pytest.raises(DBAPIError, match="append-only"), engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE pbr_material_metadata_snapshots "
+                "SET hex_color = '#D4E5F6' WHERE id = :snapshot_id"
+            ),
+            {"snapshot_id": snapshot_id},
+        )
+
+    with pytest.raises(DBAPIError, match="append-only"), engine.begin() as connection:
+        connection.execute(
+            text("DELETE FROM pbr_material_metadata_snapshots WHERE id = :snapshot_id"),
+            {"snapshot_id": snapshot_id},
+        )
+
+    with pytest.raises(DBAPIError, match="append-only"), engine.begin() as connection:
+        connection.execute(text("TRUNCATE pbr_material_metadata_snapshots CASCADE"))
+
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text("DELETE FROM pbr_materials WHERE id = :material_id"),
+            {"material_id": material_id},
+        )
+
+    with engine.connect() as connection:
+        stored = connection.execute(
+            text(
+                "SELECT sequence_number, hex_color, warnings "
+                "FROM pbr_material_metadata_snapshots WHERE id = :snapshot_id"
+            ),
+            {"snapshot_id": snapshot_id},
+        ).one()
+    assert stored.sequence_number == 1
+    assert stored.hex_color == "#A1B2C3"
+    assert stored.warnings == original_warnings
+
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO pbr_material_metadata_snapshots "
+                "(id, material_id, sequence_number) VALUES (:id, :material_id, 1)"
+            ),
+            {"id": uuid4(), "material_id": material_id},
+        )
+    engine.dispose()
+
+
+def _write_postgresql_warnings(
+    engine: Engine,
+    table_name: str,
+    material_id: object,
+    warnings: object,
+) -> None:
+    encoded_warnings = json.dumps(warnings)
+    with engine.begin() as connection:
+        if table_name == "pbr_material_metadata":
+            connection.execute(
+                text(
+                    "UPDATE pbr_material_metadata "
+                    "SET warnings = CAST(:warnings AS jsonb) WHERE material_id = :material_id"
+                ),
+                {"warnings": encoded_warnings, "material_id": material_id},
+            )
+        else:
+            connection.execute(
+                text(
+                    "INSERT INTO pbr_material_metadata_snapshots "
+                    "(id, material_id, sequence_number, warnings) "
+                    "VALUES (:id, :material_id, 1, CAST(:warnings AS jsonb))"
+                ),
+                {
+                    "id": uuid4(),
+                    "material_id": material_id,
+                    "warnings": encoded_warnings,
+                },
+            )
+
+
+@pytest.mark.parametrize(
+    "invalid_warnings",
+    [
+        pytest.param({"code": "OBJECT", "message": "Not an array."}, id="object"),
+        pytest.param("not-an-array", id="string"),
+        pytest.param(42, id="number"),
+        pytest.param(None, id="json-null"),
+        pytest.param(["not-an-object"], id="non-object-item"),
+        pytest.param([{"code": "", "message": "Empty code."}], id="empty-code"),
+        pytest.param([{"code": "\t", "message": "Whitespace code."}], id="blank-code"),
+        pytest.param([{"code": "MISSING_MESSAGE"}], id="missing-message"),
+        pytest.param([{"code": "BLANK_MESSAGE", "message": "\n"}], id="blank-message"),
+        pytest.param(
+            [{"code": "EXTRA", "message": "Unknown field.", "unsafe": True}],
+            id="unknown-field",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "table_name",
+    ["pbr_material_metadata", "pbr_material_metadata_snapshots"],
+)
+def test_postgresql_rejects_invalid_warnings_for_current_and_snapshot_metadata(
+    migrated_postgresql_url: str,
+    table_name: str,
+    invalid_warnings: object,
+) -> None:
+    material_id = _create_postgresql_material_with_metadata(
+        migrated_postgresql_url,
+        uuid4().hex[:12],
+    )
+    engine = create_engine(migrated_postgresql_url)
+
+    with pytest.raises(IntegrityError):
+        _write_postgresql_warnings(engine, table_name, material_id, invalid_warnings)
+
+    with engine.connect() as connection:
+        current_warnings = connection.execute(
+            text("SELECT warnings FROM pbr_material_metadata WHERE material_id = :material_id"),
+            {"material_id": material_id},
+        ).scalar_one()
+        snapshot_count = connection.execute(
+            text(
+                "SELECT count(*) FROM pbr_material_metadata_snapshots "
+                "WHERE material_id = :material_id"
+            ),
+            {"material_id": material_id},
+        ).scalar_one()
+    assert current_warnings == []
+    assert snapshot_count == 0
+    engine.dispose()
+
+
+@pytest.mark.parametrize(
+    "valid_warnings",
+    [
+        pytest.param([], id="empty-array"),
+        pytest.param(
+            [
+                {"code": "VALID", "message": "Valid warning."},
+                {"code": "WITH_PATH", "message": "Valid path.", "path": "metadata.txt"},
+            ],
+            id="warning-objects",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "table_name",
+    ["pbr_material_metadata", "pbr_material_metadata_snapshots"],
+)
+def test_postgresql_accepts_contract_valid_warnings(
+    migrated_postgresql_url: str,
+    table_name: str,
+    valid_warnings: object,
+) -> None:
+    material_id = _create_postgresql_material_with_metadata(
+        migrated_postgresql_url,
+        uuid4().hex[:12],
+    )
+    engine = create_engine(migrated_postgresql_url)
+
+    _write_postgresql_warnings(engine, table_name, material_id, valid_warnings)
+
+    database = Database(migrated_postgresql_url)
+    application = create_app(Settings(database_url=migrated_postgresql_url), database)
+    try:
+        with TestClient(application) as client:
+            if table_name == "pbr_material_metadata":
+                response = client.get(f"/api/materials/{material_id}/metadata")
+                assert response.status_code == 200
+                assert response.json()["warnings"] == valid_warnings
+            else:
+                response = client.get(f"/api/materials/{material_id}/metadata/snapshots")
+                assert response.status_code == 200
+                assert response.json()[0]["warnings"] == valid_warnings
+    finally:
+        database.dispose()
+        engine.dispose()
+
+
+def test_postgresql_rejected_warnings_leave_future_get_response_valid(
+    migrated_postgresql_url: str,
+) -> None:
+    material_id = _create_postgresql_material_with_metadata(
+        migrated_postgresql_url,
+        uuid4().hex[:12],
+    )
+    engine = create_engine(migrated_postgresql_url)
+    with pytest.raises(IntegrityError):
+        _write_postgresql_warnings(
+            engine,
+            "pbr_material_metadata",
+            material_id,
+            {"code": "OBJECT", "message": "Not an array."},
+        )
+
+    database = Database(migrated_postgresql_url)
+    application = create_app(Settings(database_url=migrated_postgresql_url), database)
+    try:
+        with TestClient(application) as client:
+            response = client.get(f"/api/materials/{material_id}/metadata")
+        assert response.status_code == 200
+        assert response.json()["warnings"] == []
+    finally:
+        database.dispose()
+        engine.dispose()
+
+
+def test_postgresql_metadata_fresh_upgrade_and_downgrade() -> None:
+    with isolated_postgresql_database() as database_url:
+        previous_database_url = os.environ.get("DATABASE_URL")
+        os.environ["DATABASE_URL"] = database_url
+        get_settings.cache_clear()
+        engine = create_engine(database_url)
+        try:
+            config = Config("alembic.ini")
+            command.upgrade(config, "20260909_0005")
+            upgraded_schema = inspect(engine)
+            assert upgraded_schema.has_table("pbr_material_metadata")
+            assert upgraded_schema.has_table("pbr_material_metadata_snapshots")
+            with engine.connect() as connection:
+                assert connection.execute(
+                    text(
+                        "SELECT count(*) FROM pg_trigger "
+                        "WHERE tgname = "
+                        "'trg_pbr_material_metadata_snapshots_reject_update_delete'"
+                    )
+                ).scalar_one() == 1
+
+            command.downgrade(config, "20260908_0004")
+            downgraded_schema = inspect(engine)
+            assert not downgraded_schema.has_table("pbr_material_metadata")
+            assert not downgraded_schema.has_table("pbr_material_metadata_snapshots")
+            with engine.connect() as connection:
+                remaining_functions = connection.execute(
+                    text(
+                        "SELECT proname FROM pg_proc WHERE proname IN "
+                        "('pbr_material_metadata_warnings_are_valid', "
+                        "'pbr_material_metadata_snapshots_reject_mutation')"
+                    )
+                ).scalars()
+                assert list(remaining_functions) == []
         finally:
             engine.dispose()
             if previous_database_url is None:

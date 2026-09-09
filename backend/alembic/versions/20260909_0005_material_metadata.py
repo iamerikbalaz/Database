@@ -99,10 +99,63 @@ def _metadata_constraints(table_name: str) -> list[sa.CheckConstraint]:
             f"AND {RESOLUTION_REMAINDER} = '')",
             name=f"ck_{table_name}_master_resolution",
         ),
+        sa.CheckConstraint(
+            "pbr_material_metadata_warnings_are_valid(warnings)",
+            name=f"ck_{table_name}_warnings",
+        ),
     ]
 
 
 def upgrade() -> None:
+    op.execute(
+        """
+        CREATE FUNCTION pbr_material_metadata_warnings_are_valid(candidate jsonb)
+        RETURNS boolean
+        LANGUAGE sql
+        IMMUTABLE
+        STRICT
+        PARALLEL SAFE
+        SET search_path = pg_catalog
+        AS $function$
+            SELECT jsonb_typeof(candidate) = 'array'
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(
+                        CASE
+                            WHEN jsonb_typeof(candidate) = 'array' THEN candidate
+                            ELSE '[]'::jsonb
+                        END
+                    ) AS entry(value)
+                    WHERE jsonb_typeof(value) IS DISTINCT FROM 'object'
+                        OR EXISTS (
+                            SELECT 1
+                            FROM jsonb_object_keys(
+                                CASE
+                                    WHEN jsonb_typeof(value) = 'object' THEN value
+                                    ELSE '{}'::jsonb
+                                END
+                            ) AS property(name)
+                            WHERE name NOT IN ('code', 'message', 'path')
+                        )
+                        OR jsonb_typeof(value -> 'code') IS DISTINCT FROM 'string'
+                        OR length(value ->> 'code') NOT BETWEEN 1 AND 100
+                        OR (value ->> 'code') !~ '[^[:space:]]'
+                        OR jsonb_typeof(value -> 'message') IS DISTINCT FROM 'string'
+                        OR (value ->> 'message') !~ '[^[:space:]]'
+                        OR (
+                            value ? 'path'
+                            AND value -> 'path' <> 'null'::jsonb
+                            AND (
+                                jsonb_typeof(value -> 'path') IS DISTINCT FROM 'string'
+                                OR length(value ->> 'path') NOT BETWEEN 1 AND 2048
+                                OR (value ->> 'path') !~ '[^[:space:]]'
+                            )
+                        )
+                )
+        $function$
+        """
+    )
+
     op.create_table(
         "pbr_material_metadata_snapshots",
         sa.Column("id", sa.Uuid(), nullable=False),
@@ -123,7 +176,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["material_id"],
             ["pbr_materials.id"],
-            ondelete="CASCADE",
+            ondelete="RESTRICT",
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
@@ -142,6 +195,43 @@ def upgrade() -> None:
         "pbr_material_metadata_snapshots",
         ["material_id"],
         unique=False,
+    )
+
+    op.execute(
+        """
+        CREATE FUNCTION pbr_material_metadata_snapshots_reject_mutation()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        SECURITY INVOKER
+        SET search_path = pg_catalog
+        AS $function$
+        BEGIN
+            RAISE EXCEPTION USING
+                ERRCODE = '55000',
+                MESSAGE = format(
+                    'pbr_material_metadata_snapshots is append-only; %s is forbidden',
+                    TG_OP
+                );
+            RETURN NULL;
+        END
+        $function$
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_pbr_material_metadata_snapshots_reject_update_delete
+        BEFORE UPDATE OR DELETE ON pbr_material_metadata_snapshots
+        FOR EACH ROW
+        EXECUTE FUNCTION pbr_material_metadata_snapshots_reject_mutation()
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_pbr_material_metadata_snapshots_reject_truncate
+        BEFORE TRUNCATE ON pbr_material_metadata_snapshots
+        FOR EACH STATEMENT
+        EXECUTE FUNCTION pbr_material_metadata_snapshots_reject_mutation()
+        """
     )
 
     op.create_table(
@@ -180,6 +270,26 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute(
+        "DROP TRIGGER trg_pbr_material_metadata_snapshots_reject_truncate "
+        "ON pbr_material_metadata_snapshots"
+    )
+    op.execute(
+        "DROP TRIGGER trg_pbr_material_metadata_snapshots_reject_update_delete "
+        "ON pbr_material_metadata_snapshots"
+    )
+    op.execute("DROP FUNCTION pbr_material_metadata_snapshots_reject_mutation()")
+    op.drop_constraint(
+        "ck_pbr_material_metadata_warnings",
+        "pbr_material_metadata",
+        type_="check",
+    )
+    op.drop_constraint(
+        "ck_pbr_material_metadata_snapshots_warnings",
+        "pbr_material_metadata_snapshots",
+        type_="check",
+    )
+    op.execute("DROP FUNCTION pbr_material_metadata_warnings_are_valid(jsonb)")
     op.drop_table("pbr_material_metadata")
     op.drop_index(
         op.f("ix_pbr_material_metadata_snapshots_material_id"),

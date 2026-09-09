@@ -19,11 +19,12 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    event,
     func,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.db.base import Base
 
@@ -102,6 +103,39 @@ _RESOLUTION_REMAINDER = _strip_characters(
     "0123456789",
 )
 
+_MATERIAL_METADATA_WARNING_FIELDS = frozenset({"code", "message", "path"})
+
+
+def _validate_material_metadata_warnings(value: object) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise ValueError("Material metadata warnings must be a list.")
+    for index, warning in enumerate(value):
+        if not isinstance(warning, dict):
+            raise ValueError(f"Material metadata warning {index} must be an object.")
+        if not warning.keys() <= _MATERIAL_METADATA_WARNING_FIELDS:
+            raise ValueError(f"Material metadata warning {index} has unknown fields.")
+
+        code = warning.get("code")
+        if not isinstance(code, str) or not code.strip() or len(code) > 100:
+            raise ValueError(
+                f"Material metadata warning {index} code must be non-empty text "
+                "with at most 100 characters."
+            )
+        message = warning.get("message")
+        if not isinstance(message, str) or not message.strip():
+            raise ValueError(
+                f"Material metadata warning {index} message must be non-empty text."
+            )
+        path = warning.get("path")
+        if path is not None and (
+            not isinstance(path, str) or not path.strip() or len(path) > 2048
+        ):
+            raise ValueError(
+                f"Material metadata warning {index} path must be null or non-empty text "
+                "with at most 2048 characters."
+            )
+    return value
+
 
 def _material_metadata_constraints(table_name: str) -> tuple[CheckConstraint, ...]:
     return (
@@ -145,6 +179,10 @@ def _material_metadata_constraints(table_name: str) -> tuple[CheckConstraint, ..
             f"AND {_RESOLUTION_REMAINDER} = '')",
             name=f"ck_{table_name}_master_resolution",
         ),
+        CheckConstraint(
+            "pbr_material_metadata_warnings_are_valid(warnings)",
+            name=f"ck_{table_name}_warnings",
+        ).ddl_if(dialect="postgresql"),
     )
 
 
@@ -169,6 +207,10 @@ class MaterialMetadataFieldsMixin:
         server_default=text("'[]'"),
     )
     loaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    @validates("warnings")
+    def _validate_warnings(self, _: str, value: object) -> list[dict[str, Any]]:
+        return _validate_material_metadata_warnings(value)
 
 
 class InternalUser(TimestampMixin, Base):
@@ -412,7 +454,7 @@ class PBRMaterialMetadataSnapshot(MaterialMetadataFieldsMixin, Base):
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     material_id: Mapped[UUID] = mapped_column(
         Uuid,
-        ForeignKey("pbr_materials.id", ondelete="CASCADE"),
+        ForeignKey("pbr_materials.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -424,6 +466,24 @@ class PBRMaterialMetadataSnapshot(MaterialMetadataFieldsMixin, Base):
     )
 
     material: Mapped[PBRMaterial] = relationship(back_populates="metadata_snapshots")
+
+
+class ImmutableAuditSnapshotError(RuntimeError):
+    """Raised when application code tries to mutate an audit snapshot."""
+
+
+@event.listens_for(PBRMaterialMetadataSnapshot, "before_update")
+def _reject_snapshot_update(*_: object) -> None:
+    raise ImmutableAuditSnapshotError(
+        "PBR material metadata snapshots are append-only and cannot be updated."
+    )
+
+
+@event.listens_for(PBRMaterialMetadataSnapshot, "before_delete")
+def _reject_snapshot_delete(*_: object) -> None:
+    raise ImmutableAuditSnapshotError(
+        "PBR material metadata snapshots are append-only and cannot be deleted."
+    )
 
 
 class PBRMaterialMetadata(MaterialMetadataFieldsMixin, Base):

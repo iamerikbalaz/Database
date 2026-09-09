@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.config import Settings
 from app.db.base import Base
 from app.db.models import (
+    ImmutableAuditSnapshotError,
     InternalUser,
     PBRMaterialMetadata,
     PBRMaterialMetadataSnapshot,
@@ -276,6 +277,113 @@ def test_database_enforces_positive_unique_snapshot_order(
         with pytest.raises(IntegrityError):
             session.commit()
         session.rollback()
+
+
+def test_orm_rejects_snapshot_update_and_preserves_original(
+    metadata_client: tuple[TestClient, Database],
+) -> None:
+    client, database = metadata_client
+    material = _create_material(client)
+    material_id = UUID(str(material["id"]))
+
+    with database.session() as session:
+        snapshot = PBRMaterialMetadataSnapshot(
+            material_id=material_id,
+            sequence_number=1,
+            hex_color="#A1B2C3",
+        )
+        session.add(snapshot)
+        session.commit()
+        snapshot_id = snapshot.id
+
+        snapshot.hex_color = "#D4E5F6"
+        with pytest.raises(ImmutableAuditSnapshotError, match="cannot be updated"):
+            session.commit()
+        session.rollback()
+
+        stored = session.get(PBRMaterialMetadataSnapshot, snapshot_id)
+        assert stored is not None
+        assert stored.hex_color == "#A1B2C3"
+        assert stored.sequence_number == 1
+
+
+def test_orm_rejects_snapshot_delete_and_keeps_sequence_occupied(
+    metadata_client: tuple[TestClient, Database],
+) -> None:
+    client, database = metadata_client
+    material = _create_material(client)
+    material_id = UUID(str(material["id"]))
+
+    with database.session() as session:
+        snapshot = PBRMaterialMetadataSnapshot(
+            material_id=material_id,
+            sequence_number=1,
+        )
+        session.add(snapshot)
+        session.commit()
+        snapshot_id = snapshot.id
+
+        session.delete(snapshot)
+        with pytest.raises(ImmutableAuditSnapshotError, match="cannot be deleted"):
+            session.commit()
+        session.rollback()
+
+        assert session.get(PBRMaterialMetadataSnapshot, snapshot_id) is not None
+        session.add(
+            PBRMaterialMetadataSnapshot(
+                material_id=material_id,
+                sequence_number=1,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+
+def test_current_metadata_remains_updatable(
+    metadata_client: tuple[TestClient, Database],
+) -> None:
+    client, database = metadata_client
+    material = _create_material(client)
+    material_id = UUID(str(material["id"]))
+
+    with database.session() as session:
+        current = session.get(PBRMaterialMetadata, material_id)
+        assert current is not None
+        current.status = "WARNING"
+        current.warnings = [{"code": "REVIEW", "message": "Needs review."}]
+        session.commit()
+
+        session.refresh(current)
+        assert current.status == "WARNING"
+        assert current.warnings == [{"code": "REVIEW", "message": "Needs review."}]
+
+
+@pytest.mark.parametrize(
+    "invalid_warnings",
+    [
+        pytest.param({"code": "OBJECT", "message": "Not a list."}, id="object"),
+        pytest.param(["not-an-object"], id="invalid-item"),
+        pytest.param([{"code": "", "message": "Empty code."}], id="empty-code"),
+        pytest.param([{"code": "MISSING_MESSAGE"}], id="missing-message"),
+    ],
+)
+def test_orm_rejects_invalid_warnings_in_sqlite(
+    metadata_client: tuple[TestClient, Database],
+    invalid_warnings: object,
+) -> None:
+    client, database = metadata_client
+    material = _create_material(client)
+
+    with database.session() as session:
+        current = session.get(PBRMaterialMetadata, UUID(str(material["id"])))
+        assert current is not None
+        with pytest.raises(ValueError, match="Material metadata warning"):
+            current.warnings = invalid_warnings  # type: ignore[assignment]
+
+    response = client.get(f"/api/materials/{material['id']}/metadata")
+    assert response.status_code == 200
+    assert response.json()["warnings"] == []
 
 
 @pytest.mark.parametrize("method", ["post", "patch"])

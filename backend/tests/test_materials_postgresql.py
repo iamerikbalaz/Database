@@ -1,6 +1,7 @@
 import os
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from decimal import Decimal
 from threading import Barrier, Event
 from uuid import uuid4
 
@@ -8,13 +9,23 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, select, text
+from sqlalchemy import create_engine, event, inspect, select, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.config import get_settings
-from app.db.models import Company, InternalUser, PBRMaterial, Project, PublishedBrand
+from app.db.models import (
+    Company,
+    InternalUser,
+    PBRMaterial,
+    PBRMaterialMetadata,
+    PBRMaterialMetadataSnapshot,
+    Project,
+    PublishedBrand,
+)
 from app.db.session import Database
 from app.main import create_app
 
@@ -586,3 +597,240 @@ def test_sequence_9999_is_allocated_then_returns_controlled_conflict(
         )
         assert stored_numbers == [9999]
     setup_engine.dispose()
+
+
+def test_postgresql_metadata_schema_uses_exact_and_structured_types(
+    migrated_postgresql_url: str,
+) -> None:
+    engine = create_engine(migrated_postgresql_url)
+    schema = inspect(engine)
+
+    current_columns = {
+        column["name"]: column for column in schema.get_columns("pbr_material_metadata")
+    }
+    snapshot_columns = {
+        column["name"]: column
+        for column in schema.get_columns("pbr_material_metadata_snapshots")
+    }
+
+    for columns in (current_columns, snapshot_columns):
+        assert columns["width_cm"]["type"].precision == 12
+        assert columns["width_cm"]["type"].scale == 4
+        assert columns["height_cm"]["type"].precision == 12
+        assert columns["height_cm"]["type"].scale == 4
+        assert isinstance(columns["warnings"]["type"], JSONB)
+        assert columns["source_content"]["type"].__class__.__name__ == "TEXT"
+
+    assert snapshot_columns["sequence_number"]["type"].__class__.__name__ == "BIGINT"
+    assert {
+        constraint["name"]
+        for constraint in schema.get_check_constraints("pbr_material_metadata")
+    } >= {
+        "ck_pbr_material_metadata_status",
+        "ck_pbr_material_metadata_source_sha256",
+        "ck_pbr_material_metadata_width_cm_positive",
+        "ck_pbr_material_metadata_height_cm_positive",
+    }
+    engine.dispose()
+
+
+def _create_postgresql_material_with_metadata(database_url: str, suffix: str) -> object:
+    engine = create_engine(database_url)
+    with Session(engine) as session:
+        company = Company(name=f"Metadata PostgreSQL {suffix}")
+        session.add(company)
+        session.flush()
+        project = Project(
+            company_id=company.id,
+            project_number=f"META-PG-{suffix}",
+            name="Metadata PostgreSQL",
+        )
+        brand = PublishedBrand(
+            company_id=company.id,
+            name="Metadata PostgreSQL brand",
+            folder_prefix=f"METAPG{suffix.upper()}",
+            brand_identifier=f"metadata-pg-{suffix}",
+            next_sequence_number=2,
+        )
+        processor = InternalUser(
+            display_name="Metadata PostgreSQL processor",
+            email=f"metadata-pg-{suffix}@example.com",
+            role="PROCESSOR",
+        )
+        session.add_all([project, brand, processor])
+        session.flush()
+        material = PBRMaterial(
+            project_id=project.id,
+            published_brand_id=brand.id,
+            sequence_number=1,
+            material_name="Metadata PostgreSQL material",
+            main_category_code="G03",
+            assigned_processor_id=processor.id,
+            technical_identity=f"METAPG{suffix.upper()}_0001_G03",
+        )
+        material.metadata_state = PBRMaterialMetadata()
+        session.add(material)
+        session.commit()
+        material_id = material.id
+    engine.dispose()
+    return material_id
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("status", "UNKNOWN"),
+        ("source_filename", "folder/metadata.txt"),
+        ("source_sha256", "A" * 64),
+        ("source_sha256", "f" * 63),
+        ("hex_color", "#abcdef"),
+        ("width_cm", Decimal("0")),
+        ("height_cm", Decimal("-1")),
+        ("master_resolution", "016K"),
+    ],
+)
+def test_postgresql_enforces_metadata_value_constraints(
+    migrated_postgresql_url: str,
+    column: str,
+    value: object,
+) -> None:
+    suffix = uuid4().hex[:12]
+    material_id = _create_postgresql_material_with_metadata(
+        migrated_postgresql_url,
+        suffix,
+    )
+    engine = create_engine(migrated_postgresql_url)
+
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text(f"UPDATE pbr_material_metadata SET {column} = :value WHERE material_id = :id"),
+            {"value": value, "id": material_id},
+        )
+
+    engine.dispose()
+
+
+def test_postgresql_enforces_snapshot_order_and_current_snapshot_ownership(
+    migrated_postgresql_url: str,
+) -> None:
+    first_material_id = _create_postgresql_material_with_metadata(
+        migrated_postgresql_url,
+        uuid4().hex[:12],
+    )
+    second_material_id = _create_postgresql_material_with_metadata(
+        migrated_postgresql_url,
+        uuid4().hex[:12],
+    )
+    engine = create_engine(migrated_postgresql_url)
+    with Session(engine) as session:
+        first = PBRMaterialMetadataSnapshot(
+            material_id=first_material_id,
+            sequence_number=1,
+        )
+        second = PBRMaterialMetadataSnapshot(
+            material_id=second_material_id,
+            sequence_number=1,
+        )
+        session.add_all([first, second])
+        session.commit()
+        second_snapshot_id = second.id
+
+    with Session(engine) as session:
+        session.add(
+            PBRMaterialMetadataSnapshot(
+                material_id=first_material_id,
+                sequence_number=1,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+    with Session(engine) as session:
+        current = session.get(PBRMaterialMetadata, first_material_id)
+        assert current is not None
+        current.current_snapshot_id = second_snapshot_id
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+    engine.dispose()
+
+
+def test_postgresql_metadata_migration_backfills_existing_materials() -> None:
+    with isolated_postgresql_database() as database_url:
+        previous_database_url = os.environ.get("DATABASE_URL")
+        os.environ["DATABASE_URL"] = database_url
+        get_settings.cache_clear()
+        engine = create_engine(database_url)
+        material_id = uuid4()
+        company_id = uuid4()
+        project_id = uuid4()
+        brand_id = uuid4()
+        processor_id = uuid4()
+        try:
+            config = Config("alembic.ini")
+            command.upgrade(config, "20260908_0004")
+            with engine.begin() as connection:
+                connection.execute(
+                    text("INSERT INTO companies (id, name) VALUES (:id, 'Backfill company')"),
+                    {"id": company_id},
+                )
+                connection.execute(
+                    text(
+                        "INSERT INTO projects (id, company_id, project_number, name) "
+                        "VALUES (:id, :company_id, 'BACKFILL-1', 'Backfill project')"
+                    ),
+                    {"id": project_id, "company_id": company_id},
+                )
+                connection.execute(
+                    text(
+                        "INSERT INTO published_brands "
+                        "(id, company_id, name, folder_prefix, brand_identifier) "
+                        "VALUES (:id, :company_id, 'Backfill brand', 'BACKFILL', 'backfill')"
+                    ),
+                    {"id": brand_id, "company_id": company_id},
+                )
+                connection.execute(
+                    text(
+                        "INSERT INTO internal_users (id, display_name, email, role) "
+                        "VALUES (:id, 'Backfill processor', 'backfill@example.com', 'PROCESSOR')"
+                    ),
+                    {"id": processor_id},
+                )
+                connection.execute(
+                    text(
+                        "INSERT INTO pbr_materials "
+                        "(id, project_id, published_brand_id, sequence_number, material_name, "
+                        "main_category_code, assigned_processor_id, technical_identity) "
+                        "VALUES (:id, :project_id, :brand_id, 1, 'Backfill material', "
+                        "'G03', :processor_id, 'BACKFILL_0001_G03')"
+                    ),
+                    {
+                        "id": material_id,
+                        "project_id": project_id,
+                        "brand_id": brand_id,
+                        "processor_id": processor_id,
+                    },
+                )
+
+            command.upgrade(config, "head")
+            command.check(config)
+            with engine.connect() as connection:
+                row = connection.execute(
+                    text(
+                        "SELECT status, current_snapshot_id, warnings "
+                        "FROM pbr_material_metadata WHERE material_id = :id"
+                    ),
+                    {"id": material_id},
+                ).one()
+                assert row.status == "NOT_SCANNED"
+                assert row.current_snapshot_id is None
+                assert row.warnings == []
+        finally:
+            engine.dispose()
+            if previous_database_url is None:
+                os.environ.pop("DATABASE_URL", None)
+            else:
+                os.environ["DATABASE_URL"] = previous_database_url
+            get_settings.cache_clear()

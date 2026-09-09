@@ -37,22 +37,22 @@ def test_observed_valid_text_is_partial_without_hex(tmp_path):
     raw = FIXTURE.read_bytes()
     result = inspect(material(tmp_path, raw))
     assert result.source_filename == "metadata.txt"
-    assert result.status == "PARTIAL"
+    assert result.status == "WARNING"
     assert result.width_cm == Decimal("12")
     assert result.height_cm == Decimal("34")
     assert result.hex_color is None
-    assert codes(result) == {"SOURCE_METADATA_HEX_MISSING"}
+    assert codes(result) == {"HEX_COLOR_MISSING"}
     assert result.sha256 == hashlib.sha256(raw).hexdigest()
     assert result.can_continue and not result.errors
 
 
 @pytest.mark.parametrize("raw,status", [
-    (None, "MISSING"), (b"", "EMPTY"), (b" \r\n", "EMPTY"),
-    (b"{broken", "INVALID_FORMAT"), (b"\xff", "INVALID_FORMAT"),
-    (b"texture size: cm", "INVALID_FORMAT"),
-    (b"texture size: 1x2 cm\ntexture size: 3x4 cm", "INVALID_FORMAT"),
-    (b"texture size: NaNxInfinity cm", "INVALID_FORMAT"),
-    (b"texture size: 1,5x2 cm", "INVALID_FORMAT"),
+    (None, "MISSING"), (b"", "INVALID"), (b" \r\n", "INVALID"),
+    (b"{broken", "INVALID"), (b"\xff", "INVALID"),
+    (b"texture size: cm", "INVALID"),
+    (b"texture size: 1x2 cm\ntexture size: 3x4 cm", "INVALID"),
+    (b"texture size: NaNxInfinity cm", "INVALID"),
+    (b"texture size: 1,5x2 cm", "INVALID"),
 ])
 def test_metadata_problems_are_nonblocking(tmp_path, raw, status):
     result = inspect(material(tmp_path, raw))
@@ -122,7 +122,7 @@ def test_only_root_source_file_is_read(tmp_path, monkeypatch):
         assert inspect(path).status == "MISSING"
     (path / "metadata.txt").write_bytes(manifest)
     result = inspect(path)
-    assert result.status == "INVALID_FORMAT"
+    assert result.status == "INVALID"
     assert result.width_cm is result.height_cm is result.hex_color is None
     assert result.can_continue
 
@@ -133,7 +133,7 @@ def test_unreadable_source(tmp_path, monkeypatch):
         raise PermissionError("test")
     monkeypatch.setattr(Path, "open", denied)
     result = inspect(path)
-    assert result.status == "UNREADABLE"
+    assert result.status == "INVALID"
     assert result.sha256 is None and result.can_continue
 
 
@@ -141,11 +141,11 @@ def test_metadata_directory_and_limit(tmp_path):
     path = material(tmp_path)
     source = path / "metadata.txt"
     source.mkdir()
-    assert inspect(path).status == "UNSAFE_FILE"
+    assert inspect(path).status == "INVALID"
     source.rmdir()
     source.write_bytes(b" " * (4 * 1024 * 1024 + 1))
     result = inspect(path)
-    assert result.status == "TOO_LARGE" and result.sha256 is None and result.can_continue
+    assert result.status == "INVALID" and result.sha256 is None and result.can_continue
 
 
 @pytest.mark.parametrize("delta,policy", [(-1, ZipPolicy.LEGACY_BEFORE_2026_03_04),
@@ -188,4 +188,71 @@ def test_read_only_contents_and_last_write_time(tmp_path, monkeypatch):
 
 def test_material_errors_remain_blocking(tmp_path):
     result = parse_source_metadata(tmp_path / "absent", allowed_root=tmp_path)
-    assert result.status == "NOT_CHECKED" and result.errors and not result.can_continue
+    assert result.status == "NOT_SCANNED" and result.errors and not result.can_continue
+
+
+@pytest.mark.parametrize("color,expected,code", [
+    ({"hex": "#aBc123"}, "#ABC123", None),
+    ({"hex": "00ff00"}, "#00FF00", None),
+    ({"hex": "#bad"}, None, "HEX_COLOR_INVALID"),
+    ({"hex": None}, None, "HEX_COLOR_INVALID"),
+    ({}, None, "HEX_COLOR_MISSING"),
+])
+def test_explicit_json_hex(tmp_path, color, expected, code):
+    raw = json.dumps({"COLOR": color, "TEXTURE_SIZE": {"cm": {"width": 12, "height": 34}}}).encode()
+    result = inspect(material(tmp_path, raw))
+    assert result.hex_color == expected
+    assert result.status == ("WARNING" if code else "VALID")
+    assert codes(result) == ({code} if code else set())
+    assert result.width_cm == Decimal("12")
+    assert result.height_cm == Decimal("34")
+    assert result.sha256 == hashlib.sha256(raw).hexdigest()
+    assert result.can_continue
+
+
+def test_no_master_still_reads_and_hashes_metadata(tmp_path):
+    raw = FIXTURE.read_bytes()
+    path = material(tmp_path, raw)
+    (path / "16K").rmdir()
+    result = inspect(path)
+    assert result.status == "WARNING"
+    assert result.width_cm == Decimal("12") and result.height_cm == Decimal("34")
+    assert result.sha256 == hashlib.sha256(raw).hexdigest()
+    assert [f.code for f in result.master_errors] == ["NO_RESOLUTION"]
+    assert result.master_resolution is None and result.selected_zip_policy is None
+    assert result.can_continue and not result.errors
+
+
+def test_json_precision_and_no_random_hex(tmp_path):
+    raw = b'{"note":"#AABBCC","TEXTURE_SIZE":{"cm":{"width":0.10000000000000000001,"height":2.50}}}'
+    result = inspect(material(tmp_path, raw))
+    assert result.width_cm == Decimal("0.10000000000000000001")
+    assert result.hex_color is None and codes(result) == {"HEX_COLOR_MISSING"}
+
+
+@pytest.mark.parametrize("raw", [b'{"COLOR":{},"COLOR":{}}', b'{"COLOR":{"hex":NaN}}',
+    b'{"WEB_APP_PART":{},"DESKTOP_APP_PART":{}}', b'[]'])
+def test_strict_json_and_manifest_rejection(tmp_path, raw):
+    result = inspect(material(tmp_path, raw))
+    assert result.status == "INVALID" and result.can_continue
+    assert result.sha256 == hashlib.sha256(raw).hexdigest()
+
+
+def test_all_five_statuses(tmp_path):
+    from app.source_metadata import SourceMetadataResult
+    assert SourceMetadataResult().status == "NOT_SCANNED"
+    path = material(tmp_path)
+    assert inspect(path).status == "MISSING"
+    source = path / "metadata.txt"
+    for raw, expected in [(b'{broken', "INVALID"), (FIXTURE.read_bytes(), "WARNING"),
+        (b'{"COLOR":{"hex":"#abcdef"},"TEXTURE_SIZE":{"cm":{"width":1,"height":2}}}', "VALID")]:
+        source.write_bytes(raw)
+        assert inspect(path).status == expected
+
+
+def test_rejected_root_never_reads_metadata(tmp_path, monkeypatch):
+    def forbidden(*args, **kwargs):
+        pytest.fail("Unsafe root must not be read")
+    monkeypatch.setattr(Path, "open", forbidden)
+    result = parse_source_metadata(tmp_path.parent, allowed_root=tmp_path)
+    assert result.status == "NOT_SCANNED" and not result.can_continue

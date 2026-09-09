@@ -13,7 +13,8 @@ texture size: 12x34 cm
 
 Vzorek **není JSON a neobsahuje hex barvu**. Starší tvrzení v technickém zadání
 o produkčním JSON s `COLOR.hex` a `TEXTURE_SIZE.cm` nebylo tímto podkladem
-potvrzeno. Parser takovou strukturu nepředpokládá. Textový výpis materiálu
+potvrzeno. JSON varianta je nyní podporována jako explicitně požadované
+rozšíření kontraktu. Textový výpis materiálu
 potvrzuje soubor v kořeni a samostatné adresáře masteru, PREVIEW a SOURCE.
 
 `web-manifest.json` je jiný dokument: objekt s `WEB_APP_PART` obsahujícím
@@ -24,105 +25,104 @@ Barvu neobsahuje. Bash skripty tento manifest generují jako `metadata.json`;
 nejsou zdrojem formátu produkční barvy. Archiv byl přečten v paměti, bez
 extrakce, spuštění či změny skriptů.
 
-## Kontrakt
+## Kontrakt parseru
 
-```python
-from app.source_metadata import parse_source_metadata
+`parse_source_metadata(material_path, *, allowed_root, boundary=None)` cte
+pouze `metadata.txt` v koreni materialu. Cesty musi byt absolutni, lokalni,
+pod povolenym rootem a bez symlinku/reparse points. Neplatny nebo nedostupny
+koren vraci `NOT_SCANNED`, strukturovanou chybu a `can_continue=false`.
 
-result = parse_source_metadata(material_path, allowed_root=local_snapshot_root)
-payload = result.to_dict()
+Vysledek obsahuje `source_filename`, `status`, `sha256`, `hex_color`,
+`width_cm`, `height_cm`, `master_resolution`, `master_modified_at`,
+`selected_zip_policy`, `warnings`, `errors`, `master_warnings`, `master_errors`
+a vlastnost `can_continue`. `to_dict()` serializuje Decimal jako presne
+retezce, nikdy jako float.
+
+### Presne stavy metadat
+
+| Status | Vyznam |
+|---|---|
+| NOT_SCANNED | Cteni nebylo zahajeno, napr. odmitnuty koren |
+| MISSING | Korenovy metadata.txt chybi |
+| VALID | Podporovana syntaxe, platne rozmery i barva, bez metadata warnings |
+| WARNING | Parsovatelny vstup s chybejici barvou, neplatnou hodnotou nebo jinym neblokujicim nedostatkem |
+| INVALID | Necitelny, prazdny, syntakticky neplatny, nepodporovany, prilis velky nebo nebezpecny soubor |
+
+Podrobnosti jsou ve Finding `{code, path, message}`. Problemy metadat vzdy
+pridavaji warnings, nikoli blokujici errors. `can_continue = not errors`.
+Toto neni souhlas s publikaci ani zmena workflow stavu.
+
+### Podporovane formaty
+
+1. Dolozeny text `texture size: WxH cm`. Prvni hodnota je sirka, druha vyska.
+   Toleruji se okrajove bile znaky, prazdne radky a desetinna tecka.
+   Duplicitni rozmerove radky nebo vadna syntaxe jsou INVALID.
+   Dalsi nezname radky se neinterpretuji a pridaji warning.
+2. Explicitne vyzadany JSON kontrakt, rozsireni oproti dodanemu textovemu
+   vzorku (nikoli tvrzeni, ze tento vzorek obsahuje JSON):
+
+```json
+{
+  "COLOR": {"hex": "#aabbcc"},
+  "TEXTURE_SIZE": {"cm": {"width": 12.5, "height": 34}}
+}
 ```
 
-`material_path` a povinný `allowed_root` jsou absolutní lokální cesty.
-Volitelné `boundary` má stejný kontrakt jako preflight. Funkce nejprve volá
-`preflight_material(..., inspect_web_manifest=False)`, takže přebírá jeho
-kontroly cest, výběr nejvyšší přímé složky `[1-9][0-9]*K`, warnings pro
-nestandardní rozlišení a výběr politiky. Nový přepínač preflightu má výchozí
-hodnotu `True`; jeho dosavadní volání zůstávají beze změny.
+JSON parser vyzaduje striktni syntaxi a korenovy objekt. Odmita duplicity,
+NaN/Infinity, koncove carky i dokumenty s WEB_APP_PART nebo DESKTOP_APP_PART.
+Neprohledava nahodne retezce pro hex a nepouziva literalni klic `COLOR.hex`;
+cte vnorene `COLOR` -> `hex`. Pripadne dalsi JSON atributy ignoruje.
+Rozmery cte pouze z `TEXTURE_SIZE.cm.width` a `.height`, jako kladna JSON
+cisla pres `Decimal` pro celociselne i desetinne tokeny. Boolean ani ciselny
+retezec nejsou rozmery. Chybejici/neplatny rozmer je null a warning
+`SOURCE_METADATA_INVALID_DIMENSION`; ostatni dostupne hodnoty zustavaji.
 
-| Pole výsledku | Typ a význam |
-|---|---|
-| `status` | `NOT_CHECKED`, `MISSING`, `UNREADABLE`, `UNSAFE_FILE`, `TOO_LARGE`, `EMPTY`, `INVALID_FORMAT`, `PARTIAL` |
-| `source_filename` | Vždy `metadata.txt` |
-| `sha256` | Hex SHA-256 všech původních bajtů, před dekódováním, ořezem či parsováním; jinak `None` |
-| `hex_color` | `None`, protože dostupný formát nemá doložené pole barvy |
-| `width_cm`, `height_cm` | Kladný `Decimal`, jinak `None`; první číslo je interpretováno jako šířka, druhé jako výška |
-| `master_resolution` | Nejvyšší skutečná xK složka, jinak `None` |
-| `master_modified_at` | UTC ISO timestamp převzatý z preflightu |
-| `selected_zip_policy` | Beze změny převzatá politika preflightu, jinak `None` |
-| `warnings`, `errors` | Seznam `Finding(code, path, message)` |
-| `can_continue` | `not errors`; problémy metadat přidávají pouze warnings |
+Chybejici hex je null a `HEX_COLOR_MISSING`. Pritomny neplatny hex nebo
+vadny typ COLOR vraci null a `HEX_COLOR_INVALID`. `normalize_hex()` je
+zapojena do JSON parsovani: prijima sest ASCII hex cislic s volitelnym #,
+vraci uppercase `#RRGGBB`. Nic se neodhaduje. Dolozeny textovy vzorek nema
+pole barvy a vraci WARNING / HEX_COLOR_MISSING.
 
-`to_dict()` převádí rozměry na přesné desetinné řetězce pro JSON; žádný krok
-nepřevádí rozměry na binární float. Ostatní nullable hodnoty jsou JSON null.
-Hash existuje i pro prázdný soubor, nevalidní UTF-8 nebo neplatnou syntaxi.
-Při nečitelnosti, nebezpečném typu souboru či překročení limitu hash chybí;
-neúplný hash se nevydává za hash souboru.
+### Master je oddeleny od metadat
 
-Parser hledá pouze `<material>/metadata.txt`. Nečte `metadata.json`,
-`web-manifest.json`, mapy ani vnořené metadata. Manifest přejmenovaný na
-`metadata.txt` je `INVALID_FORMAT`, nikoli alternativní zdroj hodnot.
+Po kontrole bezpecnosti korene se master a politika zjistuji stejnym
+preflight algoritmem jako drive (`inspect_web_manifest=False`). Jeho nalezy
+jsou v `master_warnings` a `master_errors`, nemeni metadata status ani
+`can_continue`. Chybejici xK, vadny master nebo chyba jeho stat nepreskoci
+cteni metadata.txt. Pro packaging musi budouci volajici kontrolovat
+`master_errors` zvlast. Stavajici `preflight_material` svuj kontrakt nemeni.
 
-## Přijatá syntaxe a upozornění
+SHA-256 se pocita ze vsech puvodnich bajtu pred dekodovanim. Je dostupny i
+pro prazdny/poskozeny soubor a bez masteru. Pri necitelnosti nebo limitu
+4 MiB je null, nikdy se nevraci hash nekompletniho souboru.
+Parser necte web-manifest.json, metadata.json ani vnorene TXT.
 
-UTF-8 text obsahuje právě jeden rozpoznaný řádek `texture size: WxH cm`.
-Okrajové bílé znaky a prázdné řádky se tolerují. Desetinná tečka je explicitní
-rozšíření podle požadavku na desetinné rozměry, nikoli vlastnost doloženého
-celočíselného vzorku. Čárka, exponent, NaN a Infinity se nepřijímají.
-Duplicitní rozměrové řádky jsou nejednoznačné a odmítnou se.
+## Politika a read-only zaruky
 
-- Chybějící, prázdný, nečitelný, příliš velký či nesprávně strukturovaný vstup
-  vrátí `SOURCE_METADATA_<status>`.
-- Chybějící nebo duplicitní rozměrový řádek navíc vrací
-  `SOURCE_METADATA_DIMENSIONS_MISSING` / `SOURCE_METADATA_DIMENSIONS_AMBIGUOUS`.
-- Nulová či záporná hodnota vrací `SOURCE_METADATA_INVALID_DIMENSION`;
-  druhý platný rozměr se zachová.
-- Doložený text nemá barvu: vrací `SOURCE_METADATA_HEX_MISSING` a stav
-  `PARTIAL`, i když je jeho rozměrová syntaxe platná.
-- Další řádky vrací `SOURCE_METADATA_UNRECOGNIZED_CONTENT`; platný rozměrový
-  řádek lze využít, obsah dalších řádků se neodhaduje.
+Hranice zustava 2026-03-04 00:00:00 Europe/Prague; pasmo lze konfigurovat
+ZIP_POLICY_TIMEZONE. Pred hranici plati LEGACY_BEFORE_2026_03_04,
+na ni a po ni CURRENT_ON_OR_AFTER_2026_03_04. Rozhoduje mtime master slozky.
 
-Samostatná funkce `normalize_hex` ověřuje šest ASCII hex číslic s volitelným
-`#` a vrací `#RRGGBB`; neplatná hodnota vyvolá `ValueError`. Je otestována,
-ale parser ji zatím nepoužívá, protože umístění/syntaxe barvy není doloženo.
-Test normalizace není důkazem podporovaného načítání barvy ze souboru.
+Parser otevre metadata pouze rb. Nic nezapisuje, nekopiruje, neprejmenovava,
+nevytvari ZIPy a nenastavuje timestamps. Testy overuji obsah, seznam cest,
+mtime a ctime. Atime muze menit operacni system; parser jej neobnovuje.
+Kontroly cest predpokladaji stabilni duveryhodny lokalni snapshot, nejsou
+atomickou ochranou proti soubezne vymene souboru.
 
-Chyby materiálové cesty nebo nemožnost určit master zůstávají blokující jako
-v preflightu. Problémy samotného `metadata.txt` nikdy nepřidávají `errors`
-a neblokují budoucí Done. Funkce sama žádný workflow stav nemění.
+## Testy a zbyle overeni
 
-## Časová politika a neměnnost
+Testy pouzivaji jen anonymni fixture a docasne slozky. Pokryvaji oba formaty,
+normalizaci a chyby hexu, presne Decimal, vsech pet statusu, chybejici master,
+SHA-256 puvodnich bajtu, manifest, bezpecnost korene, nemennost zdroje a
+historickou politiku. Skutecne podklady nejsou kopirovany do repozitare.
 
-Hranice zůstává `2026-03-04 00:00:00 Europe/Prague`:
-`LEGACY_BEFORE_2026_03_04` před ní,
-`CURRENT_ON_OR_AFTER_2026_03_04` přesně na ní a později.
-Konfigurace `ZIP_POLICY_TIMEZONE` mění explicitní pásmo bez změny algoritmu.
-Používá se LastWriteTime master složky, nikoli čas souboru metadat.
+JSON kontrakt COLOR.hex je nyni explicitne podporovany na zadost zadavatele;
+jeho pritomnost v produkci zustava neoverena. Dodany text obsahuje pouze
+rozmery. Poradi sirka x vyska je interpretace nepojmenovanych os.
+Pro produkcni smoke test je potreba lokalni kompletni koren s 16K, PREVIEW,
+SOURCE a metadata.txt; samostatna dosavadni kopie tuto podminku nesplnuje.
 
-Parser má limit 4 MiB a otevírá zdroj pouze `rb`. Nevytváří soubory, ZIPy,
-nepřejmenovává, nemaže, nezapisuje ani nenastavuje timestamps. Testy porovnávají
-obsah, seznam cest, mtime a ctime před/po dvou čteních. OS může při čtení měnit
-atime; záruka úplné neměnnosti všech časů vyžaduje read-only/noatime snapshot.
-Atime se neobnovuje zápisem. Stejně jako preflight je parser určen pro stabilní,
-důvěryhodný lokální snapshot, nikoli ochranu proti souběžné výměně cest.
-
-## Otevřené podklady
-
-1. Dodat skutečný vzorek obsahující barvu; bez něj nelze dokončit extrakci hexu
-   ani integrační test neplatného hex pole, aniž by se vymyslel vstupní formát.
-2. Potvrdit pořadí šířka × výška; samotný dodaný řádek osy nepojmenovává.
-3. Pokud existuje další produkční varianta s JSON obsahem, dodat ji před
-   implementací jejího parseru. Webový manifest není takovým vzorkem.
-
-Nový fixture obsahuje jen anonymní testovací rozměry. Skutečné podklady nebyly
-kopírovány do repozitáře ani měněny. Testy nemají žádnou závislost na jejich
-umístění, zákaznících či síťových cestách.
-
-## Ověření implementace
-
-Lokální běh `python -m pytest -p no:cacheprovider`: 78 testů prošlo
-(45 stávajících, 33 nových). Použit dostupný Python 3.11.4 a izolované
-existující testovací závislosti mimo repozitář. Cílový Python 3.13 tím není
-ověřen. Docker není dostupný v PATH ani na standardní instalační cestě,
-proto nebyl spuštěn podmíněný `scripts/test.ps1`.
-`git diff --check` a kontrola whitespace nových souborů prošly.
+Aktuální ověření: 46 cílených testů parseru a všech 91 worker testů prošlo
+na dostupném Pythonu 3.11.4. Cílový Python 3.13 zůstává neověřený.
+Docker není dostupný; podmíněný scripts/test.ps1 nebyl spuštěn.
+git diff --check prošel.

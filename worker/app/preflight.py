@@ -216,7 +216,8 @@ def _inspect_metadata(path: Path, result: PreflightResult) -> None:
 
 
 def preflight_material(material_path: str | Path, *, allowed_root: str | Path,
-                       boundary: datetime | None = None) -> PreflightResult:
+                       boundary: datetime | None = None,
+                       inspect_web_manifest: bool = True) -> PreflightResult:
     """Inspect direct resolution directories and root metadata in a trusted local tree.
 
     Default midnight uses ZIP_POLICY_TIMEZONE (Europe/Prague unless configured).
@@ -267,5 +268,6 @@ def preflight_material(material_path: str | Path, *, allowed_root: str | Path,
     except (OSError, ValueError, OverflowError) as exc:
         result.errors.append(Finding("MATERIAL_INSPECTION_FAILED", str(path), str(exc)))
         return result
-    _inspect_metadata(path / "metadata.json", result)
+    if inspect_web_manifest:
+        _inspect_metadata(path / "metadata.json", result)
     return result

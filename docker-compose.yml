@@ -28,6 +28,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-reawote}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      WORKER_BASE_URL: ${WORKER_BASE_URL:-http://worker:8000}
+      WORKER_TIMEOUT_SECONDS: ${WORKER_TIMEOUT_SECONDS:-2}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:

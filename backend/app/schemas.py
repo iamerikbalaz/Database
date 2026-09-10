@@ -1,9 +1,18 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated, Self
+from enum import StrEnum
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from app.db.models import (
     InternalUserRole,
@@ -312,7 +321,6 @@ class PBRMaterialMetadataFields(ApiSchema):
     status: MaterialMetadataStatus
     source_filename: SourceFilename | None
     source_sha256: Sha256 | None
-    source_content: str | None
     hex_color: HexColor | None
     width_cm: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=4)
     height_cm: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=4)
@@ -332,3 +340,64 @@ class PBRMaterialMetadataSnapshotRead(PBRMaterialMetadataFields):
     material_id: UUID
     sequence_number: int = Field(ge=1)
     created_at: datetime
+
+
+class MaterialZipPolicy(StrEnum):
+    LEGACY_BEFORE_2026_03_04 = "LEGACY_BEFORE_2026_03_04"
+    CURRENT_ON_OR_AFTER_2026_03_04 = "CURRENT_ON_OR_AFTER_2026_03_04"
+
+
+class MaterialFolderRequest(ApiSchema):
+    folder_path: FolderPath
+
+    @field_validator("folder_path")
+    @classmethod
+    def folder_path_must_be_relative_and_portable(cls, value: str) -> str:
+        if value.startswith("/") or "\\" in value or ":" in value:
+            raise ValueError("folder_path must be a relative POSIX-style path")
+        parts = value.split("/")
+        if any(part in {"", ".", ".."} for part in parts):
+            raise ValueError("folder_path must not contain empty, '.' or '..' segments")
+        if any(any(ord(character) < 32 for character in part) for part in parts):
+            raise ValueError("folder_path must not contain control characters")
+        return value
+
+
+class MaterialMarkDoneRequest(ApiSchema):
+    pass
+
+
+class MaterialTechnicalIdentityMismatch(ApiSchema):
+    code: Literal["TECHNICAL_IDENTITY_MISMATCH"]
+    message: LongText
+    expected_technical_identity: str
+    actual_folder_name: Name
+
+
+class MaterialFolderPreflightRead(ApiSchema):
+    schema_version: int = Field(ge=1, le=1)
+    folder_name: Name
+    master_resolution: MasterResolution | None
+    policy: MaterialZipPolicy | None
+    metadata_status: MaterialMetadataStatus
+    source_filename: SourceFilename | None
+    sha256: Sha256 | None
+    hex_color: HexColor | None
+    width_cm: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=4)
+    height_cm: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=4)
+    warnings: list[MaterialMetadataWarning]
+    errors: list[MaterialMetadataWarning | MaterialTechnicalIdentityMismatch]
+    identity_matches: bool
+    can_continue: bool
+
+
+class MaterialFolderLinkRead(ApiSchema):
+    material: PBRMaterialRead
+    preflight: MaterialFolderPreflightRead
+
+
+class MaterialMarkDoneRead(ApiSchema):
+    material: PBRMaterialRead
+    metadata: PBRMaterialMetadataRead
+    snapshot: PBRMaterialMetadataSnapshotRead
+    preflight: MaterialFolderPreflightRead

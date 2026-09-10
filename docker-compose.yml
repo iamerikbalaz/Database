@@ -52,12 +52,25 @@ services:
       context: ./worker
     environment:
       APP_ENV: development
+      MATERIALS_ROOT: ${MATERIALS_ROOT:-/materials}
       WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS:-30}
+    expose:
+      - "8080"
     depends_on:
       backend:
         condition: service_healthy
         restart: true
     init: true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=2)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   frontend:

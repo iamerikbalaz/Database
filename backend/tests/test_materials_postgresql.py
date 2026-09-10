@@ -29,6 +29,7 @@ from app.db.models import (
 )
 from app.db.session import Database
 from app.main import create_app
+from app.worker_client import WorkerMaterialPreflight
 
 
 POSTGRES_TEST_ADMIN_URL = os.getenv("POSTGRES_TEST_ADMIN_URL")
@@ -81,6 +82,52 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
     config = Config("alembic.ini")
 
     command.check(config)
+
+
+class _ConcurrentPreflightWorker:
+    def __init__(self, barrier: Barrier, material_identity: str) -> None:
+        self._barrier = barrier
+        self._response = WorkerMaterialPreflight.model_validate_json(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "folder_name": material_identity,
+                    "master_resolution": "16K",
+                    "policy": "CURRENT_ON_OR_AFTER_2026_03_04",
+                    "metadata_status": "VALID",
+                    "source_filename": "metadata.txt",
+                    "sha256": "b" * 64,
+                    "raw_content": "texture size: 20x30 cm",
+                    "hex_color": "#A1B2C3",
+                    "width_cm": "20.0000",
+                    "height_cm": "30.0000",
+                    "warnings": [],
+                    "errors": [],
+                    "can_continue": True,
+                }
+            ),
+            strict=True,
+        )
+
+    def preflight(self, folder_path: str) -> WorkerMaterialPreflight:
+        assert folder_path
+        self._barrier.wait(timeout=10)
+        return self._response
+
+
+def _concurrent_mark_done_request(
+    database_url: str,
+    material_id: object,
+    worker: _ConcurrentPreflightWorker,
+) -> tuple[int, dict[str, object]]:
+    database = Database(database_url)
+    try:
+        application = create_app(Settings(database_url=database_url), database, worker)
+        with TestClient(application) as client:
+            response = client.post(f"/api/materials/{material_id}/mark-done")
+            return response.status_code, response.json()
+    finally:
+        database.dispose()
 
 
 def _setup_prefix_race(migrated_postgresql_url: str) -> dict[str, object]:
@@ -687,6 +734,54 @@ def _create_postgresql_material_with_metadata(database_url: str, suffix: str) ->
         material_id = material.id
     engine.dispose()
     return material_id
+
+
+def test_concurrent_mark_done_creates_one_atomic_snapshot(
+    migrated_postgresql_url: str,
+) -> None:
+    material_id = _create_postgresql_material_with_metadata(
+        migrated_postgresql_url,
+        uuid4().hex[:12],
+    )
+    engine = create_engine(migrated_postgresql_url)
+    with Session(engine) as session:
+        material = session.get(PBRMaterial, material_id)
+        assert material is not None
+        material.folder_path = f"library/{material.technical_identity}"
+        identity = material.technical_identity
+        session.commit()
+    engine.dispose()
+
+    worker = _ConcurrentPreflightWorker(Barrier(2), identity)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(
+                _concurrent_mark_done_request,
+                migrated_postgresql_url,
+                material_id,
+                worker,
+            )
+            for _ in range(2)
+        ]
+        results = [future.result(timeout=20) for future in futures]
+
+    assert sorted(result[0] for result in results) == [200, 409]
+    engine = create_engine(migrated_postgresql_url)
+    with Session(engine) as session:
+        material = session.get(PBRMaterial, material_id)
+        current = session.get(PBRMaterialMetadata, material_id)
+        snapshots = list(
+            session.scalars(
+                select(PBRMaterialMetadataSnapshot).where(
+                    PBRMaterialMetadataSnapshot.material_id == material_id
+                )
+            )
+        )
+        assert len(snapshots) == 1
+        assert material is not None and material.workflow_status == "DONE"
+        assert current is not None and current.current_snapshot_id == snapshots[0].id
+        assert snapshots[0].sequence_number == 1
+    engine.dispose()
 
 
 @pytest.mark.parametrize(

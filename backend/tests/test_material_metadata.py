@@ -128,7 +128,6 @@ def test_new_material_has_persisted_empty_metadata_state(
         "status": "NOT_SCANNED",
         "source_filename": None,
         "source_sha256": None,
-        "source_content": None,
         "hex_color": None,
         "width_cm": None,
         "height_cm": None,
@@ -190,7 +189,7 @@ def test_current_metadata_and_audit_snapshots_have_explicit_read_contract_and_or
     assert current_body["status"] == "WARNING"
     assert current_body["source_filename"] == "metadata.txt"
     assert current_body["source_sha256"] == "a" * 64
-    assert current_body["source_content"].startswith("color=#D4E5F6")
+    assert "source_content" not in current_body
     assert current_body["hex_color"] == "#D4E5F6"
     assert current_body["width_cm"] == "121.7500"
     assert current_body["height_cm"] == "75.2500"

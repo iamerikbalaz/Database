@@ -28,7 +28,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-reawote}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
-      WORKER_BASE_URL: ${WORKER_BASE_URL:-http://worker:8000}
+      WORKER_BASE_URL: ${WORKER_BASE_URL:-http://worker:8080}
       WORKER_TIMEOUT_SECONDS: ${WORKER_TIMEOUT_SECONDS:-2}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
@@ -54,12 +54,25 @@ services:
       context: ./worker
     environment:
       APP_ENV: development
+      MATERIALS_ROOT: ${MATERIALS_ROOT:-/materials}
       WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS:-30}
+    expose:
+      - "8080"
     depends_on:
       backend:
         condition: service_healthy
         restart: true
     init: true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=2)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   frontend:

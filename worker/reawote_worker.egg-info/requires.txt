@@ -1,0 +1,7 @@
+fastapi<1,>=0.116
+tzdata>=2026.1
+uvicorn[standard]<1,>=0.35
+
+[dev]
+httpx<1,>=0.28
+pytest<10,>=8.4

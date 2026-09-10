@@ -7,10 +7,17 @@ name = "reawote-worker"
 version = "0.1.0"
 description = "REAWOTE background worker foundation"
 requires-python = ">=3.13,<3.14"
-dependencies = ["tzdata>=2026.1"]
+dependencies = [
+  "fastapi>=0.116,<1",
+  "tzdata>=2026.1",
+  "uvicorn[standard]>=0.35,<1",
+]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.4,<10"]
+dev = [
+  "httpx>=0.28,<1",
+  "pytest>=8.4,<10",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

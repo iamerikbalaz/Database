@@ -12,4 +12,4 @@ COPY tests ./tests
 
 RUN pip install --no-cache-dir ".[dev]"
 
-CMD ["python", "-m", "app.main"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

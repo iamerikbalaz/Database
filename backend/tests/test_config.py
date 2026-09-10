@@ -1,4 +1,22 @@
+import pytest
+
 from app.core.config import Settings
+
+
+def test_default_worker_url_uses_worker_http_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("WORKER_BASE_URL", raising=False)
+
+    assert Settings(_env_file=None).worker_base_url == "http://localhost:8080"
+
+
+def test_worker_url_environment_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WORKER_BASE_URL", "http://worker:8080")
+
+    assert Settings(_env_file=None).worker_base_url == "http://worker:8080"
 
 
 def test_database_url_escapes_credentials() -> None:

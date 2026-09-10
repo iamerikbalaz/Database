@@ -29,7 +29,7 @@ from app.db.models import (
 )
 from app.db.session import Database
 from app.main import create_app
-from app.worker_client import WorkerMaterialPreflight
+from app.worker_client import WorkerMaterialPreflight, WorkerMaterialPreflightResponse
 
 
 POSTGRES_TEST_ADMIN_URL = os.getenv("POSTGRES_TEST_ADMIN_URL")
@@ -87,20 +87,26 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
 class _ConcurrentPreflightWorker:
     def __init__(self, barrier: Barrier, material_identity: str) -> None:
         self._barrier = barrier
-        self._response = WorkerMaterialPreflight.model_validate_json(
+        wire_response = WorkerMaterialPreflightResponse.model_validate_json(
             json.dumps(
                 {
                     "schema_version": 1,
+                    "folder_path": f"library/{material_identity}",
                     "folder_name": material_identity,
                     "master_resolution": "16K",
+                    "master_last_modified_at": "2026-03-04T00:00:00.000000000+00:00",
                     "policy": "CURRENT_ON_OR_AFTER_2026_03_04",
-                    "metadata_status": "VALID",
-                    "source_filename": "metadata.txt",
-                    "sha256": "b" * 64,
-                    "raw_content": "texture size: 20x30 cm",
-                    "hex_color": "#A1B2C3",
-                    "width_cm": "20.0000",
-                    "height_cm": "30.0000",
+                    "metadata": {
+                        "status": "VALID",
+                        "source_file_name": "metadata.txt",
+                        "sha256": "b" * 64,
+                        "raw_content": "texture size: 20x30 cm",
+                        "hex_color": "#A1B2C3",
+                        "width_cm": "20.0000",
+                        "height_cm": "30.0000",
+                        "warnings": [],
+                        "errors": [],
+                    },
                     "warnings": [],
                     "errors": [],
                     "can_continue": True,
@@ -108,6 +114,7 @@ class _ConcurrentPreflightWorker:
             ),
             strict=True,
         )
+        self._response = wire_response.to_internal()
 
     def preflight(self, folder_path: str) -> WorkerMaterialPreflight:
         assert folder_path

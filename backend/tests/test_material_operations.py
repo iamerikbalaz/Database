@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable, Iterator
+from decimal import Decimal
 from uuid import UUID
 
 import httpx
@@ -21,6 +22,7 @@ from app.worker_client import (
     MAX_WORKER_RESPONSE_BYTES,
     WorkerClient,
     WorkerMaterialPreflight,
+    WorkerMaterialPreflightResponse,
     WorkerResponseError,
     WorkerUnavailableError,
 )
@@ -75,16 +77,22 @@ def _stream_response(
 def _worker_response_bytes(identity: str = "SAFE_0001_G03") -> bytes:
     return json.dumps({
         "schema_version": 1,
+        "folder_path": f"library/{identity}",
         "folder_name": identity,
         "master_resolution": "16K",
+        "master_last_modified_at": "2026-03-04T00:00:00.000000000+00:00",
         "policy": "CURRENT_ON_OR_AFTER_2026_03_04",
-        "metadata_status": "VALID",
-        "source_filename": "metadata.txt",
-        "sha256": "a" * 64,
-        "raw_content": RAW_SECRET,
-        "hex_color": "#A1B2C3",
-        "width_cm": "12.5000",
-        "height_cm": "34.0000",
+        "metadata": {
+            "status": "VALID",
+            "source_file_name": "metadata.txt",
+            "sha256": "a" * 64,
+            "raw_content": RAW_SECRET,
+            "hex_color": "#A1B2C3",
+            "width_cm": "12.5000",
+            "height_cm": "34.0000",
+            "warnings": [],
+            "errors": [],
+        },
         "warnings": [],
         "errors": [],
         "can_continue": True,
@@ -185,28 +193,51 @@ def _preflight(
     metadata_status: str = "VALID",
     raw_content: str | None = RAW_SECRET,
     warnings: list[dict[str, str | None]] | None = None,
+    metadata_errors: list[dict[str, str | None]] | None = None,
     errors: list[dict[str, str | None]] | None = None,
 ) -> WorkerMaterialPreflight:
     findings = errors or []
-    return WorkerMaterialPreflight.model_validate_json(
+    folder_path = f"library/{identity}"
+
+    def wire_findings(
+        values: list[dict[str, str | None]] | None,
+        default_path: str,
+    ) -> list[dict[str, str]]:
+        return [
+            {
+                "code": str(item["code"]),
+                "message": str(item["message"]),
+                "path": str(item["path"] or default_path),
+            }
+            for item in values or []
+        ]
+
+    wire = WorkerMaterialPreflightResponse.model_validate_json(
         json.dumps({
             "schema_version": 1,
+            "folder_path": folder_path,
             "folder_name": identity,
             "master_resolution": "16K",
+            "master_last_modified_at": "2026-03-04T00:00:00.000000000+00:00",
             "policy": "CURRENT_ON_OR_AFTER_2026_03_04",
-            "metadata_status": metadata_status,
-            "source_filename": "metadata.txt",
-            "sha256": "a" * 64 if raw_content is not None else None,
-            "raw_content": raw_content,
-            "hex_color": "#A1B2C3" if metadata_status == "VALID" else None,
-            "width_cm": "12.5000" if metadata_status == "VALID" else None,
-            "height_cm": "34.0000" if metadata_status == "VALID" else None,
-            "warnings": warnings or [],
-            "errors": findings,
+            "metadata": {
+                "status": metadata_status,
+                "source_file_name": None if metadata_status == "MISSING" else "metadata.txt",
+                "sha256": "a" * 64 if raw_content is not None else None,
+                "raw_content": raw_content,
+                "hex_color": "#A1B2C3" if metadata_status == "VALID" else None,
+                "width_cm": "12.5000" if metadata_status == "VALID" else None,
+                "height_cm": "34.0000" if metadata_status == "VALID" else None,
+                "warnings": wire_findings(warnings, f"{folder_path}/metadata.txt"),
+                "errors": wire_findings(metadata_errors, f"{folder_path}/metadata.txt"),
+            },
+            "warnings": [],
+            "errors": wire_findings(findings, folder_path),
             "can_continue": not findings,
         }),
         strict=True,
     )
+    return wire.to_internal()
 
 
 def _link(
@@ -342,6 +373,7 @@ def test_folder_link_repeats_preflight_and_allows_metadata_warning(
     assert response.status_code == 200
     assert response.json()["material"]["folder_path"] == path
     assert response.json()["preflight"]["metadata_status"] == "MISSING"
+    assert response.json()["preflight"]["source_filename"] is None
     assert worker.calls == [path, path]
 
 
@@ -391,7 +423,7 @@ def test_folder_link_rejects_blocking_preflight_without_change(
     material = _create_material(client)
     result = _preflight(
         str(material["technical_identity"]),
-        metadata_status="NOT_SCANNED",
+        metadata_status="INVALID",
         raw_content=None,
         errors=[{"code": "MATERIAL_MISSING", "message": "Missing.", "path": None}],
     )
@@ -455,7 +487,8 @@ def test_metadata_problem_does_not_block_done(
             str(material["technical_identity"]),
             metadata_status=metadata_status,
             raw_content=raw_content,
-            warnings=[warning],
+            warnings=None if metadata_status == "INVALID" else [warning],
+            metadata_errors=[warning] if metadata_status == "INVALID" else None,
         )
     )
 
@@ -466,6 +499,7 @@ def test_metadata_problem_does_not_block_done(
     assert body["material"]["workflow_status"] == "DONE"
     assert body["metadata"]["status"] == metadata_status
     assert body["metadata"]["warnings"][0]["code"] == warning_code
+    assert body["preflight"]["warnings"][0]["code"] == warning_code
 
 
 def test_mark_done_persists_atomic_snapshot_and_current_metadata_without_status_drift(
@@ -540,7 +574,7 @@ def test_oversized_worker_response_during_mark_done_does_not_change_database(
     assert _link(client, worker, material).status_code == 200
     response = StreamingResponse([b"x" * MAX_WORKER_RESPONSE_BYTES, b"x"])
     monkeypatch.setattr(httpx, "stream", _stream_response(response))
-    worker.preflight = WorkerClient("http://worker:8000").preflight  # type: ignore[method-assign]
+    worker.preflight = WorkerClient("http://worker:8080").preflight  # type: ignore[method-assign]
 
     api_response = client.post(f"/api/materials/{material_id}/mark-done")
 
@@ -568,7 +602,7 @@ def test_blocking_worker_finding_does_not_change_done_state(
     worker.queue(
         _preflight(
             str(material["technical_identity"]),
-            metadata_status="NOT_SCANNED",
+            metadata_status="INVALID",
             raw_content=None,
             errors=[
                 {
@@ -637,12 +671,139 @@ def test_invalid_worker_response_is_controlled_and_does_not_leak_raw_content(
         }).encode()]
     )
     monkeypatch.setattr(httpx, "stream", _stream_response(response))
-    client = WorkerClient("http://worker:8000")
+    client = WorkerClient("http://worker:8080")
 
-    with pytest.raises(WorkerResponseError, match="invalid response"):
+    with pytest.raises(WorkerResponseError, match="invalid response") as exc_info:
         client.preflight("library/SAFE_0001_G03")
     assert response.closed is True
+    assert exc_info.value.__cause__ is None
+    assert raw_marker not in str(exc_info.value)
     assert raw_marker not in caplog.text
+
+
+def test_worker_client_maps_actual_nested_worker_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _worker_response_bytes()
+    response = StreamingResponse([payload], content_length=len(payload))
+    monkeypatch.setattr(httpx, "stream", _stream_response(response))
+
+    result = WorkerClient("http://worker:8080").preflight("library/SAFE_0001_G03")
+
+    assert result.folder_path == "library/SAFE_0001_G03"
+    assert result.folder_name == "SAFE_0001_G03"
+    assert result.master_last_modified_at == "2026-03-04T00:00:00.000000000+00:00"
+    assert result.metadata_status.value == "VALID"
+    assert result.source_filename == "metadata.txt"
+    assert result.raw_content == RAW_SECRET
+    assert result.hex_color == "#A1B2C3"
+    assert result.width_cm == Decimal("12.5000")
+    assert result.height_cm == Decimal("34.0000")
+    assert result.metadata_warnings == []
+    assert result.metadata_errors == []
+
+
+def test_worker_client_maps_metadata_warning_and_error_as_non_blocking_findings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = json.loads(_worker_response_bytes())
+    body["metadata"]["status"] = "WARNING"
+    body["metadata"]["warnings"] = [{
+        "code": "HEX_COLOR_MISSING",
+        "path": "library/SAFE_0001_G03/metadata.txt",
+        "message": "Color is missing",
+    }]
+    body["metadata"]["errors"] = [{
+        "code": "SOURCE_METADATA_INVALID_FORMAT",
+        "path": "library/SAFE_0001_G03/metadata.txt",
+        "message": "Metadata is invalid",
+    }]
+    payload = json.dumps(body).encode()
+    monkeypatch.setattr(httpx, "stream", _stream_response(StreamingResponse([payload])))
+
+    result = WorkerClient("http://worker:8080").preflight("library/SAFE_0001_G03")
+
+    assert [item.code for item in result.metadata_warnings] == ["HEX_COLOR_MISSING"]
+    assert [item.code for item in result.metadata_errors] == [
+        "SOURCE_METADATA_INVALID_FORMAT"
+    ]
+    assert result.can_continue is True
+
+
+def test_worker_client_accepts_missing_metadata_and_null_source_file_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = json.loads(_worker_response_bytes())
+    body["metadata"] = {
+        "status": "MISSING",
+        "source_file_name": None,
+        "sha256": None,
+        "raw_content": None,
+        "hex_color": None,
+        "width_cm": None,
+        "height_cm": None,
+        "warnings": [{
+            "code": "SOURCE_METADATA_MISSING",
+            "path": "library/SAFE_0001_G03/metadata.txt",
+            "message": "Root metadata.txt does not exist",
+        }],
+        "errors": [],
+    }
+    payload = json.dumps(body).encode()
+    monkeypatch.setattr(httpx, "stream", _stream_response(StreamingResponse([payload])))
+
+    result = WorkerClient("http://worker:8080").preflight("library/SAFE_0001_G03")
+
+    assert result.metadata_status.value == "MISSING"
+    assert result.source_filename is None
+    assert result.raw_content is None
+    assert result.width_cm is None
+    assert result.height_cm is None
+
+
+def test_worker_client_rejects_original_flat_stub_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = json.loads(_worker_response_bytes())
+    metadata = body.pop("metadata")
+    body.update({
+        "metadata_status": metadata["status"],
+        "source_filename": metadata["source_file_name"],
+        "sha256": metadata["sha256"],
+        "raw_content": metadata["raw_content"],
+        "hex_color": metadata["hex_color"],
+        "width_cm": metadata["width_cm"],
+        "height_cm": metadata["height_cm"],
+    })
+    payload = json.dumps(body).encode()
+    monkeypatch.setattr(httpx, "stream", _stream_response(StreamingResponse([payload])))
+
+    with pytest.raises(WorkerResponseError, match="invalid response"):
+        WorkerClient("http://worker:8080").preflight("library/SAFE_0001_G03")
+
+
+def test_worker_client_rejects_unknown_response_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = json.loads(_worker_response_bytes())
+    body["unknown"] = "must be rejected"
+    payload = json.dumps(body).encode()
+    monkeypatch.setattr(httpx, "stream", _stream_response(StreamingResponse([payload])))
+
+    with pytest.raises(WorkerResponseError, match="invalid response"):
+        WorkerClient("http://worker:8080").preflight("library/SAFE_0001_G03")
+
+
+def test_worker_client_rejects_response_for_different_folder_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = json.loads(_worker_response_bytes())
+    body["folder_path"] = "library/OTHER_0001_G03"
+    payload = json.dumps(body).encode()
+    monkeypatch.setattr(httpx, "stream", _stream_response(StreamingResponse([payload])))
+
+    with pytest.raises(WorkerResponseError, match="invalid response"):
+        WorkerClient("http://worker:8080").preflight("library/SAFE_0001_G03")
 
 
 def test_worker_response_content_length_over_limit_is_rejected_before_read(
@@ -655,7 +816,7 @@ def test_worker_response_content_length_over_limit_is_rejected_before_read(
     monkeypatch.setattr(httpx, "stream", _stream_response(response))
 
     with pytest.raises(WorkerResponseError, match="invalid response"):
-        WorkerClient("http://worker:8000").preflight("library/SAFE_0001_G03")
+        WorkerClient("http://worker:8080").preflight("library/SAFE_0001_G03")
 
     assert response.iterated is False
     assert response.closed is True
@@ -670,7 +831,7 @@ def test_chunked_worker_response_over_limit_stops_and_closes(
     monkeypatch.setattr(httpx, "stream", _stream_response(response))
 
     with pytest.raises(WorkerResponseError, match="invalid response"):
-        WorkerClient("http://worker:8000").preflight("library/SAFE_0001_G03")
+        WorkerClient("http://worker:8080").preflight("library/SAFE_0001_G03")
 
     assert response.yielded_chunks == 2
     assert response.closed is True
@@ -687,7 +848,7 @@ def test_worker_response_exactly_at_limit_is_accepted(
     )
     monkeypatch.setattr(httpx, "stream", _stream_response(response))
 
-    result = WorkerClient("http://worker:8000").preflight("library/SAFE_0001_G03")
+    result = WorkerClient("http://worker:8080").preflight("library/SAFE_0001_G03")
 
     assert result.folder_name == "SAFE_0001_G03"
     assert response.closed is True
@@ -700,7 +861,7 @@ def test_small_valid_worker_response_is_streamed_and_parsed(
     response = StreamingResponse([payload], content_length=len(payload))
     monkeypatch.setattr(httpx, "stream", _stream_response(response))
 
-    result = WorkerClient("http://worker:8000").preflight("library/SAFE_0001_G03")
+    result = WorkerClient("http://worker:8080").preflight("library/SAFE_0001_G03")
 
     assert result.can_continue is True
     assert response.iterated is True
@@ -717,7 +878,7 @@ def test_http_timeout_is_mapped_to_controlled_worker_unavailable(
     monkeypatch.setattr(httpx, "stream", timeout)
 
     with pytest.raises(WorkerUnavailableError, match="unavailable"):
-        WorkerClient("http://worker:8000", timeout_seconds=0.5).preflight(
+        WorkerClient("http://worker:8080", timeout_seconds=0.5).preflight(
             "library/SAFE_0001_G03"
         )
 

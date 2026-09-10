@@ -78,7 +78,27 @@ def _public_preflight(
     expected_identity: str,
 ) -> MaterialFolderPreflightRead:
     identity_matches = result.folder_name == expected_identity
-    public_result = result.model_dump(exclude={"raw_content"})
+    public_result = {
+        "schema_version": result.schema_version,
+        "folder_name": result.folder_name,
+        "master_resolution": result.master_resolution,
+        "policy": result.policy,
+        "metadata_status": result.metadata_status,
+        "source_filename": result.source_filename,
+        "sha256": result.sha256,
+        "hex_color": result.hex_color,
+        "width_cm": result.width_cm,
+        "height_cm": result.height_cm,
+        # Metadata errors are non-blocking in the worker contract, so expose them
+        # with the other metadata findings rather than as top-level safety errors.
+        "warnings": [
+            *[item.model_dump() for item in result.metadata_warnings],
+            *[item.model_dump() for item in result.metadata_errors],
+            *[item.model_dump() for item in result.warnings],
+        ],
+        "errors": [item.model_dump() for item in result.errors],
+        "can_continue": result.can_continue,
+    }
     for finding in [*public_result["warnings"], *public_result["errors"]]:
         finding_path = finding.get("path")
         if isinstance(finding_path, str) and (
@@ -150,7 +170,10 @@ def _metadata_values(result: WorkerMaterialPreflight, loaded_at: datetime) -> di
         "width_cm": result.width_cm,
         "height_cm": result.height_cm,
         "master_resolution": result.master_resolution,
-        "warnings": [warning.model_dump() for warning in result.warnings],
+        "warnings": [
+            *[warning.model_dump() for warning in result.metadata_warnings],
+            *[error.model_dump() for error in result.metadata_errors],
+        ],
         "loaded_at": loaded_at,
     }
 

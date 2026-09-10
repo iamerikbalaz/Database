@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Annotated, Protocol, Self
+from typing import Annotated, Literal, Protocol, Self
 
 import httpx
 from pydantic import (
@@ -10,6 +10,7 @@ from pydantic import (
     ValidationError,
     model_validator,
 )
+
 from app.db.models import MaterialMetadataStatus
 from app.schemas import MaterialZipPolicy
 
@@ -25,6 +26,7 @@ FolderName = Annotated[
 SourceFilename = Annotated[str, StringConstraints(min_length=1, max_length=255)]
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 HexColor = Annotated[str, StringConstraints(pattern=r"^#[0-9A-F]{6}$")]
+FolderPath = Annotated[str, StringConstraints(min_length=1, max_length=2048)]
 MasterResolution = Annotated[
     str,
     StringConstraints(min_length=2, max_length=16, pattern=r"^[1-9][0-9]*K$"),
@@ -43,6 +45,19 @@ class WorkerResponseError(WorkerClientError):
     pass
 
 
+class WorkerFindingResponse(BaseModel):
+    """Exact finding object returned inside the worker wire response."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    code: str
+    message: str
+    path: str
+
+    def to_internal(self) -> "WorkerFinding":
+        return WorkerFinding(code=self.code, message=self.message, path=self.path)
+
+
 class WorkerFinding(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -54,34 +69,132 @@ class WorkerFinding(BaseModel):
     ] | None
 
 
-class WorkerMaterialPreflight(BaseModel):
+class WorkerMetadataResponse(BaseModel):
+    """The nested metadata object returned by the worker HTTP API."""
+
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    schema_version: int
+    status: Literal["MISSING", "VALID", "WARNING", "INVALID"]
+    source_file_name: SourceFilename | None
+    sha256: Sha256 | None
+    raw_content: str | None = Field(
+        default=None,
+        max_length=4 * 1024 * 1024,
+        repr=False,
+    )
+    hex_color: HexColor | None
+    width_cm: str | None
+    height_cm: str | None
+    warnings: list[WorkerFindingResponse]
+    errors: list[WorkerFindingResponse]
+
+    @model_validator(mode="after")
+    def validate_source_filename(self) -> Self:
+        if self.source_file_name is not None and (
+            self.source_file_name != self.source_file_name.strip()
+            or "/" in self.source_file_name
+            or "\\" in self.source_file_name
+        ):
+            raise ValueError("source_file_name must be a basename")
+        return self
+
+
+class WorkerMaterialPreflightResponse(BaseModel):
+    """Exact wire response for worker POST /internal/material-preflight."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1]
+    folder_path: FolderPath
     folder_name: FolderName
     master_resolution: MasterResolution | None
+    master_last_modified_at: str | None
+    policy: MaterialZipPolicy | None
+    metadata: WorkerMetadataResponse
+    warnings: list[WorkerFindingResponse]
+    errors: list[WorkerFindingResponse]
+    can_continue: bool
+
+    @model_validator(mode="after")
+    def validate_contract(self) -> Self:
+        if self.folder_name != self.folder_name.strip():
+            raise ValueError("folder_name must not contain surrounding whitespace")
+        if "/" in self.folder_name or "\\" in self.folder_name:
+            raise ValueError("folder_name must be a single path component")
+        if self.can_continue != (not self.errors):
+            raise ValueError("can_continue must correspond to the absence of top-level errors")
+        return self
+
+    def to_internal(self) -> "WorkerMaterialPreflight":
+        """Map the worker wire contract into the backend's operation model."""
+        return WorkerMaterialPreflight(
+            schema_version=self.schema_version,
+            folder_path=self.folder_path,
+            folder_name=self.folder_name,
+            master_resolution=self.master_resolution,
+            master_last_modified_at=self.master_last_modified_at,
+            policy=self.policy,
+            metadata_status=MaterialMetadataStatus(self.metadata.status),
+            source_filename=self.metadata.source_file_name,
+            sha256=self.metadata.sha256,
+            raw_content=self.metadata.raw_content,
+            hex_color=self.metadata.hex_color,
+            width_cm=(
+                Decimal(self.metadata.width_cm)
+                if self.metadata.width_cm is not None
+                else None
+            ),
+            height_cm=(
+                Decimal(self.metadata.height_cm)
+                if self.metadata.height_cm is not None
+                else None
+            ),
+            metadata_warnings=[item.to_internal() for item in self.metadata.warnings],
+            metadata_errors=[item.to_internal() for item in self.metadata.errors],
+            warnings=[item.to_internal() for item in self.warnings],
+            errors=[item.to_internal() for item in self.errors],
+            can_continue=self.can_continue,
+        )
+
+
+class WorkerMaterialPreflight(BaseModel):
+    """Backend-internal normalized preflight used by Material Done operations."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1]
+    folder_path: FolderPath
+    folder_name: FolderName
+    master_resolution: MasterResolution | None
+    master_last_modified_at: str | None
     policy: MaterialZipPolicy | None
     metadata_status: MaterialMetadataStatus
-    source_filename: SourceFilename
+    source_filename: SourceFilename | None
     sha256: Sha256 | None
-    raw_content: Annotated[str, StringConstraints(max_length=4 * 1024 * 1024)] | None
+    raw_content: str | None = Field(
+        default=None,
+        max_length=4 * 1024 * 1024,
+        repr=False,
+    )
     hex_color: HexColor | None
     width_cm: Decimal | None = Field(gt=0, max_digits=12, decimal_places=4)
     height_cm: Decimal | None = Field(gt=0, max_digits=12, decimal_places=4)
+    metadata_warnings: list[WorkerFinding]
+    metadata_errors: list[WorkerFinding]
     warnings: list[WorkerFinding]
     errors: list[WorkerFinding]
     can_continue: bool
 
     @model_validator(mode="after")
     def validate_contract(self) -> Self:
-        if self.schema_version != 1:
-            raise ValueError("Unsupported worker schema_version")
         if self.folder_name != self.folder_name.strip():
             raise ValueError("folder_name must not contain surrounding whitespace")
         if "/" in self.folder_name or "\\" in self.folder_name:
             raise ValueError("folder_name must be a single path component")
-        if self.source_filename != self.source_filename.strip() or (
-            "/" in self.source_filename or "\\" in self.source_filename
+        if self.source_filename is not None and (
+            self.source_filename != self.source_filename.strip()
+            or "/" in self.source_filename
+            or "\\" in self.source_filename
         ):
             raise ValueError("source_filename must be a basename")
         if self.can_continue != (not self.errors):
@@ -141,6 +254,13 @@ class WorkerClient:
 
         content = b"".join(chunks)
         try:
-            return WorkerMaterialPreflight.model_validate_json(content, strict=True)
-        except ValidationError as exc:
-            raise WorkerResponseError("Material worker returned an invalid response.") from exc
+            wire_response = WorkerMaterialPreflightResponse.model_validate_json(
+                content,
+                strict=True,
+            )
+            if wire_response.folder_path != folder_path:
+                raise ValueError("Worker folder_path does not match the request")
+            return wire_response.to_internal()
+        except (ArithmeticError, ValidationError, ValueError):
+            # Do not chain validation details: Pydantic errors can contain raw_content.
+            raise WorkerResponseError("Material worker returned an invalid response.") from None

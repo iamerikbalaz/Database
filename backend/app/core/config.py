@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     postgres_user: str = "reawote"
     postgres_password: str = "change-me-local-only"
     cors_origins: str = "http://localhost:5173"
-    worker_base_url: str = "http://worker:8000"
+    worker_base_url: str = "http://localhost:8080"
     worker_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
 
     model_config = SettingsConfigDict(

@@ -380,7 +380,7 @@ class MaterialFolderPreflightRead(ApiSchema):
     master_resolution: MasterResolution | None
     policy: MaterialZipPolicy | None
     metadata_status: MaterialMetadataStatus
-    source_filename: SourceFilename
+    source_filename: SourceFilename | None
     sha256: Sha256 | None
     hex_color: HexColor | None
     width_cm: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=4)

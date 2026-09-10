@@ -15,11 +15,19 @@ Worker request:
 {"folder_path": "library/BRAND_0001_G03"}
 ```
 
-Worker response v1 ma presne pole `schema_version`, `folder_name`,
-`master_resolution`, `policy`, `metadata_status`, `source_filename`, `sha256`,
-`raw_content`, `hex_color`, `width_cm`, `height_cm`, `warnings`, `errors` a
-`can_continue`. Neznama nebo chybejici pole jsou neplatna. `can_continue` musi byt
-presne ekvivalentem prazdneho seznamu `errors`. Backend raw obsah nikdy neloguje.
+Worker response v1 ma na top-levelu presne pole `schema_version`, `folder_path`,
+`folder_name`, `master_resolution`, `master_last_modified_at`, `policy`, `metadata`,
+`warnings`, `errors` a `can_continue`. Objekt `metadata` obsahuje `status`,
+`source_file_name`, `sha256`, `raw_content`, `hex_color`, `width_cm`, `height_cm`,
+`warnings` a `errors`. Neznama nebo chybejici pole jsou neplatna. `can_continue`
+musi byt presne ekvivalentem prazdneho top-level seznamu `errors`.
+
+Backend po strict validaci mapuje vnorene metadata do sveho interniho modelu:
+`metadata.status` na metadata status a `metadata.source_file_name` na
+`source_filename`. Metadata errors jsou stejne jako metadata warnings
+neblokujici; pouze top-level errors rozhoduji o `can_continue`. `raw_content` se
+pouzije jen pro ulozeni `source_content` snapshotu a backend jej nikdy nevraci
+ve verejne odpovedi ani nevklada do logu nebo kontrolovane chybove zpravy.
 
 ## Verejne endpointy
 

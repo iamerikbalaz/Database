@@ -3,6 +3,11 @@ import os
 import time
 from dataclasses import dataclass
 
+from app.api import app, create_app
+
+
+__all__ = ["WorkerSettings", "app", "create_app", "main", "run_once"]
+
 logger = logging.getLogger("reawote.worker")
 
 

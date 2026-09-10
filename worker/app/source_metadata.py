@@ -26,6 +26,7 @@ class SourceMetadataResult:
     source_filename: str = "metadata.txt"
     status: Literal["NOT_SCANNED", "MISSING", "VALID", "WARNING", "INVALID"] = "NOT_SCANNED"
     sha256: str | None = None
+    raw_content: str | None = None
     hex_color: str | None = None
     width_cm: Decimal | None = None
     height_cm: Decimal | None = None
@@ -114,6 +115,7 @@ def parse_source_metadata(material_path: str | Path, *, allowed_root: str | Path
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
         return stop("INVALID_FORMAT", "Source metadata is not UTF-8 text")
+    result.raw_content = text
     if not text.strip():
         return stop("EMPTY", "Source metadata is empty")
 

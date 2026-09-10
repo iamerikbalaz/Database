@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.preflight import ZipPolicy, preflight_material
+from app.secure_filesystem import secure_filesystem_access_supported
 from app.source_metadata import normalize_hex, parse_source_metadata
 
 
@@ -26,6 +27,8 @@ def material(tmp_path, raw=None):
 
 
 def inspect(path):
+    if not secure_filesystem_access_supported():
+        pytest.skip("descriptor-relative O_NOFOLLOW access is unavailable")
     return parse_source_metadata(path, allowed_root=path, boundary=BOUNDARY)
 
 
@@ -129,9 +132,14 @@ def test_only_root_source_file_is_read(tmp_path, monkeypatch):
 
 def test_unreadable_source(tmp_path, monkeypatch):
     path = material(tmp_path, b"texture size: 1x2 cm")
-    def denied(*args, **kwargs):
-        raise PermissionError("test")
-    monkeypatch.setattr(Path, "open", denied)
+    original_open = os.open
+
+    def denied(target, flags, *args, **kwargs):
+        if target == "metadata.txt":
+            raise PermissionError("test")
+        return original_open(target, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", denied)
     result = inspect(path)
     assert result.status == "INVALID"
     assert result.sha256 is None and result.can_continue

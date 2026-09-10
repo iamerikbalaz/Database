@@ -35,10 +35,39 @@ hostitelskou NAS cestu ani ji během testů nepřipojuje. Proměnná
 `folder_path` používá relativní komponenty pod `MATERIALS_ROOT`. Lomítka jsou
 ve výstupu normalizovaná na `/`. Prázdné komponenty, `.`, `..`, null byte,
 Windows drive/UNC/device cesty, Unix absolutní cesty a komponenty s `:` jsou
-odmítnuty ještě před přístupem k filesystemu. Každá komponenta existující
-cesty se kontroluje pomocí `lstat`; symlink nebo Windows reparse
-point/junction se nenásleduje. Kanonická cesta musí zůstat pod kanonickým
-kořenem.
+odmítnuty ještě před přístupem k filesystemu. Kanonická kontrola, `lstat`
+a kontrola reparse pointů zůstávají jako defense in depth, nejsou však
+bezpečnostní hranicí pro následné čtení.
+
+### Descriptor-based traversal a TOCTOU ochrana
+
+Produkční podporovaná cesta je Linux worker v Dockeru. Worker otevře
+`MATERIALS_ROOT` jednou jako directory file descriptor s `O_RDONLY`,
+`O_DIRECTORY`, `O_NOFOLLOW` a `O_CLOEXEC`. Každou komponentu `folder_path`
+potom otevírá pomocí `os.open(component, ..., dir_fd=parent_fd)` se stejnými
+no-follow directory příznaky. Již ověřená textová cesta se pro přístup
+k materiálu znovu nepoužije.
+
+Výpis přímých položek materiálu probíhá přes otevřený material descriptor.
+Každý kandidát xK je znovu otevřen relativně k tomuto descriptoru pomocí
+`O_DIRECTORY|O_NOFOLLOW`; jeho typ a timestamp pochází z `os.fstat` stejného
+otevřeného descriptoru. `metadata.txt` se otevírá relativně k material FD
+s `O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK`. `O_NONBLOCK` zabraňuje
+zablokování na podvrženém FIFO. Teprve `fstat` otevřeného metadata FD ověří,
+že jde o regular file a že deklarovaná velikost nepřekračuje limit. Bajty se
+čtou výhradně pomocí `os.read` ze stejného FD.
+
+Přejmenování nebo nahrazení adresáře či `metadata.txt` po prvotní kontrole
+proto nemůže přesměrovat otevřený descriptor na jiný inode. Všechny root,
+komponentní, resolution a metadata descriptory se zavírají přes garantovaný
+cleanup i při chybě.
+
+Pokud platforma neposkytuje `dir_fd`, descriptorové `listdir`, `O_NOFOLLOW`,
+`O_DIRECTORY` nebo další potřebné příznaky, API nepoužije `Path.open` ani jiný
+fallback. Vrátí 422 s kódem
+`SECURE_FILESYSTEM_ACCESS_UNAVAILABLE` a `can_continue=false`. Nativní Windows
+je proto záměrně fail-closed; bezpečné produkční zpracování je podporované
+v Linux kontejneru.
 
 Úspěšně dokončený preflight má `schema_version=1` a stabilní tvar:
 
@@ -80,8 +109,9 @@ v `metadata.txt` nikdy nenastaví `can_continue=false`.
 
 ## Metadata a limit
 
-Čte se pouze kořenový `<material>/metadata.txt`, vždy binárně a read-only.
-Limit je 4 MiB. Nejprve se kontroluje velikost z `lstat`; kvůli souběžnému
+Čte se pouze kořenový `<material>/metadata.txt`, vždy binárně a read-only
+z již otevřeného descriptoru materiálu. Limit je 4 MiB. Nejprve se kontroluje
+velikost pomocí `fstat` otevřeného metadata descriptoru; kvůli souběžnému
 růstu souboru je vlastní čtení omezeno na 4 MiB + 1 bajt. Při překročení se
 vrátí `metadata.status=INVALID`, chyba `SOURCE_METADATA_TOO_LARGE` a hodnoty
 `sha256` i `raw_content` jsou `null`. Nevrací se částečný hash ani obsah.
@@ -99,6 +129,9 @@ význam stavů parseru jsou popsány v `docs/source-metadata-parser.md`.
 | 422 | Vstupní cesta je neplatná/nebezpečná nebo složku nelze bezpečně zkontrolovat. |
 | 503 | `MATERIALS_ROOT` chybí, není absolutní, není adresář nebo není dostupný. |
 
+Kód `SECURE_FILESYSTEM_ACCESS_UNAVAILABLE` je kontrolovaná varianta 422 pro
+platformu bez požadovaných descriptorových primitiv.
+
 Chybové odpovědi vytvořené endpointem zachovávají stejný top-level JSON tvar;
 neobsahují absolutní cestu ani raw metadata a mají `can_continue=false`.
 
@@ -109,3 +142,7 @@ ani produkční soubory. Pokrývají relativní a chybějící cestu, Windows i 
 absolutní cestu, traversal a null byte, symlink únik (pokud jej OS dovolí),
 nedostupný kořen, všechny požadované metadata případy, 16K politiku, limit,
 read-only snapshot, absenci raw obsahu v logu a přesnou množinu klíčů kontraktu.
+Linuxová sada navíc deterministicky mění adresář i metadata mezi prvotní
+kontrolou a čtením, ověřuje připoutání k otevřenému inode, uzavření descriptorů,
+symlinky, adresář/FIFO místo metadat a omezené čtení. Na nativním Windows jsou
+tyto POSIX testy přeskočeny a samostatný test vyžaduje fail-closed odpověď.

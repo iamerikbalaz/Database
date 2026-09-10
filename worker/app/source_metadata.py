@@ -3,7 +3,6 @@
 import hashlib
 import json
 import re
-import stat
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from decimal import Decimal
@@ -11,8 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 from app.preflight import (
-    MAX_METADATA_BYTES, Finding, ZipPolicy, _is_link, preflight_material,
-    _local_path, _check_directory_chain, _reject_constant, _unique_object,
+    MAX_METADATA_BYTES, Finding, ZipPolicy, _local_path, _reject_constant, _unique_object,
 )
 
 
@@ -58,57 +56,38 @@ def normalize_hex(value: str) -> str:
     return "#" + value.removeprefix("#").upper()
 
 
-def parse_source_metadata(material_path: str | Path, *, allowed_root: str | Path,
-                          boundary: datetime | None = None) -> SourceMetadataResult:
-    """Inspect a stable trusted local snapshot; metadata issues never add errors.
-
-    Shares path guards, master selection and timezone policy with preflight.
-    Does not read metadata.json, web-manifest.json, maps or nested metadata.
-    OS-managed atime requires a noatime/read-only snapshot (no timestamp writes).
-    """
-    result = SourceMetadataResult()
-    material, root = Path(material_path), Path(allowed_root)
-    try:
-        _local_path(root)
-        _local_path(material)
-        if not material.is_relative_to(root):
-            raise ValueError("Material is outside the allowed root")
-        _check_directory_chain(material)
-    except (OSError, ValueError) as exc:
-        result.errors.append(Finding("MATERIAL_PATH_INVALID", str(material), str(exc)))
-        return result
-    preflight = preflight_material(material_path, allowed_root=allowed_root,
-                                   boundary=boundary, inspect_web_manifest=False)
+def parse_source_metadata_bytes(
+    raw: bytes | None,
+    *,
+    metadata_error: tuple[str, str] | None = None,
+    master_resolution: str | None = None,
+    master_modified_at: str | None = None,
+    selected_zip_policy: ZipPolicy | None = None,
+    master_warnings: list[Finding] | None = None,
+    master_errors: list[Finding] | None = None,
+) -> SourceMetadataResult:
+    """Parse bytes supplied by a secure opener; never open a filesystem path."""
     result = SourceMetadataResult(
-        master_resolution=preflight.master_resolution,
-        master_modified_at=preflight.master_modified_at,
-        selected_zip_policy=preflight.selected_zip_policy,
-        master_warnings=list(preflight.warnings), master_errors=list(preflight.errors),
+        master_resolution=master_resolution,
+        master_modified_at=master_modified_at,
+        selected_zip_policy=selected_zip_policy,
+        master_warnings=list(master_warnings or []),
+        master_errors=list(master_errors or []),
     )
-    path = Path(material_path) / result.source_filename
-
     def warn(code: str, message: str) -> None:
-        result.warnings.append(Finding(code, str(path), message))
+        result.warnings.append(Finding(code, result.source_filename, message))
 
     def stop(status: str, message: str) -> SourceMetadataResult:
         result.status = "MISSING" if status == "MISSING" else "INVALID"
         warn("SOURCE_METADATA_" + status, message)
         return result
 
-    try:
-        info = path.lstat()
-        if _is_link(info) or not stat.S_ISREG(info.st_mode):
-            return stop("UNSAFE_FILE", "Source metadata must be a plain regular file")
-        if info.st_size > MAX_METADATA_BYTES:
-            return stop("TOO_LARGE", "Source metadata exceeds the 4 MiB limit; no partial hash returned")
-        with path.open("rb") as source:
-            raw = source.read(MAX_METADATA_BYTES + 1)
-        if len(raw) > MAX_METADATA_BYTES:
-            return stop("TOO_LARGE", "Source metadata grew beyond the 4 MiB limit")
-    except FileNotFoundError:
+    if metadata_error is not None:
+        return stop(*metadata_error)
+    if raw is None:
         return stop("MISSING", "Root metadata.txt does not exist")
-    except OSError:
-        return stop("UNREADABLE", "Root metadata.txt could not be read")
+    if len(raw) > MAX_METADATA_BYTES:
+        return stop("TOO_LARGE", "Source metadata exceeds the 4 MiB limit")
 
     result.sha256 = hashlib.sha256(raw).hexdigest()
     try:
@@ -169,4 +148,36 @@ def parse_source_metadata(material_path: str | Path, *, allowed_root: str | Path
         warn("SOURCE_METADATA_UNRECOGNIZED_CONTENT",
              "Additional source lines are unsupported; no values inferred from them")
     result.status = "WARNING"  # The observed text format does not carry a color.
+    return result
+
+
+def parse_source_metadata(material_path: str | Path, *, allowed_root: str | Path,
+                          boundary: datetime | None = None) -> SourceMetadataResult:
+    """Compatibility entry point backed only by secure descriptor traversal."""
+    result = SourceMetadataResult()
+    material, root = Path(material_path), Path(allowed_root)
+    try:
+        _local_path(root)
+        _local_path(material)
+        relative = material.relative_to(root)
+    except (OSError, ValueError) as exc:
+        result.errors.append(Finding("MATERIAL_PATH_INVALID", "", str(exc)))
+        return result
+
+    from app.secure_filesystem import (
+        MaterialFolderNotFound,
+        MaterialsRootUnavailable,
+        SecureFilesystemAccessUnavailable,
+        UnsafeMaterialPath,
+        inspect_material_secure,
+    )
+
+    try:
+        return inspect_material_secure(root, tuple(relative.parts), boundary=boundary)
+    except SecureFilesystemAccessUnavailable as exc:
+        result.errors.append(Finding(
+            "SECURE_FILESYSTEM_ACCESS_UNAVAILABLE", "", str(exc)
+        ))
+    except (MaterialFolderNotFound, MaterialsRootUnavailable, UnsafeMaterialPath) as exc:
+        result.errors.append(Finding("MATERIAL_PATH_INVALID", "", str(exc)))
     return result

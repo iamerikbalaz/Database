@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: reawote-worker
+Version: 0.1.0
+Summary: REAWOTE background worker foundation
+Requires-Python: <3.14,>=3.13
+Requires-Dist: fastapi<1,>=0.116
+Requires-Dist: tzdata>=2026.1
+Requires-Dist: uvicorn[standard]<1,>=0.35
+Provides-Extra: dev
+Requires-Dist: httpx<1,>=0.28; extra == "dev"
+Requires-Dist: pytest<10,>=8.4; extra == "dev"

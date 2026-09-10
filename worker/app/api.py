@@ -1,7 +1,6 @@
 """Internal read-only HTTP API for material preflight."""
 
 import os
-import stat
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Literal
 
@@ -10,8 +9,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
-from app.preflight import Finding, ZipPolicy, _is_link
-from app.source_metadata import SourceMetadataResult, parse_source_metadata
+from app.preflight import Finding, ZipPolicy
+from app.secure_filesystem import (
+    MaterialFolderNotFound,
+    MaterialsRootUnavailable,
+    SecureFilesystemAccessUnavailable,
+    UnsafeMaterialPath,
+    inspect_material_secure,
+)
+from app.source_metadata import SourceMetadataResult
 
 
 SCHEMA_VERSION = 1
@@ -26,6 +32,7 @@ _METADATA_ERROR_CODES = frozenset({
 _BLOCKING_SECURITY_CODES = frozenset({
     "MATERIAL_INSPECTION_FAILED",
     "MATERIAL_PATH_INVALID",
+    "SECURE_FILESYSTEM_ACCESS_UNAVAILABLE",
     "UNSAFE_RESOLUTION",
 })
 
@@ -137,6 +144,9 @@ def _safe_finding(finding: Finding, folder_path: str, *, metadata: bool) -> Find
         "MATERIAL_INSPECTION_FAILED": "Material folder could not be inspected",
         "MATERIAL_PATH_INVALID": "Material folder path is invalid or unsafe",
         "NO_RESOLUTION": "No resolution directory found",
+        "SECURE_FILESYSTEM_ACCESS_UNAVAILABLE": (
+            "Secure descriptor-based filesystem access is unavailable"
+        ),
         "UNSAFE_RESOLUTION": "A linked resolution directory is not allowed",
     }
     return FindingResponse(
@@ -169,37 +179,7 @@ def _configured_root(value: str | os.PathLike[str] | None) -> Path:
     path = Path(value)
     if not path.is_absolute():
         raise RuntimeError("MATERIALS_ROOT must be an absolute directory")
-    try:
-        resolved = path.resolve(strict=True)
-        info = resolved.stat()
-        if not stat.S_ISDIR(info.st_mode):
-            raise RuntimeError("MATERIALS_ROOT is not a directory")
-        with os.scandir(resolved):
-            pass
-    except (OSError, RuntimeError) as exc:
-        raise RuntimeError("MATERIALS_ROOT is unavailable") from exc
-    return resolved
-
-
-def _material_directory(root: Path, parts: tuple[str, ...]) -> Path:
-    current = root
-    try:
-        for part in parts:
-            current = current / part
-            info = current.lstat()
-            if _is_link(info):
-                raise ValueError("Linked path components are not allowed")
-        resolved = current.resolve(strict=True)
-    except FileNotFoundError:
-        raise
-    except OSError as exc:
-        raise ValueError("Material folder could not be safely inspected") from exc
-
-    if not resolved.is_relative_to(root):
-        raise ValueError("Material folder resolves outside MATERIALS_ROOT")
-    if not resolved.is_dir():
-        raise ValueError("Material path is not a directory")
-    return resolved
+    return path
 
 
 def _perform_preflight(
@@ -226,8 +206,8 @@ def _perform_preflight(
         ), status.HTTP_503_SERVICE_UNAVAILABLE
 
     try:
-        material = _material_directory(root, parts)
-    except FileNotFoundError:
+        result = inspect_material_secure(root, parts)
+    except MaterialFolderNotFound:
         return _error_response(
             folder_path,
             folder_name,
@@ -235,7 +215,23 @@ def _perform_preflight(
             message="Material folder does not exist",
             metadata_status="MISSING",
         ), status.HTTP_404_NOT_FOUND
-    except ValueError as exc:
+    except MaterialsRootUnavailable:
+        return _error_response(
+            folder_path,
+            folder_name,
+            code="MATERIALS_ROOT_UNAVAILABLE",
+            message="MATERIALS_ROOT is not configured or unavailable",
+            metadata_status="INVALID",
+        ), status.HTTP_503_SERVICE_UNAVAILABLE
+    except SecureFilesystemAccessUnavailable:
+        return _error_response(
+            folder_path,
+            folder_name,
+            code="SECURE_FILESYSTEM_ACCESS_UNAVAILABLE",
+            message="Secure descriptor-based filesystem access is unavailable",
+            metadata_status="INVALID",
+        ), status.HTTP_422_UNPROCESSABLE_CONTENT
+    except UnsafeMaterialPath as exc:
         return _error_response(
             folder_path,
             folder_name,
@@ -244,7 +240,6 @@ def _perform_preflight(
             metadata_status="INVALID",
         ), status.HTTP_422_UNPROCESSABLE_CONTENT
 
-    result = parse_source_metadata(material, allowed_root=root)
     warnings = [_safe_finding(item, folder_path, metadata=False)
                 for item in result.master_warnings]
     blocking = [*result.errors, *result.master_errors]

@@ -1035,12 +1035,16 @@ def test_postgresql_rejects_invalid_warnings_for_current_and_snapshot_metadata(
 
 
 @pytest.mark.parametrize(
-    "valid_warnings",
+    ("valid_warnings", "expected_warnings"),
     [
-        pytest.param([], id="empty-array"),
+        pytest.param([], [], id="empty-array"),
         pytest.param(
             [
                 {"code": "VALID", "message": "Valid warning."},
+                {"code": "WITH_PATH", "message": "Valid path.", "path": "metadata.txt"},
+            ],
+            [
+                {"code": "VALID", "message": "Valid warning.", "path": None},
                 {"code": "WITH_PATH", "message": "Valid path.", "path": "metadata.txt"},
             ],
             id="warning-objects",
@@ -1055,6 +1059,7 @@ def test_postgresql_accepts_contract_valid_warnings(
     migrated_postgresql_url: str,
     table_name: str,
     valid_warnings: object,
+    expected_warnings: object,
 ) -> None:
     material_id = _create_postgresql_material_with_metadata(
         migrated_postgresql_url,
@@ -1071,11 +1076,11 @@ def test_postgresql_accepts_contract_valid_warnings(
             if table_name == "pbr_material_metadata":
                 response = client.get(f"/api/materials/{material_id}/metadata")
                 assert response.status_code == 200
-                assert response.json()["warnings"] == valid_warnings
+                assert response.json()["warnings"] == expected_warnings
             else:
                 response = client.get(f"/api/materials/{material_id}/metadata/snapshots")
                 assert response.status_code == 200
-                assert response.json()[0]["warnings"] == valid_warnings
+                assert response.json()[0]["warnings"] == expected_warnings
     finally:
         database.dispose()
         engine.dispose()

@@ -97,6 +97,16 @@ docker compose run --rm --no-deps frontend npm run build
 docker compose run --rm --no-deps frontend npm test
 ```
 
+Skutečný browserový tok Material Done přes izolovaný disposable Compose projekt
+spustíte po `npm.cmd ci` ve `frontend/` příkazem:
+
+```powershell
+.\scripts\test-demo-e2e.ps1
+```
+
+Runner nepoužívá běžné ani demo databázové volume. Podrobnosti a bezpečnostní
+invarianty jsou v [`docs/demo-e2e.md`](docs/demo-e2e.md).
+
 ## Databázové migrace
 
 Novou migraci vytvořte po přidání SQLAlchemy modelů:

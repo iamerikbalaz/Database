@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { httpApiClient } from "./client";
 import { internalUserFromDto, materialFromDto, parseInternalUser, parseMaterial } from "./materialDto";
-import { materialDto, processorDto } from "../test/materialFixtures";
+import { metadataDto, materialDto, preflightDto, processorDto, snapshotDto } from "../test/materialFixtures";
 import { parsePublishedBrand } from "./dto";
 import { materialBrand } from "../test/materialFixtures";
 afterEach(() => vi.unstubAllGlobals());
@@ -44,4 +44,67 @@ it("encodes search safely and does not send empty filters", async () => {
   const fetchMock = vi.fn(async () => new Response("[]")); vi.stubGlobal("fetch", fetchMock);
   await httpApiClient.getMaterials({ search: " A & B? ", project_id: "" });
   expect(fetchMock).toHaveBeenCalledWith("/api/materials?search=A+%26+B%3F", expect.any(Object));
+});
+
+it("uses the exact material-operation endpoints, bodies and explicit response mappings", async () => {
+  const linked = { ...materialDto, folder_path: `library/${materialDto.technical_identity}` };
+  const done = { ...linked, workflow_status: "DONE" };
+  const routes: Record<string, unknown> = {
+    [`POST /api/materials/${materialDto.id}/folder-preflight`]: {
+      ...preflightDto,
+      warnings: [{ code: "REVIEW", message: "Review metadata.", path: "C:\\server\\secret" }],
+      raw_content: "must be ignored",
+    },
+    [`POST /api/materials/${materialDto.id}/folder-link`]: { material: linked, preflight: preflightDto },
+    [`POST /api/materials/${materialDto.id}/mark-done`]: {
+      material: done,
+      metadata: { ...metadataDto, current_snapshot_id: snapshotDto.id, raw_content: "hidden" },
+      snapshot: { ...snapshotDto, source_content: "hidden" },
+      preflight: preflightDto,
+    },
+    [`GET /api/materials/${materialDto.id}/metadata`]: { ...metadataDto, raw_content: "hidden" },
+    [`GET /api/materials/${materialDto.id}/metadata/snapshots`]: [{ ...snapshotDto, source_content: "hidden" }],
+  };
+  const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+    const key = `${init?.method ?? "GET"} ${path}`;
+    return new Response(JSON.stringify(routes[key]), { status: key in routes ? 200 : 404 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const path = `library/${materialDto.technical_identity}`;
+
+  const preflight = await httpApiClient.preflightMaterialFolder(materialDto.id, path);
+  expect(preflight).toMatchObject({ schemaVersion: 1, folderName: materialDto.technical_identity, identityMatches: true, canContinue: true });
+  expect(preflight.warnings[0].path).toBeNull();
+  const link = await httpApiClient.linkMaterialFolder(materialDto.id, path);
+  const doneResult = await httpApiClient.markMaterialDone(materialDto.id);
+  const currentMetadata = await httpApiClient.getMaterialMetadata(materialDto.id);
+  const snapshots = await httpApiClient.getMaterialMetadataSnapshots(materialDto.id);
+  expect(link).toMatchObject({ material: { folderPath: path } });
+  expect(doneResult).toMatchObject({ material: { workflowStatus: "DONE" }, metadata: { currentSnapshotId: snapshotDto.id }, snapshot: { sequenceNumber: 1 } });
+  expect(currentMetadata).toMatchObject({ status: "NOT_SCANNED", sourceFilename: null });
+  expect(snapshots).toHaveLength(1);
+
+  const calls = fetchMock.mock.calls;
+  expect(calls[0][1]).toMatchObject({ method: "POST", body: JSON.stringify({ folder_path: path }) });
+  expect(calls[1][1]).toMatchObject({ method: "POST", body: JSON.stringify({ folder_path: path }) });
+  expect(calls[2][1]).toMatchObject({ method: "POST", body: undefined });
+  expect(calls[3][1]).toMatchObject({ method: "GET", body: undefined });
+  expect(calls[4][1]).toMatchObject({ method: "GET", body: undefined });
+  expect(JSON.stringify([preflight, link, doneResult, currentMetadata, snapshots])).not.toMatch(
+    /raw_content|source_content|rawContent|sourceContent|must be ignored|hidden/,
+  );
+});
+
+it.each([
+  ["preflight", { ...preflightDto, can_continue: undefined }],
+  ["metadata", { ...metadataDto, warnings: undefined }],
+  ["snapshot", { ...snapshotDto, sequence_number: 0 }],
+])("rejects a malformed required %s response", async (kind, body) => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(kind === "snapshot" ? [body] : body))));
+  const call = kind === "preflight"
+    ? httpApiClient.preflightMaterialFolder(materialDto.id, "library/material")
+    : kind === "metadata"
+      ? httpApiClient.getMaterialMetadata(materialDto.id)
+      : httpApiClient.getMaterialMetadataSnapshots(materialDto.id);
+  await expect(call).rejects.toThrow();
 });

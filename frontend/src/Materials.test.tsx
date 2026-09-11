@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import App from "./App";
 import { record } from "./api/dto";
 import { parseMaterial, type MaterialDto } from "./api/materialDto";
-import { inactiveDto, materialBrand, materialDto, materialProject, processorDto } from "./test/materialFixtures";
+import { inactiveDto, materialBrand, materialDto, materialProject, metadataDto, processorDto } from "./test/materialFixtures";
 
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 type Write = { path: string; method: string; body: Record<string, unknown> };
@@ -48,6 +48,8 @@ function backend(options: {
       ["/api/projects/" + materialProject.id]: materialProject,
       ["/api/brands/" + materialBrand.id]: materialBrand,
       ["/api/internal-users/" + processorDto.id]: processorDto,
+      ["/api/materials/" + current.id + "/metadata"]: { ...metadataDto, material_id: current.id },
+      ["/api/materials/" + current.id + "/metadata/snapshots"]: [],
     };
     return url.pathname in records ? response(records[url.pathname]) : response({ detail: "Not found" }, 404);
   });
@@ -119,7 +121,8 @@ it("combines all filters, honors an empty response and clears filters", async ()
 it("loads full detail including UUID, four-digit number, relations, path and states", async () => {
   backend(); render(<App initialPath={"/materials/" + materialDto.id} />);
   await screen.findByRole("heading", { name: materialDto.material_name });
-  for (const text of [materialDto.id, "9999", "Not linked", "G03", "in progress", "not checked", "not published", processorDto.display_name]) expect(screen.getByText(text)).toBeInTheDocument();
+  for (const text of [materialDto.id, "9999", "G03", "in progress", "not checked", "not published", processorDto.display_name]) expect(screen.getByText(text)).toBeInTheDocument();
+  expect(screen.getAllByText("Not linked")).toHaveLength(2);
   expect(screen.getByRole("link", { name: materialProject.name })).toHaveAttribute("href", "/projects/" + materialProject.id);
   expect(screen.getByRole("link", { name: materialBrand.name })).toHaveAttribute("href", "/brands/" + materialBrand.id);
   expect(screen.getByText(materialDto.created_at)).toBeInTheDocument();

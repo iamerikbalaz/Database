@@ -59,18 +59,6 @@ function Assert-RecordValue {
     }
 }
 
-function Write-Utf8Fixture {
-    param(
-        [Parameter(Mandatory)] [string] $Path,
-        [Parameter(Mandatory)] [string] $Content
-    )
-    [System.IO.File]::WriteAllText(
-        $Path,
-        $Content,
-        [System.Text.UTF8Encoding]::new($false)
-    )
-}
-
 function Invoke-WorkerPreflight {
     param(
         [Parameter(Mandatory)] [string] $WorkerBase,
@@ -89,8 +77,9 @@ function Invoke-WorkerPreflight {
 }
 
 $context = Get-DemoContext
+$ports = Get-DemoPortConfiguration -Context $context
+$urls = Get-DemoUrls -Ports $ports
 Assert-DockerAvailable
-$urls = Get-DemoUrls $context
 $script:BackendBase = $urls.Backend
 
 try {
@@ -196,10 +185,11 @@ $missingFolder = Join-Path $libraryRoot $materials.missing.technical_identity
 $mismatchFolderName = "DEMO_WRONG_FOLDER_G03"
 $mismatchFolder = Join-Path $libraryRoot $mismatchFolderName
 foreach ($folder in @($validFolder, $missingFolder, $mismatchFolder)) {
-    New-Item -ItemType Directory -Path (Join-Path $folder "16K") -Force | Out-Null
-    Write-Utf8Fixture `
+    [void](New-SafeDemoDirectory -Context $context -Path (Join-Path $folder "16K"))
+    [void](Write-SafeDemoTextFile `
+        -Context $context `
         -Path (Join-Path $folder "16K/README.txt") `
-        -Content "Demo-only empty master-resolution directory. No PBR maps are included.`n"
+        -Content "Demo-only empty master-resolution directory. No PBR maps are included.`n")
 }
 
 $validMetadata = @'
@@ -208,7 +198,10 @@ $validMetadata = @'
   "TEXTURE_SIZE": {"cm": {"width": 12.5, "height": 34}}
 }
 '@
-Write-Utf8Fixture -Path (Join-Path $validFolder "metadata.txt") -Content $validMetadata
+[void](Write-SafeDemoTextFile `
+    -Context $context `
+    -Path (Join-Path $validFolder "metadata.txt") `
+    -Content $validMetadata)
 
 foreach ($unexpectedMetadata in @(
     (Join-Path $missingFolder "metadata.txt"),
@@ -295,8 +288,11 @@ $state = [ordered]@{
         identity_mismatch_fixture = @{ metadata_status = $workerPreflights.mismatch.metadata.status; can_continue = $workerPreflights.mismatch.can_continue }
     }
 }
-New-Item -ItemType Directory -Path $context.DemoDataRoot -Force | Out-Null
-Write-Utf8Fixture -Path $context.StateFile -Content ($state | ConvertTo-Json -Depth 10)
+[void](New-SafeDemoDirectory -Context $context -Path $context.DemoDataRoot)
+[void](Write-SafeDemoTextFile `
+    -Context $context `
+    -Path $context.StateFile `
+    -Content ($state | ConvertTo-Json -Depth 10))
 
 Write-Host ""
 Write-Host "Demo seed is ready and idempotent stable records were reused where present."

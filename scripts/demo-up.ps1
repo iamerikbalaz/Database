@@ -4,33 +4,62 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot "demo-common.ps1")
 
 $context = Get-DemoContext
+$ports = Get-DemoPortConfiguration -Context $context
+$urls = Get-DemoUrls -Ports $ports
 Assert-DockerAvailable
 
-New-Item -ItemType Directory -Path $context.MaterialsRoot -Force | Out-Null
+[void](New-SafeDemoDirectory -Context $context -Path $context.MaterialsRoot)
 
 Invoke-DemoBaseCompose `
     -Context $context `
+    -Ports $ports `
     -Arguments @("config", "--quiet") `
     -Step "Base Docker Compose configuration validation"
 
-Invoke-DemoCompose `
+$renderedLines = @(Invoke-DemoCompose `
     -Context $context `
-    -Arguments @("config", "--quiet") `
-    -Step "Demo Docker Compose configuration validation"
-
-Invoke-DemoCompose `
+    -Ports $ports `
+    -Arguments @("config", "--format", "json") `
+    -Step "Rendered demo Docker Compose configuration validation")
+Assert-DemoRenderedCompose `
+    -Json ($renderedLines -join [System.Environment]::NewLine) `
     -Context $context `
-    -Arguments @("up", "--build", "--detach", "--wait") `
-    -Step "Demo environment startup"
+    -Ports $ports
 
-# Backend startup already applies migrations. Running the command again proves that
-# the current Alembic head is reached idempotently before seeding.
-Invoke-DemoCompose `
-    -Context $context `
-    -Arguments @("exec", "-T", "backend", "alembic", "upgrade", "head") `
-    -Step "Demo Alembic upgrade"
+$startupAttempted = $false
+$startupComplete = $false
+try {
+    $startupAttempted = $true
+    Invoke-DemoCompose `
+        -Context $context `
+        -Ports $ports `
+        -Arguments @("up", "--build", "--detach", "--wait") `
+        -Step "Demo environment startup"
 
-$urls = Get-DemoUrls $context
+    # Backend startup already applies migrations. Running the command again proves that
+    # the current Alembic head is reached idempotently before seeding.
+    Invoke-DemoCompose `
+        -Context $context `
+        -Ports $ports `
+        -Arguments @("exec", "-T", "backend", "alembic", "upgrade", "head") `
+        -Step "Demo Alembic upgrade"
+    $startupComplete = $true
+}
+finally {
+    if ($startupAttempted -and -not $startupComplete) {
+        try {
+            Invoke-DemoCompose `
+                -Context $context `
+                -Ports $ports `
+                -Arguments @("down", "--remove-orphans") `
+                -Step "Failed demo startup cleanup"
+        }
+        catch {
+            Write-Error "Demo startup failed and project cleanup also failed: $($_.Exception.Message)"
+        }
+    }
+}
+
 Write-Host "REAWOTE demo is running as Compose project '$($context.ProjectName)'."
 Write-Host "Frontend:    $($urls.Frontend)"
 Write-Host "Backend API: $($urls.Backend)/docs"

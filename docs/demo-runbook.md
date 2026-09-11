@@ -18,7 +18,11 @@ databázové záznamy a malé textové fixtures pod `.demo-data/`.
   databázový volume ani fixtures.
 
 Adresář `.demo-data/` je generovaný a ignorovaný Gitem. Skripty neprovádějí
-rekurzivní mazání. Tento runbook záměrně neposkytuje reset skript.
+rekurzivní mazání. Každý zápis kontroluje kanonickou cestu bezprostředně před
+operací, odmítá `..` a všechny existující reparse pointy (symlink, junction i
+mount point) od skutečného kořene repozitáře až k cíli. Nové adresáře vznikají
+po jedné úrovni a každá úroveň se po vytvoření znovu ověří. Tento runbook
+záměrně neposkytuje reset skript.
 
 ## Požadavky
 
@@ -26,7 +30,7 @@ rekurzivní mazání. Tento runbook záměrně neposkytuje reset skript.
 - spuštěný Docker Desktop s Docker Compose v2;
 - volné výchozí porty `15173`, `18000` a `18080`.
 
-Volitelně lze vytvořit ignorovaný `.env.demo` a změnit pouze lokální porty:
+Volitelně lze vytvořit ignorovaný `.env.demo` pro ostatní lokální demo hodnoty:
 
 ```powershell
 Copy-Item .env.demo.example .env.demo
@@ -35,9 +39,21 @@ Copy-Item .env.demo.example .env.demo
 Skript použije `.env.demo`, pokud existuje; jinak bezpečně použije přímo
 `.env.demo.example`. Název Compose projektu, demo volume a hostitelský adresář
 fixtures nelze přes tento soubor přesměrovat na běžné vývojové nebo produkční
-úložiště. U `BACKEND_PORT` a `FRONTEND_PORT` zachovejte tvar
-`127.0.0.1:<port>`; skripty jiné síťové rozhraní odmítnou. Worker port je také
-v Compose pevně publikovaný jen na `127.0.0.1`.
+úložiště.
+
+Volitelné porty se zadávají pouze jako celá čísla přes `DEMO_*` proměnné:
+
+```powershell
+$env:DEMO_FRONTEND_PORT = "15173"
+$env:DEMO_BACKEND_PORT = "18000"
+$env:DEMO_WORKER_PORT = "18080"
+```
+
+Hodnoty musí být bez whitespace v rozsahu `1`–`65535`. Host, dvojtečka, URL,
+`*` ani další text nejsou povoleny. `BACKEND_PORT`, `FRONTEND_PORT` a
+`WORKER_PORT` v Compose env nejsou uživatelské vstupy; demo skripty je pro
+každé volání Compose dočasně přepíší bezpečným bindem na `127.0.0.1` a původní
+procesní hodnoty následně obnoví.
 
 ## Spuštění a seed
 
@@ -49,8 +65,17 @@ Z kořene repozitáře spusťte přesně:
 .\scripts\demo-status.ps1
 ```
 
-`demo-up.ps1` ověří základní i sloučenou Compose konfiguraci, sestaví a spustí služby,
-počká na jejich healthchecky a explicitně provede `alembic upgrade head`.
+`demo-up.ps1` ještě před prvním Docker příkazem validuje všechny tři číselné
+porty a výsledné URL. Následně ověří základní konfiguraci a načte sloučenou
+konfiguraci jako JSON. Před `up` odmítne jakýkoli publikovaný port, jehož
+`host_ip` není přesně `127.0.0.1`, neočekávané mapování portů nebo jiný worker
+bind mount. Potom sestaví a spustí služby, počká na healthchecky a explicitně
+provede `alembic upgrade head`.
+
+Pokud po pokusu o `up` selže pozdější kontrola nebo migrace, `finally` provede
+jen `docker compose down --remove-orphans` pro pevný projekt `reawote-demo`.
+Nepoužije `-v`; demo databázový volume zůstane zachovaný a projektu `reawote`
+se nedotkne.
 `demo-seed.ps1` bezpečně znovu použije záznamy nalezené podle stabilních demo
 klíčů. Pokud najde více shod nebo konflikt klíče, skončí chybou místo výběru
 náhodného záznamu.
@@ -152,24 +177,82 @@ destruktivní reset.
 
 ## Ruční ověřovací příkazy
 
-Skripty vždy předávají oba Compose soubory, explicitní env file a pevný název
-projektu. Stejnou konfiguraci lze ověřit ručně:
+Demo ověření používá pouze demo skripty, oba Compose soubory, explicitní env
+file a pevný název projektu `reawote-demo`:
 
 ```powershell
-docker compose -f docker-compose.yml config --quiet
-docker compose --project-name reawote-demo --env-file .env.demo.example -f docker-compose.yml -f docker-compose.demo.yml config --quiet
-.\scripts\test.ps1
+.\scripts\demo-tests.ps1
 .\scripts\demo-up.ps1
 .\scripts\demo-seed.ps1
 .\scripts\demo-seed.ps1
 .\scripts\demo-status.ps1
+.\scripts\demo-down.ps1
+.\scripts\demo-up.ps1
+.\scripts\demo-seed.ps1
+.\scripts\demo-status.ps1
+.\scripts\demo-down.ps1
 git diff --check
 ```
 
 Pro kontrolu persistence spusťte `demo-down.ps1`, poté znovu `demo-up.ps1` a
 `demo-seed.ps1`. Výpis a `.demo-data/demo-records.json` musí obsahovat stejná
-UUID. `demo-status.ps1` navíc kontroluje backend, worker, frontend, přítomnost
-dedikovaného volume a to, že worker mount `/demo-materials` má `RW=false`.
+UUID. `demo-status.ps1` skončí nenulově při chybějícím, zastaveném nebo
+nezdravém kontejneru, nefunkčním health endpointu, chybějícím volume,
+neočekávaném databázovém mountu nebo worker mountu bez `RW=false`. Úspěch vždy
+končí zprávou `All required REAWOTE demo status and safety checks passed.`
+
+Přesná automatická kontrola persistence a zachování volume:
+
+```powershell
+$before = Get-Content -Raw .demo-data/demo-records.json | ConvertFrom-Json
+$beforeIds = @(
+    $before.company.id
+    $before.published_brand.id
+    $before.project.id
+    $before.processor.id
+    $before.materials.valid.id
+    $before.materials.missing_metadata.id
+    $before.materials.identity_mismatch.id
+)
+
+.\scripts\demo-down.ps1
+docker volume inspect reawote-demo-postgres-data --format '{{.Name}}'
+.\scripts\demo-up.ps1
+.\scripts\demo-seed.ps1
+.\scripts\demo-status.ps1
+
+$after = Get-Content -Raw .demo-data/demo-records.json | ConvertFrom-Json
+$afterIds = @(
+    $after.company.id
+    $after.published_brand.id
+    $after.project.id
+    $after.processor.id
+    $after.materials.valid.id
+    $after.materials.missing_metadata.id
+    $after.materials.identity_mismatch.id
+)
+if (Compare-Object $beforeIds $afterIds) {
+    throw "Demo UUID persistence check failed."
+}
+Write-Host "Demo UUIDs and dedicated database volume persisted."
+.\scripts\demo-down.ps1
+```
+
+`demo-status.ps1` v tomto postupu současně ověřuje, že runtime port bindings
+jsou jen na `127.0.0.1`, worker mount je bind a read-only a databáze používá
+výhradně `reawote-demo-postgres-data`.
+
+### Samostatná regresní kontrola hlavního vývojového prostředí
+
+Následující příkaz není součást izolovaného demo postupu:
+
+```powershell
+.\scripts\test.ps1
+```
+
+Používá běžný Compose projekt `reawote` a může během testů krátce spustit nebo
+zastavit jeho databázovou službu. Spouštějte jej samostatně, až po kontrole
+stavu hlavního vývojového prostředí. Demo skripty tento příkaz nevolají.
 
 ## Známé omezení
 

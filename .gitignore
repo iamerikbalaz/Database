@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.demo.example
 secrets/
 *service-account*.json
 
@@ -23,6 +24,7 @@ coverage/
 
 # Generated files
 generated/
+.demo-data/
 worker-output/
 temp/
 tmp/

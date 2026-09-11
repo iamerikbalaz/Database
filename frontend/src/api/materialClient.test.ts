@@ -75,10 +75,14 @@ it("uses the exact material-operation endpoints, bodies and explicit response ma
   const preflight = await httpApiClient.preflightMaterialFolder(materialDto.id, path);
   expect(preflight).toMatchObject({ schemaVersion: 1, folderName: materialDto.technical_identity, identityMatches: true, canContinue: true });
   expect(preflight.warnings[0].path).toBeNull();
-  expect(await httpApiClient.linkMaterialFolder(materialDto.id, path)).toMatchObject({ material: { folderPath: path } });
-  expect(await httpApiClient.markMaterialDone(materialDto.id)).toMatchObject({ material: { workflowStatus: "DONE" }, metadata: { currentSnapshotId: snapshotDto.id }, snapshot: { sequenceNumber: 1 } });
-  expect(await httpApiClient.getMaterialMetadata(materialDto.id)).toMatchObject({ status: "NOT_SCANNED", sourceFilename: null });
-  expect(await httpApiClient.getMaterialMetadataSnapshots(materialDto.id)).toHaveLength(1);
+  const link = await httpApiClient.linkMaterialFolder(materialDto.id, path);
+  const doneResult = await httpApiClient.markMaterialDone(materialDto.id);
+  const currentMetadata = await httpApiClient.getMaterialMetadata(materialDto.id);
+  const snapshots = await httpApiClient.getMaterialMetadataSnapshots(materialDto.id);
+  expect(link).toMatchObject({ material: { folderPath: path } });
+  expect(doneResult).toMatchObject({ material: { workflowStatus: "DONE" }, metadata: { currentSnapshotId: snapshotDto.id }, snapshot: { sequenceNumber: 1 } });
+  expect(currentMetadata).toMatchObject({ status: "NOT_SCANNED", sourceFilename: null });
+  expect(snapshots).toHaveLength(1);
 
   const calls = fetchMock.mock.calls;
   expect(calls[0][1]).toMatchObject({ method: "POST", body: JSON.stringify({ folder_path: path }) });
@@ -86,7 +90,9 @@ it("uses the exact material-operation endpoints, bodies and explicit response ma
   expect(calls[2][1]).toMatchObject({ method: "POST", body: undefined });
   expect(calls[3][1]).toMatchObject({ method: "GET", body: undefined });
   expect(calls[4][1]).toMatchObject({ method: "GET", body: undefined });
-  expect(JSON.stringify([preflight, await httpApiClient.getMaterialMetadataSnapshots(materialDto.id)])).not.toMatch(/raw_content|source_content|must be ignored|hidden/);
+  expect(JSON.stringify([preflight, link, doneResult, currentMetadata, snapshots])).not.toMatch(
+    /raw_content|source_content|rawContent|sourceContent|must be ignored|hidden/,
+  );
 });
 
 it.each([

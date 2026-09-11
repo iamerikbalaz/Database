@@ -114,18 +114,16 @@ Pokud jste změnili porty v `.env.demo`, skripty vypíší odpovídající URL.
 
 ## Prezentační scénář v prohlížeči
 
-Současný frontend zobrazuje entity a materiály, ale zatím nemá UI pro
-filesystem operace a metadata historii. Tyto existující backendové operace se
-proto během dema spouštějí v druhé kartě přes Swagger UI. Není potřeba terminál
-ani přímý přístup k databázi.
+Současný frontend zobrazuje entity, materiály, bezpečný folder preflight,
+propojení složky, Done i metadata historii. Swagger UI lze ponechat otevřené
+jen jako volitelný pohled na kontrakt; prezentační tok se provádí v aplikaci.
 
 1. Otevřete URL firmy vypsané seed skriptem. Stránka ukazuje firmu, publikovanou
    značku a projekt.
 2. Otevřete URL validního materiálu. Detail ukazuje projekt, značku a aktivního
    zpracovatele `Demo Processor`.
-3. Otevřete Swagger UI a rozbalte
-   `POST /api/materials/{material_id}/folder-preflight`. Jako `material_id`
-   použijte UUID `valid` z `.demo-data/demo-records.json` a jako body jeho cestu:
+3. Na detailu validního materiálu zadejte jeho relativní cestu ze state souboru
+   do pole `Relative folder path` a zvolte `Check folder`:
 
    ```json
    {"folder_path":"demo-library/DEMO_SAFE_0001_G03"}
@@ -134,22 +132,17 @@ ani přímý přístup k databázi.
    Přesná identita může být po dříve přerušeném seedu jiná; vždy použijte
    hodnotu `materials.valid.folder_path` ze state souboru. Očekávaný výsledek
    je `identity_matches=true`, `metadata_status=VALID` a `can_continue=true`.
-4. Stejným endpointem ověřte `missing_metadata`. Výsledek má
+4. Stejným UI ověřte materiál `missing_metadata`. Výsledek má
    `metadata_status=MISSING`, ale `identity_matches=true` a `can_continue=true`.
-5. Ověřte `identity_mismatch`. Výsledek má `identity_matches=false`,
-   `can_continue=false` a chybu `TECHNICAL_IDENTITY_MISMATCH`.
-6. Pro validní materiál spusťte
-   `POST /api/materials/{material_id}/folder-link` se stejným body z kroku 3.
-7. Pro tentýž materiál spusťte
-   `POST /api/materials/{material_id}/mark-done`. Pokud Swagger nabídne
-   volitelné body, použijte `{}`. Odpověď ukáže stav `DONE`, načtená metadata a
-   právě vytvořený immutable snapshot; raw obsah souboru se veřejně nevrací.
-8. Obnovte detail materiálu ve frontendové kartě. Uvidíte propojenou složku a
-   workflow status `done`.
-9. Ve Swagger UI spusťte
-   `GET /api/materials/{material_id}/metadata` a
-   `GET /api/materials/{material_id}/metadata/snapshots`. Druhý endpoint ukáže
-   auditní historii snapshotů.
+5. U materiálu `identity_mismatch` spusťte `Check folder`. Výsledek má
+   `identity_matches=false`, `can_continue=false`, chybu
+   `TECHNICAL_IDENTITY_MISMATCH` a neaktivní `Link folder`.
+6. Vraťte se k validnímu materiálu, znovu zkontrolujte cestu a potvrďte
+   `Link folder`.
+7. Potvrďte `Mark as Done`. Detail ukáže stav `done`, current metadata a právě
+   vytvořený immutable snapshot; raw obsah souboru se veřejně nevrací.
+8. Obnovte stránku. Propojená složka, stav `done`, metadata i snapshot historie
+   zůstanou zobrazené.
 
 `mark-done` je doménově jednorázová operace a opakování správně vrací `409`.
 Po již provedené prezentaci lze stále demonstrovat preflighty a zobrazit uložená
@@ -254,10 +247,10 @@ Používá běžný Compose projekt `reawote` a může během testů krátce spu
 zastavit jeho databázovou službu. Spouštějte jej samostatně, až po kontrole
 stavu hlavního vývojového prostředí. Demo skripty tento příkaz nevolají.
 
-## Známé omezení
+## Automatický browserový E2E test
 
-Plně integrované ovládání preflight/link/Done a vykreslení metadata snapshotů v
-hlavním frontendu zatím neexistuje. Protože demo úkol výslovně zakazuje změnu
-frontendové aplikace a produkční backendové logiky, používá bezpečný existující
-Swagger UI. Toto je neblokující prezentační omezení, nikoli omezení API nebo
-demo dat.
+Frontend již obsahuje integrované ovládání preflight/link/Done i metadata
+historii. Automatický průchod nepoužívá persistentní demo projekt popsaný výše;
+spouští vlastní disposable projekt `reawote-e2e` podle
+[`docs/demo-e2e.md`](demo-e2e.md). Tím zůstává jednorázová operace Done
+opakovatelná a `reawote-demo-postgres-data` se nemění.

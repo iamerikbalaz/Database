@@ -41,7 +41,7 @@ export function RecordForm({
       active.current = false;
     };
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (failure) summary.current?.focus();
   }, [failure]);
 

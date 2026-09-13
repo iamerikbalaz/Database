@@ -37,11 +37,34 @@ function Get-ExactVolumeInspection {
     if ($names -notcontains $Name) { return $null }
     $json = (& docker volume inspect $Name) -join [Environment]::NewLine
     Assert-LastCommandSucceeded "Inspect Docker volume '$Name'"
-    $inspection = @($json | ConvertFrom-Json -ErrorAction Stop)
+    try {
+        $inspection = @($json | ConvertFrom-Json -ErrorAction Stop)
+    }
+    catch {
+        throw 'Docker returned invalid structured JSON for the expected E2E volume.'
+    }
     if ($inspection.Count -ne 1 -or $inspection[0].Name -ne $Name) {
         throw "Docker returned an unexpected inspection for volume '$Name'."
     }
     return $inspection[0]
+}
+
+function Assert-E2eDatabaseEngineVolume {
+    param([switch] $RequirePresent)
+
+    $volume = Get-ExactVolumeInspection -Name $script:E2eDatabaseVolumeName
+    if ($null -eq $volume) {
+        if ($RequirePresent) {
+            throw 'The expected E2E Docker engine volume is missing.'
+        }
+        return $null
+    }
+    [void](Assert-E2eEngineVolumeInspection `
+        -Inspection $volume `
+        -ExpectedName $script:E2eDatabaseVolumeName `
+        -ExpectedProjectName $script:E2eProjectName `
+        -ExpectedLogicalVolumeName 'postgres_data')
+    return $volume
 }
 
 function Get-VolumeFingerprint {
@@ -93,11 +116,7 @@ function Assert-E2eResourcesOwned {
         $label = [string](Get-E2eObjectPropertyValue $inspection[0].Labels 'com.docker.compose.project')
         if ($label -ne $script:E2eProjectName) { throw 'Refusing cleanup: network is not owned by the exact E2E project.' }
     }
-    $volume = Get-ExactVolumeInspection -Name $script:E2eDatabaseVolumeName
-    if ($null -ne $volume -and ($volume.Labels.'com.docker.compose.project' -ne $script:E2eProjectName -or
-        $volume.Labels.'com.docker.compose.volume' -ne 'postgres_data')) {
-        throw 'Refusing cleanup: E2E volume name exists without the expected Compose ownership labels.'
-    }
+    [void](Assert-E2eDatabaseEngineVolume)
 }
 
 function Assert-NoE2eRuntimeResources {
@@ -169,6 +188,12 @@ function Assert-RuntimeDatabaseMount {
     if ($inspection.Count -ne 1) {
         throw 'Docker returned an unexpected database container inspection result.'
     }
+    $containerLabels = Get-E2eObjectPropertyValue $inspection[0].Config 'Labels'
+    $containerProject = [string](Get-E2eObjectPropertyValue $containerLabels 'com.docker.compose.project')
+    $containerService = [string](Get-E2eObjectPropertyValue $containerLabels 'com.docker.compose.service')
+    if ($containerProject -ne $script:E2eProjectName -or $containerService -ne 'database') {
+        throw 'Runtime database container does not have the exact expected Compose project and service labels.'
+    }
     [void](Assert-E2eRuntimeDatabaseVolume -Mounts @($inspection[0].Mounts) -ExpectedEngineName $script:E2eDatabaseVolumeName)
 }
 
@@ -177,13 +202,17 @@ function Reset-E2eDatabaseSchema {
 
     Assert-E2eResourcesOwned
     Assert-RuntimeDatabaseMount
-    $passwordLiteral = $Password.Replace("'", "''")
-    $statement = "ALTER ROLE reawote_e2e WITH PASSWORD '$passwordLiteral';`nDROP SCHEMA public CASCADE;`nCREATE SCHEMA public;"
-    Invoke-E2eComposeWithStandardInput -StandardInput $statement -Arguments @(
-        'exec', '--no-TTY', 'database',
-        'psql', '--username', $script:E2eDatabaseUser, '--dbname', $script:E2eDatabaseName,
-        '--set', 'ON_ERROR_STOP=1'
-    ) -Step 'Reset only the dedicated E2E database schema' -Mutation
+    Invoke-E2eGuardedAction -Validation {
+        [void](Assert-E2eDatabaseEngineVolume -RequirePresent)
+    } -Action {
+        $passwordLiteral = $Password.Replace("'", "''")
+        $statement = "ALTER ROLE reawote_e2e WITH PASSWORD '$passwordLiteral';`nDROP SCHEMA public CASCADE;`nCREATE SCHEMA public;"
+        Invoke-E2eComposeWithStandardInput -StandardInput $statement -Arguments @(
+            'exec', '--no-TTY', 'database',
+            'psql', '--username', $script:E2eDatabaseUser, '--dbname', $script:E2eDatabaseName,
+            '--set', 'ON_ERROR_STOP=1'
+        ) -Step 'Reset only the dedicated E2E database schema' -Mutation
+    }
 }
 
 function Invoke-E2eJsonPost {
@@ -305,12 +334,23 @@ try {
     Invoke-E2eCompose @('down', '--remove-orphans') 'Remove verified containers and network from an earlier E2E run' -Mutation
     Assert-NoE2eRuntimeResources
     $startupAttempted = $true
-    Invoke-E2eCompose @('up', '--detach', '--wait', 'database') 'Start isolated E2E database for verified schema reset' -Mutation
+    Invoke-E2eGuardedAction -Validation {
+        [void](Assert-E2eDatabaseEngineVolume)
+    } -Action {
+        Invoke-E2eCompose @('up', '--detach', '--wait', 'database') 'Start isolated E2E database for verified schema reset' -Mutation
+    }
+    Assert-E2eResourcesOwned
+    Assert-RuntimeDatabaseMount
     Reset-E2eDatabaseSchema -Password $postgresPassword
     Push-Location $frontendRoot
     try { & npm.cmd exec -- playwright install chromium; Assert-LastCommandSucceeded 'Install or verify Playwright Chromium' }
     finally { Pop-Location }
-    Invoke-E2eCompose @('up', '--build', '--detach', '--wait') 'Start isolated E2E environment' -Mutation
+    Invoke-E2eGuardedAction -Validation {
+        [void](Assert-E2eDatabaseEngineVolume -RequirePresent)
+    } -Action {
+        Invoke-E2eCompose @('up', '--build', '--detach', '--wait') 'Start isolated E2E environment' -Mutation
+    }
+    Assert-E2eResourcesOwned
     Assert-RuntimeDatabaseMount
     $state = New-E2eSeedManifestData $backendUrl $repositoryRoot $runRoot $script:E2eMaterialsRoot
     $runToken = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')

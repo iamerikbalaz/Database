@@ -130,7 +130,7 @@ try {
     $bindMountJson = '{"services":{"database":{"volumes":[{"type":"bind","source":"C:\\\\unsafe\\\\database","target":"/var/lib/postgresql"}]}},"volumes":{"postgres_data":{"name":"reawote-e2e-postgres-data"}}}' | ConvertFrom-Json
     Assert-ThrowsWithMessage {
         Assert-E2eComposeDatabaseVolume $bindMountJson 'reawote-e2e-postgres-data'
-    } @("type='bind'", "target='/var/lib/postgresql'") 'Compose rejects bind mount instead of named volume'
+    } @("type='bind'", "source='<redacted-non-volume-source>'", "target='/var/lib/postgresql'") 'Compose rejects bind mount instead of named volume' @([string]$bindMountJson.services.database.volumes[0].source)
 
     foreach ($case in @(
         @('wrong engine volume name', '{"services":{"database":{"volumes":[{"type":"volume","source":"postgres_data","target":"/var/lib/postgresql"}]}},"volumes":{"postgres_data":{"name":"foreign-volume"}}}'),
@@ -149,7 +149,57 @@ try {
     $extraRuntimeMount = @($validRuntimeMount[0], ('{"Type":"bind","Source":"C:\\\\unexpected","Destination":"/var/lib/postgresql/18/docker"}' | ConvertFrom-Json))
     Assert-ThrowsWithMessage {
         Assert-E2eRuntimeDatabaseVolume $extraRuntimeMount 'reawote-e2e-postgres-data'
-    } @("source='reawote-e2e-postgres-data'", "target='/var/lib/postgresql'", "type='bind'", "target='/var/lib/postgresql/18/docker'") 'runtime rejects additional data-directory mount'
+    } @("source='reawote-e2e-postgres-data'", "target='/var/lib/postgresql'", "type='bind'", "source='<redacted-non-volume-source>'", "target='/var/lib/postgresql/18/docker'") 'runtime rejects additional data-directory mount' @([string]$extraRuntimeMount[1].Source)
+
+    $volumeInspectNullOptions = '{"Name":"reawote-e2e-postgres-data","Driver":"local","Scope":"local","Options":null,"Labels":{"com.docker.compose.project":"reawote-e2e","com.docker.compose.volume":"postgres_data"}}' | ConvertFrom-Json
+    $volumeInspectEmptyOptions = '{"Name":"reawote-e2e-postgres-data","Driver":"local","Scope":"local","Options":{},"Labels":{"com.docker.compose.project":"reawote-e2e","com.docker.compose.volume":"postgres_data"}}' | ConvertFrom-Json
+    Assert-Equal (Assert-E2eEngineVolumeInspection $volumeInspectNullOptions 'reawote-e2e-postgres-data' 'reawote-e2e') 'reawote-e2e-postgres-data' 'engine volume accepts local scope with null Options'
+    Assert-Equal (Assert-E2eEngineVolumeInspection $volumeInspectEmptyOptions 'reawote-e2e-postgres-data' 'reawote-e2e') 'reawote-e2e-postgres-data' 'engine volume accepts local scope with empty Options'
+
+    foreach ($case in @(
+        @('different driver', '{"Name":"reawote-e2e-postgres-data","Driver":"custom","Scope":"local","Options":null,"Labels":{"com.docker.compose.project":"reawote-e2e","com.docker.compose.volume":"postgres_data"}}'),
+        @('different scope', '{"Name":"reawote-e2e-postgres-data","Driver":"local","Scope":"global","Options":null,"Labels":{"com.docker.compose.project":"reawote-e2e","com.docker.compose.volume":"postgres_data"}}'),
+        @('missing labels', '{"Name":"reawote-e2e-postgres-data","Driver":"local","Scope":"local","Options":null,"Labels":null}'),
+        @('spoofed labels', '{"Name":"reawote-e2e-postgres-data","Driver":"local","Scope":"local","Options":null,"Labels":{"com.docker.compose.project":"reawote","com.docker.compose.volume":"postgres_data"}}'),
+        @('spoofed volume label', '{"Name":"reawote-e2e-postgres-data","Driver":"local","Scope":"local","Options":null,"Labels":{"com.docker.compose.project":"reawote-e2e","com.docker.compose.volume":"foreign_data"}}'),
+        @('wrong name', '{"Name":"foreign-volume","Driver":"local","Scope":"local","Options":null,"Labels":{"com.docker.compose.project":"reawote-e2e","com.docker.compose.volume":"postgres_data"}}')
+    )) {
+        $name, $json = $case
+        Assert-Throws {
+            Assert-E2eEngineVolumeInspection ($json | ConvertFrom-Json) 'reawote-e2e-postgres-data' 'reawote-e2e'
+        } "engine volume rejects $name"
+    }
+
+    foreach ($case in @(
+        @('bind options', '{"type":"none","o":"bind","device":"C:\\\\sensitive\\database"}', 'sensitive'),
+        @('NFS options', '{"type":"nfs","o":"addr=10.0.0.10,rw","device":":/private/export"}', '10.0.0.10'),
+        @('CIFS options', '{"type":"cifs","o":"username=secret,password=hidden","device":"//nas/private"}', '//nas/private')
+    )) {
+        $name, $optionsJson, $forbiddenValue = $case
+        $inspectionJson = '{"Name":"reawote-e2e-postgres-data","Driver":"local","Scope":"local","Options":' + $optionsJson + ',"Labels":{"com.docker.compose.project":"reawote-e2e","com.docker.compose.volume":"postgres_data"}}'
+        Assert-ThrowsWithMessage {
+            Assert-E2eEngineVolumeInspection ($inspectionJson | ConvertFrom-Json) 'reawote-e2e-postgres-data' 'reawote-e2e'
+        } @('non-empty Options') "engine volume rejects $name without exposing values" @($forbiddenValue, 'device')
+    }
+
+    $upEvents = [Collections.Generic.List[string]]::new()
+    Invoke-E2eGuardedAction -Validation { $upEvents.Add('volume validation') } -Action { $upEvents.Add('compose up') }
+    Assert-Equal ($upEvents -join ',') 'volume validation,compose up' 'volume validation runs before compose up'
+
+    $dropEvents = [Collections.Generic.List[string]]::new()
+    Invoke-E2eGuardedAction -Validation { $dropEvents.Add('volume validation') } -Action { $dropEvents.Add('DROP SCHEMA') }
+    Assert-Equal ($dropEvents -join ',') 'volume validation,DROP SCHEMA' 'volume validation runs immediately before DROP SCHEMA'
+
+    $refusedEvents = [Collections.Generic.List[string]]::new()
+    Assert-Throws {
+        Invoke-E2eGuardedAction -Validation {
+            $refusedEvents.Add('volume validation')
+            throw 'unsafe synthetic volume'
+        } -Action {
+            $refusedEvents.Add('DROP SCHEMA')
+        }
+    } 'failed volume validation prevents destructive database command'
+    Assert-Equal ($refusedEvents -join ',') 'volume validation' 'destructive database command was not invoked after failed validation'
 
     Assert-Equal (Test-E2eLocalDockerEndpoint 'npipe:////./pipe/docker_engine' $true) $true 'local Windows Docker named pipe'
     Assert-Equal (Test-E2eLocalDockerEndpoint 'unix:///var/run/docker.sock' $false) $true 'local Unix Docker socket'
@@ -159,6 +209,15 @@ try {
     $runnerText = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'test-demo-e2e.ps1'))
     Assert-Equal ($runnerText -notmatch '(?i)docker\s+volume\s+rm') $true 'runner never invokes docker volume rm'
     Assert-Equal ($runnerText -notmatch '(?i)--volumes\b') $true 'runner never removes Compose volumes'
+    $allComposeUpCalls = @([regex]::Matches($runnerText, "Invoke-E2eCompose\s+@\('up'"))
+    $guardedComposeUpCalls = @([regex]::Matches(
+        $runnerText,
+        "(?s)Invoke-E2eGuardedAction\s+-Validation\s+\{\s*\[void\]\(Assert-E2eDatabaseEngineVolume(?:\s+-RequirePresent)?\)\s*\}\s+-Action\s+\{\s*Invoke-E2eCompose\s+@\('up'"
+    ))
+    Assert-Equal $allComposeUpCalls.Count 2 'runner has the expected two Compose up calls'
+    Assert-Equal $guardedComposeUpCalls.Count $allComposeUpCalls.Count 'every Compose up is protected by engine volume validation'
+    $guardedDropPattern = "(?s)function\s+Reset-E2eDatabaseSchema\s*\{.*?Invoke-E2eGuardedAction\s+-Validation\s+\{\s*\[void\]\(Assert-E2eDatabaseEngineVolume\s+-RequirePresent\)\s*\}\s+-Action\s+\{.*?DROP SCHEMA public CASCADE"
+    Assert-Equal ([regex]::IsMatch($runnerText, $guardedDropPattern)) $true 'DROP SCHEMA is inside a require-present engine volume guard'
 
     $mutexName = "Local\ReawoteDemoE2E-helper-$([guid]::NewGuid().ToString('N'))"
     $firstMutex = Enter-E2eRunMutex $mutexName

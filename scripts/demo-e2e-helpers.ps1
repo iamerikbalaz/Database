@@ -310,6 +310,68 @@ function Get-E2eObjectPropertyValue {
     return $property.Value
 }
 
+function Assert-E2eEngineVolumeInspection {
+    param(
+        [Parameter(Mandatory)] $Inspection,
+        [Parameter(Mandatory)] [string] $ExpectedName,
+        [Parameter(Mandatory)] [string] $ExpectedProjectName,
+        [string] $ExpectedLogicalVolumeName = 'postgres_data'
+    )
+
+    $name = [string](Get-E2eObjectPropertyValue $Inspection 'Name')
+    if (-not $name.Equals($ExpectedName, [System.StringComparison]::Ordinal)) {
+        throw 'E2E Docker engine volume has an unexpected name.'
+    }
+    $driver = [string](Get-E2eObjectPropertyValue $Inspection 'Driver')
+    if (-not $driver.Equals('local', [System.StringComparison]::Ordinal)) {
+        throw "E2E Docker engine volume must use Driver='local'."
+    }
+    $scope = [string](Get-E2eObjectPropertyValue $Inspection 'Scope')
+    if (-not $scope.Equals('local', [System.StringComparison]::Ordinal)) {
+        throw "E2E Docker engine volume must use Scope='local'."
+    }
+
+    $optionsProperty = $Inspection.PSObject.Properties['Options']
+    if ($null -eq $optionsProperty) {
+        throw 'E2E Docker engine volume must expose Options as null or an empty object.'
+    }
+    $options = $optionsProperty.Value
+    $hasOptions = if ($null -eq $options) {
+        $false
+    }
+    elseif ($options -is [System.Collections.IDictionary]) {
+        $options.Count -ne 0
+    }
+    elseif ($options -is [pscustomobject]) {
+        @($options.PSObject.Properties).Count -ne 0
+    }
+    else {
+        $true
+    }
+    if ($hasOptions) {
+        throw 'E2E Docker engine volume has non-empty Options; refusing all database mutations.'
+    }
+
+    $labels = Get-E2eObjectPropertyValue $Inspection 'Labels'
+    $projectLabel = [string](Get-E2eObjectPropertyValue $labels 'com.docker.compose.project')
+    $volumeLabel = [string](Get-E2eObjectPropertyValue $labels 'com.docker.compose.volume')
+    if (-not $projectLabel.Equals($ExpectedProjectName, [System.StringComparison]::Ordinal) -or
+        -not $volumeLabel.Equals($ExpectedLogicalVolumeName, [System.StringComparison]::Ordinal)) {
+        throw 'E2E Docker engine volume does not have the exact expected Compose ownership labels.'
+    }
+    return $ExpectedName
+}
+
+function Invoke-E2eGuardedAction {
+    param(
+        [Parameter(Mandatory)] [scriptblock] $Validation,
+        [Parameter(Mandatory)] [scriptblock] $Action
+    )
+
+    & $Validation
+    & $Action
+}
+
 function ConvertTo-E2eSafeMountField {
     param($Value)
 
@@ -330,8 +392,15 @@ function Format-E2eComposeMounts {
         return '<none>'
     }
     return (@($Mounts | ForEach-Object {
-        $type = ConvertTo-E2eSafeMountField (Get-E2eObjectPropertyValue $_ 'type')
-        $source = ConvertTo-E2eSafeMountField (Get-E2eObjectPropertyValue $_ 'source')
+        $typeValue = Get-E2eObjectPropertyValue $_ 'type'
+        $sourceValue = if ([string]$typeValue -eq 'volume') {
+            Get-E2eObjectPropertyValue $_ 'source'
+        }
+        else {
+            '<redacted-non-volume-source>'
+        }
+        $type = ConvertTo-E2eSafeMountField $typeValue
+        $source = ConvertTo-E2eSafeMountField $sourceValue
         $target = ConvertTo-E2eSafeMountField (Get-E2eObjectPropertyValue $_ 'target')
         "type='$type', source='$source', target='$target'"
     }) -join '; ')
@@ -349,7 +418,7 @@ function Format-E2eRuntimeMounts {
             Get-E2eObjectPropertyValue $_ 'Name'
         }
         else {
-            Get-E2eObjectPropertyValue $_ 'Source'
+            '<redacted-non-volume-source>'
         }
         $type = ConvertTo-E2eSafeMountField $typeValue
         $source = ConvertTo-E2eSafeMountField $sourceValue

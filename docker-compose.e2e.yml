@@ -1,0 +1,39 @@
+name: reawote-e2e
+
+services:
+  database:
+    environment:
+      POSTGRES_DB: reawote_e2e
+      POSTGRES_USER: reawote_e2e
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?E2E runner must provide an ephemeral password}
+
+  backend:
+    environment:
+      APP_ENV: e2e
+      POSTGRES_DB: reawote_e2e
+      POSTGRES_USER: reawote_e2e
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?E2E runner must provide an ephemeral password}
+      CORS_ORIGINS: http://127.0.0.1:${E2E_FRONTEND_PORT:?E2E frontend port is required}
+      WORKER_BASE_URL: http://worker:8080
+      WORKER_TIMEOUT_SECONDS: 5
+
+  worker:
+    environment:
+      APP_ENV: e2e
+      MATERIALS_ROOT: /e2e-materials
+    volumes:
+      - type: bind
+        source: ${E2E_MATERIALS_ROOT:?E2E materials root is required}
+        target: /e2e-materials
+        read_only: true
+    ports:
+      - "127.0.0.1:${E2E_WORKER_PORT:?E2E worker port is required}:8080"
+
+  frontend:
+    environment:
+      VITE_API_BASE_URL: /api
+      BACKEND_PROXY_TARGET: http://backend:8000
+
+volumes:
+  postgres_data:
+    name: reawote-e2e-postgres-data

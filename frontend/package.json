@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/test-demo-e2e.ps1",
+    "test:e2e:guard": "node e2e/direct-invocation.guard.test.mjs",
+    "test:e2e:helpers": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/test-demo-e2e-helpers.ps1",
+    "test:e2e:list": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/list-demo-e2e-tests.ps1"
   },
   "dependencies": {
     "react": "19.1.1",
@@ -15,6 +19,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.63.0",
     "@testing-library/jest-dom": "6.8.0",
     "@testing-library/react": "16.3.0",
     "@types/node": "22.18.1",

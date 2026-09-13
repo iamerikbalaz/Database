@@ -187,6 +187,7 @@ async function openAndConfirm(buttonName: string, dialogName: string) {
   fireEvent.click(screen.getByRole("button", { name: buttonName }));
   const dialog = screen.getByRole("dialog", { name: dialogName });
   fireEvent.click(within(dialog).getByRole("button", { name: buttonName }));
+  return dialog;
 }
 
 describe("material folder and Done UI", () => {
@@ -528,9 +529,12 @@ describe("material folder and Done UI", () => {
   it("shows and focuses a link conflict", async () => {
     await renderDetail({ linkError: new ApiError(409, "Conflict") });
     await runPreflight();
-    await openAndConfirm("Link folder", "Link this folder?");
+    const dialog = await openAndConfirm("Link folder", "Link this folder?");
     const error = await screen.findByRole("alert", { name: "" });
     expect(error).toHaveTextContent("already used or the material changed");
+    expect(error).toHaveFocus();
+    fireEvent(dialog, new Event("close"));
+    await act(async () => { await Promise.resolve(); });
     expect(error).toHaveFocus();
   });
 
@@ -542,9 +546,13 @@ describe("material folder and Done UI", () => {
   ])("handles a folder-link %s failure and focuses the error", async (_label, failure, message) => {
     await renderDetail({ linkError: failure });
     await runPreflight();
-    await openAndConfirm("Link folder", "Link this folder?");
+    const dialog = await openAndConfirm("Link folder", "Link this folder?");
     const errorText = await screen.findByText(message);
-    expect(errorText.closest("[role=alert]")).toHaveFocus();
+    const alert = errorText.closest("[role=alert]");
+    expect(alert).toHaveFocus();
+    fireEvent(dialog, new Event("close"));
+    await act(async () => { await Promise.resolve(); });
+    expect(alert).toHaveFocus();
   });
 
   it.each([
@@ -637,12 +645,13 @@ describe("material folder and Done UI", () => {
     await act(async () => reject(new ApiError(503, "Unavailable")));
   });
 
-  it("closes confirmation with Escape and restores focus", async () => {
+  it.each(["Cancel", "Escape"])("closes confirmation with %s and restores focus", async (method) => {
     await renderDetail({ linked: true });
     const trigger = screen.getByRole("button", { name: "Mark as Done" });
     fireEvent.click(trigger);
     const dialog = screen.getByRole("dialog", { name: "Mark this material as Done?" });
-    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    if (method === "Cancel") fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    else fireEvent(dialog, new Event("cancel", { cancelable: true }));
     expect(screen.queryByRole("dialog", { name: "Mark this material as Done?" })).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
   });

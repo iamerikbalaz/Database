@@ -180,11 +180,18 @@ it("explains category conflict as a future rename and preserves input", async ()
   expect(screen.getByLabelText("Main category *")).toHaveAttribute("aria-describedby", "field-mainCategoryCode-error");
 });
 it("maps 422 to labelled fields and focuses summary", async () => {
-  backend({ write: async () => response({ detail: [{ loc: ["body", "material_name"], msg: "Invalid material name" }] }, 422) });
+  let finish: (result: Response) => void = () => {};
+  backend({ write: () => new Promise((resolve) => { finish = resolve; }) });
   render(<App initialPath="/materials/new" />); await fillCreate(); submit();
-  expect(await screen.findByRole("alert")).toHaveFocus();
+  await act(async () => finish(response({ detail: [{ loc: ["body", "material_name"], msg: "Invalid material name" }] }, 422)));
+  const summary = await screen.findByRole("alert");
+  expect(summary).toHaveFocus();
   expect(screen.getByLabelText("Material name *")).toHaveAttribute("aria-invalid", "true");
   expect(screen.getByLabelText("Material name *")).toHaveAttribute("aria-describedby", "field-materialName-error");
+  expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  await act(async () => { await Promise.resolve(); });
+  expect(summary).toHaveFocus();
+  expect(screen.getByLabelText("Project *")).not.toHaveFocus();
   fireEvent.click(screen.getByRole("link", { name: "Invalid material name" }));
   expect(screen.getByLabelText("Material name *")).toHaveFocus();
 });

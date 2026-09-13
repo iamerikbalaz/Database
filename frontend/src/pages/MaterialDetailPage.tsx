@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type FormEvent,
@@ -40,7 +41,7 @@ function safeFolderPath(path: string | null): string | null {
 
 function ActionError({ message }: { message: string }) {
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => ref.current?.focus(), [message]);
+  useLayoutEffect(() => ref.current?.focus(), [message]);
   return (
     <div ref={ref} className="form-error" role="alert" tabIndex={-1}>
       <strong>Action could not be completed</strong>
@@ -204,6 +205,7 @@ function FolderControls({
   const folderInput = useRef<HTMLInputElement>(null);
   const linkButton = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
+  const restoreDialogFocus = useRef(true);
 
   const checkFolder = async (event: FormEvent) => {
     event.preventDefault();
@@ -262,8 +264,9 @@ function FolderControls({
       const refreshed = await onSaved(result.material, "link");
       setNotice(refreshed ? `Folder “${linkedPath}” was linked successfully.` : "");
     } catch (cause) {
-      dialog.current?.close();
       setError(materialOperationError(cause, "link"));
+      restoreDialogFocus.current = false;
+      dialog.current?.close();
     } finally {
       pendingLink.current = false;
       setLinking(false);
@@ -310,7 +313,10 @@ function FolderControls({
         type="button"
         disabled={!canLink || checking || linking || refreshing}
         aria-haspopup="dialog"
-        onClick={() => dialog.current?.showModal()}
+        onClick={() => {
+          restoreDialogFocus.current = true;
+          dialog.current?.showModal();
+        }}
       >
         {linking ? "Linking…" : "Link folder"}
       </button>
@@ -319,6 +325,7 @@ function FolderControls({
     <ConfirmDialog
       dialogRef={dialog}
       returnFocusRef={linkButton}
+      restoreFocusOnCloseRef={restoreDialogFocus}
       title="Link this folder?"
       confirmLabel="Link folder"
       pendingLabel="Linking…"
@@ -348,6 +355,7 @@ function MarkDoneControl({
   const pendingRef = useRef(false);
   const button = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
+  const restoreDialogFocus = useRef(true);
   const eligible = Boolean(safeFolderPath(material.folderPath) && material.workflowStatus !== "DONE");
   if (!eligible && !pending && !error && !notice) return null;
 
@@ -365,8 +373,9 @@ function MarkDoneControl({
         ? "Material was marked as Done. Metadata and snapshot history were refreshed."
         : "");
     } catch (cause) {
-      dialog.current?.close();
       setError(materialOperationError(cause, "done"));
+      restoreDialogFocus.current = false;
+      dialog.current?.close();
     } finally {
       pendingRef.current = false;
       setPending(false);
@@ -383,13 +392,17 @@ function MarkDoneControl({
         type="button"
         disabled={pending || refreshing}
         aria-haspopup="dialog"
-        onClick={() => dialog.current?.showModal()}
+        onClick={() => {
+          restoreDialogFocus.current = true;
+          dialog.current?.showModal();
+        }}
       >
         {pending ? "Marking as Done…" : "Mark as Done"}
       </button>
       <ConfirmDialog
         dialogRef={dialog}
         returnFocusRef={button}
+        restoreFocusOnCloseRef={restoreDialogFocus}
         title="Mark this material as Done?"
         confirmLabel="Mark as Done"
         pendingLabel="Marking as Done…"

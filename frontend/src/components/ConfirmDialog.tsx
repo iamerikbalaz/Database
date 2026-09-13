@@ -3,6 +3,7 @@ import type { ReactNode, RefObject } from "react";
 export function ConfirmDialog({
   dialogRef,
   returnFocusRef,
+  restoreFocusOnCloseRef,
   title,
   confirmLabel,
   pendingLabel,
@@ -12,6 +13,7 @@ export function ConfirmDialog({
 }: {
   dialogRef: RefObject<HTMLDialogElement | null>;
   returnFocusRef: RefObject<HTMLButtonElement | null>;
+  restoreFocusOnCloseRef: RefObject<boolean>;
   title: string;
   confirmLabel: string;
   pendingLabel: string;
@@ -31,7 +33,9 @@ export function ConfirmDialog({
         event.preventDefault();
         close();
       }}
-      onClose={() => returnFocusRef.current?.focus()}
+      onClose={() => {
+        if (restoreFocusOnCloseRef.current) returnFocusRef.current?.focus();
+      }}
     >
       <div className="confirm-dialog__body">
         <h2 id={`${title.replaceAll(" ", "-").toLowerCase()}-title`}>{title}</h2>

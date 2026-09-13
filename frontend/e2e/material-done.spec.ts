@@ -1,159 +1,43 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import {
   expect,
   test,
-  type APIRequestContext,
   type Locator,
   type Page,
   type Response,
 } from "@playwright/test";
-
-type Material = {
-  id: string;
-  technical_identity: string;
-  material_name: string;
-  folder_path: string | null;
-  workflow_status: string;
-};
-
-type MaterialFixture = Material & { relativePath: string };
-
-type SeedState = {
-  companyId: string;
-  brandId: string;
-  projectId: string;
-  valid: MaterialFixture;
-  missing: MaterialFixture;
-  mismatch: MaterialFixture;
-};
+import { runManifest, type MaterialFixture } from "./run-manifest";
 
 type BrowserDiagnostics = {
   consoleErrors: string[];
   requestFailures: string[];
   responseBodies: Promise<string>[];
+  unexpectedHttpErrors: string[];
 };
 
-const backendURL = requiredEnvironment("E2E_BACKEND_URL");
-const materialsRoot = requiredEnvironment("E2E_MATERIALS_ROOT");
+const materialsRoot = runManifest.materialsRoot;
+const state = runManifest.state;
 const diagnostics = new WeakMap<Page, BrowserDiagnostics>();
-let api: APIRequestContext;
-let state: SeedState;
 
-function requiredEnvironment(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} must be set by scripts/test-demo-e2e.ps1.`);
-  return value;
+const expectedHttpErrors: ReadonlyArray<{ method: string; pathname: string; status: number }> = [];
+
+function isUnexpectedHttpError(method: string, pathname: string, status: number): boolean {
+  if (status < 400) return false;
+  return !expectedHttpErrors.some((expected) =>
+    expected.method === method && expected.pathname === pathname && expected.status === status,
+  );
 }
 
-async function createRecord<T>(
-  request: APIRequestContext,
-  route: string,
-  data: Record<string, unknown>,
-): Promise<T> {
-  const response = await request.post(route, { data });
-  expect(response.status(), `POST ${route}`).toBe(201);
-  return response.json() as Promise<T>;
-}
-
-async function createMaterialFixture(
-  request: APIRequestContext,
-  projectId: string,
-  brandId: string,
-  processorId: string,
-  name: string,
-): Promise<Material> {
-  return createRecord<Material>(request, "/api/materials", {
-    project_id: projectId,
-    published_brand_id: brandId,
-    material_name: name,
-    main_category_code: "G03",
-    assigned_processor_id: processorId,
-  });
-}
-
-async function createMaterialDirectory(relativePath: string): Promise<void> {
-  await mkdir(path.join(materialsRoot, ...relativePath.split("/"), "16K"), {
-    recursive: true,
-  });
-}
-
-async function seedIsolatedEnvironment(request: APIRequestContext): Promise<SeedState> {
-  const company = await createRecord<{ id: string }>(request, "/api/companies", {
-    name: "E2E Company",
-    legal_name: "E2E Company (disposable)",
-    country: "CZ",
-    is_active: true,
-  });
-  const brand = await createRecord<{ id: string }>(request, "/api/brands", {
-    company_id: company.id,
-    name: "E2E Published Brand",
-    folder_prefix: "E2E_SAFE",
-    brand_identifier: "e2e-disposable-brand",
-    is_active: true,
-  });
-  const project = await createRecord<{ id: string }>(request, "/api/projects", {
-    company_id: company.id,
-    project_number: "E2E-001",
-    name: "E2E Disposable Project",
-    status: "IN_PROGRESS",
-  });
-  const processor = await createRecord<{ id: string }>(
-    request,
-    "/api/internal-users",
-    {
-      display_name: "E2E Processor",
-      email: "e2e.processor@example.invalid",
-      role: "PROCESSOR",
-      is_active: true,
-    },
+function containsPathLeak(value: string): boolean {
+  const normalizedRoot = materialsRoot.replaceAll("\\", "/");
+  const escapedRoot = materialsRoot.replaceAll("\\", "\\\\");
+  return (
+    /raw_content|source_content/i.test(value) ||
+    value.includes("/e2e-materials") ||
+    value.includes(materialsRoot) ||
+    value.includes(normalizedRoot) ||
+    value.includes(escapedRoot) ||
+    /(?:^|[\s"'])(?:[A-Za-z]:[\\/]|\\\\)[^\s"']+/.test(value)
   );
-
-  const validMaterial = await createMaterialFixture(
-    request,
-    project.id,
-    brand.id,
-    processor.id,
-    "E2E Valid Metadata",
-  );
-  const missingMaterial = await createMaterialFixture(
-    request,
-    project.id,
-    brand.id,
-    processor.id,
-    "E2E Missing Metadata",
-  );
-  const mismatchMaterial = await createMaterialFixture(
-    request,
-    project.id,
-    brand.id,
-    processor.id,
-    "E2E Identity Mismatch",
-  );
-
-  const validPath = `e2e-library/${validMaterial.technical_identity}`;
-  const missingPath = `e2e-library/${missingMaterial.technical_identity}`;
-  const mismatchPath = "e2e-library/E2E_WRONG_FOLDER_G03";
-  await createMaterialDirectory(validPath);
-  await createMaterialDirectory(missingPath);
-  await createMaterialDirectory(mismatchPath);
-  await writeFile(
-    path.join(materialsRoot, ...validPath.split("/"), "metadata.txt"),
-    JSON.stringify({
-      COLOR: { hex: "#A1B2C3" },
-      TEXTURE_SIZE: { cm: { width: 12.5, height: 34 } },
-    }),
-    "utf8",
-  );
-
-  return {
-    companyId: company.id,
-    brandId: brand.id,
-    projectId: project.id,
-    valid: { ...validMaterial, relativePath: validPath },
-    missing: { ...missingMaterial, relativePath: missingPath },
-    mismatch: { ...mismatchMaterial, relativePath: mismatchPath },
-  };
 }
 
 function materialFact(page: Page, label: string): Locator {
@@ -199,20 +83,12 @@ async function confirmOperation(
   return responsePromise;
 }
 
-test.beforeAll(async ({ playwright }) => {
-  api = await playwright.request.newContext({ baseURL: backendURL });
-  state = await seedIsolatedEnvironment(api);
-});
-
-test.afterAll(async () => {
-  await api.dispose();
-});
-
 test.beforeEach(async ({ page }) => {
   const observed: BrowserDiagnostics = {
     consoleErrors: [],
     requestFailures: [],
     responseBodies: [],
+    unexpectedHttpErrors: [],
   };
   diagnostics.set(page, observed);
   page.on("console", (message) => {
@@ -225,8 +101,12 @@ test.beforeEach(async ({ page }) => {
     observed.requestFailures.push(`${request.method()} ${request.url()}: ${request.failure()?.errorText}`);
   });
   page.on("response", (response) => {
-    if (new URL(response.url()).pathname.startsWith("/api/")) {
+    const url = new URL(response.url());
+    if (url.pathname.startsWith("/api/")) {
       observed.responseBodies.push(response.text().catch(() => ""));
+    }
+    if (isUnexpectedHttpError(response.request().method(), url.pathname, response.status())) {
+      observed.unexpectedHttpErrors.push(`${response.request().method()} ${url.pathname} -> ${response.status()}`);
     }
   });
 });
@@ -235,22 +115,19 @@ test.afterEach(async ({ page }) => {
   const observed = diagnostics.get(page);
   expect(observed).toBeDefined();
   const responseBodies = await Promise.all(observed?.responseBodies ?? []);
-  const normalizedRoot = materialsRoot.replaceAll("\\", "/");
-  const escapedRoot = materialsRoot.replaceAll("\\", "\\\\");
-  const exposedSensitiveValue = responseBodies.some((body) =>
-    /raw_content|source_content/i.test(body) ||
-    body.includes(materialsRoot) ||
-    body.includes(normalizedRoot) ||
-    body.includes(escapedRoot),
-  );
+  const exposedSensitiveValue = responseBodies.some(containsPathLeak);
   expect(exposedSensitiveValue).toBe(false);
   const visibleText = await page.locator("body").innerText();
-  expect(/raw_content|source_content/i.test(visibleText)).toBe(false);
-  expect(
-    visibleText.includes(materialsRoot) || visibleText.includes(normalizedRoot),
-  ).toBe(false);
+  expect(containsPathLeak(visibleText)).toBe(false);
+  const folderInputs = await page.getByLabel("Relative folder path").evaluateAll((elements) =>
+    elements.map((element) => (element as HTMLInputElement).value),
+  );
+  expect(folderInputs.some((value) =>
+    value.includes(materialsRoot) || value.includes("/e2e-materials"),
+  )).toBe(false);
   expect(observed?.consoleErrors).toEqual([]);
   expect(observed?.requestFailures).toEqual([]);
+  expect(observed?.unexpectedHttpErrors).toEqual([]);
 });
 
 test("happy path persists Done metadata and snapshot after reload", async ({ page }) => {

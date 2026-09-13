@@ -1,0 +1,521 @@
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+function ConvertTo-E2eCanonicalPath {
+    param([Parameter(Mandatory)] [string] $Path)
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $pathRoot = [System.IO.Path]::GetPathRoot($fullPath)
+    if ($fullPath.Equals($pathRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $pathRoot
+    }
+    return $fullPath.TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+}
+
+function Test-E2ePathWithinRoot {
+    param(
+        [Parameter(Mandatory)] [string] $Root,
+        [Parameter(Mandatory)] [string] $Candidate
+    )
+
+    $rootPath = ConvertTo-E2eCanonicalPath $Root
+    $candidatePath = ConvertTo-E2eCanonicalPath $Candidate
+    if ($candidatePath.Equals($rootPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $true
+    }
+    $rootPrefix = if ($rootPath.EndsWith([string][System.IO.Path]::DirectorySeparatorChar)) {
+        $rootPath
+    }
+    else {
+        $rootPath + [System.IO.Path]::DirectorySeparatorChar
+    }
+    return $candidatePath.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Assert-E2eNoReparsePath {
+    param(
+        [Parameter(Mandatory)] [string] $Root,
+        [Parameter(Mandatory)] [string] $Target
+    )
+
+    $rootPath = ConvertTo-E2eCanonicalPath $Root
+    $targetPath = ConvertTo-E2eCanonicalPath $Target
+    if (-not (Test-E2ePathWithinRoot -Root $rootPath -Candidate $targetPath)) {
+        throw "Path is outside the trusted root '$rootPath': $targetPath"
+    }
+
+    $rootItem = Get-Item -LiteralPath $rootPath -Force -ErrorAction Stop
+    if (($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Reparse point requires manual review; automatic E2E writes and cleanup are disabled: $rootPath"
+    }
+
+    if ($targetPath.Equals($rootPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return
+    }
+    $rootPrefix = if ($rootPath.EndsWith([string][System.IO.Path]::DirectorySeparatorChar)) {
+        $rootPath
+    }
+    else {
+        $rootPath + [System.IO.Path]::DirectorySeparatorChar
+    }
+    $relative = $targetPath.Substring($rootPrefix.Length)
+    $current = $rootPath
+    $missingSeen = $false
+    foreach ($component in @($relative -split '[\\/]' | Where-Object { $_ })) {
+        $current = Join-Path $current $component
+        $exists = Test-Path -LiteralPath $current -ErrorAction Stop
+        if (-not $exists) {
+            $missingSeen = $true
+            continue
+        }
+        if ($missingSeen) {
+            throw "A child exists below a missing path component; manual review is required: $current"
+        }
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Reparse point requires manual review; automatic E2E writes and cleanup are disabled: $current"
+        }
+    }
+}
+
+function Assert-LocalE2eRepositoryRoot {
+    param(
+        [Parameter(Mandatory)] [string] $RepositoryRoot,
+        [Nullable[System.IO.DriveType]] $DriveTypeOverride
+    )
+
+    $root = [System.IO.Path]::GetFullPath($RepositoryRoot).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    if ($root.StartsWith('\\', [System.StringComparison]::Ordinal)) {
+        throw "E2E cannot run from a UNC repository root: $root"
+    }
+    if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+        $pathRoot = [System.IO.Path]::GetPathRoot($root)
+        $driveType = if ($null -ne $DriveTypeOverride) {
+            $DriveTypeOverride.Value
+        }
+        else {
+            ([System.IO.DriveInfo]::new($pathRoot)).DriveType
+        }
+        if ($driveType -ne [System.IO.DriveType]::Fixed) {
+            throw "E2E repository must be on a local Fixed drive; '$pathRoot' is '$driveType'."
+        }
+        Assert-E2eNoReparsePath -Root $pathRoot -Target $root
+    }
+    elseif ($null -ne $DriveTypeOverride -and $DriveTypeOverride.Value -ne [System.IO.DriveType]::Fixed) {
+        throw "E2E repository must be on a local Fixed drive."
+    }
+    return $root
+}
+
+function Assert-E2eManagedRunPath {
+    param(
+        [Parameter(Mandatory)] [string] $RepositoryRoot,
+        [Parameter(Mandatory)] [string] $ManagedRoot,
+        [Parameter(Mandatory)] [guid] $RunGuid,
+        [Parameter(Mandatory)] [string] $RunPath,
+        [switch] $RequireMarker
+    )
+
+    $repository = [System.IO.Path]::GetFullPath($RepositoryRoot)
+    $managed = [System.IO.Path]::GetFullPath($ManagedRoot).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    $target = [System.IO.Path]::GetFullPath($RunPath).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    if (-not (Test-E2ePathWithinRoot -Root $repository -Candidate $managed)) {
+        throw "Managed E2E root is outside the repository: $managed"
+    }
+    $expected = [System.IO.Path]::GetFullPath((Join-Path $managed $RunGuid.ToString('D'))).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    if (-not $target.Equals($expected, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "E2E run path must be the exact GUID child of '$managed': $target"
+    }
+    Assert-E2eNoReparsePath -Root $repository -Target $target
+    if ($RequireMarker) {
+        $marker = Join-Path $target '.reawote-e2e-run'
+        Assert-E2eNoReparsePath -Root $repository -Target $marker
+        if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) {
+            throw "Refusing cleanup because the E2E ownership marker is missing: $marker"
+        }
+        $expectedMarker = "reawote-e2e-owned-v2:$($RunGuid.ToString('D'))"
+        if ([System.IO.File]::ReadAllText($marker) -ne $expectedMarker) {
+            throw "Refusing cleanup because the E2E ownership marker is invalid: $marker"
+        }
+    }
+    return $target
+}
+
+function New-E2eManagedRunDirectory {
+    param(
+        [Parameter(Mandatory)] [string] $RepositoryRoot,
+        [Parameter(Mandatory)] [string] $ManagedRoot,
+        [Parameter(Mandatory)] [guid] $RunGuid
+    )
+
+    $repository = [System.IO.Path]::GetFullPath($RepositoryRoot).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    $managed = [System.IO.Path]::GetFullPath($ManagedRoot)
+    $runPath = Join-Path $managed $RunGuid.ToString('D')
+    [void](Assert-E2eManagedRunPath -RepositoryRoot $repository -ManagedRoot $managed -RunGuid $RunGuid -RunPath $runPath)
+
+    $relative = $runPath.Substring(($repository + [System.IO.Path]::DirectorySeparatorChar).Length)
+    $current = $repository
+    foreach ($component in @($relative -split '[\\/]' | Where-Object { $_ })) {
+        $current = Join-Path $current $component
+        Assert-E2eNoReparsePath -Root $repository -Target $current
+        if (-not (Test-Path -LiteralPath $current)) {
+            [void][System.IO.Directory]::CreateDirectory($current)
+        }
+        Assert-E2eNoReparsePath -Root $repository -Target $current
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+        if (-not $item.PSIsContainer) {
+            throw "Expected an E2E directory but found another item type: $current"
+        }
+    }
+    $marker = Join-Path $runPath '.reawote-e2e-run'
+    Assert-E2eNoReparsePath -Root $repository -Target $marker
+    [System.IO.File]::WriteAllText(
+        $marker,
+        "reawote-e2e-owned-v2:$($RunGuid.ToString('D'))",
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    Assert-E2eNoReparsePath -Root $repository -Target $marker
+    return $runPath
+}
+
+function New-E2eSafeDirectory {
+    param(
+        [Parameter(Mandatory)] [string] $RepositoryRoot,
+        [Parameter(Mandatory)] [string] $RunRoot,
+        [Parameter(Mandatory)] [string] $Path
+    )
+
+    if (-not (Test-E2ePathWithinRoot -Root $RunRoot -Candidate $Path)) {
+        throw "E2E directory escaped its run root: $Path"
+    }
+    $run = ConvertTo-E2eCanonicalPath $RunRoot
+    $target = ConvertTo-E2eCanonicalPath $Path
+    Assert-E2eNoReparsePath -Root $RepositoryRoot -Target $target
+    $relative = $target.Substring(($run + [System.IO.Path]::DirectorySeparatorChar).Length)
+    $current = $run
+    foreach ($component in @($relative -split '[\\/]' | Where-Object { $_ })) {
+        $current = Join-Path $current $component
+        Assert-E2eNoReparsePath -Root $RepositoryRoot -Target $current
+        if (-not (Test-Path -LiteralPath $current)) {
+            [void][System.IO.Directory]::CreateDirectory($current)
+        }
+        Assert-E2eNoReparsePath -Root $RepositoryRoot -Target $current
+        if (-not (Get-Item -LiteralPath $current -Force).PSIsContainer) {
+            throw "Expected an E2E directory but found another item type: $current"
+        }
+    }
+    return $target
+}
+
+function Write-E2eSafeTextFile {
+    param(
+        [Parameter(Mandatory)] [string] $RepositoryRoot,
+        [Parameter(Mandatory)] [string] $RunRoot,
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $Content
+    )
+
+    if (-not (Test-E2ePathWithinRoot -Root $RunRoot -Candidate $Path)) {
+        throw "E2E file escaped its run root: $Path"
+    }
+    $parent = Split-Path -Parent ([System.IO.Path]::GetFullPath($Path))
+    Assert-E2eNoReparsePath -Root $RepositoryRoot -Target $parent
+    Assert-E2eNoReparsePath -Root $RepositoryRoot -Target $Path
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+        throw "E2E file parent does not exist: $parent"
+    }
+    [System.IO.File]::WriteAllText($Path, $Content, [System.Text.UTF8Encoding]::new($false))
+    Assert-E2eNoReparsePath -Root $RepositoryRoot -Target $Path
+}
+
+function Get-E2eSha256Hex {
+    param([Parameter(Mandatory)] [string] $Value)
+
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($Value)
+        return ([System.BitConverter]::ToString($algorithm.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $algorithm.Dispose()
+    }
+}
+
+function Assert-E2eTreeNoReparse {
+    param([Parameter(Mandatory)] [string] $RunRoot)
+
+    $root = [System.IO.Path]::GetFullPath($RunRoot)
+    $pending = [System.Collections.Generic.Stack[string]]::new()
+    $pending.Push($root)
+    while ($pending.Count -gt 0) {
+        $directory = $pending.Pop()
+        foreach ($item in @(Get-ChildItem -LiteralPath $directory -Force -ErrorAction Stop)) {
+            if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Reparse point requires manual review; refusing automatic cleanup of '$root': $($item.FullName)"
+            }
+            if ($item.PSIsContainer) {
+                $pending.Push($item.FullName)
+            }
+        }
+    }
+}
+
+function Remove-E2eManagedRunDirectory {
+    param(
+        [Parameter(Mandatory)] [string] $RepositoryRoot,
+        [Parameter(Mandatory)] [string] $ManagedRoot,
+        [Parameter(Mandatory)] [guid] $RunGuid,
+        [Parameter(Mandatory)] [string] $RunPath
+    )
+
+    if (-not (Test-Path -LiteralPath $RunPath)) {
+        return
+    }
+    $safePath = Assert-E2eManagedRunPath -RepositoryRoot $RepositoryRoot -ManagedRoot $ManagedRoot -RunGuid $RunGuid -RunPath $RunPath -RequireMarker
+    Assert-E2eTreeNoReparse -RunRoot $safePath
+    Remove-Item -LiteralPath $safePath -Recurse -Force
+}
+
+function Get-E2eObjectPropertyValue {
+    param(
+        $Object,
+        [Parameter(Mandatory)] [string] $Name
+    )
+
+    if ($null -eq $Object) {
+        return $null
+    }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) {
+        return $null
+    }
+    return $property.Value
+}
+
+function ConvertTo-E2eSafeMountField {
+    param($Value)
+
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) {
+        return '<missing>'
+    }
+    $safe = ([string]$Value) -replace '[\x00-\x1f\x7f]', '?'
+    if ($safe.Length -gt 160) {
+        $safe = $safe.Substring(0, 157) + '...'
+    }
+    return $safe.Replace("'", "''")
+}
+
+function Format-E2eComposeMounts {
+    param([object[]] $Mounts)
+
+    if ($null -eq $Mounts -or $Mounts.Count -eq 0) {
+        return '<none>'
+    }
+    return (@($Mounts | ForEach-Object {
+        $type = ConvertTo-E2eSafeMountField (Get-E2eObjectPropertyValue $_ 'type')
+        $source = ConvertTo-E2eSafeMountField (Get-E2eObjectPropertyValue $_ 'source')
+        $target = ConvertTo-E2eSafeMountField (Get-E2eObjectPropertyValue $_ 'target')
+        "type='$type', source='$source', target='$target'"
+    }) -join '; ')
+}
+
+function Format-E2eRuntimeMounts {
+    param([object[]] $Mounts)
+
+    if ($null -eq $Mounts -or $Mounts.Count -eq 0) {
+        return '<none>'
+    }
+    return (@($Mounts | ForEach-Object {
+        $typeValue = Get-E2eObjectPropertyValue $_ 'Type'
+        $sourceValue = if ([string]$typeValue -eq 'volume') {
+            Get-E2eObjectPropertyValue $_ 'Name'
+        }
+        else {
+            Get-E2eObjectPropertyValue $_ 'Source'
+        }
+        $type = ConvertTo-E2eSafeMountField $typeValue
+        $source = ConvertTo-E2eSafeMountField $sourceValue
+        $target = ConvertTo-E2eSafeMountField (Get-E2eObjectPropertyValue $_ 'Destination')
+        "type='$type', source='$source', target='$target'"
+    }) -join '; ')
+}
+
+function Assert-E2eComposeDatabaseVolume {
+    param(
+        [Parameter(Mandatory)] $Configuration,
+        [Parameter(Mandatory)] [string] $ExpectedEngineName,
+        [string] $ExpectedTarget = '/var/lib/postgresql'
+    )
+
+    $servicesProperty = $Configuration.PSObject.Properties['services']
+    if ($null -eq $servicesProperty) {
+        throw "Rendered Compose configuration has no services object."
+    }
+    $database = $servicesProperty.Value.PSObject.Properties['database']
+    if ($null -eq $database) {
+        throw "Rendered Compose configuration has no database service."
+    }
+    $mountsProperty = $database.Value.PSObject.Properties['volumes']
+    $mounts = @()
+    if ($null -ne $mountsProperty) {
+        $mounts = @($mountsProperty.Value)
+    }
+    $mountSummary = Format-E2eComposeMounts $mounts
+    if ($mounts.Count -ne 1) {
+        throw "Database must define exactly one mount at '$ExpectedTarget'; found: $mountSummary."
+    }
+    $mount = $mounts[0]
+    $mountTarget = [string](Get-E2eObjectPropertyValue $mount 'target')
+    if ($mountTarget -ne $ExpectedTarget) {
+        throw "Database mount must target '$ExpectedTarget'; found: $mountSummary."
+    }
+    $mountType = [string](Get-E2eObjectPropertyValue $mount 'type')
+    if ($mountType -ne 'volume') {
+        throw "Database data mount must have type='volume'; found: $mountSummary."
+    }
+    $logicalSource = [string](Get-E2eObjectPropertyValue $mount 'source')
+    if ([string]::IsNullOrWhiteSpace($logicalSource)) {
+        throw "Database data mount must use a named logical Compose volume source; found: $mountSummary."
+    }
+    $volumesProperty = $Configuration.PSObject.Properties['volumes']
+    if ($null -eq $volumesProperty) {
+        throw "Rendered Compose configuration has no top-level volumes object; database mounts: $mountSummary."
+    }
+    $volumeProperty = $volumesProperty.Value.PSObject.Properties[$logicalSource]
+    if ($null -eq $volumeProperty) {
+        $safeLogicalSource = ConvertTo-E2eSafeMountField $logicalSource
+        throw "Logical database volume '$safeLogicalSource' is missing from top-level volumes; database mounts: $mountSummary."
+    }
+    $nameProperty = $volumeProperty.Value.PSObject.Properties['name']
+    if ($null -eq $nameProperty -or $nameProperty.Value -ne $ExpectedEngineName) {
+        $safeLogicalSource = ConvertTo-E2eSafeMountField $logicalSource
+        $actualEngineName = if ($null -eq $nameProperty) { '<missing>' } else { ConvertTo-E2eSafeMountField $nameProperty.Value }
+        throw "Logical database volume '$safeLogicalSource' resolves to engine volume '$actualEngineName', expected '$ExpectedEngineName'; database mounts: $mountSummary."
+    }
+    $externalProperty = $volumeProperty.Value.PSObject.Properties['external']
+    if ($null -ne $externalProperty -and $externalProperty.Value -ne $false) {
+        throw "E2E database volume '$logicalSource' must not be external; database mounts: $mountSummary."
+    }
+    $driverProperty = $volumeProperty.Value.PSObject.Properties['driver']
+    if ($null -ne $driverProperty -and -not [string]::IsNullOrWhiteSpace([string]$driverProperty.Value) -and
+        $driverProperty.Value -ne 'local') {
+        throw "E2E database volume '$logicalSource' must use the local Docker volume driver; database mounts: $mountSummary."
+    }
+    $driverOptionsProperty = $volumeProperty.Value.PSObject.Properties['driver_opts']
+    if ($null -ne $driverOptionsProperty -and $null -ne $driverOptionsProperty.Value -and
+        @($driverOptionsProperty.Value.PSObject.Properties).Count -gt 0) {
+        throw "E2E database volume '$logicalSource' must not define driver options; database mounts: $mountSummary."
+    }
+    return $logicalSource
+}
+
+function Assert-E2eRuntimeDatabaseVolume {
+    param(
+        [Parameter(Mandatory)] [object[]] $Mounts,
+        [Parameter(Mandatory)] [string] $ExpectedEngineName,
+        [string] $ExpectedTarget = '/var/lib/postgresql'
+    )
+
+    $runtimeMounts = @($Mounts)
+    $mountSummary = Format-E2eRuntimeMounts $runtimeMounts
+    if ($runtimeMounts.Count -ne 1) {
+        throw "Runtime database container must have exactly one mount at '$ExpectedTarget'; found: $mountSummary."
+    }
+    $mount = $runtimeMounts[0]
+    $mountType = [string](Get-E2eObjectPropertyValue $mount 'Type')
+    $mountName = [string](Get-E2eObjectPropertyValue $mount 'Name')
+    $mountTarget = [string](Get-E2eObjectPropertyValue $mount 'Destination')
+    if ($mountType -ne 'volume' -or $mountName -ne $ExpectedEngineName -or $mountTarget -ne $ExpectedTarget) {
+        throw "Runtime database mount must be named volume '$ExpectedEngineName' at '$ExpectedTarget'; found: $mountSummary."
+    }
+    return $mountName
+}
+
+function Test-E2eLocalDockerEndpoint {
+    param(
+        [Parameter(Mandatory)] [string] $Endpoint,
+        [Parameter(Mandatory)] [bool] $WindowsHost
+    )
+
+    if ($WindowsHost) {
+        return $Endpoint -match '^npipe:////\./pipe/[A-Za-z0-9._-]+$'
+    }
+    return $Endpoint -match '^unix:///[^\r\n]+$'
+}
+
+function Assert-LocalDockerContext {
+    $isWindows = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
+    $dockerHost = [System.Environment]::GetEnvironmentVariable('DOCKER_HOST', 'Process')
+    if (-not [string]::IsNullOrWhiteSpace($dockerHost) -and
+        -not (Test-E2eLocalDockerEndpoint -Endpoint $dockerHost -WindowsHost $isWindows)) {
+        throw "DOCKER_HOST must be unset or point to a local named pipe/Unix socket; remote tcp:// and ssh:// endpoints are forbidden."
+    }
+
+    $contextName = (& docker context show) -join ''
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($contextName)) {
+        throw "Could not determine the active Docker context."
+    }
+    $contextName = $contextName.Trim()
+    $contextJson = (& docker context inspect $contextName) -join [System.Environment]::NewLine
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not inspect the active Docker context."
+    }
+    $context = @($contextJson | ConvertFrom-Json -ErrorAction Stop)
+    if ($context.Count -ne 1) {
+        throw "Docker returned an unexpected context inspection result."
+    }
+    $endpoint = [string]$context[0].Endpoints.docker.Host
+    if (-not (Test-E2eLocalDockerEndpoint -Endpoint $endpoint -WindowsHost $isWindows)) {
+        throw "Active Docker context is remote; only a local named pipe/Unix socket is allowed."
+    }
+    $safeName = if ($contextName -match '^[A-Za-z0-9_.-]+$') { $contextName } else { '<non-printable-name>' }
+    Write-Host "Using verified local Docker context '$safeName'."
+    return $contextName
+}
+
+function Enter-E2eRunMutex {
+    param([string] $Name = 'Local\ReawoteDemoE2E-v1')
+
+    $mutex = [System.Threading.Mutex]::new($false, $Name)
+    try {
+        try {
+            $acquired = $mutex.WaitOne(0)
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $acquired = $true
+        }
+        if (-not $acquired) {
+            throw "Another disposable demo E2E run is already active; no Docker mutation was attempted."
+        }
+        return $mutex
+    }
+    catch {
+        $mutex.Dispose()
+        throw
+    }
+}
+
+function Exit-E2eRunMutex {
+    param([Parameter(Mandatory)] [System.Threading.Mutex] $Mutex)
+
+    $Mutex.ReleaseMutex()
+    $Mutex.Dispose()
+}

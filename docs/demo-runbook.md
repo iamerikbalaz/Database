@@ -253,4 +253,8 @@ Frontend již obsahuje integrované ovládání preflight/link/Done i metadata
 historii. Automatický průchod nepoužívá persistentní demo projekt popsaný výše;
 spouští vlastní disposable projekt `reawote-e2e` podle
 [`docs/demo-e2e.md`](demo-e2e.md). Tím zůstává jednorázová operace Done
-opakovatelná a `reawote-demo-postgres-data` se nemění.
+opakovatelná a `reawote-demo-postgres-data` se nemění. Vyžaduje Node.js 22+ a
+Docker Desktop s Linux containers a spouští se výhradně z kořene příkazem
+`.\scripts\test-demo-e2e.ps1`; přímý Playwright není podporovaný write-capable
+vstup. Diagnostika neúspěšného běhu zůstane v `.e2e-artifacts/<run-guid>` a
+runner při cleanupu vypíše přesný odstraněný GUID run adresář.

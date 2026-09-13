@@ -1,47 +1,41 @@
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-. (Join-Path $PSScriptRoot "demo-common.ps1")
+. (Join-Path $PSScriptRoot 'demo-e2e-helpers.ps1')
 
-$projectName = "reawote-e2e"
-$databaseVolumeName = "reawote-e2e-postgres-data"
-$ownershipMarker = "reawote-e2e-owned-v1"
-
-if ($projectName -ne "reawote-e2e" -or $databaseVolumeName -ne "reawote-e2e-postgres-data") {
-    throw "E2E project and volume names must remain the exact reviewed values."
-}
+$projectName = 'reawote-e2e'
+$databaseVolumeName = 'reawote-e2e-postgres-data'
+$databaseName = 'reawote_e2e'
+$databaseUser = 'reawote_e2e'
 
 function Assert-LastCommandSucceeded {
     param([Parameter(Mandatory)] [string] $Step)
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Step failed with exit code $LASTEXITCODE."
-    }
+    if ($LASTEXITCODE -ne 0) { throw "$Step failed with exit code $LASTEXITCODE." }
 }
 
 function Get-FreeTcpPort {
-    $listener = [System.Net.Sockets.TcpListener]::new(
-        [System.Net.IPAddress]::Loopback,
-        0
-    )
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
     $listener.Start()
-    try {
-        return ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
-    }
-    finally {
-        $listener.Stop()
+    try { return ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port }
+    finally { $listener.Stop() }
+}
+
+function Assert-NodeVersion {
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js 22 or newer is required.' }
+    $versionText = (& node --version) -join ''
+    Assert-LastCommandSucceeded 'Read Node.js version'
+    $match = [regex]::Match($versionText.Trim(), '^v(?<major>[0-9]+)\.')
+    if (-not $match.Success -or [int]$match.Groups['major'].Value -lt 22) {
+        throw "Node.js 22 or newer is required; found '$versionText'."
     }
 }
 
 function Get-ExactVolumeInspection {
     param([Parameter(Mandatory)] [string] $Name)
-
-    $names = @(& docker volume ls --format "{{.Name}}")
-    Assert-LastCommandSucceeded "Docker volume listing"
-    if ($names -notcontains $Name) {
-        return $null
-    }
-    $json = (& docker volume inspect $Name) -join [System.Environment]::NewLine
+    $names = @(& docker volume ls --format '{{.Name}}')
+    Assert-LastCommandSucceeded 'Docker volume listing'
+    if ($names -notcontains $Name) { return $null }
+    $json = (& docker volume inspect $Name) -join [Environment]::NewLine
     Assert-LastCommandSucceeded "Inspect Docker volume '$Name'"
     $inspection = @($json | ConvertFrom-Json -ErrorAction Stop)
     if ($inspection.Count -ne 1 -or $inspection[0].Name -ne $Name) {
@@ -52,399 +46,339 @@ function Get-ExactVolumeInspection {
 
 function Get-VolumeFingerprint {
     param([Parameter(Mandatory)] [string] $Name)
-
     $inspection = Get-ExactVolumeInspection -Name $Name
-    if ($null -eq $inspection) {
-        return "absent"
-    }
+    if ($null -eq $inspection) { return 'absent' }
     return [ordered]@{
-        Name = $inspection.Name
-        Driver = $inspection.Driver
-        Scope = $inspection.Scope
-        CreatedAt = $inspection.CreatedAt
-        Mountpoint = $inspection.Mountpoint
-        Labels = $inspection.Labels
+        Name = $inspection.Name; Driver = $inspection.Driver; Scope = $inspection.Scope
+        CreatedAt = $inspection.CreatedAt; Mountpoint = $inspection.Mountpoint; Labels = $inspection.Labels
     } | ConvertTo-Json -Depth 10 -Compress
 }
 
 function Get-ProjectContainerFingerprint {
     param([Parameter(Mandatory)] [string] $Name)
-
-    $lines = @(& docker ps --all `
-        --filter "label=com.docker.compose.project=$Name" `
-        --format "{{.ID}}|{{.Names}}|{{.State}}")
+    $lines = @(& docker ps --all --filter "label=com.docker.compose.project=$Name" --format '{{.ID}}|{{.Names}}|{{.State}}')
     Assert-LastCommandSucceeded "Inspect Compose project '$Name' containers"
-    return (@($lines | Sort-Object) -join [System.Environment]::NewLine)
+    return (@($lines | Sort-Object) -join [Environment]::NewLine)
 }
 
 function Get-ProtectedState {
     return [ordered]@{
-        RegularProject = Get-ProjectContainerFingerprint -Name "reawote"
-        DemoProject = Get-ProjectContainerFingerprint -Name "reawote-demo"
-        RegularVolume = Get-VolumeFingerprint -Name "reawote_postgres_data"
-        DemoVolume = Get-VolumeFingerprint -Name "reawote-demo-postgres-data"
+        RegularProject = Get-ProjectContainerFingerprint -Name 'reawote'
+        DemoProject = Get-ProjectContainerFingerprint -Name 'reawote-demo'
+        RegularVolume = Get-VolumeFingerprint -Name 'reawote_postgres_data'
+        DemoVolume = Get-VolumeFingerprint -Name 'reawote-demo-postgres-data'
     } | ConvertTo-Json -Depth 10 -Compress
 }
 
 function Assert-E2eResourcesOwned {
-    $containerIds = @(& docker ps --all --quiet `
-        --filter "label=com.docker.compose.project=$script:E2eProjectName")
-    Assert-LastCommandSucceeded "Locate existing E2E containers"
+    $containerIds = @(& docker ps --all --quiet --filter "label=com.docker.compose.project=$script:E2eProjectName")
+    Assert-LastCommandSucceeded 'Locate existing E2E containers'
     foreach ($containerId in $containerIds) {
-        if ([string]::IsNullOrWhiteSpace($containerId)) {
-            continue
-        }
-        $label = (& docker inspect $containerId `
-            --format "{{ index .Config.Labels `"com.docker.compose.project`" }}") -join ""
-        Assert-LastCommandSucceeded "Inspect existing E2E container"
-        if ($label.Trim() -ne $script:E2eProjectName) {
-            throw "Refusing cleanup: container is not owned by the exact E2E project."
-        }
+        if ([string]::IsNullOrWhiteSpace($containerId)) { continue }
+        $inspectionJson = (& docker inspect $containerId) -join [Environment]::NewLine
+        Assert-LastCommandSucceeded 'Inspect existing E2E container'
+        $inspection = @($inspectionJson | ConvertFrom-Json -ErrorAction Stop)
+        if ($inspection.Count -ne 1) { throw 'Docker returned an unexpected existing E2E container inspection result.' }
+        $label = [string](Get-E2eObjectPropertyValue $inspection[0].Config.Labels 'com.docker.compose.project')
+        if ($label -ne $script:E2eProjectName) { throw 'Refusing cleanup: container is not owned by the exact E2E project.' }
     }
-
-    $networkIds = @(& docker network ls --quiet `
-        --filter "label=com.docker.compose.project=$script:E2eProjectName")
-    Assert-LastCommandSucceeded "Locate existing E2E networks"
+    $networkIds = @(& docker network ls --quiet --filter "label=com.docker.compose.project=$script:E2eProjectName")
+    Assert-LastCommandSucceeded 'Locate existing E2E networks'
     foreach ($networkId in $networkIds) {
-        if ([string]::IsNullOrWhiteSpace($networkId)) {
-            continue
-        }
-        $label = (& docker network inspect $networkId `
-            --format "{{ index .Labels `"com.docker.compose.project`" }}") -join ""
-        Assert-LastCommandSucceeded "Inspect existing E2E network"
-        if ($label.Trim() -ne $script:E2eProjectName) {
-            throw "Refusing cleanup: network is not owned by the exact E2E project."
-        }
+        if ([string]::IsNullOrWhiteSpace($networkId)) { continue }
+        $inspectionJson = (& docker network inspect $networkId) -join [Environment]::NewLine
+        Assert-LastCommandSucceeded 'Inspect existing E2E network'
+        $inspection = @($inspectionJson | ConvertFrom-Json -ErrorAction Stop)
+        if ($inspection.Count -ne 1) { throw 'Docker returned an unexpected existing E2E network inspection result.' }
+        $label = [string](Get-E2eObjectPropertyValue $inspection[0].Labels 'com.docker.compose.project')
+        if ($label -ne $script:E2eProjectName) { throw 'Refusing cleanup: network is not owned by the exact E2E project.' }
     }
-
     $volume = Get-ExactVolumeInspection -Name $script:E2eDatabaseVolumeName
-    if ($null -ne $volume) {
-        $projectLabel = $volume.Labels.'com.docker.compose.project'
-        $volumeLabel = $volume.Labels.'com.docker.compose.volume'
-        if ($projectLabel -ne $script:E2eProjectName -or $volumeLabel -ne "postgres_data") {
-            throw "Refusing cleanup: E2E volume name exists without the expected Compose ownership labels."
-        }
+    if ($null -ne $volume -and ($volume.Labels.'com.docker.compose.project' -ne $script:E2eProjectName -or
+        $volume.Labels.'com.docker.compose.volume' -ne 'postgres_data')) {
+        throw 'Refusing cleanup: E2E volume name exists without the expected Compose ownership labels.'
     }
 }
 
 function Assert-NoE2eRuntimeResources {
-    $containers = @(& docker ps --all --quiet `
-        --filter "label=com.docker.compose.project=$script:E2eProjectName")
-    Assert-LastCommandSucceeded "Verify E2E container cleanup"
-    $networks = @(& docker network ls --quiet `
-        --filter "label=com.docker.compose.project=$script:E2eProjectName")
-    Assert-LastCommandSucceeded "Verify E2E network cleanup"
-    if (@($containers | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -ne 0) {
-        throw "E2E containers remain after cleanup."
-    }
-    if (@($networks | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -ne 0) {
-        throw "E2E networks remain after cleanup."
-    }
-    if ($null -ne (Get-ExactVolumeInspection -Name $script:E2eDatabaseVolumeName)) {
-        throw "E2E database volume remains after cleanup."
-    }
+    $containers = @(& docker ps --all --quiet --filter "label=com.docker.compose.project=$script:E2eProjectName")
+    Assert-LastCommandSucceeded 'Verify E2E container cleanup'
+    $networks = @(& docker network ls --quiet --filter "label=com.docker.compose.project=$script:E2eProjectName")
+    Assert-LastCommandSucceeded 'Verify E2E network cleanup'
+    if (@($containers | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -ne 0) { throw 'E2E containers remain after cleanup.' }
+    if (@($networks | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -ne 0) { throw 'E2E networks remain after cleanup.' }
+    Assert-E2eResourcesOwned
 }
 
 function Test-E2eRuntimeResourcesExist {
-    $containers = @(& docker ps --all --quiet `
-        --filter "label=com.docker.compose.project=$script:E2eProjectName")
-    Assert-LastCommandSucceeded "Locate E2E containers before cleanup"
-    $networks = @(& docker network ls --quiet `
-        --filter "label=com.docker.compose.project=$script:E2eProjectName")
-    Assert-LastCommandSucceeded "Locate E2E networks before cleanup"
-    return (
-        @($containers | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -gt 0 -or
-        @($networks | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -gt 0 -or
-        $null -ne (Get-ExactVolumeInspection -Name $script:E2eDatabaseVolumeName)
-    )
-}
-
-function Assert-OwnedE2eDataPath {
-    param(
-        [Parameter(Mandatory)] [string] $TemporaryRoot,
-        [Parameter(Mandatory)] [string] $Path,
-        [switch] $RequireMarker
-    )
-
-    $temporaryRootPath = [System.IO.Path]::GetFullPath($TemporaryRoot).TrimEnd(
-        [System.IO.Path]::DirectorySeparatorChar,
-        [System.IO.Path]::AltDirectorySeparatorChar
-    )
-    $targetPath = [System.IO.Path]::GetFullPath($Path).TrimEnd(
-        [System.IO.Path]::DirectorySeparatorChar,
-        [System.IO.Path]::AltDirectorySeparatorChar
-    )
-    $expectedPath = [System.IO.Path]::GetFullPath(
-        (Join-Path $temporaryRootPath "reawote-e2e-data")
-    ).TrimEnd(
-        [System.IO.Path]::DirectorySeparatorChar,
-        [System.IO.Path]::AltDirectorySeparatorChar
-    )
-    if (-not $targetPath.Equals($expectedPath, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "E2E data path is not the exact reviewed temporary path."
-    }
-    if (-not (Test-CanonicalPathWithinRoot -Root $temporaryRootPath -Candidate $targetPath)) {
-        throw "E2E data path escaped the system temporary directory."
-    }
-    Assert-ExistingPathComponentsNoReparse -Root $temporaryRootPath -Target $targetPath
-    if ($RequireMarker) {
-        $markerPath = Join-Path $targetPath ".reawote-e2e-owned"
-        if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf)) {
-            throw "Refusing cleanup: E2E data ownership marker is missing."
-        }
-        $markerValue = [System.IO.File]::ReadAllText($markerPath)
-        if ($markerValue -ne $script:E2eOwnershipMarker) {
-            throw "Refusing cleanup: E2E data ownership marker is invalid."
-        }
-    }
-    return $targetPath
-}
-
-function Remove-OwnedE2eData {
-    param(
-        [Parameter(Mandatory)] [string] $TemporaryRoot,
-        [Parameter(Mandatory)] [string] $Path
-    )
-
-    if (-not (Test-Path -LiteralPath $Path)) {
-        return
-    }
-    $safePath = Assert-OwnedE2eDataPath `
-        -TemporaryRoot $TemporaryRoot `
-        -Path $Path `
-        -RequireMarker
-    Remove-Item -LiteralPath $safePath -Recurse -Force
+    $containers = @(& docker ps --all --quiet --filter "label=com.docker.compose.project=$script:E2eProjectName")
+    Assert-LastCommandSucceeded 'Locate E2E containers before cleanup'
+    $networks = @(& docker network ls --quiet --filter "label=com.docker.compose.project=$script:E2eProjectName")
+    Assert-LastCommandSucceeded 'Locate E2E networks before cleanup'
+    return (@($containers | Where-Object { $_ }).Count -gt 0 -or @($networks | Where-Object { $_ }).Count -gt 0)
 }
 
 function Invoke-E2eCompose {
-    param(
-        [Parameter(Mandatory)] [string[]] $Arguments,
-        [Parameter(Mandatory)] [string] $Step
-    )
+    param([string[]] $Arguments, [string] $Step, [switch] $Mutation)
+    if ($Mutation) { [void](Assert-LocalDockerContext) }
+    & docker compose --project-name $script:E2eProjectName -f $script:BaseComposePath -f $script:E2eComposePath @Arguments
+    Assert-LastCommandSucceeded $Step
+}
 
-    & docker compose `
-        --project-name $script:E2eProjectName `
-        -f $script:BaseComposePath `
-        -f $script:E2eComposePath `
-        @Arguments
+function Invoke-E2eComposeWithStandardInput {
+    param(
+        [Parameter(Mandatory)] [string] $StandardInput,
+        [Parameter(Mandatory)] [string[]] $Arguments,
+        [Parameter(Mandatory)] [string] $Step,
+        [switch] $Mutation
+    )
+    if ($Mutation) { [void](Assert-LocalDockerContext) }
+    $StandardInput | & docker compose --project-name $script:E2eProjectName -f $script:BaseComposePath -f $script:E2eComposePath @Arguments
     Assert-LastCommandSucceeded $Step
 }
 
 function Assert-RenderedE2eCompose {
     param([Parameter(Mandatory)] [string] $Json)
-
     $configuration = $Json | ConvertFrom-Json -ErrorAction Stop
-    if ($configuration.name -ne $script:E2eProjectName) {
-        throw "Rendered Compose project is not the exact E2E project."
-    }
-    if ($Json.Contains("reawote-demo-postgres-data")) {
-        throw "Rendered E2E Compose unexpectedly references the protected demo volume."
-    }
-
+    if ($configuration.name -ne $script:E2eProjectName) { throw 'Rendered Compose project is not the exact E2E project.' }
+    if ($Json.Contains('reawote-demo-postgres-data')) { throw 'Rendered E2E Compose unexpectedly references the protected demo volume.' }
     foreach ($serviceProperty in $configuration.services.PSObject.Properties) {
-        $portsProperty = $serviceProperty.Value.PSObject.Properties["ports"]
-        if ($null -eq $portsProperty) {
-            continue
-        }
+        $portsProperty = $serviceProperty.Value.PSObject.Properties['ports']
+        if ($null -eq $portsProperty) { continue }
         foreach ($publishedPort in @($portsProperty.Value)) {
-            if ($null -ne $publishedPort -and $publishedPort.host_ip -ne "127.0.0.1") {
+            if ($null -ne $publishedPort -and $publishedPort.host_ip -ne '127.0.0.1') {
                 throw "Service '$($serviceProperty.Name)' publishes outside 127.0.0.1."
             }
         }
     }
-
-    $databaseMounts = @($configuration.services.database.volumes | Where-Object {
-        $_.target -eq "/var/lib/postgresql" -and
-        $_.type -eq "volume" -and
-        $_.source -eq $script:E2eDatabaseVolumeName
-    })
-    if ($databaseMounts.Count -ne 1) {
-        throw "Rendered E2E database does not use the exact dedicated volume."
-    }
-    $workerMounts = @($configuration.services.worker.volumes | Where-Object {
-        $_.target -eq "/e2e-materials" -and $_.type -eq "bind"
-    })
-    if ($workerMounts.Count -ne 1 -or $workerMounts[0].read_only -ne $true) {
-        throw "Rendered E2E worker must have one read-only materials bind mount."
-    }
-    $renderedSource = [System.IO.Path]::GetFullPath($workerMounts[0].source)
-    $expectedSource = [System.IO.Path]::GetFullPath($script:E2eMaterialsRoot)
-    if (-not $renderedSource.Equals($expectedSource, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Rendered worker bind source is not the exact temporary E2E materials root."
+    [void](Assert-E2eComposeDatabaseVolume -Configuration $configuration -ExpectedEngineName $script:E2eDatabaseVolumeName)
+    $workerMounts = @($configuration.services.worker.volumes | Where-Object { $_.target -eq '/e2e-materials' -and $_.type -eq 'bind' })
+    if ($workerMounts.Count -ne 1 -or $workerMounts[0].read_only -ne $true) { throw 'Rendered E2E worker must have one read-only materials bind mount.' }
+    $renderedSource = [IO.Path]::GetFullPath($workerMounts[0].source)
+    if (-not $renderedSource.Equals($script:E2eMaterialsRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Rendered worker bind source is not the exact repository-local E2E materials root.'
     }
 }
 
-Assert-DockerAvailable
-$script:E2eProjectName = $projectName
-$script:E2eDatabaseVolumeName = $databaseVolumeName
-$script:E2eOwnershipMarker = $ownershipMarker
-$repositoryRoot = [System.IO.Path]::GetFullPath(
-    (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).ProviderPath
-)
-$script:BaseComposePath = Join-Path $repositoryRoot "docker-compose.yml"
-$script:E2eComposePath = Join-Path $repositoryRoot "docker-compose.e2e.yml"
-$frontendRoot = Join-Path $repositoryRoot "frontend"
-foreach ($requiredPath in @($script:BaseComposePath, $script:E2eComposePath, $frontendRoot)) {
-    if (-not (Test-Path -LiteralPath $requiredPath)) {
-        throw "Required E2E path is missing: $requiredPath"
+function Assert-RuntimeDatabaseMount {
+    $containerId = (Invoke-E2eCompose -Arguments @('ps', '--quiet', 'database') -Step 'Locate E2E database container') -join ''
+    if ([string]::IsNullOrWhiteSpace($containerId)) { throw 'E2E database container was not found after Compose up.' }
+    $inspectionJson = (& docker inspect $containerId.Trim()) -join [Environment]::NewLine
+    Assert-LastCommandSucceeded 'Inspect E2E database container mounts'
+    $inspection = @($inspectionJson | ConvertFrom-Json -ErrorAction Stop)
+    if ($inspection.Count -ne 1) {
+        throw 'Docker returned an unexpected database container inspection result.'
     }
+    [void](Assert-E2eRuntimeDatabaseVolume -Mounts @($inspection[0].Mounts) -ExpectedEngineName $script:E2eDatabaseVolumeName)
 }
 
-$temporaryRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd(
-    [System.IO.Path]::DirectorySeparatorChar,
-    [System.IO.Path]::AltDirectorySeparatorChar
-)
-$e2eDataRoot = Join-Path $temporaryRoot "reawote-e2e-data"
-$script:E2eMaterialsRoot = Join-Path $e2eDataRoot "materials"
-$allocatedPorts = [System.Collections.Generic.HashSet[int]]::new()
-while ($allocatedPorts.Count -lt 3) {
-    [void]$allocatedPorts.Add((Get-FreeTcpPort))
-}
-$selectedPorts = @($allocatedPorts)
-$backendPort = $selectedPorts[0]
-$frontendPort = $selectedPorts[1]
-$workerPort = $selectedPorts[2]
-$environmentNames = @(
-    "BACKEND_PORT",
-    "FRONTEND_PORT",
-    "POSTGRES_DB",
-    "POSTGRES_USER",
-    "POSTGRES_PASSWORD",
-    "COMPOSE_PROJECT_NAME",
-    "E2E_BACKEND_URL",
-    "E2E_FRONTEND_PORT",
-    "E2E_FRONTEND_URL",
-    "E2E_MATERIALS_ROOT",
-    "E2E_OUTPUT_DIR",
-    "E2E_WORKER_PORT"
-)
-$previousEnvironment = @{}
-foreach ($name in $environmentNames) {
-    $previousEnvironment[$name] = [System.Environment]::GetEnvironmentVariable($name, "Process")
-}
-
-$protectedBefore = Get-ProtectedState
-$runFailure = $null
-$cleanupErrors = [System.Collections.Generic.List[string]]::new()
-$startupAttempted = $false
-$runtimeCleanupVerified = $false
-try {
-    $env:BACKEND_PORT = "127.0.0.1:$backendPort"
-    $env:FRONTEND_PORT = "127.0.0.1:$frontendPort"
-    $env:POSTGRES_DB = "reawote_e2e"
-    $env:POSTGRES_USER = "reawote_e2e"
-    $env:POSTGRES_PASSWORD = [guid]::NewGuid().ToString("N")
-    $env:COMPOSE_PROJECT_NAME = $projectName
-    $env:E2E_BACKEND_URL = "http://127.0.0.1:$backendPort"
-    $env:E2E_FRONTEND_PORT = [string]$frontendPort
-    $env:E2E_FRONTEND_URL = "http://127.0.0.1:$frontendPort"
-    $env:E2E_MATERIALS_ROOT = $script:E2eMaterialsRoot
-    $env:E2E_OUTPUT_DIR = Join-Path $e2eDataRoot "playwright-results"
-    $env:E2E_WORKER_PORT = [string]$workerPort
-
-    $renderedLines = @(Invoke-E2eCompose `
-        -Arguments @("config", "--format", "json") `
-        -Step "Render E2E Docker Compose configuration")
-    Assert-RenderedE2eCompose -Json ($renderedLines -join [System.Environment]::NewLine)
+function Reset-E2eDatabaseSchema {
+    param([Parameter(Mandatory)] [string] $Password)
 
     Assert-E2eResourcesOwned
-    Invoke-E2eCompose `
-        -Arguments @("down", "--volumes", "--remove-orphans") `
-        -Step "Remove verified leftovers from an earlier E2E run"
+    Assert-RuntimeDatabaseMount
+    $passwordLiteral = $Password.Replace("'", "''")
+    $statement = "ALTER ROLE reawote_e2e WITH PASSWORD '$passwordLiteral';`nDROP SCHEMA public CASCADE;`nCREATE SCHEMA public;"
+    Invoke-E2eComposeWithStandardInput -StandardInput $statement -Arguments @(
+        'exec', '--no-TTY', 'database',
+        'psql', '--username', $script:E2eDatabaseUser, '--dbname', $script:E2eDatabaseName,
+        '--set', 'ON_ERROR_STOP=1'
+    ) -Step 'Reset only the dedicated E2E database schema' -Mutation
+}
+
+function Invoke-E2eJsonPost {
+    param([string] $BackendUrl, [string] $Route, $Body)
+    $response = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$BackendUrl$Route" -ContentType 'application/json' -Body ($Body | ConvertTo-Json -Depth 10 -Compress)
+    if ([int]$response.StatusCode -ne 201) { throw "POST $Route returned $($response.StatusCode), expected 201." }
+    return $response.Content | ConvertFrom-Json -ErrorAction Stop
+}
+
+function New-E2eMaterial {
+    param([string] $BackendUrl, [string] $ProjectId, [string] $BrandId, [string] $ProcessorId, [string] $Name)
+    return Invoke-E2eJsonPost -BackendUrl $BackendUrl -Route '/api/materials' -Body @{
+        project_id = $ProjectId; published_brand_id = $BrandId; material_name = $Name
+        main_category_code = 'G03'; assigned_processor_id = $ProcessorId
+    }
+}
+
+function New-E2eSeedManifestData {
+    param([string] $BackendUrl, [string] $RepositoryRoot, [string] $RunRoot, [string] $MaterialsRoot)
+    $company = Invoke-E2eJsonPost $BackendUrl '/api/companies' @{ name = 'E2E Company'; legal_name = 'E2E Company (disposable)'; country = 'CZ'; is_active = $true }
+    $brand = Invoke-E2eJsonPost $BackendUrl '/api/brands' @{ company_id = $company.id; name = 'E2E Published Brand'; folder_prefix = 'E2E_SAFE'; brand_identifier = 'e2e-disposable-brand'; is_active = $true }
+    $project = Invoke-E2eJsonPost $BackendUrl '/api/projects' @{ company_id = $company.id; project_number = 'E2E-001'; name = 'E2E Disposable Project'; status = 'IN_PROGRESS' }
+    $processor = Invoke-E2eJsonPost $BackendUrl '/api/internal-users' @{ display_name = 'E2E Processor'; email = 'e2e.processor@example.invalid'; role = 'PROCESSOR'; is_active = $true }
+    $valid = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Valid Metadata'
+    $missing = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Missing Metadata'
+    $mismatch = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Identity Mismatch'
+    $validPath = "e2e-library/$($valid.technical_identity)"
+    $missingPath = "e2e-library/$($missing.technical_identity)"
+    $mismatchPath = 'e2e-library/E2E_WRONG_FOLDER_G03'
+    foreach ($relativePath in @($validPath, $missingPath, $mismatchPath)) {
+        $directory = Join-Path $MaterialsRoot ($relativePath -replace '/', [IO.Path]::DirectorySeparatorChar)
+        [void](New-E2eSafeDirectory -RepositoryRoot $RepositoryRoot -RunRoot $RunRoot -Path (Join-Path $directory '16K'))
+    }
+    $metadataPath = Join-Path (Join-Path $MaterialsRoot ($validPath -replace '/', [IO.Path]::DirectorySeparatorChar)) 'metadata.txt'
+    Write-E2eSafeTextFile -RepositoryRoot $RepositoryRoot -RunRoot $RunRoot -Path $metadataPath -Content (@{
+        COLOR = @{ hex = '#A1B2C3' }; TEXTURE_SIZE = @{ cm = @{ width = 12.5; height = 34 } }
+    } | ConvertTo-Json -Depth 10 -Compress)
+    $fixture = { param($item, $relativePath) [ordered]@{
+        id = [string]$item.id; technical_identity = [string]$item.technical_identity; material_name = [string]$item.material_name
+        folder_path = $item.folder_path; workflow_status = [string]$item.workflow_status; relativePath = $relativePath
+    }}
+    return [ordered]@{
+        companyId = [string]$company.id; brandId = [string]$brand.id; projectId = [string]$project.id
+        valid = & $fixture $valid $validPath; missing = & $fixture $missing $missingPath; mismatch = & $fixture $mismatch $mismatchPath
+    }
+}
+
+function Save-E2eFailureDiagnostics {
+    param([string] $RepositoryRoot, [string] $ArtifactRoot, [string] $RunRoot, [string] $Password, [string] $FailureMessage)
+    $lines = [Collections.Generic.List[string]]::new()
+    $lines.Add("Runner failure: $FailureMessage")
+    if ($script:DockerContextVerified) {
+        try {
+            $lines.Add(''); $lines.Add('Compose status:')
+            foreach ($line in @(Invoke-E2eCompose @('ps', '--all') 'Capture E2E Compose status')) { $lines.Add([string]$line) }
+            $lines.Add(''); $lines.Add('Synthetic service logs:')
+            foreach ($line in @(& docker compose --project-name $script:E2eProjectName -f $script:BaseComposePath -f $script:E2eComposePath logs --no-color --tail 300 backend worker frontend)) {
+                if ($line -match '(?i)raw_content|source_content|authorization|cookie|postgres_password') { $lines.Add('[redacted potentially sensitive log line]') }
+                else { $lines.Add([string]$line) }
+            }
+        }
+        catch { $lines.Add("Diagnostics collection error: $($_.Exception.Message)") }
+    }
+    $text = $lines -join [Environment]::NewLine
+    foreach ($secret in @($Password, $RunRoot)) { if ($secret) { $text = $text.Replace($secret, '[REDACTED]') } }
+    Write-E2eSafeTextFile -RepositoryRoot $RepositoryRoot -RunRoot $ArtifactRoot -Path (Join-Path $ArtifactRoot 'runner-diagnostics.txt') -Content $text
+}
+
+$script:E2eProjectName = $projectName
+$script:E2eDatabaseVolumeName = $databaseVolumeName
+$script:E2eDatabaseName = $databaseName
+$script:E2eDatabaseUser = $databaseUser
+$script:DockerContextVerified = $false
+$runGuid = [guid]::NewGuid()
+$mutex = $null
+$runFailure = $null
+$cleanupErrors = [Collections.Generic.List[string]]::new()
+$environmentNames = @('BACKEND_PORT', 'FRONTEND_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'COMPOSE_PROJECT_NAME', 'E2E_FRONTEND_PORT', 'E2E_MATERIALS_ROOT', 'E2E_WORKER_PORT', 'E2E_RUN_MANIFEST', 'E2E_RUN_TOKEN')
+$previousEnvironment = @{}
+foreach ($name in $environmentNames) { $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+$repositoryRoot = $runRoot = $artifactRoot = $dataManagedRoot = $artifactManagedRoot = $postgresPassword = $protectedBefore = $null
+$startupAttempted = $testPassed = $false
+
+try {
+    $scriptPath = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $MyInvocation.MyCommand.Path).ProviderPath)
+    $repositoryRoot = Assert-LocalE2eRepositoryRoot -RepositoryRoot (Split-Path -Parent (Split-Path -Parent $scriptPath))
+    $script:BaseComposePath = Join-Path $repositoryRoot 'docker-compose.yml'
+    $script:E2eComposePath = Join-Path $repositoryRoot 'docker-compose.e2e.yml'
+    $frontendRoot = Join-Path $repositoryRoot 'frontend'
+    foreach ($requiredPath in @($script:BaseComposePath, $script:E2eComposePath, $frontendRoot)) {
+        Assert-E2eNoReparsePath -Root $repositoryRoot -Target $requiredPath
+        if (-not (Test-Path -LiteralPath $requiredPath)) { throw "Required E2E path is missing: $requiredPath" }
+    }
+    Assert-NodeVersion
+    $mutex = Enter-E2eRunMutex
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'Docker CLI is required. Start Docker Desktop in Linux containers mode.' }
+    [void](Assert-LocalDockerContext)
+    $script:DockerContextVerified = $true
+    $dataManagedRoot = Join-Path $repositoryRoot '.e2e-data\runs'
+    $artifactManagedRoot = Join-Path $repositoryRoot '.e2e-artifacts'
+    $runRoot = New-E2eManagedRunDirectory $repositoryRoot $dataManagedRoot $runGuid
+    $artifactRoot = New-E2eManagedRunDirectory $repositoryRoot $artifactManagedRoot $runGuid
+    $script:E2eMaterialsRoot = [IO.Path]::GetFullPath((Join-Path $runRoot 'materials'))
+    [void](New-E2eSafeDirectory $repositoryRoot $runRoot $script:E2eMaterialsRoot)
+    $allocatedPorts = [Collections.Generic.HashSet[int]]::new()
+    while ($allocatedPorts.Count -lt 3) { [void]$allocatedPorts.Add((Get-FreeTcpPort)) }
+    $selectedPorts = @($allocatedPorts)
+    $backendPort, $frontendPort, $workerPort = $selectedPorts[0], $selectedPorts[1], $selectedPorts[2]
+    $backendUrl, $frontendUrl = "http://127.0.0.1:$backendPort", "http://127.0.0.1:$frontendPort"
+    $postgresPassword = [guid]::NewGuid().ToString('N')
+    $env:BACKEND_PORT = "127.0.0.1:$backendPort"; $env:FRONTEND_PORT = "127.0.0.1:$frontendPort"
+    $env:POSTGRES_DB = $databaseName; $env:POSTGRES_USER = $databaseUser; $env:POSTGRES_PASSWORD = $postgresPassword
+    $env:COMPOSE_PROJECT_NAME = $projectName; $env:E2E_FRONTEND_PORT = [string]$frontendPort
+    $env:E2E_MATERIALS_ROOT = $script:E2eMaterialsRoot; $env:E2E_WORKER_PORT = [string]$workerPort
+    $protectedBefore = Get-ProtectedState
+    $rendered = (Invoke-E2eCompose @('config', '--format', 'json') 'Render E2E Docker Compose configuration') -join [Environment]::NewLine
+    Assert-RenderedE2eCompose $rendered
+    Assert-E2eResourcesOwned
+    Invoke-E2eCompose @('down', '--remove-orphans') 'Remove verified containers and network from an earlier E2E run' -Mutation
     Assert-NoE2eRuntimeResources
-
-    if (Test-Path -LiteralPath $e2eDataRoot) {
-        Remove-OwnedE2eData -TemporaryRoot $temporaryRoot -Path $e2eDataRoot
-    }
-    [void][System.IO.Directory]::CreateDirectory($e2eDataRoot)
-    [void](Assert-OwnedE2eDataPath -TemporaryRoot $temporaryRoot -Path $e2eDataRoot)
-    [System.IO.File]::WriteAllText(
-        (Join-Path $e2eDataRoot ".reawote-e2e-owned"),
-        $ownershipMarker,
-        [System.Text.UTF8Encoding]::new($false)
-    )
-    [void][System.IO.Directory]::CreateDirectory($script:E2eMaterialsRoot)
-
-    Push-Location -LiteralPath $frontendRoot
-    try {
-        & npm.cmd exec -- playwright install chromium
-        Assert-LastCommandSucceeded "Install or verify Playwright Chromium"
-    }
-    finally {
-        Pop-Location
-    }
-
     $startupAttempted = $true
-    Invoke-E2eCompose `
-        -Arguments @("up", "--build", "--detach", "--wait") `
-        -Step "Start isolated E2E environment"
-
-    Push-Location -LiteralPath $frontendRoot
-    try {
-        & npm.cmd run test:e2e
-        Assert-LastCommandSucceeded "Playwright E2E scenarios"
-    }
-    finally {
-        Pop-Location
-    }
+    Invoke-E2eCompose @('up', '--detach', '--wait', 'database') 'Start isolated E2E database for verified schema reset' -Mutation
+    Reset-E2eDatabaseSchema -Password $postgresPassword
+    Push-Location $frontendRoot
+    try { & npm.cmd exec -- playwright install chromium; Assert-LastCommandSucceeded 'Install or verify Playwright Chromium' }
+    finally { Pop-Location }
+    Invoke-E2eCompose @('up', '--build', '--detach', '--wait') 'Start isolated E2E environment' -Mutation
+    Assert-RuntimeDatabaseMount
+    $state = New-E2eSeedManifestData $backendUrl $repositoryRoot $runRoot $script:E2eMaterialsRoot
+    $runToken = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
+    $manifestPath = Join-Path $runRoot 'run-manifest.json'
+    $manifest = [ordered]@{
+        schemaVersion = 1; runGuid = $runGuid.ToString('D'); runnerTokenSha256 = Get-E2eSha256Hex $runToken
+        frontendUrl = $frontendUrl; backendUrl = $backendUrl; frontendPort = $frontendPort; backendPort = $backendPort
+        materialsRoot = $script:E2eMaterialsRoot; state = $state
+    } | ConvertTo-Json -Depth 12
+    Write-E2eSafeTextFile $repositoryRoot $runRoot $manifestPath $manifest
+    $env:E2E_RUN_MANIFEST = $manifestPath; $env:E2E_RUN_TOKEN = $runToken
+    Push-Location $frontendRoot
+    try { & npm.cmd exec -- playwright test; Assert-LastCommandSucceeded 'Playwright E2E scenarios' }
+    finally { Pop-Location }
+    $testPassed = $true
 }
-catch {
-    $runFailure = $_
-}
+catch { $runFailure = $_ }
 finally {
-    try {
-        if ($startupAttempted -or (Test-E2eRuntimeResourcesExist)) {
-            Assert-E2eResourcesOwned
-            Invoke-E2eCompose `
-                -Arguments @("down", "--volumes", "--remove-orphans") `
-                -Step "Clean isolated E2E Docker resources"
+    if ($null -ne $runFailure -and $null -ne $artifactRoot) {
+        try { Save-E2eFailureDiagnostics $repositoryRoot $artifactRoot $runRoot $postgresPassword $runFailure.Exception.Message }
+        catch { $cleanupErrors.Add("Diagnostics: $($_.Exception.Message)") }
+    }
+    if ($script:DockerContextVerified) {
+        try {
+            if ($startupAttempted -or (Test-E2eRuntimeResourcesExist)) {
+                Assert-E2eResourcesOwned
+                Invoke-E2eCompose @('down', '--remove-orphans') 'Clean isolated E2E containers and network' -Mutation
+            }
+            Assert-NoE2eRuntimeResources
         }
-        Assert-NoE2eRuntimeResources
-        $runtimeCleanupVerified = $true
+        catch { $cleanupErrors.Add("Docker cleanup: $($_.Exception.Message)") }
     }
-    catch {
-        $cleanupErrors.Add("Docker cleanup: $($_.Exception.Message)")
-    }
-    try {
-        if (-not $runtimeCleanupVerified) {
-            throw "Refusing to remove E2E data before Docker resource cleanup is verified."
+    if ($null -ne $runRoot) {
+        try {
+            Remove-E2eManagedRunDirectory $repositoryRoot $dataManagedRoot $runGuid $runRoot
+            if (Test-Path -LiteralPath $runRoot) { throw "E2E run data remains: $runRoot" }
         }
-        Remove-OwnedE2eData -TemporaryRoot $temporaryRoot -Path $e2eDataRoot
-        if (Test-Path -LiteralPath $e2eDataRoot) {
-            throw "Temporary E2E data remains after cleanup."
+        catch { $cleanupErrors.Add("Run data cleanup (manual review path '$runRoot'): $($_.Exception.Message)") }
+    }
+    if ($script:DockerContextVerified -and $null -ne $protectedBefore) {
+        try { if ((Get-ProtectedState) -ne $protectedBefore) { throw 'The regular or demo Compose project/volume state changed during E2E.' } }
+        catch { $cleanupErrors.Add("Protected resource verification: $($_.Exception.Message)") }
+    }
+    if ($null -eq $runFailure -and $cleanupErrors.Count -gt 0 -and $null -ne $artifactRoot) {
+        try {
+            Save-E2eFailureDiagnostics $repositoryRoot $artifactRoot $runRoot $postgresPassword ($cleanupErrors -join ' | ')
         }
+        catch { $cleanupErrors.Add("Post-cleanup diagnostics: $($_.Exception.Message)") }
     }
-    catch {
-        $cleanupErrors.Add("Temporary data cleanup: $($_.Exception.Message)")
+    if ($null -eq $runFailure -and $cleanupErrors.Count -eq 0 -and $testPassed -and $null -ne $artifactRoot) {
+        try { Remove-E2eManagedRunDirectory $repositoryRoot $artifactManagedRoot $runGuid $artifactRoot }
+        catch { $cleanupErrors.Add("Successful-run artifact cleanup (manual review path '$artifactRoot'): $($_.Exception.Message)") }
     }
-    foreach ($name in $environmentNames) {
-        [System.Environment]::SetEnvironmentVariable(
-            $name,
-            $previousEnvironment[$name],
-            "Process"
-        )
-    }
-    try {
-        $protectedAfter = Get-ProtectedState
-        if ($protectedAfter -ne $protectedBefore) {
-            throw "The regular or demo Compose project/volume state changed during E2E."
-        }
-    }
-    catch {
-        $cleanupErrors.Add("Protected resource verification: $($_.Exception.Message)")
+    foreach ($name in $environmentNames) { [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], 'Process') }
+    if ($null -ne $mutex) {
+        try { Exit-E2eRunMutex $mutex }
+        catch { $cleanupErrors.Add("Mutex release: $($_.Exception.Message)") }
     }
 }
 
-if ($null -ne $runFailure) {
-    if ($cleanupErrors.Count -gt 0) {
-        throw "E2E failed: $($runFailure.Exception.Message) Cleanup also failed: $($cleanupErrors -join ' | ')"
-    }
-    throw $runFailure
-}
-if ($cleanupErrors.Count -gt 0) {
-    throw "E2E scenarios passed, but cleanup verification failed: $($cleanupErrors -join ' | ')"
+if ($null -ne $runFailure -or $cleanupErrors.Count -gt 0) {
+    if ($null -ne $artifactRoot) { Write-Host "Failure diagnostics preserved at: $artifactRoot" }
+    $parts = [Collections.Generic.List[string]]::new()
+    if ($null -ne $runFailure) { $parts.Add("E2E failed: $($runFailure.Exception.Message)") }
+    if ($cleanupErrors.Count -gt 0) { $parts.Add("Cleanup/diagnostics errors: $($cleanupErrors -join ' | ')") }
+    throw ($parts -join [Environment]::NewLine)
 }
 
-Write-Host "All Playwright demo E2E scenarios passed."
-Write-Host "Cleanup removed only project '$projectName', volume '$databaseVolumeName' and '$e2eDataRoot'."
-Write-Host "Regular project 'reawote' and demo project/volume state remained unchanged."
+Write-Host 'All Playwright demo E2E scenarios passed.'
+Write-Host "Cleanup removed only project '$projectName' containers/network and run '$($runGuid.ToString('D'))'; volume '$databaseVolumeName' was preserved."
+Write-Host 'Regular project reawote and demo project/volume state remained unchanged.'

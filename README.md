@@ -97,15 +97,28 @@ docker compose run --rm --no-deps frontend npm run build
 docker compose run --rm --no-deps frontend npm test
 ```
 
-Skutečný browserový tok Material Done přes izolovaný disposable Compose projekt
-spustíte po `npm.cmd ci` ve `frontend/` příkazem:
+Skutečný browserový tok Material Done vyžaduje Node.js 22 nebo novější a Docker
+Desktop přepnutý na Linux containers. Závislosti připravte tak, aby vás příklad
+vždy vrátil do kořene repozitáře:
+
+```powershell
+Push-Location frontend
+try { npm.cmd ci } finally { Pop-Location }
+```
+
+Potom E2E spusťte jediným podporovaným write-capable příkazem z kořene:
 
 ```powershell
 .\scripts\test-demo-e2e.ps1
 ```
 
 Runner nepoužívá běžné ani demo databázové volume. Podrobnosti a bezpečnostní
-invarianty jsou v [`docs/demo-e2e.md`](docs/demo-e2e.md).
+invarianty jsou v [`docs/demo-e2e.md`](docs/demo-e2e.md). Přímé
+`npx playwright test` není podporovaný vstup: bez krátkodobého manifestu runneru
+selže před requestem a zápisem fixture. Při selhání zůstane trace, screenshot a
+sanitizovaná diagnostika v `.e2e-artifacts/<run-guid>`; úspěšný běh vypíše
+potvrzení, že E2E kontejnery a pouze jeho GUID run adresář byly odstraněny a
+dedikovaný E2E volume zůstal zachován.
 
 ## Databázové migrace
 

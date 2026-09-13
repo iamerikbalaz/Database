@@ -27,6 +27,8 @@ test-results/
 # Generated files
 generated/
 .demo-data/
+.e2e-data/
+.e2e-artifacts/
 worker-output/
 temp/
 tmp/

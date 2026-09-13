@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:e2e": "tsc --noEmit -p tsconfig.e2e.json && playwright test"
+    "test:e2e": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/test-demo-e2e.ps1",
+    "test:e2e:guard": "node e2e/direct-invocation.guard.test.mjs",
+    "test:e2e:helpers": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/test-demo-e2e-helpers.ps1",
+    "test:e2e:list": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/list-demo-e2e-tests.ps1"
   },
   "dependencies": {
     "react": "19.1.1",

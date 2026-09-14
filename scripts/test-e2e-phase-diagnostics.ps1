@@ -9,12 +9,15 @@ function Assert-E2eDiagnosticTest {
 }
 
 function New-ExpectedE2eDiagnosticText {
-    param($Last, $Current, $Failed, $Operation, $Category, $Exit, $Log = 'not_run', $Code = 'E2E_START_FAILED')
-    $values = @('1', $Code, $Last, $Current, $Failed, $Operation, $Category, $Exit, $Log)
+    param($Last, $Current, $Failed, $Operation, $Category, $Exit, $Log = 'not_run', $Code = 'E2E_START_FAILED',
+        $ProcessStarted = $null, $SystemErrorCode = $null)
+    $values = @('1', $Code, $Last, $Current, $Failed, $Operation, $Category, $ProcessStarted, $Exit, $SystemErrorCode, $Log)
     $keys = @('schema_version', 'error_code', 'last_completed_phase', 'current_phase',
-        'failed_phase', 'operation_id', 'error_category', 'exit_code', 'log_check_status')
+        'failed_phase', 'operation_id', 'error_category', 'process_started', 'exit_code', 'system_error_code', 'log_check_status')
     $lines = for ($index = 0; $index -lt $keys.Count; $index++) {
-        $value = if ($null -eq $values[$index]) { 'null' } else { [string]$values[$index] }
+        $value = if ($null -eq $values[$index]) { 'null' }
+            elseif ($values[$index] -is [bool]) { $values[$index].ToString().ToLowerInvariant() }
+            else { [string]$values[$index] }
         '{0}={1}' -f $keys[$index], $value
     }
     return $lines -join [Environment]::NewLine
@@ -86,10 +89,10 @@ foreach ($phaseEntry in $phaseOperations.GetEnumerator()) {
         Assert-E2eDiagnosticTest $observation.CleanupRan
         if ($case.Name -eq 'success') {
             Assert-E2eDiagnosticTest ($null -eq $failure)
-            $expected = New-ExpectedE2eDiagnosticText $phaseEntry.Key $phaseEntry.Key $null $phaseEntry.Value $null 0
+            $expected = New-ExpectedE2eDiagnosticText $phaseEntry.Key $phaseEntry.Key $null $phaseEntry.Value $null 0 -ProcessStarted $true
         }
         else {
-            $expected = New-ExpectedE2eDiagnosticText 'safety_preflight' $phaseEntry.Key $phaseEntry.Key $phaseEntry.Value $case.Name $case.Result.exit_code
+            $expected = New-ExpectedE2eDiagnosticText 'safety_preflight' $phaseEntry.Key $phaseEntry.Key $phaseEntry.Value $case.Name $case.Result.exit_code -ProcessStarted $case.Result.started
             Assert-E2eDiagnosticTest ($failure -ceq $expected)
             Assert-E2eDiagnosticTest ((ConvertTo-E2eSafeDiagnostics $state 'E2E_START_FAILED') -ceq $expected)
             # A later cleanup failure must not replace the original phase, category or exit.
@@ -104,7 +107,8 @@ foreach ($phaseEntry in $phaseOperations.GetEnumerator()) {
 }
 
 # Exercise all other allowed categories, and keep log-check status live after failure.
-foreach ($category in @('invalid_state', 'validation_failure', 'unknown_safe_failure')) {
+foreach ($category in @('invalid_state', 'validation_failure', 'unknown_safe_failure',
+    'executable_not_found', 'missing_exit_code', 'empty_output', 'invalid_output', 'policy_rejected')) {
     foreach ($status in @('passed', 'failed', 'not_run')) {
         $state = New-E2ePhaseDiagnosticsState
         Start-E2eDiagnosticOperation $state 'database_schema_reset' 'postgres_schema_reset'
@@ -140,7 +144,9 @@ $state.last_completed_phase = $secret
 $state.current_phase = $secret
 $state.operation_id = $secret
 $state.error_category = $secret
+$state.process_started = $secret
 $state.exit_code = $secret
+$state.system_error_code = $secret
 $state.log_check_status = $secret
 $state | Add-Member NoteProperty request_body $secret
 $expected = New-ExpectedE2eDiagnosticText $null $null $null $null $null $null 'not_run' 'E2E_SAFE_FAILURE'
@@ -169,7 +175,7 @@ foreach ($emission in @('output', 'warning', 'host', 'error', 'exception')) {
         catch { $_.Exception.Message }
     } 2>&1 3>&1 4>&1 5>&1 6>&1)
     $category = if ($emission -in @('error', 'exception')) { 'unknown_safe_failure' } else { 'invalid_state' }
-    $expected = New-ExpectedE2eDiagnosticText $null 'database_schema_reset' 'database_schema_reset' 'postgres_schema_reset' $category $null
+    $expected = New-ExpectedE2eDiagnosticText $null 'database_schema_reset' 'database_schema_reset' 'postgres_schema_reset' $category $null -ProcessStarted $false
     Assert-E2eDiagnosticTest ($captured.Count -eq 1 -and [string]$captured[0] -ceq $expected)
     Assert-E2eDiagnosticTest (-not (($captured | Out-String).Contains($secret)))
     $passed++
@@ -209,4 +215,75 @@ foreach ($invalidCode in @(([long][int]::MinValue - 1), ([long][uint32]::MaxValu
     Assert-E2eDiagnosticTest ($null -eq (Get-E2eSafeDiagnosticExitCode $invalidCode))
     $passed++
 }
+
+# Docker context sub-operations are fixed independently of the phase, and remain
+# identifiable even after later cleanup changes all mutable state.
+foreach ($operation in @('docker_executable_resolution', 'docker_context_show',
+    'docker_context_inspect', 'docker_context_parse', 'docker_context_policy_validation')) {
+    $state = New-E2ePhaseDiagnosticsState
+    Start-E2eDiagnosticOperation $state 'safety_preflight' 'repository_validation'
+    Complete-E2eDiagnosticPhase $state
+    Start-E2eDiagnosticOperation $state 'docker_context_validation' $operation
+    Set-E2eDiagnosticFailure $state 'process_start' -ProcessStarted $false -SystemErrorCode 2
+    $expected = New-ExpectedE2eDiagnosticText 'safety_preflight' 'docker_context_validation' `
+        'docker_context_validation' $operation 'process_start' $null -ProcessStarted $false -SystemErrorCode 2
+    Assert-E2eDiagnosticTest ((ConvertTo-E2eSafeDiagnostics $state 'E2E_START_FAILED') -ceq $expected)
+    Start-E2eDiagnosticOperation $state 'cleanup' 'cleanup_containers'
+    Assert-E2eDiagnosticTest ($null -eq $state.process_started -and $null -eq $state.system_error_code)
+    Set-E2eDiagnosticFailure $state 'nonzero_exit' 19 -ProcessStarted $true -SystemErrorCode 87
+    Assert-E2eDiagnosticTest ((ConvertTo-E2eSafeDiagnostics $state 'E2E_START_FAILED') -ceq $expected)
+    $passed++
+}
+
+# Strictly typed primitive status only: malformed values never enter state,
+# failure snapshots, or final serialization; no string-to-number/bool coercion.
+foreach ($invalidStarted in @('true', 'false', 'sensitive-cookie-or-csrf', 0, 1, @{}, [pscustomobject]@{ secret = 'sensitive' })) {
+    $state = New-E2ePhaseDiagnosticsState
+    Start-E2eDiagnosticOperation $state 'docker_context_validation' 'docker_context_show'
+    Set-E2eDiagnosticFailure $state 'missing_exit_code' -ProcessStarted $invalidStarted
+    Assert-E2eDiagnosticTest ($null -eq $state.process_started -and $null -eq $state.failure_snapshot.process_started)
+    $expected = New-ExpectedE2eDiagnosticText $null 'docker_context_validation' 'docker_context_validation' `
+        'docker_context_show' 'missing_exit_code' $null
+    Assert-E2eDiagnosticTest ((ConvertTo-E2eSafeDiagnostics $state 'E2E_START_FAILED') -ceq $expected)
+    $passed++
+}
+foreach ($invalidCode in @(([long][int]::MinValue - 1), ([long][uint32]::MaxValue + 1),
+    '2', 2.5, $true, @{}, [pscustomobject]@{ secret = 'sensitive' })) {
+    $state = New-E2ePhaseDiagnosticsState
+    Start-E2eDiagnosticOperation $state 'docker_context_validation' 'docker_context_show'
+    Set-E2eDiagnosticFailure $state 'process_start' -ProcessStarted $false -SystemErrorCode $invalidCode
+    Assert-E2eDiagnosticTest ($null -eq $state.system_error_code -and $null -eq $state.failure_snapshot.system_error_code)
+    $state.failure_snapshot.system_error_code = $invalidCode
+    $expected = New-ExpectedE2eDiagnosticText $null 'docker_context_validation' 'docker_context_validation' `
+        'docker_context_show' 'process_start' $null -ProcessStarted $false
+    Assert-E2eDiagnosticTest ((ConvertTo-E2eSafeDiagnostics $state 'E2E_START_FAILED') -ceq $expected)
+    $passed++
+}
+foreach ($systemCode in @([int]::MinValue, 0, 2, [long]3221225477, [uint32]::MaxValue)) {
+    $state = New-E2ePhaseDiagnosticsState
+    Start-E2eDiagnosticOperation $state 'docker_context_validation' 'docker_context_inspect'
+    Set-E2eDiagnosticFailure $state 'process_start' -ProcessStarted $false -SystemErrorCode $systemCode
+    $expected = New-ExpectedE2eDiagnosticText $null 'docker_context_validation' 'docker_context_validation' `
+        'docker_context_inspect' 'process_start' $null -ProcessStarted $false -SystemErrorCode $systemCode
+    Assert-E2eDiagnosticTest ((ConvertTo-E2eSafeDiagnostics $state 'E2E_START_FAILED') -ceq $expected)
+    $passed++
+}
+
+# Unknown data is discarded even when injected into a frozen failure snapshot.
+$secret = [guid]::NewGuid().ToString('N')
+$state = New-E2ePhaseDiagnosticsState
+Start-E2eDiagnosticOperation $state 'docker_context_validation' 'docker_context_parse'
+Set-E2eDiagnosticFailure $state 'invalid_output' 0 -ProcessStarted $true
+foreach ($field in @('PATH', 'DOCKER_HOST', 'environment', 'arguments', 'stdout', 'stderr',
+    'raw_exception', 'credentials', 'cookie', 'csrf_token', 'docker_endpoint')) {
+    $state | Add-Member NoteProperty $field $secret
+    $state.failure_snapshot | Add-Member NoteProperty $field $secret
+}
+$text = ConvertTo-E2eSafeDiagnostics $state 'E2E_ISOLATION_FAILED'
+$keys = @($text -split [Environment]::NewLine | ForEach-Object { ($_ -split '=', 2)[0] })
+$expectedKeys = @('schema_version', 'error_code', 'last_completed_phase', 'current_phase', 'failed_phase',
+    'operation_id', 'error_category', 'process_started', 'exit_code', 'system_error_code', 'log_check_status')
+Assert-E2eDiagnosticTest ($keys.Count -eq 11 -and ($keys -join '|') -ceq ($expectedKeys -join '|') -and -not $text.Contains($secret))
+$passed++
+$secret = $null
 Write-Host ('E2E phase diagnostics tests: {0} passed, 0 skipped, 0 failed.' -f $passed)

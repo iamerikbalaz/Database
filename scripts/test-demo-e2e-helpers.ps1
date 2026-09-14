@@ -118,7 +118,10 @@ try {
                 Assert-Equal ($probeOutput.Contains('exit_code=23')) $true 'failed private bootstrap preserves only its numeric subprocess exit code'
             }
             if ($mode -eq 'runner-failure') {
-                Assert-Equal ($probeOutput.Contains('E2E_DOCKER_UNAVAILABLE')) $true 'actual runner failure is converted to its allowlisted message'
+                Assert-Equal ($probeOutput.Contains('error_code=E2E_ISOLATION_FAILED')) $true 'actual runner failure is converted to its allowlisted message'
+                Assert-Equal ($probeOutput.Contains('operation_id=docker_context_policy_validation')) $true 'runner child is blocked at the real context policy guard'
+                Assert-Equal ($probeOutput.Contains('error_category=policy_rejected')) $true 'runner child fails closed even on a Docker host'
+                Assert-Equal ($probeOutput.Contains('process_started=false')) $true 'runner child blocks before any Docker process'
             }
         }
         finally { $probe.Dispose() }
@@ -351,5 +354,6 @@ finally {
 & (Join-Path $PSScriptRoot 'test-e2e-stdin-transport.ps1')
 & (Join-Path $PSScriptRoot 'test-e2e-phase-diagnostics.ps1')
 & (Join-Path $PSScriptRoot 'test-e2e-runner-flow.ps1')
+& (Join-Path $PSScriptRoot 'test-e2e-docker-context.ps1')
 
 Write-Host 'All demo E2E helper safety tests passed.'

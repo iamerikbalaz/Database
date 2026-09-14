@@ -62,7 +62,8 @@ LF přes privátní UTF-8 stdin, bez BOM, souboru nebo argumentu s heslem. Stejn
 transport předá resetu schématu jeho celý SQL vstup beze změny. Transport nic
 nepřidává ani nenormalizuje; rámování vstupu určuje konkrétní volající.
 
-Windows PowerShell 5.1 nemá `ProcessStartInfo.ArgumentList`. Proto spouští pouze
+Privátní transport stdin na Windows PowerShellu 5.1 nemá
+`ProcessStartInfo.ArgumentList`. Proto spouští pouze
 pevný lokální Node broker; cílový executable, pole argumentů, pracovní adresář
 a vstup dostane broker přes privátní stdin. Broker volá `spawn(file, args)` s
 `shell: false`, takže nesestavuje cílový příkazový řetězec. Obě výstupní větve
@@ -102,16 +103,38 @@ current_phase=database_schema_reset
 failed_phase=database_schema_reset
 operation_id=postgres_schema_reset
 error_category=nonzero_exit
+process_started=true
 exit_code=1
+system_error_code=null
 log_check_status=not_run
 ```
 
-Kategorie jsou `process_start`, `stdin_io`, `timeout`, `nonzero_exit`,
-`invalid_state`, `validation_failure` a `unknown_safe_failure`. Pokud proces
+Kategorie jsou `executable_not_found`, `process_start`, `missing_exit_code`,
+`empty_output`, `invalid_output`, `policy_rejected`, `stdin_io`, `timeout`,
+`nonzero_exit`, `invalid_state`, `validation_failure` a `unknown_safe_failure`. Pokud proces
 nedal číselný výsledek, je `exit_code=null`. Do diagnostiky nepatří argumenty,
 SQL, původní výjimky, stdout/stderr, environment, connection string ani cesty
 k NAS. Neznámé hodnoty serializer zahodí. Cleanup pokračuje přes jednotlivé
 chyby a nepřepíše původní selhanou operaci.
+
+Docker context má samostatné operace `docker_executable_resolution`,
+`docker_context_show`, `docker_context_inspect`, `docker_context_parse` a
+`docker_context_policy_validation`. Na Windows se vyhledává pouze aplikace
+`docker.exe`, nikoli alias, funkce nebo skript. Čtecí cesta používá přímo
+PowerShell/.NET `Process`, ne Node broker. Exit code pochází z konkrétního
+procesu, nikoli z `$LASTEXITCODE`; stderr se privátně zahazuje a stdout slouží
+jen interní validaci. Časový limit čtecího procesu je 30 sekund.
+
+`context show` musí vrátit právě jeden bezpečný neprázdný název; `inspect`
+musí vrátit JSON pole právě jednoho odpovídajícího contextu s lokálním endpointem.
+Více řádků se neslepuje do názvu. Vzdálený `DOCKER_HOST` se odmítá ještě před
+spuštěním procesu; lokální override musí odpovídat zkontrolovanému endpointu.
+Teprve pak read-only `docker --context <ověřený název> info --format '{{.OSType}}'`
+ověří Linux engine. Chyba dostupného CLI nebo nedostupný daemon nejsou úspěch ani
+fallback. Před dokončením této kontroly se nespouští žádná Compose mutace.
+Diagnostika obsahuje přesně uvedených 11 klíčů, nikdy název contextu, endpoint,
+PATH, environment ani raw výjimku. `process_started` je boolean nebo `null`;
+`system_error_code` je pouze bezpečně získané číslo Win32, jinak `null`.
 
 `log_check_status` začíná jako `not_run`. `passed` znamená, že skutečně proběhla
 kontrola logů databáze, backendu, workeru a frontendu; selhání při startu se za
@@ -130,7 +153,7 @@ musí být repozitář na lokálním `Fixed` disku.
 Před startem se kontroluje vyrenderovaný Compose model včetně převodu logického
 klíče `postgres_data` na engine název `reawote-e2e-postgres-data`; po startu se
 ověří i skutečný container mount. Před každou Docker mutací runner odmítne
-vzdálený context/`DOCKER_HOST` a vypíše pouze pevné potvrzení úspěšné kontroly.
+vzdálený context/`DOCKER_HOST`; název ani endpoint se nevypisují.
 Procesní mutex zabrání souběžnému běhu ještě před první Docker mutací.
 
 Databázový volume se při cleanupu nemaže. Před každým během runner nejprve ověří
@@ -195,6 +218,7 @@ operacemi. Samostatně je lze spustit z kořene:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e-stdin-transport.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e-phase-diagnostics.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e-runner-flow.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e-docker-context.ps1
 ```
 
 Transportní testy ověřují přesné bajty UTF-8, LF, EOF, oba bootstrapové řádky,
@@ -203,9 +227,26 @@ a metaznaky a potlačení úmyslného echo výstupu. Test timeoutu ověřuje uko
 potomka. Mockované regrese rozlišují jednotlivé fáze a ověřují zachování původní
 chyby i pokračování cleanupu. Nejsou náhradou PostgreSQL/Docker integrace.
 
+Docker-context regrese mockují pouze OS procesovou hranici (nenalezený executable
+ověřují skutečným lookupem); spouštějí skutečné `Assert-LocalDockerContext` a
+`Invoke-E2eReadCommand`. Runner-flow navíc spouští skutečné Node procesy pro
+stderr, exit code, řádky a Windows argv quoting. Ani to nenahrazuje Docker smoke.
+Na Windows Docker hostiteli nejprve spusťte samostatný **read-only** integrační test:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-e2e-docker-context-smoke.ps1
+```
+
+Ten používá skutečné `docker.exe` stejnou cestou jako runner; nespouští Compose,
+nevytváří kontejnery a nemění Docker stav. Pouze chybějící CLI (nebo ne-Windows
+hostitel) způsobí explicitní SKIP. Chyba spuštění, výstupu, policy nebo dostupného
+CLI vrací nenulový exit code a bezpečnou diagnostiku. Úspěch znamená ověření
+contextu, nikoli úspěšný browser E2E běh.
+
 Skutečné ověření vyžaduje dva běhy `scripts/test-demo-e2e.ps1`, každý **6/6
 passed**. Reporter odmítne dílčí nebo skipped běh i při jinak nulovém exit code.
-Pokud Docker chybí, runner vrátí `E2E_DOCKER_UNAVAILABLE`; runtime, skutečná
+Pokud Docker chybí, runner vrátí `E2E_ISOLATION_FAILED` s operací
+`docker_executable_resolution` a kategorií `executable_not_found`; runtime, skutečná
 browser console, Docker logy a zachování volume po běhu pak nejsou ověřené.
 Při diagnostice startovací chyby spusťte nejprve jediný běh. Pokud selže,
 vyhodnoťte `failed_phase`, `operation_id`, `error_category` a `exit_code`;

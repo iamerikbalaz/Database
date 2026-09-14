@@ -9,6 +9,8 @@ $script:E2eDiagnosticPhases = @(
 )
 $script:E2eDiagnosticOperations = @(
     'repository_validation', 'node_version_check', 'docker_context_validation',
+    'docker_executable_resolution', 'docker_context_show', 'docker_context_inspect',
+    'docker_context_parse', 'docker_context_policy_validation',
     'compose_config_render', 'compose_config_validation', 'protected_state_check',
     'resource_ownership_check', 'volume_inspection', 'container_inspection',
     'network_inspection', 'runtime_resources_check', 'previous_runtime_cleanup',
@@ -21,6 +23,7 @@ $script:E2eDiagnosticOperations = @(
 )
 $script:E2eDiagnosticErrorCategories = @(
     'process_start', 'stdin_io', 'timeout', 'nonzero_exit', 'invalid_state',
+    'executable_not_found', 'missing_exit_code', 'empty_output', 'invalid_output', 'policy_rejected',
     'validation_failure', 'unknown_safe_failure'
 )
 $script:E2eDiagnosticErrorCodes = @(
@@ -63,13 +66,23 @@ function Get-E2eSafeDiagnosticExitCode {
     return $null
 }
 
+function Get-E2eSafeDiagnosticProcessStarted {
+    param($Value)
+
+    # Do not accept truthy strings, numbers, arrays or user-defined conversions.
+    if ($Value -is [bool]) { return $Value }
+    return $null
+}
+
 function New-E2ePhaseDiagnosticsState {
     return [pscustomobject]@{
         last_completed_phase = $null
         current_phase = $null
         operation_id = $null
         error_category = $null
+        process_started = $null
         exit_code = $null
+        system_error_code = $null
         log_check_status = 'not_run'
         failure_snapshot = $null
     }
@@ -86,7 +99,9 @@ function Start-E2eDiagnosticOperation {
     $State.current_phase = $safePhase
     $State.operation_id = $safeOperation
     $State.error_category = $null
+    $State.process_started = $null
     $State.exit_code = $null
+    $State.system_error_code = $null
 }
 
 function Complete-E2eDiagnosticPhase {
@@ -100,20 +115,32 @@ function Complete-E2eDiagnosticPhase {
 }
 
 function Set-E2eDiagnosticFailure {
-    param([Parameter(Mandatory)] $State, $ErrorCategory, $ExitCode = $null)
+    param(
+        [Parameter(Mandatory)] $State,
+        $ErrorCategory,
+        $ExitCode = $null,
+        $ProcessStarted = $null,
+        $SystemErrorCode = $null
+    )
 
     $category = Get-E2eAllowedDiagnosticValue $ErrorCategory $script:E2eDiagnosticErrorCategories
     if ($null -eq $category) { $category = 'unknown_safe_failure' }
     $code = Get-E2eSafeDiagnosticExitCode $ExitCode
+    $started = Get-E2eSafeDiagnosticProcessStarted $ProcessStarted
+    $systemCode = Get-E2eSafeDiagnosticExitCode $SystemErrorCode
     $State.error_category = $category
+    $State.process_started = $started
     $State.exit_code = $code
+    $State.system_error_code = $systemCode
     if ($null -eq $State.failure_snapshot) {
         $State.failure_snapshot = [pscustomobject]@{
             last_completed_phase = Get-E2eAllowedDiagnosticValue $State.last_completed_phase $script:E2eDiagnosticPhases
             current_phase = Get-E2eAllowedDiagnosticValue $State.current_phase $script:E2eDiagnosticPhases
             operation_id = Get-E2eAllowedDiagnosticValue $State.operation_id $script:E2eDiagnosticOperations
             error_category = $category
+            process_started = $started
             exit_code = $code
+            system_error_code = $systemCode
         }
     }
 }
@@ -165,8 +192,10 @@ function ConvertTo-E2eSafeDiagnostics {
     $failed = if ($null -ne $failure) { $current } else { $null }
     $operation = Get-E2eAllowedDiagnosticValue (Get-E2eDiagnosticProperty $snapshot 'operation_id') $script:E2eDiagnosticOperations
     $category = Get-E2eAllowedDiagnosticValue (Get-E2eDiagnosticProperty $snapshot 'error_category') $script:E2eDiagnosticErrorCategories
+    $started = Get-E2eSafeDiagnosticProcessStarted (Get-E2eDiagnosticProperty $snapshot 'process_started')
     $exitCode = Get-E2eDiagnosticProperty $snapshot 'exit_code'
     $exitCode = Get-E2eSafeDiagnosticExitCode $exitCode
+    $systemCode = Get-E2eSafeDiagnosticExitCode (Get-E2eDiagnosticProperty $snapshot 'system_error_code')
     $logCheck = Get-E2eAllowedDiagnosticValue (Get-E2eDiagnosticProperty $State 'log_check_status') @('passed', 'failed', 'not_run')
     if ($null -eq $logCheck) { $logCheck = 'not_run' }
     $fields = [ordered]@{
@@ -177,11 +206,15 @@ function ConvertTo-E2eSafeDiagnostics {
         failed_phase = $failed
         operation_id = $operation
         error_category = $category
+        process_started = $started
         exit_code = $exitCode
+        system_error_code = $systemCode
         log_check_status = $logCheck
     }
     return (($fields.GetEnumerator() | ForEach-Object {
-        $safeValue = if ($null -eq $_.Value) { 'null' } else { [string]$_.Value }
+        $safeValue = if ($null -eq $_.Value) { 'null' }
+            elseif ($_.Value -is [bool]) { $_.Value.ToString().ToLowerInvariant() }
+            else { [string]$_.Value }
         '{0}={1}' -f $_.Key, $safeValue
     }) -join [Environment]::NewLine)
 }
@@ -214,10 +247,12 @@ function Invoke-E2eDiagnosticProcessOperation {
     }
     finally { $results = $null }
     if ($null -ne $result.error_category) {
-        Set-E2eDiagnosticFailure -State $State -ErrorCategory $result.error_category -ExitCode $result.exit_code
+        Set-E2eDiagnosticFailure -State $State -ErrorCategory $result.error_category `
+            -ExitCode $result.exit_code -ProcessStarted $result.started
         throw (ConvertTo-E2eSafeDiagnostics -State $State -ErrorCode $ErrorCode)
     }
     $State.exit_code = $result.exit_code
+    $State.process_started = $result.started
     if ($CompletePhase) { Complete-E2eDiagnosticPhase -State $State }
     return $result
 }

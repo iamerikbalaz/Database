@@ -33,12 +33,16 @@ try {
     if ($Mode -eq 'runner-failure') {
         # Exercise the actual runner's outer finally without Docker mutations,
         # even on a host which has Docker installed.
-        function Get-Command {
-            param([string] $Name, $CommandType, $ErrorAction)
-            if ($Name -eq 'docker') { return $null }
-            return Microsoft.PowerShell.Core\Get-Command -Name $Name -ErrorAction SilentlyContinue
+        # The resolver intentionally bypasses Get-Command function doubles.
+        # Fail closed at the real policy guard, before resolving/spawning Docker.
+        $previousDockerHost = [Environment]::GetEnvironmentVariable('DOCKER_HOST', 'Process')
+        try {
+            [Environment]::SetEnvironmentVariable('DOCKER_HOST', 'tcp://invalid.example.invalid:2375', 'Process')
+            & (Join-Path $PSScriptRoot 'test-demo-e2e.ps1')
         }
-        & (Join-Path $PSScriptRoot 'test-demo-e2e.ps1')
+        finally {
+            [Environment]::SetEnvironmentVariable('DOCKER_HOST', $previousDockerHost, 'Process')
+        }
     }
     else {
         Invoke-E2eWithCredentialCleanup -Action {

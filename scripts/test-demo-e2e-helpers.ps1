@@ -115,7 +115,7 @@ try {
             }
             if ($mode -eq 'bootstrap-failure') {
                 Assert-Equal ($probeOutput.Contains('E2E_BOOTSTRAP_FAILED')) $true 'failed private bootstrap returns only its safe error code'
-                Assert-Equal ($probeOutput.Contains('exit code 23')) $true 'failed private bootstrap preserves only its numeric subprocess exit code'
+                Assert-Equal ($probeOutput.Contains('exit_code=23')) $true 'failed private bootstrap preserves only its numeric subprocess exit code'
             }
             if ($mode -eq 'runner-failure') {
                 Assert-Equal ($probeOutput.Contains('E2E_DOCKER_UNAVAILABLE')) $true 'actual runner failure is converted to its allowlisted message'
@@ -290,7 +290,7 @@ try {
         $runnerText,
         "(?s)Invoke-E2eGuardedAction\s+-Validation\s+\{\s*\[void\]\(Assert-E2eDatabaseEngineVolume(?:\s+-RequirePresent)?\)\s*\}\s+-Action\s+\{\s*Invoke-E2eCompose\s+@\('up'"
     ))
-    Assert-Equal $allComposeUpCalls.Count 2 'runner has the expected two Compose up calls'
+    Assert-Equal $allComposeUpCalls.Count 4 'runner separately starts and awaits database and applications'
     Assert-Equal $guardedComposeUpCalls.Count $allComposeUpCalls.Count 'every Compose up is protected by engine volume validation'
     $guardedDropPattern = "(?s)function\s+Reset-E2eDatabaseSchema\s*\{.*?Invoke-E2eGuardedAction\s+-Validation\s+\{\s*\[void\]\(Assert-E2eDatabaseEngineVolume\s+-RequirePresent\)\s*\}\s+-Action\s+\{.*?DROP SCHEMA public CASCADE"
     Assert-Equal ([regex]::IsMatch($runnerText, $guardedDropPattern)) $true 'DROP SCHEMA is inside a require-present engine volume guard'
@@ -298,7 +298,7 @@ try {
     Assert-Equal ([regex]::IsMatch($runnerText, $guardedProvisionPattern)) $true 'administrator provisioning is stdin-only and immediately volume guarded'
     Assert-Equal ($runnerText -notmatch "(?i)'--password'") $true 'runner never places an authentication password in CLI arguments'
     Assert-Equal ($runnerText -notmatch '\$runFailure\.Exception|\$\(\$_\.Exception\.Message\)') $true 'runner final and cleanup failures never include raw exception messages'
-    Assert-Equal ($runnerText -match '(?s)finally\s*\{\s*# This also runs.*?Clear-E2eCredentialEnvironment') $true 'outer runner finally clears credential environment even before Playwright starts'
+    Assert-Equal ($runnerText -match "(?s)finally\s*\{.*?Invoke-E2eCleanupOperation -OperationId 'cleanup_environment' -Action \{ Clear-E2eCredentialEnvironment \}") $true 'outer runner finally clears credential environment even before Playwright starts'
     Assert-Equal ($runnerText -match 'Invoke-E2eWithCredentialCleanup -Action') $true 'Playwright executes inside the tested credential finally wrapper'
     $manifestDefinition = [regex]::Match(
         $runnerText,
@@ -347,5 +347,9 @@ finally {
         if (Test-Path -LiteralPath $sentinel) { Remove-Item -LiteralPath $sentinel -Force }
     }
 }
+
+& (Join-Path $PSScriptRoot 'test-e2e-stdin-transport.ps1')
+& (Join-Path $PSScriptRoot 'test-e2e-phase-diagnostics.ps1')
+& (Join-Path $PSScriptRoot 'test-e2e-runner-flow.ps1')
 
 Write-Host 'All demo E2E helper safety tests passed.'

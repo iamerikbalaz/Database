@@ -1,6 +1,8 @@
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+. (Join-Path $PSScriptRoot 'e2e-private-process.ps1')
+
 function ConvertTo-E2eCanonicalPath {
     param([Parameter(Mandatory)] [string] $Path)
 
@@ -296,76 +298,6 @@ function ConvertTo-E2eProcessArgument {
     # ProcessStartInfo.ArgumentList is unavailable in Windows PowerShell 5.1.
     # Apply the Windows argv quoting rules, including trailing backslashes.
     return '"' + ([regex]::Replace($Value, '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"'
-}
-
-function Invoke-E2ePrivateProcess {
-    param(
-        [Parameter(Mandatory)] [string] $FilePath,
-        [Parameter(Mandatory)] [string[]] $Arguments,
-        [Parameter(Mandatory)] [AllowEmptyString()] [string] $StandardInput
-    )
-
-    $process = [Diagnostics.Process]::new()
-    $outputTask = $errorTask = $inputBytes = $null
-    $started = $false
-    try {
-        $process.StartInfo.FileName = $FilePath
-        $process.StartInfo.Arguments = (@($Arguments | ForEach-Object { ConvertTo-E2eProcessArgument $_ }) -join ' ')
-        $process.StartInfo.UseShellExecute = $false
-        $process.StartInfo.CreateNoWindow = $true
-        $process.StartInfo.RedirectStandardInput = $true
-        $process.StartInfo.RedirectStandardOutput = $true
-        $process.StartInfo.RedirectStandardError = $true
-        [void]$process.Start()
-        $started = $true
-        # Drain both streams concurrently, but never return, print or persist
-        # their content, including getpass prompts/warnings on CLI failures.
-        $outputTask = $process.StandardOutput.ReadToEndAsync()
-        $errorTask = $process.StandardError.ReadToEndAsync()
-        # Write UTF-8 bytes directly: Windows PowerShell 5.1 does not expose
-        # ProcessStartInfo.StandardInputEncoding and a shell pipe is unnecessary.
-        $inputBytes = [Text.Encoding]::UTF8.GetBytes($StandardInput + [Environment]::NewLine)
-        $process.StandardInput.BaseStream.Write($inputBytes, 0, $inputBytes.Length)
-        $process.StandardInput.BaseStream.Flush()
-        $process.StandardInput.Close()
-        if (-not $process.WaitForExit(60000)) {
-            $process.Kill()
-            throw 'E2E_PRIVATE_PROCESS_FAILED: Private subprocess did not complete.'
-        }
-        [void]$outputTask.GetAwaiter().GetResult()
-        [void]$errorTask.GetAwaiter().GetResult()
-        return [int]$process.ExitCode
-    }
-    catch {
-        # Exception messages can include subprocess input or environment data.
-        throw 'E2E_PRIVATE_PROCESS_FAILED: Private subprocess could not complete.'
-    }
-    finally {
-        $StandardInput = $null
-        if ($null -ne $inputBytes) { [Array]::Clear($inputBytes, 0, $inputBytes.Length) }
-        $outputTask = $errorTask = $null
-        # An early stdin failure must not leave this owned child running. Never
-        # target any process other than the process object created above.
-        if ($started) {
-            try { if (-not $process.HasExited) { $process.Kill() } }
-            catch { } # Do not expose process exceptions or buffered output.
-        }
-        $process.Dispose()
-    }
-}
-
-function Invoke-E2ePrivateBootstrap {
-    param(
-        [Parameter(Mandatory)] [string] $FilePath,
-        [Parameter(Mandatory)] [string[]] $Arguments,
-        [Parameter(Mandatory)] [string] $StandardInput
-    )
-
-    try { $exitCode = Invoke-E2ePrivateProcess -FilePath $FilePath -Arguments $Arguments -StandardInput $StandardInput }
-    catch { throw 'E2E_BOOTSTRAP_FAILED: Administrator provisioning could not complete.' }
-    if ($exitCode -ne 0) {
-        throw "E2E_BOOTSTRAP_FAILED: Administrator provisioning failed (exit code $exitCode)."
-    }
 }
 
 function Get-E2eSafeFailureMessage {
@@ -694,6 +626,17 @@ function Test-E2eLocalDockerEndpoint {
     return $Endpoint -match '^unix:///[^\r\n]+$'
 }
 
+function Invoke-E2eDockerContextRead {
+    param([Parameter(Mandatory)] [string[]] $Arguments)
+    if (Get-Command Invoke-E2eReadCommand -ErrorAction SilentlyContinue) {
+        return Invoke-E2eReadCommand -Executable 'docker' -Arguments $Arguments -OperationId 'docker_context_validation'
+    }
+    # Standalone helper users retain the same validation without raw stderr.
+    $output = @(& docker @Arguments 2>$null)
+    if ($LASTEXITCODE -ne 0) { throw 'E2E_DOCKER_CONTEXT_FAILED' }
+    return $output
+}
+
 function Assert-LocalDockerContext {
     $isWindows = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
     $dockerHost = [System.Environment]::GetEnvironmentVariable('DOCKER_HOST', 'Process')
@@ -702,15 +645,12 @@ function Assert-LocalDockerContext {
         throw "DOCKER_HOST must be unset or point to a local named pipe/Unix socket; remote tcp:// and ssh:// endpoints are forbidden."
     }
 
-    $contextName = (& docker context show) -join ''
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($contextName)) {
+    $contextName = (Invoke-E2eDockerContextRead -Arguments @('context', 'show')) -join ''
+    if ([string]::IsNullOrWhiteSpace($contextName)) {
         throw "Could not determine the active Docker context."
     }
     $contextName = $contextName.Trim()
-    $contextJson = (& docker context inspect $contextName) -join [System.Environment]::NewLine
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not inspect the active Docker context."
-    }
+    $contextJson = (Invoke-E2eDockerContextRead -Arguments @('context', 'inspect', $contextName)) -join [System.Environment]::NewLine
     $context = @($contextJson | ConvertFrom-Json -ErrorAction Stop)
     if ($context.Count -ne 1) {
         throw "Docker returned an unexpected context inspection result."
@@ -719,8 +659,7 @@ function Assert-LocalDockerContext {
     if (-not (Test-E2eLocalDockerEndpoint -Endpoint $endpoint -WindowsHost $isWindows)) {
         throw "Active Docker context is remote; only a local named pipe/Unix socket is allowed."
     }
-    $safeName = if ($contextName -match '^[A-Za-z0-9_.-]+$') { $contextName } else { '<non-printable-name>' }
-    Write-Host "Using verified local Docker context '$safeName'."
+    Write-Host 'Local Docker context validated.'
     return $contextName
 }
 

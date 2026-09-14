@@ -126,6 +126,12 @@ v `.e2e-artifacts/<run-guid>`; úspěšný běh vyžaduje všech šest scénář
 potvrzení, že E2E kontejnery a pouze jeho GUID run adresář byly odstraněny a
 dedikovaný E2E volume zůstal zachován.
 
+Diagnostika runneru nyní rozlišuje konkrétní startovací fázi, operaci, kategorii
+chyby a exit code; původní chybu zachová i po cleanupu. Regrese transportu stdin
+a jednotlivých fází jsou součástí `npm.cmd run test:e2e:helpers` ve `frontend/`.
+Po selhání skutečného E2E nejprve vyhodnoťte tuto diagnostiku a běh slepě
+neopakujte. Podrobnosti bezpečného formátu jsou v E2E dokumentaci uvedené výše.
+
 ## Databázové migrace
 
 Novou migraci vytvořte po přidání SQLAlchemy modelů:

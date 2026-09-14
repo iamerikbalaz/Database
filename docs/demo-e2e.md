@@ -57,10 +57,66 @@ dostane navíc explicitně filtrované prostředí bez auth proměnných,
 auth proměnné a capability token ihned po Playwrightu a znovu ve vnějším
 `finally`; staré zděděné credential hodnoty neobnovuje.
 
-Bootstrap nadále volá oficiální CLI. Heslo předá přes privátní UTF-8 stdin
-procesu, bez shell pipe nebo argumentu s heslem. Obě výstupní větve procesu se
-současně zachytí a zahodí: ani `GetPassWarning`, prompt, echo nebo raw chyba
-se nevypisují. Selhání má pouze vlastní kód `E2E_BOOTSTRAP_FAILED` a obecný text.
+Bootstrap nadále volá oficiální CLI. Heslo předá jako přesně dva řádky zakončené
+LF přes privátní UTF-8 stdin, bez BOM, souboru nebo argumentu s heslem. Stejný
+transport předá resetu schématu jeho celý SQL vstup beze změny. Transport nic
+nepřidává ani nenormalizuje; rámování vstupu určuje konkrétní volající.
+
+Windows PowerShell 5.1 nemá `ProcessStartInfo.ArgumentList`. Proto spouští pouze
+pevný lokální Node broker; cílový executable, pole argumentů, pracovní adresář
+a vstup dostane broker přes privátní stdin. Broker volá `spawn(file, args)` s
+`shell: false`, takže nesestavuje cílový příkazový řetězec. Obě výstupní větve
+cílového procesu zahazuje operační systém bez bufferování. Ani `GetPassWarning`,
+prompt, echo nebo původní chyba se nevrací volajícímu, nevypisuje a neukládá.
+Transport vrací jen `started`, `completed`, `exit_code` a `error_category`.
+Timeout ukončuje konkrétní child process a jeho potomky; další watchdog chrání
+samotný broker. Při předčasném návratu helper požádá broker přes privátní řídicí
+kanál o zrušení a počká na ukončení child procesu i brokeru. Tento kanál je
+oddělený od cílového stdin a nemění jeho bajty ani EOF.
+Chromium i Playwright se spouštějí přímo přes Node, bez shellu
+potřebného pro Windows `npm.cmd`.
+
+### Diagnostika startu a cleanupu
+
+Runner odděluje `safety_preflight`, `docker_context_validation`,
+`compose_config_validation`, `database_start`, `database_readiness`,
+`database_runtime_validation`, `database_schema_reset`, `browser_installation`,
+`image_build`, `application_start`, `application_readiness`,
+`administrator_bootstrap`, `fixture_seed`, `playwright_start`,
+`playwright_execution` a `cleanup`. `playwright_start` končí až po potvrzení
+skutečného spuštění procesu brokerem; následné čekání patří do
+`playwright_execution`. Selhání samotného spuštění proto zůstane ve fázi startu.
+Build, spuštění a čekání na readiness mají samostatné příkazy. Kontroly lokálního
+contextu a vlastnictví volume zůstávají před každou příslušnou mutací.
+
+Před externí operací se nastaví fáze a pevný `operation_id`. Poslední dokončená
+fáze se posune až po úspěchu. První chyba se uchová přes celý cleanup a konzole
+i `runner-diagnostics.txt` používají pouze stejný allowlist strukturovaných polí.
+Například následující je **ukázka formátu, nikoli výsledek skutečného běhu**:
+
+```text
+schema_version=1
+error_code=E2E_START_FAILED
+last_completed_phase=database_runtime_validation
+current_phase=database_schema_reset
+failed_phase=database_schema_reset
+operation_id=postgres_schema_reset
+error_category=nonzero_exit
+exit_code=1
+log_check_status=not_run
+```
+
+Kategorie jsou `process_start`, `stdin_io`, `timeout`, `nonzero_exit`,
+`invalid_state`, `validation_failure` a `unknown_safe_failure`. Pokud proces
+nedal číselný výsledek, je `exit_code=null`. Do diagnostiky nepatří argumenty,
+SQL, původní výjimky, stdout/stderr, environment, connection string ani cesty
+k NAS. Neznámé hodnoty serializer zahodí. Cleanup pokračuje přes jednotlivé
+chyby a nepřepíše původní selhanou operaci.
+
+`log_check_status` začíná jako `not_run`. `passed` znamená, že skutečně proběhla
+kontrola logů databáze, backendu, workeru a frontendu; selhání při startu se za
+úspěšnou kontrolu logů nevydává. Raw logy se nepřipojují k artefaktům. Při selhání
+kontroly se uloží pouze bezpečný stav `failed`.
 
 ## Izolace a cleanup
 
@@ -74,7 +130,7 @@ musí být repozitář na lokálním `Fixed` disku.
 Před startem se kontroluje vyrenderovaný Compose model včetně převodu logického
 klíče `postgres_data` na engine název `reawote-e2e-postgres-data`; po startu se
 ověří i skutečný container mount. Před každou Docker mutací runner odmítne
-vzdálený context/`DOCKER_HOST` a vypíše pouze bezpečný název lokálního contextu.
+vzdálený context/`DOCKER_HOST` a vypíše pouze pevné potvrzení úspěšné kontroly.
 Procesní mutex zabrání souběžnému běhu ještě před první Docker mutací.
 
 Databázový volume se při cleanupu nemaže. Před každým během runner nejprve ověří
@@ -100,6 +156,9 @@ Exception.message se nepřebírá. Reporter zachovává pouze šest povolených 
 scénářů, fázi, vlastní error code, povolený relativní soubor a řádek, endpoint
 bez ID/query a HTTP status, případně kategorii browser console. Nezahrnuje
 headers, body, stack, cookie, CSRF, obsah inputu nebo environment.
+Soukromý launcher nepřebírá stdout reporteru do startovací diagnostiky; runner
+vyhodnocuje jeho exit code. Reporter nadále vynucuje dokončení všech šesti
+scénářů a jeho sanitizaci ověřují samostatné infrastrukturní testy.
 
 Automatická test fixture před zápisem frameworkového `error-context.md` nahradí
 veřejné `TestInfo.errors` čistými objekty s bezpečnými kódy. Zachová počet chyb
@@ -128,7 +187,26 @@ testu, afterEach i teardownu; prohledá celé stdout/stderr a všechny artefakty
 na unikátní syntetická tajemství. Tyto infrastrukturní probes nevolají aplikaci,
 nepoužívají její databázi a nejsou náhradou šesti skutečných browser scénářů.
 
+`npm.cmd run test:e2e:helpers` zahrnuje i nové PowerShell regrese transportu,
+strukturované diagnostiky a skutečného řídicího toku runneru s mockovanými
+operacemi. Samostatně je lze spustit z kořene:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e-stdin-transport.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e-phase-diagnostics.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e-runner-flow.ps1
+```
+
+Transportní testy ověřují přesné bajty UTF-8, LF, EOF, oba bootstrapové řádky,
+celý SQL vstup skutečného call site `Reset-E2eDatabaseSchema`, argumenty s Unicode
+a metaznaky a potlačení úmyslného echo výstupu. Test timeoutu ověřuje ukončení
+potomka. Mockované regrese rozlišují jednotlivé fáze a ověřují zachování původní
+chyby i pokračování cleanupu. Nejsou náhradou PostgreSQL/Docker integrace.
+
 Skutečné ověření vyžaduje dva běhy `scripts/test-demo-e2e.ps1`, každý **6/6
 passed**. Reporter odmítne dílčí nebo skipped běh i při jinak nulovém exit code.
 Pokud Docker chybí, runner vrátí `E2E_DOCKER_UNAVAILABLE`; runtime, skutečná
 browser console, Docker logy a zachování volume po běhu pak nejsou ověřené.
+Při diagnostice startovací chyby spusťte nejprve jediný běh. Pokud selže,
+vyhodnoťte `failed_phase`, `operation_id`, `error_category` a `exit_code`;
+druhý běh bez vyhodnocení a opravy neopakujte.

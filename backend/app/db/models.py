@@ -238,6 +238,119 @@ class InternalUser(TimestampMixin, Base):
         back_populates="assigned_processor",
         passive_deletes=True,
     )
+    credential: Mapped["UserCredential | None"] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        uselist=False,
+    )
+    auth_sessions: Mapped[list["AuthSession"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class UserCredential(Base):
+    __tablename__ = "user_credentials"
+
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("internal_users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
+    )
+    password_changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    user: Mapped[InternalUser] = relationship(back_populates="credential")
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+    __table_args__ = (
+        CheckConstraint("length(token_hash) = 64", name="ck_auth_sessions_token_hash"),
+        CheckConstraint(
+            "length(csrf_token) >= 43",
+            name="ck_auth_sessions_csrf_token",
+        ),
+        CheckConstraint(
+            "absolute_expires_at > created_at",
+            name="ck_auth_sessions_absolute_expiration",
+        ),
+        CheckConstraint(
+            "idle_expires_at > created_at AND idle_expires_at <= absolute_expires_at",
+            name="ck_auth_sessions_idle_expiration",
+        ),
+        CheckConstraint(
+            "last_seen_at >= created_at",
+            name="ck_auth_sessions_last_seen",
+        ),
+        CheckConstraint(
+            "revoked_at IS NULL OR revoked_at >= created_at",
+            name="ck_auth_sessions_revoked_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("internal_users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    csrf_token: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    idle_expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    absolute_expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+    user: Mapped[InternalUser] = relationship(back_populates="auth_sessions")
+
+
+class AuthLoginRateLimit(Base):
+    __tablename__ = "auth_login_rate_limits"
+    __table_args__ = (
+        CheckConstraint("length(key_hash) = 64", name="ck_auth_login_rate_limits_key_hash"),
+        CheckConstraint("attempt_count > 0", name="ck_auth_login_rate_limits_attempt_count"),
+    )
+
+    key_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    window_bucket: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
 
 class Company(TimestampMixin, Base):

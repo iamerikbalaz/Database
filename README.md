@@ -16,6 +16,11 @@ Frontend volá backend přes cestu `/api`, kterou Vite v lokálním prostředí
 proxyuje na backend. Endpoint `GET /health` kontroluje také dostupnost databáze.
 Backend při startu automaticky spustí `alembic upgrade head`.
 
+Bezpečnostní kontrakt backendového přihlášení, session cookie, CSRF ochrany a
+provisioningu prvního administrátora popisuje
+[`docs/auth-backend-foundation.md`](docs/auth-backend-foundation.md). Stávající
+doménové endpointy zůstávají do sloučení login UI záměrně bez plošné auth ochrany.
+
 Kontrakt propojeni slozky materialu a specializovane operace Mark as Done je v
 [`docs/material-folder-api.md`](docs/material-folder-api.md).
 

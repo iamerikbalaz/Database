@@ -16,9 +16,11 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
+from app.auth.security import PasswordService
 from app.core.config import Settings
 from app.core.config import get_settings
 from app.db.models import (
+    AuthSession,
     Company,
     InternalUser,
     PBRMaterial,
@@ -26,6 +28,7 @@ from app.db.models import (
     PBRMaterialMetadataSnapshot,
     Project,
     PublishedBrand,
+    UserCredential,
 )
 from app.db.session import Database
 from app.main import create_app
@@ -81,7 +84,136 @@ def migrated_postgresql_url() -> str:
 def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> None:
     config = Config("alembic.ini")
 
+    command.current(config, check_heads=True)
     command.check(config)
+
+    engine = create_engine(migrated_postgresql_url)
+    try:
+        schema = inspect(engine)
+        assert schema.has_table(UserCredential.__tablename__)
+        assert schema.has_table(AuthSession.__tablename__)
+        assert schema.has_table("auth_login_rate_limits")
+        session_indexes = {item["name"] for item in schema.get_indexes("auth_sessions")}
+        assert {
+            "ix_auth_sessions_user_id",
+            "ix_auth_sessions_idle_expires_at",
+            "ix_auth_sessions_absolute_expires_at",
+            "ix_auth_sessions_revoked_at",
+        } <= session_indexes
+        assert any(
+            foreign_key["referred_table"] == "internal_users"
+            and foreign_key["constrained_columns"] == ["user_id"]
+            for foreign_key in schema.get_foreign_keys("auth_sessions")
+        )
+        with engine.connect() as connection:
+            current_revision = connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one()
+            assert current_revision == "20260914_0006"
+    finally:
+        engine.dispose()
+
+
+def test_postgresql_auth_upgrade_from_previous_head_preserves_users_without_credentials() -> None:
+    with isolated_postgresql_database() as database_url:
+        previous_database_url = os.environ.get("DATABASE_URL")
+        os.environ["DATABASE_URL"] = database_url
+        get_settings.cache_clear()
+        engine = create_engine(database_url)
+        existing_user_id = uuid4()
+        try:
+            config = Config("alembic.ini")
+            command.upgrade(config, "20260909_0005")
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO internal_users "
+                        "(id, display_name, email, role, is_active) "
+                        "VALUES (:id, 'Existing User', 'existing@example.com', "
+                        "'PROCESSOR', true)"
+                    ),
+                    {"id": existing_user_id},
+                )
+
+            command.upgrade(config, "head")
+            command.check(config)
+            with engine.connect() as connection:
+                assert connection.execute(
+                    text("SELECT count(*) FROM internal_users WHERE id = :id"),
+                    {"id": existing_user_id},
+                ).scalar_one() == 1
+                assert connection.execute(
+                    text("SELECT count(*) FROM user_credentials")
+                ).scalar_one() == 0
+                assert connection.execute(
+                    text("SELECT version_num FROM alembic_version")
+                ).scalar_one() == "20260914_0006"
+        finally:
+            engine.dispose()
+            if previous_database_url is None:
+                os.environ.pop("DATABASE_URL", None)
+            else:
+                os.environ["DATABASE_URL"] = previous_database_url
+            get_settings.cache_clear()
+
+
+def _postgresql_failed_login(database_url: str, email: str, settings: Settings) -> int:
+    database = Database(database_url)
+    try:
+        application = create_app(settings, database)
+        with TestClient(application) as client:
+            return client.post(
+                "/api/auth/login",
+                json={"email": email, "password": "wrong concurrent password"},
+                headers={"Origin": "http://localhost:5173"},
+            ).status_code
+    finally:
+        database.dispose()
+
+
+def test_postgresql_login_rate_limit_is_atomic_across_backend_instances(
+    migrated_postgresql_url: str,
+) -> None:
+    suffix = uuid4().hex
+    email = f"rate-limit-{suffix}@example.com"
+    settings = Settings(
+        database_url=migrated_postgresql_url,
+        auth_rate_limit_attempts=3,
+        auth_rate_limit_window_seconds=300,
+    )
+    password_service = PasswordService(settings)
+    engine = create_engine(migrated_postgresql_url)
+    with Session(engine) as session:
+        user = InternalUser(
+            display_name="Rate Limit User",
+            email=email,
+            role="ADMIN",
+        )
+        session.add(user)
+        session.flush()
+        session.add(
+            UserCredential(
+                user_id=user.id,
+                password_hash=password_service.hash_password(
+                    "valid concurrent account password"
+                ),
+                must_change_password=False,
+            )
+        )
+        session.commit()
+    engine.dispose()
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        statuses = list(
+            executor.map(
+                lambda _: _postgresql_failed_login(
+                    migrated_postgresql_url, email, settings
+                ),
+                range(8),
+            )
+        )
+
+    assert sorted(statuses) == [401, 401, 401, 429, 429, 429, 429, 429]
 
 
 class _ConcurrentPreflightWorker:

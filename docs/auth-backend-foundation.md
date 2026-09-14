@@ -57,6 +57,11 @@ hashe. Credentials zámek se drží do konce transakce: login v ní vytvoří se
 změna hesla v ní změní hash, `must_change_password`, `password_changed_at` a
 revokuje všechny sessions. Pokud operace zamyká credentials i sessions, pořadí
 je vždy credentials a poté sessions. Čekající operace znovu načte aktuální hash.
+Změna hesla po credentials zámku nejdříve znovu zamkne a ověří svou session.
+Pokud byla během čekání revokována, odstraněna nebo expirovala, vrací obecnou
+`401 Not authenticated.` bez jakéhokoli ověřování zadaného hesla. Teprve platná
+session smí ověřit `current_password`; rozdíl `400`/`401` tedy neprozradí
+správnost hesla již revokované session.
 Login dokončený před změnou má session revokovanou; login čekající na změnu již
 ověřuje nové heslo. Dvě změny se stejným původním heslem proto nemohou obě uspět.
 Časy se načítají v UTC přes databázové `clock_timestamp()` po získání potřebných
@@ -156,9 +161,22 @@ Strukturovaný logger `reawote.auth` zapisuje pouze typ události, interní user
 a bezpečný důvod: login success/failure, deaktivovaný účet, logout, změnu hesla
 a expiraci/revokaci session. Heslo, hash hesla, raw session token ani CSRF token
 se nevkládají do log message ani structured fields. Centrální sanitizace
-validačních odpovědí zachovává 422 kontrakt pro běžná pole, ale nevrací citlivé
-hodnoty ani ve vnořených chybách nebo při více chybách současně. Původní
-`RequestValidationError` se neloguje; jeho `input` a text mohou obsahovat heslo.
+validačních odpovědí pro přesný rozsah `/api/auth` a `/api/auth/*` používá
+fail-closed pravidlo: žádná položka `detail` nikdy nemá klíč `input` ani `ctx`,
+bez ohledu na název pole, typ chyby nebo zanoření. Handler odpověď sestavuje
+výhradně z bezpečných `type`, `loc` a obecné zprávy `Invalid request.`. Typ je
+ověřen proti standardním Pydantic typům chyb; v `loc` lze zachovat pouze
+deklarovaná pole schématu a strukturální indexy polí. Neznámé typy, extra pole,
+uživatelské klíče slovníků a jiná nedůvěryhodná metadata nahradí obecná metadata.
+Platí to také pro malformed JSON a více chyb současně. Odpověď zůstává `422`
+s `Cache-Control: no-store`. Auth větev handleru nečte tělo requestu ani tělo
+uložené ve výjimce, neserializuje kontext a původní výjimku nikdy neloguje.
+
+Mimo tento přesný auth rozsah zůstává dosavadní validní 422 kontrakt včetně
+mapování `loc`, `type`, `msg`, `input` a `ctx` pro Company/Project/Material
+formuláře zachovaný. Cesty `/api/authentication` nebo `/api/auth-other` nejsou
+auth rozsahem. Regresní testy prohledávají celé serializované odpovědi a logy
+a kontrolují i alternativní a dosud neznámé názvy polí.
 Plná perzistentní auditní tabulka, důvěryhodná proxy identita,
 distribuce/rotace rozšířeného offline
 blocklistu a doménové RBAC patří do samostatné hardening větve po login UI.
@@ -171,17 +189,37 @@ držitele credentials zámku a přes PostgreSQL ověří, že druhý požadavek 
 čeká na tento zámek. Kontrolují výsledky obou HTTP požadavků, revokaci sessions,
 časové constrainty i další použitelnost transakcí.
 
-Z kořene repozitáře v hostitelském PowerShellu s běžícím Docker Desktop spusťte:
+Hlavní úplná kontrola backendu, PostgreSQL, workeru a frontend lint/test/build
+se spouští z kořene repozitáře v hostitelském PowerShellu s běžícím Docker Desktop:
+
+```powershell
+.\scripts\test.ps1
+```
+
+Její PostgreSQL fáze explicitně nastavuje `RUN_POSTGRES_TESTS=1`, spouští oba
+moduly `tests/test_auth_postgresql.py` a `tests/test_materials_postgresql.py`
+a zapíná `--require-auth-postgresql`. Tento pytest guard vypíše skutečné auth
+počty `collected`, `executed`, `passed`, `skipped`, `failed`. Při nulovém počtu
+auth testů, neprovedeném testu, jakémkoli skipu nebo chybě (včetně setup/teardown)
+skončí neúspěšně; skript kontroluje exit code a další fáze nespustí. Guard se
+bez přepínače neuplatňuje. Cleanup pouze zastaví běžnou databázovou službu,
+pokud ji skript sám spouštěl; nemaže persistentní volumes a nedotýká se demo/E2E.
+
+Samostatná diagnostika PostgreSQL používá stejné povinné ověření:
 
 ```powershell
 docker compose up -d --wait database
 docker compose build backend
-docker compose run --rm --no-deps -e RUN_POSTGRES_TESTS=1 backend pytest tests/test_auth_postgresql.py tests/test_materials_postgresql.py
+docker compose run --rm --no-deps -e RUN_POSTGRES_TESTS=1 backend pytest --require-auth-postgresql tests/test_auth_postgresql.py tests/test_materials_postgresql.py
 ```
 
 Obě sady společně ověřují souběhy auth, databázové constraints, fresh Alembic
 upgrade, přechod `0005` → `0006` a `alembic current`, `heads`, `check`.
-`scripts/test.ps1` spouští PostgreSQL režim pouze pro dosavadní materiálové testy,
-proto je výše uvedený explicitní příkaz nutný i po úspěchu celého skriptu.
-Bez `RUN_POSTGRES_TESTS=1` se PostgreSQL sady přeskočí; úspěch SQLite testů ani
+Bez `RUN_POSTGRES_TESTS=1` nebo explicitního `POSTGRES_TEST_ADMIN_URL` se PostgreSQL
+sady přeskočí; se zapnutým guardem takový běh selže. Úspěch SQLite testů ani
 výsledek `skipped` nepředstavuje ověření PostgreSQL concurrency.
+
+Regresi orchestrace bez skutečného Dockeru lze ověřit přes
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/tests/test-test-script.ps1`.
+Používá mock příkazu Docker a nenahrazuje skutečné PostgreSQL testy. Browserové
+demo/E2E ověření je nadále oddělené v `scripts/test-demo-e2e.ps1`.

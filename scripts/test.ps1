@@ -24,10 +24,11 @@ try {
     docker compose up -d --wait database
     Assert-LastCommandSucceeded "PostgreSQL startup"
 
-    docker compose run --rm --no-deps backend pytest --ignore=tests/test_materials_postgresql.py
+    docker compose run --rm --no-deps backend pytest --ignore=tests/test_materials_postgresql.py --ignore=tests/test_auth_postgresql.py
     Assert-LastCommandSucceeded "Backend unit tests"
 
-    docker compose run --rm --no-deps -e RUN_POSTGRES_TESTS=1 backend pytest tests/test_materials_postgresql.py
+    Write-Host "PostgreSQL integration tests: auth and materials (auth skips fail the run)."
+    docker compose run --rm --no-deps -e RUN_POSTGRES_TESTS=1 backend pytest --require-auth-postgresql tests/test_auth_postgresql.py tests/test_materials_postgresql.py
     Assert-LastCommandSucceeded "PostgreSQL integration tests"
 
     docker compose run --rm --no-deps worker pytest

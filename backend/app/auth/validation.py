@@ -3,17 +3,104 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, get_args
 
 from fastapi import Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import TypeAdapter
+from pydantic_core import ErrorType
 
 from app.auth.security import MAX_RAW_PASSWORD_LENGTH, normalize_password
 
 
 REDACTED = "[redacted]"
+AUTH_ERROR_MESSAGE = "Invalid request."
+_ERROR_TYPES = frozenset(get_args(ErrorType))
+_LOCATION_SOURCES = frozenset({"body", "query", "path", "header", "cookie"})
+
+
+def is_auth_api_path(path: str) -> bool:
+    return path == "/api/auth" or path.startswith("/api/auth/")
+
+
+def _schema_location_is_static(schema: dict, parts: tuple, definitions: dict) -> bool:
+    """Only schema property names and structural array indexes are safe to echo.
+
+    Extra fields, dictionary keys and union-discriminator values are supplied by
+    clients; they must never become response metadata, even on future auth routes.
+    """
+    seen_refs: set[str] = set()
+    while "$ref" in schema:
+        reference = schema["$ref"]
+        if not reference.startswith("#/$defs/") or reference in seen_refs:
+            return False
+        seen_refs.add(reference)
+        schema = definitions.get(reference.removeprefix("#/$defs/"), {})
+    if not parts:
+        return True
+    if "anyOf" in schema:
+        return any(
+            _schema_location_is_static(branch, parts, definitions) for branch in schema["anyOf"]
+        )
+    part, *remaining = parts
+    if type(part) is str and part in schema.get("properties", {}):
+        child = schema["properties"][part]
+    elif type(part) is int and part >= 0 and schema.get("type") == "array":
+        child = schema.get("items", {})
+    else:
+        return False
+    return _schema_location_is_static(child, tuple(remaining), definitions)
+
+
+def _safe_auth_location(request: Request, location: object) -> list[str | int]:
+    if not isinstance(location, (tuple, list)) or not location:
+        return ["body"]
+    source = location[0]
+    if type(source) is not str or source not in _LOCATION_SOURCES:
+        return ["body"]
+    fallback = [source]
+    route = request.scope.get("route")
+    if source == "body":
+        field = getattr(route, "body_field", None)
+        remaining = tuple(location[1:])
+    else:
+        fields = getattr(getattr(route, "dependant", None), source + "_params", ())
+        field = next((item for item in fields if len(location) > 1
+                      and type(location[1]) is str and item.alias == location[1]), None)
+        remaining = tuple(location[2:])
+    if field is None:
+        return fallback
+    try:
+        schema = TypeAdapter(field.field_info.annotation).json_schema()
+        if _schema_location_is_static(schema, remaining, schema.get("$defs", {})):
+            return list(location)
+    except Exception:
+        # An unsupported schema cannot justify reflecting arbitrary metadata.
+        # Never log the original exception or fall back to its input/ctx/body.
+        pass
+    return fallback
+
+
+def _auth_validation_response(request: Request, exc: RequestValidationError) -> JSONResponse:
+    errors = []
+    for error in exc.errors():
+        error_type = error.get("type")
+        errors.append({
+            "type": error_type if type(error_type) is str and error_type in _ERROR_TYPES
+            else "value_error",
+            "loc": _safe_auth_location(request, error.get("loc")),
+            "msg": AUTH_ERROR_MESSAGE,
+        })
+    # Construct an allowlisted response. No input, ctx, body, custom message or
+    # arbitrary extra metadata is inspected, serialized or logged on auth paths.
+    return JSONResponse(
+        status_code=422, content={"detail": errors}, headers={"Cache-Control": "no-store"}
+    )
+
+
+# The existing non-auth contract remains separate from the fail-closed auth path.
 SENSITIVE_FIELDS = frozenset(
     {
         "password",
@@ -87,6 +174,8 @@ def _sanitize(value: Any, protected: set[str]) -> Any:
 async def safe_request_validation_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
+    if is_auth_api_path(request.url.path):
+        return _auth_validation_response(request, exc)
     # Do not log/serialize the exception itself: errors(), body, ctx, and str(exc)
     # can all contain the original secret. Collect before removing parent inputs
     # so copies reflected in a different invalid field are protected as well.
@@ -113,17 +202,12 @@ async def safe_request_validation_handler(
     for original in original_errors:
         location = original.get("loc", ())
         sensitive = any(_sensitive_name(part) for part in location)
-        # A malformed auth body may itself be a bare secret (or a list of them),
-        # with no field names available for classification.
-        auth_body_error = request.url.path.startswith("/api/auth/") and tuple(location) == (
-            "body",
-        )
         # Malformed JSON may put its entire unparsed body in input, before field
         # names can be traversed. Never reflect any of it or decoder context.
         error = {
             key: value
             for key, value in original.items()
-            if not ((sensitive or malformed_json or auth_body_error) and key in {"input", "ctx"})
+            if not ((sensitive or malformed_json) and key in {"input", "ctx"})
         }
         if sensitive:
             error["msg"] = "Invalid secret input."

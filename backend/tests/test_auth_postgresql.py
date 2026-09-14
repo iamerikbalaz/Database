@@ -237,20 +237,28 @@ def _wait_until_postgresql_confirms_blocking(
         observer.dispose()
 
 
-def _request(case: _AuthCase, index: int, action: str) -> httpx.Response:
+def _request(
+    case: _AuthCase, index: int, action: str, current_password: str = PASSWORD
+) -> httpx.Response:
     headers = {"Origin": ORIGIN}
     if action == "login":
         payload = {"email": case.email, "password": PASSWORD}
     else:
         payload = {
-            "current_password": PASSWORD,
+            "current_password": current_password,
             "new_password": NEW_PASSWORD if index == 0 else SECOND_PASSWORD,
         }
         headers["X-CSRF-Token"] = case.csrf_tokens[index]
     return case.clients[index].post(f"/api/auth/{action}", json=payload, headers=headers)
 
 
-def _run_race(case: _AuthCase, first_action: str, second_action: str) -> list[httpx.Response]:
+def _run_race(
+    case: _AuthCase,
+    first_action: str,
+    second_action: str,
+    *,
+    second_current_password: str = PASSWORD,
+) -> list[httpx.Response]:
     holder = _LockObservation(hold=True, require_session_before_commit=first_action == "login")
     waiter = _LockObservation()
     holder.attach(case.databases[0])
@@ -260,7 +268,9 @@ def _run_race(case: _AuthCase, first_action: str, second_action: str) -> list[ht
         first_future = executor.submit(_request, case, 0, first_action)
         try:
             assert holder.acquired.wait(timeout=TIMEOUT), "First request never locked credentials"
-            second_future = executor.submit(_request, case, 1, second_action)
+            second_future = executor.submit(
+                _request, case, 1, second_action, second_current_password
+            )
             _wait_until_postgresql_confirms_blocking(case.url, holder, waiter)
         finally:
             holder.release.set()
@@ -316,10 +326,36 @@ def test_postgresql_password_change_lock_then_old_login_fails(auth_case: _AuthCa
     _assert_final_state(auth_case, NEW_PASSWORD, expected_sessions=2)
 
 
-def test_postgresql_two_password_changes_only_first_accepts_old_password(auth_case: _AuthCase) -> None:
-    responses = _run_race(auth_case, "change-password", "change-password")
-    assert [response.status_code for response in responses] == [200, 400]
-    assert responses[1].json() == {"detail": "Current password is incorrect."}
+@pytest.mark.parametrize(
+    "second_current_password",
+    [PASSWORD, NEW_PASSWORD, "Unrelated incorrect current password 74"],
+    ids=["old-password", "new-correct-password", "unrelated-wrong-password"],
+)
+def test_postgresql_waiting_password_change_rechecks_revoked_session_before_password(
+    auth_case: _AuthCase,
+    second_current_password: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    verification_calls: list[str] = []
+    verify_password = PasswordService.verify_password
+
+    def observe_verification(service: PasswordService, password_hash: str, password: str) -> bool:
+        verification_calls.append(password)
+        return verify_password(service, password_hash, password)
+
+    # The fixture already logged both clients in. Only the first mutation may
+    # now verify current/new passwords; the waiting request must verify neither.
+    monkeypatch.setattr(PasswordService, "verify_password", observe_verification)
+    responses = _run_race(
+        auth_case,
+        "change-password",
+        "change-password",
+        second_current_password=second_current_password,
+    )
+    assert [response.status_code for response in responses] == [200, 401]
+    assert responses[1].json() == {"detail": "Not authenticated."}
+    assert responses[1].headers["cache-control"] == "no-store"
+    assert verification_calls == [PASSWORD, NEW_PASSWORD]
     _assert_final_state(auth_case, NEW_PASSWORD, expected_sessions=2)
 
 

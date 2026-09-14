@@ -129,17 +129,15 @@ def build_auth_router(database: SessionDatabase, settings: Settings) -> APIRoute
         verify_csrf(request, context, settings)
         with database.session() as db_session:
             credential = lock_user_credential(db_session, context.user.id)
-            if credential is None or not password_service.verify_password(
-                credential.password_hash, payload.current_password
-            ):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Current password is incorrect.",
-                )
             # Authentication ran before this transaction. Recheck its session
-            # after the credentials lock, since a preceding change may revoke it.
+            # after the credentials lock, before verifying any password. A
+            # preceding change may revoke it while this request waits; revealing
+            # password correctness to that revoked session would create an oracle.
             stored = db_session.scalar(
-                select(AuthSession).where(AuthSession.id == context.session.id).with_for_update()
+                select(AuthSession)
+                .where(AuthSession.id == context.session.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
             now = database_now(db_session)
             if (
@@ -147,9 +145,17 @@ def build_auth_router(database: SessionDatabase, settings: Settings) -> APIRoute
                 or stored.revoked_at is not None
                 or now >= _aware(stored.idle_expires_at)
                 or now >= _aware(stored.absolute_expires_at)
+                or credential is None
             ):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated."
+                )
+            if not password_service.verify_password(
+                credential.password_hash, payload.current_password
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Current password is incorrect.",
                 )
             try:
                 normalized = validate_new_password(

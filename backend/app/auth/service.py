@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 from fastapi import HTTPException, Request, Response, status
-from sqlalchemy import delete, select, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, joinedload
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth.security import (
     PasswordService,
     generate_secret_token,
+    normalize_email,
     rate_limit_key,
     token_digest,
 )
@@ -40,6 +41,25 @@ def _aware(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def database_now(db_session: Session) -> datetime:
+    # PostgreSQL now() is the transaction START time, possibly before a lock wait.
+    # Read the wall clock only after acquiring the locks needed by the operation.
+    if db_session.get_bind().dialect.name == "postgresql":
+        return _aware(db_session.scalar(select(func.clock_timestamp())))
+    return datetime.now(UTC)
+
+
+def lock_user_credential(db_session: Session, user_id: object) -> UserCredential | None:
+    # Whenever both are needed, lock credentials before sessions. Reload even if
+    # an ORM identity was already cached before waiting for another transaction.
+    return db_session.scalar(
+        select(UserCredential)
+        .where(UserCredential.user_id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
 
 
 def audit(event: str, *, user_id: object | None = None, reason: str | None = None) -> None:
@@ -112,7 +132,6 @@ def clear_login_rate_limit(db_session: Session, key_hash: str, bucket: int) -> N
             AuthLoginRateLimit.window_bucket == bucket,
         )
     )
-    db_session.commit()
 
 
 def create_session(
@@ -139,8 +158,7 @@ def create_session(
         absolute_expires_at=absolute_expires_at,
     )
     db_session.add(auth_session)
-    db_session.commit()
-    db_session.refresh(auth_session)
+    db_session.flush()
     return auth_session, raw_session_token, raw_csrf_token
 
 
@@ -180,15 +198,20 @@ def load_auth_context(request: Request) -> AuthContext:
     except (UnicodeEncodeError, ValueError):
         raise _unauthorized() from None
 
-    now = datetime.now(UTC)
     with database.session() as db_session:
         auth_session = db_session.scalar(
             select(AuthSession)
             .options(joinedload(AuthSession.user).joinedload(InternalUser.credential))
             .where(AuthSession.token_hash == digest)
+            .with_for_update(of=AuthSession)
         )
         if auth_session is None or auth_session.revoked_at is not None:
             raise _unauthorized()
+        now = max(
+            database_now(db_session),
+            _aware(auth_session.created_at),
+            _aware(auth_session.last_seen_at),
+        )
         if now >= _aware(auth_session.absolute_expires_at) or now >= _aware(
             auth_session.idle_expires_at
         ):
@@ -235,7 +258,7 @@ def verify_request_source(request: Request, settings: Settings) -> None:
             )
         return
 
-    if request.headers.get("sec-fetch-site") not in {"same-origin", "same-site"}:
+    if request.headers.get("sec-fetch-site") != "same-origin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Missing request origin proof.",
@@ -259,9 +282,7 @@ def verify_csrf(request: Request, context: AuthContext, settings: Settings) -> N
 
 def find_login_user(db_session: Session, email: str) -> InternalUser | None:
     return db_session.scalar(
-        select(InternalUser)
-        .options(joinedload(InternalUser.credential))
-        .where(InternalUser.email == email)
+        select(InternalUser).where(InternalUser.email == normalize_email(email))
     )
 
 
@@ -269,7 +290,11 @@ def revoke_all_user_sessions(db_session: Session, user_id: object, now: datetime
     db_session.execute(
         update(AuthSession)
         .where(AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None))
-        .values(revoked_at=now)
+        .values(
+            revoked_at=case(
+                (AuthSession.created_at > now, AuthSession.created_at), else_=now
+            )
+        )
     )
 
 

@@ -15,6 +15,10 @@ from app.core.config import Settings
 
 MIN_PASSWORD_LENGTH = 15
 MAX_PASSWORD_LENGTH = 256
+# Unicode NFKD expands a single character to at most 18 characters. Since NFKC
+# preserves that decomposition, this generous raw bound cannot reject an input
+# whose normalized form fits the policy, but bounds normalization work.
+MAX_RAW_PASSWORD_LENGTH = MAX_PASSWORD_LENGTH * 18
 
 
 class PasswordPolicyError(ValueError):
@@ -22,11 +26,31 @@ class PasswordPolicyError(ValueError):
 
 
 def normalize_email(value: str) -> str:
-    return unicodedata.normalize("NFKC", value).strip().casefold()
+    # Match InternalUser.email's existing EmailAddress storage semantics. Unicode
+    # casefold/NFKC would silently alias distinct existing addresses (e.g. ß/ss).
+    return value.strip().lower()
 
 
 def normalize_password(value: str) -> str:
     return unicodedata.normalize("NFKC", value)
+
+
+def validate_password_input(password: str) -> str:
+    """Apply the same normalization and length policy to every auth entry point."""
+    if not isinstance(password, str):
+        raise PasswordPolicyError("Secret must be a string.")
+    if len(password) > MAX_RAW_PASSWORD_LENGTH:
+        raise PasswordPolicyError("Secret input is too large.")
+    normalized = normalize_password(password)
+    if len(normalized) < MIN_PASSWORD_LENGTH:
+        raise PasswordPolicyError(
+            f"Secret must contain at least {MIN_PASSWORD_LENGTH} Unicode characters."
+        )
+    if len(normalized) > MAX_PASSWORD_LENGTH:
+        raise PasswordPolicyError(
+            f"Secret must contain at most {MAX_PASSWORD_LENGTH} Unicode characters."
+        )
+    return normalized
 
 
 @lru_cache(maxsize=1)
@@ -45,15 +69,7 @@ def validate_new_password(
     email: str,
     display_name: str,
 ) -> str:
-    normalized = normalize_password(password)
-    if len(normalized) < MIN_PASSWORD_LENGTH:
-        raise PasswordPolicyError(
-            f"Password must contain at least {MIN_PASSWORD_LENGTH} Unicode characters."
-        )
-    if len(normalized) > MAX_PASSWORD_LENGTH:
-        raise PasswordPolicyError(
-            f"Password must contain at most {MAX_PASSWORD_LENGTH} Unicode characters."
-        )
+    normalized = validate_password_input(password)
 
     folded = normalized.casefold()
     if folded in _common_passwords():
@@ -61,7 +77,10 @@ def validate_new_password(
     if len(set(folded)) == 1:
         raise PasswordPolicyError("Password is too repetitive.")
 
-    context_tokens = {"reawote", normalize_email(email).partition("@")[0]}
+    # This is a password-policy comparison, not email identity canonicalization:
+    # compare account context in the same normalized/caseless form as the secret.
+    account_context = normalize_password(normalize_email(email).partition("@")[0]).casefold()
+    context_tokens = {"reawote", account_context}
     context_tokens.update(
         token for token in normalize_password(display_name).casefold().split() if len(token) >= 4
     )

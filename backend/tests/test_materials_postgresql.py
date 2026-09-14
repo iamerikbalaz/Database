@@ -9,6 +9,8 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, inspect, select, text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -84,7 +86,9 @@ def migrated_postgresql_url() -> str:
 def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> None:
     config = Config("alembic.ini")
 
-    command.current(config, check_heads=True)
+    # check_heads was added after our declared Alembic 1.16 minimum.
+    command.current(config)
+    command.heads(config)
     command.check(config)
 
     engine = create_engine(migrated_postgresql_url)
@@ -106,6 +110,9 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
             for foreign_key in schema.get_foreign_keys("auth_sessions")
         )
         with engine.connect() as connection:
+            assert set(MigrationContext.configure(connection).get_current_heads()) == set(
+                ScriptDirectory.from_config(config).get_heads()
+            )
             current_revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
@@ -136,8 +143,13 @@ def test_postgresql_auth_upgrade_from_previous_head_preserves_users_without_cred
                 )
 
             command.upgrade(config, "head")
+            command.current(config)
+            command.heads(config)
             command.check(config)
             with engine.connect() as connection:
+                assert set(MigrationContext.configure(connection).get_current_heads()) == set(
+                    ScriptDirectory.from_config(config).get_heads()
+                )
                 assert connection.execute(
                     text("SELECT count(*) FROM internal_users WHERE id = :id"),
                     {"id": existing_user_id},

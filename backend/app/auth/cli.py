@@ -7,7 +7,13 @@ from uuid import UUID
 
 from sqlalchemy import func, select, text
 
-from app.auth.security import PasswordService, validate_new_password
+from app.auth.security import (
+    PasswordPolicyError,
+    PasswordService,
+    normalize_email,
+    validate_new_password,
+    validate_password_input,
+)
 from app.core.config import Settings, get_settings
 from app.db.models import InternalUser, InternalUserRole, UserCredential
 from app.db.session import Database
@@ -31,7 +37,7 @@ def provision_first_admin(
     password: str,
 ) -> UUID:
     validated = InternalUserCreate(
-        email=email,
+        email=normalize_email(email),
         display_name=display_name,
         role=InternalUserRole.ADMIN,
         is_active=True,
@@ -84,6 +90,11 @@ def main() -> int:
     arguments = parser.parse_args()
     password = getpass.getpass("Initial password: ")
     confirmation = getpass.getpass("Confirm initial password: ")
+    try:
+        password = validate_password_input(password)
+        confirmation = validate_password_input(confirmation)
+    except PasswordPolicyError as exc:
+        parser.error(str(exc))
     if password != confirmation:
         parser.error("Passwords do not match.")
 

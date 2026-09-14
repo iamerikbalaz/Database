@@ -1,6 +1,5 @@
-from datetime import UTC, datetime
-
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy import select
 
 from app.auth.dependencies import require_active_user
 from app.auth.schemas import (
@@ -16,13 +15,16 @@ from app.auth.service import (
     GENERIC_LOGIN_ERROR,
     AuthContext,
     SessionDatabase,
+    _aware,
     audit,
     change_credential_password,
     check_login_rate_limit,
     clear_login_rate_limit,
     create_session,
+    database_now,
     delete_session_cookie,
     find_login_user,
+    lock_user_credential,
     request_client_identifier,
     revoke_all_user_sessions,
     set_session_cookie,
@@ -30,7 +32,7 @@ from app.auth.service import (
     verify_request_source,
 )
 from app.core.config import Settings
-from app.db.models import AuthSession, UserCredential
+from app.db.models import AuthSession
 
 
 def _response(context: AuthContext, csrf_token: str | None = None) -> AuthSessionResponse:
@@ -51,17 +53,16 @@ def build_auth_router(database: SessionDatabase, settings: Settings) -> APIRoute
     @router.post("/login", response_model=AuthSessionResponse)
     def login(payload: LoginRequest, request: Request, response: Response) -> AuthSessionResponse:
         verify_request_source(request, settings)
-        now = datetime.now(UTC)
         with database.session() as db_session:
             key_hash, bucket = check_login_rate_limit(
                 db_session,
                 settings,
                 email=payload.email,
                 client_identifier=request_client_identifier(request),
-                now=now,
+                now=database_now(db_session),
             )
             user = find_login_user(db_session, payload.email)
-            credential = user.credential if user is not None else None
+            credential = lock_user_credential(db_session, user.id) if user is not None else None
             if credential is None:
                 password_service.dummy_verify(payload.password)
                 verified = False
@@ -81,11 +82,14 @@ def build_auth_router(database: SessionDatabase, settings: Settings) -> APIRoute
 
             clear_login_rate_limit(db_session, key_hash, bucket)
             auth_session, raw_token, csrf_token = create_session(
-                db_session, settings, user, now=now
+                db_session, settings, user, now=database_now(db_session)
             )
+            result = _response(AuthContext(user=user, session=auth_session), csrf_token)
+            # The credentials lock covers verification, session insertion and commit.
+            db_session.commit()
             set_session_cookie(response, settings, raw_token)
             audit("login_success", user_id=user.id)
-            return _response(AuthContext(user=user, session=auth_session), csrf_token)
+            return result
 
     @router.get("/session", response_model=AuthSessionResponse)
     def current_session(
@@ -100,14 +104,15 @@ def build_auth_router(database: SessionDatabase, settings: Settings) -> APIRoute
         context: AuthContext = Depends(require_active_user),
     ) -> LogoutResponse:
         verify_csrf(request, context, settings)
-        now = datetime.now(UTC)
         with database.session() as db_session:
-            stored = db_session.get(AuthSession, context.session.id)
+            stored = db_session.scalar(
+                select(AuthSession).where(AuthSession.id == context.session.id).with_for_update()
+            )
             if stored is None or stored.revoked_at is not None:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated."
                 )
-            stored.revoked_at = now
+            stored.revoked_at = max(database_now(db_session), _aware(stored.created_at))
             db_session.commit()
         delete_session_cookie(response, settings)
         audit("logout", user_id=context.user.id)
@@ -122,15 +127,29 @@ def build_auth_router(database: SessionDatabase, settings: Settings) -> APIRoute
         context: AuthContext = Depends(require_active_user),
     ) -> ChangePasswordResponse:
         verify_csrf(request, context, settings)
-        now = datetime.now(UTC)
         with database.session() as db_session:
-            credential = db_session.get(UserCredential, context.user.id)
+            credential = lock_user_credential(db_session, context.user.id)
             if credential is None or not password_service.verify_password(
                 credential.password_hash, payload.current_password
             ):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Current password is incorrect.",
+                )
+            # Authentication ran before this transaction. Recheck its session
+            # after the credentials lock, since a preceding change may revoke it.
+            stored = db_session.scalar(
+                select(AuthSession).where(AuthSession.id == context.session.id).with_for_update()
+            )
+            now = database_now(db_session)
+            if (
+                stored is None
+                or stored.revoked_at is not None
+                or now >= _aware(stored.idle_expires_at)
+                or now >= _aware(stored.absolute_expires_at)
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated."
                 )
             try:
                 normalized = validate_new_password(
@@ -148,6 +167,7 @@ def build_auth_router(database: SessionDatabase, settings: Settings) -> APIRoute
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="New password must differ from the current password.",
                 )
+            now = max(database_now(db_session), _aware(credential.password_changed_at))
             change_credential_password(credential, password_service, normalized, now)
             revoke_all_user_sessions(db_session, context.user.id, now)
             db_session.commit()

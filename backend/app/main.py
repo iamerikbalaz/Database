@@ -3,9 +3,11 @@ from contextlib import asynccontextmanager
 from typing import Protocol
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth.router import build_auth_router
+from app.auth.validation import safe_request_validation_handler
 from app.api.health import HealthDatabase, build_health_router
 from app.api.material_operations import build_material_operations_router
 from app.api.resources import SessionDatabase, build_resources_router
@@ -42,6 +44,7 @@ def create_app(
     )
     application.state.database = app_database
     application.state.settings = app_settings
+    application.add_exception_handler(RequestValidationError, safe_request_validation_handler)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=app_settings.parsed_cors_origins,

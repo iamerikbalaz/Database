@@ -33,7 +33,7 @@ from app.main import create_app
 
 PASSWORD = "Quartz meadow river! 2026"
 NEW_PASSWORD = "Violet harbor lanterns 2048"
-ORIGIN = "http://testserver"
+ORIGIN = "https://testserver"
 
 
 @pytest.fixture(scope="module")
@@ -161,7 +161,7 @@ def test_login_success_returns_public_profile_and_session_cookie(
     client, database = auth_client
     user = create_account(database, password_service)
 
-    response = login(client, email="  ＡＤＭＩＮ＠ＥＸＡＭＰＬＥ．ＣＯＭ  ")
+    response = login(client, email="  ADMIN@EXAMPLE.COM  ")
 
     assert response.status_code == 200
     body = response.json()
@@ -175,7 +175,7 @@ def test_login_success_returns_public_profile_and_session_cookie(
     assert body["csrf_token"]
     assert response.headers["cache-control"] == "no-store"
     cookie = response.headers["set-cookie"]
-    assert "reawote_session=" in cookie
+    assert "__Host-reawote_session=" in cookie
     assert "HttpOnly" in cookie
     assert "SameSite=strict" in cookie
     assert "Path=/" in cookie
@@ -206,6 +206,60 @@ def test_production_cookie_is_secure_host_cookie(
     assert "SameSite=strict" in cookie
     assert "Path=/" in cookie
     assert "Domain=" not in cookie
+
+
+def test_explicit_localhost_cookie_uses_dev_name_without_host_prefix(
+    password_service: PasswordService,
+) -> None:
+    origin = "http://localhost:5173"
+    settings = Settings(
+        _env_file=None,
+        app_env="development",
+        cors_origins=origin,
+        auth_cookie_secure=False,
+        auth_allow_insecure_cookie=True,
+    )
+    database = Database("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(database.engine)
+    create_account(database, password_service)
+    with TestClient(create_app(settings, database), base_url=origin) as client:
+        response = login(client, origin=origin)
+        assert response.status_code == 200
+        cookie = response.headers["set-cookie"]
+        assert cookie.startswith("reawote_dev_session=")
+        assert "__Host-" not in cookie and "Secure" not in cookie
+        assert "HttpOnly" in cookie and "SameSite=strict" in cookie
+        assert "Path=/" in cookie and "Domain=" not in cookie
+        assert client.get("/api/auth/session").status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        ({"Referer": ORIGIN + "/login"}, 200),
+        ({"Sec-Fetch-Site": "same-origin"}, 200),
+        ({"Sec-Fetch-Site": "same-site"}, 403),
+        ({"Sec-Fetch-Site": "cross-site"}, 403),
+        ({"Sec-Fetch-Site": "none"}, 403),
+        ({"Referer": ORIGIN + ".attacker.example/login"}, 403),
+        ({"Origin": "https://attacker.example", "Sec-Fetch-Site": "same-origin"}, 403),
+        ({"Referer": "https://attacker.example", "Sec-Fetch-Site": "same-origin"}, 403),
+    ],
+)
+def test_login_csrf_source_proof_without_a_pre_session_token(
+    auth_client: tuple[TestClient, Database],
+    password_service: PasswordService,
+    headers: dict[str, str],
+    expected: int,
+) -> None:
+    client, database = auth_client
+    create_account(database, password_service)
+    response = client.post(
+        "/api/auth/login", json={"email": "admin@example.com", "password": PASSWORD},
+        headers=headers,
+    )
+    assert response.status_code == expected
+    assert response.headers["cache-control"] == "no-store"
 
 
 @pytest.mark.parametrize(
@@ -547,7 +601,7 @@ def test_role_dependency_is_reusable(
         return {"ok": True}
 
     auth_response = login(client)
-    raw_cookie = client.cookies.get("reawote_session")
+    raw_cookie = client.cookies.get("__Host-reawote_session")
     with TestClient(protected, base_url=ORIGIN) as protected_client:
-        protected_client.cookies.set("reawote_session", raw_cookie)
+        protected_client.cookies.set("__Host-reawote_session", raw_cookie)
         assert protected_client.get("/admin").json() == {"ok": True}

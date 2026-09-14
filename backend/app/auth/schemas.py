@@ -2,16 +2,17 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import Field, StringConstraints, field_validator
+from pydantic import AfterValidator, StringConstraints, field_validator
 
-from app.auth.security import MAX_PASSWORD_LENGTH, normalize_email
+from app.auth.security import normalize_email, validate_password_input
 from app.db.models import InternalUserRole
 from app.schemas import ApiSchema, EmailAddress, Name
 
 
 PasswordInput = Annotated[
     str,
-    StringConstraints(min_length=1, max_length=MAX_PASSWORD_LENGTH),
+    StringConstraints(strict=True),
+    AfterValidator(validate_password_input),
 ]
 
 
@@ -21,7 +22,7 @@ class LoginRequest(ApiSchema):
 
     @field_validator("email", mode="before")
     @classmethod
-    def normalize_unicode_email(cls, value: object) -> object:
+    def canonicalize_email(cls, value: object) -> object:
         return normalize_email(value) if isinstance(value, str) else value
 
 

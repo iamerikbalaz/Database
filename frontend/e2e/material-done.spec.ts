@@ -1,11 +1,12 @@
 import {
   expect,
-  test,
   type Locator,
   type Page,
   type Response,
 } from "@playwright/test";
-import { authCredentials } from "./auth-credentials";
+import type { E2eAuthCredentials } from "./auth-credentials.ts";
+import { test } from "./auth-fixture.ts";
+import { endpointFromPath, markPhase, recordConsole, recordHttp, SafeE2eError, type SafePhase } from "./safe-diagnostics.ts";
 import { runManifest, type MaterialFixture } from "./run-manifest";
 
 type BrowserDiagnostics = {
@@ -28,7 +29,7 @@ const state = runManifest.state;
 const diagnostics = new WeakMap<Page, BrowserDiagnostics>();
 const frontendOrigin = new URL(runManifest.frontendUrl).origin;
 
-function containsAuthenticationSecret(value: string): boolean {
+function containsAuthenticationSecret(value: string, authCredentials: E2eAuthCredentials): boolean {
   return value.includes(authCredentials.initialPassword) || value.includes(authCredentials.password);
 }
 
@@ -91,11 +92,11 @@ function panel(page: Page, heading: string): Locator {
   });
 }
 
-async function fillSecret(input: Locator, secret: string): Promise<void> {
+async function fillSecret(input: Locator, secret: string, phase: SafePhase = "login"): Promise<void> {
   try {
     await input.fill(secret);
   } catch {
-    throw new Error("A protected password field could not be filled.");
+    throw new SafeE2eError("E2E_PROTECTED_INPUT_FAILED", phase);
   }
 }
 
@@ -104,7 +105,8 @@ function requestHasNonEmptyHeader(response: Response, name: string): boolean {
   return typeof value === "string" && value.length > 0;
 }
 
-async function signIn(page: Page, password: string): Promise<void> {
+async function signIn(page: Page, authCredentials: E2eAuthCredentials, password = authCredentials.password): Promise<void> {
+  markPhase(test.info(), "session");
   const observed = diagnostics.get(page);
   if (!observed) throw new Error("Browser diagnostics were not initialized.");
   observed.expectedHttpErrors.push({
@@ -114,6 +116,7 @@ async function signIn(page: Page, password: string): Promise<void> {
   });
   await page.goto("/login");
   await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
+  markPhase(test.info(), "login");
   await page.getByLabel("Email", { exact: true }).fill(authCredentials.email);
   await fillSecret(page.getByLabel("Password", { exact: true }), password);
 
@@ -128,13 +131,15 @@ async function signIn(page: Page, password: string): Promise<void> {
   );
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   const loginResponse = await loginResponsePromise;
-  const sessionResponse = await sessionResponsePromise;
   expect(loginResponse.status()).toBe(200);
   expect(requestHasNonEmptyHeader(loginResponse, "x-csrf-token")).toBe(false);
+  markPhase(test.info(), "session");
+  const sessionResponse = await sessionResponsePromise;
   expect(sessionResponse.status()).toBe(200);
 }
 
 async function expectAnonymousServerSession(page: Page): Promise<void> {
+  markPhase(test.info(), "session");
   const observed = diagnostics.get(page);
   if (!observed) throw new Error("Browser diagnostics were not initialized.");
   observed.expectedHttpErrors.push({
@@ -150,6 +155,7 @@ async function expectAnonymousServerSession(page: Page): Promise<void> {
 }
 
 async function openPreparedMaterial(page: Page, material: MaterialFixture): Promise<void> {
+  markPhase(test.info(), "assertion");
   await page.goto("/materials");
   await page.getByRole("link", { name: material.technical_identity, exact: true }).click();
   await expect(page.getByRole("heading", { name: material.material_name, exact: true })).toBeVisible();
@@ -182,7 +188,8 @@ async function confirmOperation(
   return responsePromise;
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, authCredentials }, testInfo) => {
+  markPhase(testInfo, "assertion");
   const observed: BrowserDiagnostics = {
     authenticationSecretLeak: false,
     consoleErrors: [],
@@ -195,35 +202,40 @@ test.beforeEach(async ({ page }) => {
   };
   diagnostics.set(page, observed);
   page.on("console", (message) => {
-    if (containsAuthenticationSecret(message.text())) observed.authenticationSecretLeak = true;
+    if (containsAuthenticationSecret(message.text(), authCredentials)) observed.authenticationSecretLeak = true;
     if (message.type() === "error" || message.type() === "warning") {
       if (message.type() === "error" && isNativeSessionUnauthorizedConsoleError(message)) {
         observed.nativeSessionUnauthorizedConsoleErrors += 1;
         return;
       }
       observed.consoleErrors.push(`${message.type()} output was observed`);
+      recordConsole(testInfo, message.type() === "warning" ? "warning" : "error");
     }
   });
   page.on("pageerror", (error) => {
-    if (containsAuthenticationSecret(error.message)) observed.authenticationSecretLeak = true;
+    if (containsAuthenticationSecret(error.message, authCredentials)) observed.authenticationSecretLeak = true;
     observed.consoleErrors.push("an uncaught page error was observed");
+    recordConsole(testInfo, "pageerror");
   });
   page.on("request", (request) => {
-    if (containsAuthenticationSecret(request.url())) observed.authenticationSecretLeak = true;
+    if (containsAuthenticationSecret(request.url(), authCredentials)) observed.authenticationSecretLeak = true;
   });
   page.on("requestfailed", (request) => {
-    if (containsAuthenticationSecret(request.url()) ||
-        containsAuthenticationSecret(request.failure()?.errorText ?? "")) {
+    if (containsAuthenticationSecret(request.url(), authCredentials) ||
+        containsAuthenticationSecret(request.failure()?.errorText ?? "", authCredentials)) {
       observed.authenticationSecretLeak = true;
     }
-    observed.requestFailures.push(`${request.method()} ${new URL(request.url()).pathname} failed`);
+    observed.requestFailures.push("requestfailed");
+    recordConsole(testInfo, "requestfailed");
   });
   page.on("response", (response) => {
     const url = new URL(response.url());
+    const endpoint = endpointFromPath(url.pathname);
+    if (endpoint) recordHttp(testInfo, endpoint, response.status());
     if (url.pathname.startsWith("/api/")) {
       observed.responseInspections.push(response.text().then((body) => ({
         pathLeak: containsPathLeak(body),
-        authenticationSecretLeak: containsAuthenticationSecret(body),
+        authenticationSecretLeak: containsAuthenticationSecret(body, authCredentials),
         inspectionFailed: false,
       })).catch(() => ({
         pathLeak: false,
@@ -237,12 +249,12 @@ test.beforeEach(async ({ page }) => {
       url.pathname,
       response.status(),
     )) {
-      observed.unexpectedHttpErrors.push(`${response.request().method()} ${url.pathname} -> ${response.status()}`);
+      observed.unexpectedHttpErrors.push("unexpected-http-status");
     }
   });
 });
 
-test.afterEach(async ({ page }) => {
+test.afterEach(async ({ page, authCredentials }) => {
   await page.locator('input[type="password"]').evaluateAll((elements) => {
     for (const element of elements) {
       (element as HTMLInputElement).value = "";
@@ -261,7 +273,7 @@ test.afterEach(async ({ page }) => {
   expect(observed?.authenticationSecretLeak).toBe(false);
   const visibleText = await page.locator("body").innerText();
   expect(containsPathLeak(visibleText)).toBe(false);
-  expect(containsAuthenticationSecret(visibleText)).toBe(false);
+  expect(containsAuthenticationSecret(visibleText, authCredentials)).toBe(false);
   const folderInputs = await page.getByLabel("Relative folder path").evaluateAll((elements) =>
     elements.map((element) => (element as HTMLInputElement).value),
   );
@@ -280,18 +292,21 @@ test.afterEach(async ({ page }) => {
 
 test.describe.configure({ mode: "serial" });
 
-test("required password change revokes the initial session and requires a new login", async ({ page }) => {
-  await signIn(page, authCredentials.initialPassword);
+test("required password change revokes the initial session and requires a new login", async ({ page, authCredentials }) => {
+  await signIn(page, authCredentials, authCredentials.initialPassword);
+  markPhase(test.info(), "change-password");
   await expect(page.getByRole("heading", { name: "Change password", exact: true })).toBeVisible();
 
   await fillSecret(
     page.getByLabel("Current password", { exact: true }),
     authCredentials.initialPassword,
+    "change-password",
   );
-  await fillSecret(page.getByLabel("New password", { exact: true }), authCredentials.password);
+  await fillSecret(page.getByLabel("New password", { exact: true }), authCredentials.password, "change-password");
   await fillSecret(
     page.getByLabel("Confirm new password", { exact: true }),
     authCredentials.password,
+    "change-password",
   );
   const changeResponsePromise = page.waitForResponse((response) =>
     response.request().method() === "POST" &&
@@ -308,12 +323,12 @@ test("required password change revokes the initial session and requires a new lo
     { exact: true },
   )).toBeVisible();
   await expectAnonymousServerSession(page);
-  await signIn(page, authCredentials.password);
+  await signIn(page, authCredentials);
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
 });
 
-test("login loads the server session and logout revokes it", async ({ page }) => {
-  await signIn(page, authCredentials.password);
+test("login loads the server session and logout revokes it", async ({ page, authCredentials }) => {
+  await signIn(page, authCredentials);
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "User menu", exact: true }).click();
@@ -327,6 +342,7 @@ test("login loads the server session and logout revokes it", async ({ page }) =>
     response.request().method() === "POST" &&
     new URL(response.url()).pathname === "/api/auth/logout",
   );
+  markPhase(test.info(), "logout");
   await accountDialog.getByRole("button", { name: "Sign out", exact: true }).click();
   const logoutResponse = await logoutResponsePromise;
   expect(logoutResponse.status()).toBe(200);
@@ -335,8 +351,9 @@ test("login loads the server session and logout revokes it", async ({ page }) =>
   await expectAnonymousServerSession(page);
 });
 
-test("happy path persists Done metadata and snapshot after reload", async ({ page }) => {
-  await signIn(page, authCredentials.password);
+test("happy path persists Done metadata and snapshot after reload", async ({ page, authCredentials }) => {
+  await signIn(page, authCredentials);
+  markPhase(test.info(), "assertion");
   await page.getByRole("link", { name: "Companies", exact: true }).click();
   await page.getByRole("link", { name: "E2E Company", exact: true }).click();
   await expect(page.getByRole("heading", { name: "E2E Company", exact: true })).toBeVisible();
@@ -396,8 +413,8 @@ test("happy path persists Done metadata and snapshot after reload", async ({ pag
   await expect(panel(page, "Snapshot history").getByText("Snapshot 1", { exact: true })).toBeVisible();
 });
 
-test("missing metadata remains non-blocking and its warning stays visible", async ({ page }) => {
-  await signIn(page, authCredentials.password);
+test("missing metadata remains non-blocking and its warning stays visible", async ({ page, authCredentials }) => {
+  await signIn(page, authCredentials);
   await openPreparedMaterial(page, state.missing);
   const preflightResponse = await checkFolder(page, state.missing.relativePath);
   expect(preflightResponse.status()).toBe(200);
@@ -420,8 +437,8 @@ test("missing metadata remains non-blocking and its warning stays visible", asyn
   await expect(panel(page, "Snapshot history").getByText("Snapshot 1", { exact: true })).toBeVisible();
 });
 
-test("identity mismatch cannot be linked or marked Done", async ({ page }) => {
-  await signIn(page, authCredentials.password);
+test("identity mismatch cannot be linked or marked Done", async ({ page, authCredentials }) => {
+  await signIn(page, authCredentials);
   await openPreparedMaterial(page, state.mismatch);
   const preflightResponse = await checkFolder(page, state.mismatch.relativePath);
   expect(preflightResponse.status()).toBe(200);
@@ -443,8 +460,8 @@ test("identity mismatch cannot be linked or marked Done", async ({ page }) => {
   });
 });
 
-test("client validation rejects absolute and traversal paths without HTTP", async ({ page }) => {
-  await signIn(page, authCredentials.password);
+test("client validation rejects absolute and traversal paths without HTTP", async ({ page, authCredentials }) => {
+  await signIn(page, authCredentials);
   await openPreparedMaterial(page, state.mismatch);
   let preflightRequests = 0;
   page.on("request", (request) => {

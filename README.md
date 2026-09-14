@@ -120,8 +120,9 @@ Potom E2E spusťte jediným podporovaným write-capable příkazem z kořene:
 Runner nepoužívá běžné ani demo databázové volume. Podrobnosti a bezpečnostní
 invarianty jsou v [`docs/demo-e2e.md`](docs/demo-e2e.md). Přímé
 `npx playwright test` není podporovaný vstup: bez krátkodobého manifestu runneru
-selže před requestem a zápisem fixture. Při selhání zůstane trace, screenshot a
-sanitizovaná diagnostika v `.e2e-artifacts/<run-guid>`; úspěšný běh vypíše
+selže před requestem a zápisem fixture. Trace, screenshoty a video jsou kvůli
+auth údajům vypnuté. Při selhání zůstane pouze bezpečná textová diagnostika
+v `.e2e-artifacts/<run-guid>`; úspěšný běh vyžaduje všech šest scénářů a vypíše
 potvrzení, že E2E kontejnery a pouze jeho GUID run adresář byly odstraněny a
 dedikovaný E2E volume zůstal zachován.
 

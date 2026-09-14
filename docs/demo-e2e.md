@@ -41,6 +41,27 @@ standardní vstup a krátkodobé procesní prostředí Playwrightu; nejsou v arg
 příkazu, manifestu ani souboru. Všechny scénáře používají skutečné auth endpointy
 a browser requesty se nemockují ani neinterceptují.
 
+### Životní cyklus přihlašovacích údajů
+
+Import `auth-credentials.ts`, konfigurace, reporter ani registrace testů nečtou
+a nemažou přihlašovací environment. Řídicí Playwright proces si jej ponechá pro
+vytvoření všech workerů. Až automatická worker fixture `authCredentials` načte
+v každém workeru vlastní immutable kopii; ve svém `finally` hned odstraní
+`E2E_AUTH_EMAIL`, `E2E_AUTH_INITIAL_PASSWORD` a `E2E_AUTH_PASSWORD` z prostředí
+tohoto workeru, i když validace selže. Opakovaný import znovu nic nenačítá.
+
+Browser startup závisí přes `launchOptions` na dokončení této fixture. Browser
+dostane navíc explicitně filtrované prostředí bez auth proměnných,
+`POSTGRES_PASSWORD`, manifestu a capability tokenu. Nejde o globální cache
+řídicího procesu a žádný soubor s heslem nevzniká. PowerShell runner odstraní
+auth proměnné a capability token ihned po Playwrightu a znovu ve vnějším
+`finally`; staré zděděné credential hodnoty neobnovuje.
+
+Bootstrap nadále volá oficiální CLI. Heslo předá přes privátní UTF-8 stdin
+procesu, bez shell pipe nebo argumentu s heslem. Obě výstupní větve procesu se
+současně zachytí a zahodí: ani `GetPassWarning`, prompt, echo nebo raw chyba
+se nevypisují. Selhání má pouze vlastní kód `E2E_BOOTSTRAP_FAILED` a obecný text.
+
 ## Izolace a cleanup
 
 Runner používá pouze Compose projekt `reawote-e2e`, volume
@@ -73,11 +94,41 @@ konkrétní GUID run adresář a nikdy nadřazené `.e2e-data`. Stav projektů `
 
 Kvůli ochraně hesel, session cookie a CSRF tokenu jsou Playwright trace,
 screenshoty i video vypnuté. Při selhání může v
-`<repo>/.e2e-artifacts/<run-guid>` zůstat pouze textová diagnostika, která
-odstraňuje generovaná tajemství a celé řádky s citlivými auth poli; credentials
-ani raw metadata se neukládají. Dočasné interní soubory Playwrightu patří do
+`<repo>/.e2e-artifacts/<run-guid>` zůstat pouze textová diagnostika složená
+z vlastních bezpečných kódů a výsledků kontroly logů; žádný raw log nebo
+Exception.message se nepřebírá. Reporter zachovává pouze šest povolených názvů
+scénářů, fázi, vlastní error code, povolený relativní soubor a řádek, endpoint
+bez ID/query a HTTP status, případně kategorii browser console. Nezahrnuje
+headers, body, stack, cookie, CSRF, obsah inputu nebo environment.
+
+Automatická test fixture před zápisem frameworkového `error-context.md` nahradí
+veřejné `TestInfo.errors` čistými objekty s bezpečnými kódy. Zachová počet chyb
+i failed stav. Samotné vypnutí trace totiž zápisu chybového kontextu nebrání.
+Tato fixture nezávisí na page/context; její teardown běží po nich a před
+artifact recorderem. Credentials fixture může selhat ještě před ní, a proto
+vždy vyhazuje pouze bezpečné `E2E_CREDENTIALS_MISSING`/`E2E_CREDENTIALS_INVALID`.
+Dočasné interní soubory Playwrightu patří do
 vždy uklízeného run-data adresáře, nikoli mezi zachované diagnostické artefakty.
 Po úspěchu se tento konkrétní artifact adresář odstraní. Cleanup ověříte závěrem
 `Cleanup removed only project ...; volume ... was preserved.` a nulovým návratovým kódem; navíc lze spustit
 `npm.cmd run test:e2e:helpers`, který kontroluje path a cleanup invarianty bez
 Dockeru.
+
+## Regrese infrastruktury bez Dockeru
+
+Z `frontend/` spusťte `npm.cmd run test:e2e:infrastructure`,
+`npm.cmd run test:e2e:helpers`, `npm.cmd run test:e2e:guard` a
+`npm.cmd run test:e2e:list`. Node regresní testy používají nativní TypeScript
+type stripping (ověřeno na Node 24.20). List funguje bez auth credentials.
+
+Lifecycle regrese spouští samostatný discovery/controller proces, více child
+workerů, skutečný Playwright se dvěma workery a simulované browser child
+procesy. Ověřuje také skutečně existující artefakty po úmyslné chybě v těle
+testu, afterEach i teardownu; prohledá celé stdout/stderr a všechny artefakty
+na unikátní syntetická tajemství. Tyto infrastrukturní probes nevolají aplikaci,
+nepoužívají její databázi a nejsou náhradou šesti skutečných browser scénářů.
+
+Skutečné ověření vyžaduje dva běhy `scripts/test-demo-e2e.ps1`, každý **6/6
+passed**. Reporter odmítne dílčí nebo skipped běh i při jinak nulovém exit code.
+Pokud Docker chybí, runner vrátí `E2E_DOCKER_UNAVAILABLE`; runtime, skutečná
+browser console, Docker logy a zachování volume po běhu pak nejsou ověřené.

@@ -76,6 +76,60 @@ try {
     $createdRuns.Add([pscustomobject]@{ Guid = $safeGuid; Path = $safeRun })
     Assert-Equal (Test-E2ePathWithinRoot $runsRoot $safeRun) $true 'safe local run root'
 
+    # Do not put the unique value in argv, environment, fixture source or an
+    # assertion message. The only input channel to the fixture is private stdin.
+    $bootstrapSecret = New-E2eSyntheticPassword
+    foreach ($mode in @('bootstrap-success', 'bootstrap-failure', 'workflow-failure', 'runner-failure')) {
+        $probe = [Diagnostics.Process]::new()
+        try {
+            $probe.StartInfo.FileName = Join-Path $PSHOME 'powershell.exe'
+            $probe.StartInfo.Arguments = (@(@(
+                '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                (Join-Path $PSScriptRoot 'e2e-bootstrap-regression-child.ps1'),
+                '-Mode', $mode, '-RunRoot', $safeRun
+            ) | ForEach-Object { ConvertTo-E2eProcessArgument $_ }) -join ' ')
+            $probe.StartInfo.UseShellExecute = $false
+            $probe.StartInfo.CreateNoWindow = $true
+            $probe.StartInfo.RedirectStandardInput = $true
+            $probe.StartInfo.RedirectStandardOutput = $true
+            $probe.StartInfo.RedirectStandardError = $true
+            [void]$probe.Start()
+            $probeOutputTask = $probe.StandardOutput.ReadToEndAsync()
+            $probeErrorTask = $probe.StandardError.ReadToEndAsync()
+            $probe.StandardInput.WriteLine($bootstrapSecret)
+            $probe.StandardInput.Close()
+            if (-not $probe.WaitForExit(30000)) {
+                $probe.Kill()
+                throw 'E2E_REGRESSION_TIMEOUT: Child process did not complete.'
+            }
+            $probeOutput = $probeOutputTask.GetAwaiter().GetResult()
+            $probeError = $probeErrorTask.GetAwaiter().GetResult()
+            Assert-Equal $probe.ExitCode 0 "$mode child completed and removed inherited credentials"
+            Assert-Equal ($probeOutput.Contains($bootstrapSecret)) $false "$mode complete stdout does not contain the synthetic secret"
+            Assert-Equal ($probeError.Contains($bootstrapSecret)) $false "$mode complete stderr does not contain the synthetic secret"
+            Assert-Equal (($probeOutput + $probeError) -match 'GetPassWarning|Password input may be echoed|Password:|raw stdout') $false "$mode emits neither bootstrap streams nor prompts"
+            $artifactContent = [IO.File]::ReadAllText((Join-Path $safeRun "$mode.txt"))
+            Assert-Equal ($artifactContent.Contains($bootstrapSecret)) $false "$mode complete diagnostic artifact does not contain the synthetic secret"
+            if ($mode -eq 'bootstrap-success') {
+                Assert-Equal ($probeOutput.Contains('E2E_REGRESSION_OK')) $true 'successful private bootstrap preserves the successful exit status'
+            }
+            if ($mode -eq 'bootstrap-failure') {
+                Assert-Equal ($probeOutput.Contains('E2E_BOOTSTRAP_FAILED')) $true 'failed private bootstrap returns only its safe error code'
+                Assert-Equal ($probeOutput.Contains('exit code 23')) $true 'failed private bootstrap preserves only its numeric subprocess exit code'
+            }
+            if ($mode -eq 'runner-failure') {
+                Assert-Equal ($probeOutput.Contains('E2E_DOCKER_UNAVAILABLE')) $true 'actual runner failure is converted to its allowlisted message'
+            }
+        }
+        finally { $probe.Dispose() }
+    }
+    Assert-E2eTreeNoReparse -RunRoot $safeRun
+    foreach ($artifactFile in @(Get-ChildItem -LiteralPath $safeRun -File -Recurse -Force)) {
+        Assert-Equal ([IO.File]::ReadAllText($artifactFile.FullName).Contains($bootstrapSecret)) $false 'complete regression artifact tree is free of the synthetic secret'
+    }
+    Assert-Equal (Get-E2eSafeFailureMessage -Code $bootstrapSecret) 'E2E_RUN_FAILED: The isolated E2E run could not complete.' 'unknown runner failure values never enter safe diagnostics'
+    $bootstrapSecret = $null
+
     Assert-Throws { Assert-LocalE2eRepositoryRoot '\\server\share\repo' } 'UNC repository root'
     Assert-Throws { Assert-LocalE2eRepositoryRoot $repositoryRoot ([IO.DriveType]::Network) } 'network drive repository root'
 
@@ -243,6 +297,9 @@ try {
     $guardedProvisionPattern = "(?s)Invoke-E2eGuardedAction\s+-Validation\s+\{\s*\[void\]\(Assert-E2eDatabaseEngineVolume\s+-RequirePresent\)\s*Assert-RuntimeDatabaseMount\s*\}\s+-Action\s+\{\s*Invoke-E2eComposeWithStandardInput.*?'exec',\s*'--no-TTY',\s*'backend',\s*'python',\s*'-m',\s*'app\.auth\.cli'"
     Assert-Equal ([regex]::IsMatch($runnerText, $guardedProvisionPattern)) $true 'administrator provisioning is stdin-only and immediately volume guarded'
     Assert-Equal ($runnerText -notmatch "(?i)'--password'") $true 'runner never places an authentication password in CLI arguments'
+    Assert-Equal ($runnerText -notmatch '\$runFailure\.Exception|\$\(\$_\.Exception\.Message\)') $true 'runner final and cleanup failures never include raw exception messages'
+    Assert-Equal ($runnerText -match '(?s)finally\s*\{\s*# This also runs.*?Clear-E2eCredentialEnvironment') $true 'outer runner finally clears credential environment even before Playwright starts'
+    Assert-Equal ($runnerText -match 'Invoke-E2eWithCredentialCleanup -Action') $true 'Playwright executes inside the tested credential finally wrapper'
     $manifestDefinition = [regex]::Match(
         $runnerText,
         '(?s)\$manifest\s*=\s*\[ordered\]@\{(?<body>.*?)\}\s*\|\s*ConvertTo-Json'

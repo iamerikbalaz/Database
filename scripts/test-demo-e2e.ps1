@@ -149,11 +149,19 @@ function Invoke-E2eComposeWithStandardInput {
         [Parameter(Mandatory)] [string] $StandardInput,
         [Parameter(Mandatory)] [string[]] $Arguments,
         [Parameter(Mandatory)] [string] $Step,
-        [switch] $Mutation
+        [switch] $Mutation,
+        [switch] $Bootstrap
     )
     if ($Mutation) { [void](Assert-LocalDockerContext) }
-    $StandardInput | & docker compose --project-name $script:E2eProjectName -f $script:BaseComposePath -f $script:E2eComposePath @Arguments
-    Assert-LastCommandSucceeded $Step
+    $dockerPath = (Get-Command docker -CommandType Application -ErrorAction Stop).Source
+    $processArguments = @('compose', '--project-name', $script:E2eProjectName, '-f', $script:BaseComposePath, '-f', $script:E2eComposePath) + $Arguments
+    if ($Bootstrap) {
+        Invoke-E2ePrivateBootstrap -FilePath $dockerPath -Arguments $processArguments -StandardInput $StandardInput
+    }
+    else {
+        $exitCode = Invoke-E2ePrivateProcess -FilePath $dockerPath -Arguments $processArguments -StandardInput $StandardInput
+        if ($exitCode -ne 0) { throw 'E2E_DATABASE_RESET_FAILED: Isolated database setup failed.' }
+    }
 }
 
 function Assert-RenderedE2eCompose {
@@ -273,25 +281,28 @@ function Save-E2eFailureDiagnostics {
         [string] $ArtifactRoot,
         [string] $RunRoot,
         [string[]] $Secrets,
-        [string] $FailureMessage
+        [string] $FailureCode
     )
     $lines = [Collections.Generic.List[string]]::new()
-    $lines.Add("Runner failure: $FailureMessage")
+    $lines.Add((Get-E2eSafeFailureMessage -Code $FailureCode))
     if ($script:DockerContextVerified) {
         try {
-            $lines.Add(''); $lines.Add('Compose status:')
-            foreach ($line in @(Invoke-E2eCompose @('ps', '--all') 'Capture E2E Compose status')) { $lines.Add([string]$line) }
-            $lines.Add(''); $lines.Add('Synthetic service logs:')
-            foreach ($line in @(& docker compose --project-name $script:E2eProjectName -f $script:BaseComposePath -f $script:E2eComposePath logs --no-color --tail 300 backend worker frontend)) {
-                if ($line -match '(?i)raw_content|source_content|postgres_password') {
-                    $lines.Add('[redacted potentially sensitive log line]')
-                }
-                else {
-                    $lines.Add((Protect-E2eDiagnosticText -Text ([string]$line) -Secrets $Secrets))
-                }
+            # Never retain raw logs: redacting known values does not protect
+            # unforeseen cookie/token formats or multiline exception bodies.
+            $logText = (@(& docker compose --project-name $script:E2eProjectName -f $script:BaseComposePath -f $script:E2eComposePath logs --no-color --tail 300 backend worker frontend 2>$null) -join [Environment]::NewLine)
+            if ($LASTEXITCODE -ne 0) { throw 'E2E_DIAGNOSTICS_UNAVAILABLE' }
+            if (Test-E2eTextContainsSecret -Text $logText -Secrets $Secrets) {
+                $lines.Add('E2E_LOG_SECRET_DETECTED: Sensitive service output was discarded.')
             }
+            else {
+                $lines.Add('E2E_LOG_SECRET_SCAN_PASSED: Captured service output was discarded.')
+            }
+            if ($logText -match '(?i)traceback|unhandled exception|\bERROR\b') {
+                $lines.Add('E2E_LOG_ERROR_CATEGORY: Service error output was detected and discarded.')
+            }
+            $logText = $null
         }
-        catch { $lines.Add("Diagnostics collection error: $($_.Exception.Message)") }
+        catch { $lines.Add('E2E_DIAGNOSTICS_UNAVAILABLE: Service diagnostics could not be collected.') }
     }
     $text = $lines -join [Environment]::NewLine
     $text = Protect-E2eDiagnosticText -Text $text -Secrets (@($Secrets) + @($RunRoot))
@@ -317,6 +328,7 @@ $script:DockerContextVerified = $false
 $runGuid = [guid]::NewGuid()
 $mutex = $null
 $runFailure = $null
+$safeFailureCode = 'E2E_PREREQUISITE_FAILED'
 $cleanupErrors = [Collections.Generic.List[string]]::new()
 $environmentNames = @(
     'BACKEND_PORT', 'FRONTEND_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD',
@@ -325,12 +337,17 @@ $environmentNames = @(
     'E2E_RUN_TOKEN', 'E2E_AUTH_EMAIL', 'E2E_AUTH_INITIAL_PASSWORD', 'E2E_AUTH_PASSWORD'
 )
 $previousEnvironment = @{}
-foreach ($name in $environmentNames) { $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+foreach ($name in $environmentNames) {
+    if (@(Get-E2eCredentialEnvironmentNames) -notcontains $name) {
+        $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+    }
+}
 $repositoryRoot = $runRoot = $artifactRoot = $dataManagedRoot = $artifactManagedRoot = $null
 $postgresPassword = $authEmail = $authInitialPassword = $authPassword = $runToken = $protectedBefore = $null
 $startupAttempted = $testPassed = $false
 
 try {
+    Clear-E2eCredentialEnvironment
     $scriptPath = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $MyInvocation.MyCommand.Path).ProviderPath)
     $repositoryRoot = Assert-LocalE2eRepositoryRoot -RepositoryRoot (Split-Path -Parent (Split-Path -Parent $scriptPath))
     $script:BaseComposePath = Join-Path $repositoryRoot 'docker-compose.yml'
@@ -342,7 +359,11 @@ try {
     }
     Assert-NodeVersion
     $mutex = Enter-E2eRunMutex
-    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'Docker CLI is required. Start Docker Desktop in Linux containers mode.' }
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        $safeFailureCode = 'E2E_DOCKER_UNAVAILABLE'
+        throw 'E2E_DOCKER_UNAVAILABLE'
+    }
+    $safeFailureCode = 'E2E_ISOLATION_FAILED'
     [void](Assert-LocalDockerContext)
     $script:DockerContextVerified = $true
     $dataManagedRoot = Join-Path $repositoryRoot '.e2e-data\runs'
@@ -373,6 +394,7 @@ try {
     Invoke-E2eCompose @('down', '--remove-orphans') 'Remove verified containers and network from an earlier E2E run' -Mutation
     Assert-NoE2eRuntimeResources
     $startupAttempted = $true
+    $safeFailureCode = 'E2E_START_FAILED'
     Invoke-E2eGuardedAction -Validation {
         [void](Assert-E2eDatabaseEngineVolume)
     } -Action {
@@ -391,6 +413,7 @@ try {
     }
     Assert-E2eResourcesOwned
     Assert-RuntimeDatabaseMount
+    $safeFailureCode = 'E2E_BOOTSTRAP_FAILED'
     $provisioningInput = [string]::Join(
         [Environment]::NewLine,
         @($authInitialPassword, $authInitialPassword)
@@ -403,12 +426,13 @@ try {
             Invoke-E2eComposeWithStandardInput -StandardInput $provisioningInput -Arguments @(
                 'exec', '--no-TTY', 'backend', 'python', '-m', 'app.auth.cli',
                 '--email', $authEmail, '--display-name', 'E2E QA'
-            ) -Step 'Provision the synthetic E2E administrator through the official CLI' -Mutation
+            ) -Step 'Provision the synthetic E2E administrator through the official CLI' -Mutation -Bootstrap
         }
     }
     finally {
         $provisioningInput = $null
     }
+    $safeFailureCode = 'E2E_SEED_FAILED'
     $state = New-E2eSeedManifestData $backendUrl $repositoryRoot $runRoot $script:E2eMaterialsRoot
     $runToken = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
     $manifestPath = Join-Path $runRoot 'run-manifest.json'
@@ -424,25 +448,28 @@ try {
     $env:E2E_AUTH_PASSWORD = $authPassword
     Push-Location $frontendRoot
     try {
-        & npm.cmd exec -- playwright test
-        Assert-LastCommandSucceeded 'Playwright E2E scenarios'
+        $safeFailureCode = 'E2E_PLAYWRIGHT_FAILED'
+        Invoke-E2eWithCredentialCleanup -Action {
+            & npm.cmd exec -- playwright test
+            Assert-LastCommandSucceeded 'Playwright E2E scenarios'
+        }
     }
     finally {
         Pop-Location
-        foreach ($name in @(
-            'E2E_RUN_MANIFEST', 'E2E_RUN_TOKEN', 'E2E_AUTH_EMAIL',
-            'E2E_AUTH_INITIAL_PASSWORD', 'E2E_AUTH_PASSWORD'
-        )) {
-            [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], 'Process')
-        }
+        Clear-E2eCredentialEnvironment
+        [Environment]::SetEnvironmentVariable('E2E_RUN_MANIFEST', $previousEnvironment['E2E_RUN_MANIFEST'], 'Process')
     }
+    $safeFailureCode = 'E2E_LOG_SCAN_FAILED'
     Assert-E2eRuntimeLogsSafe -Secrets @(
         $postgresPassword, $authInitialPassword, $authPassword, $runToken
     )
     $testPassed = $true
 }
-catch { $runFailure = $_ }
+catch { $runFailure = $safeFailureCode }
 finally {
+    # This also runs for failures before the browser invocation. Never restore
+    # inherited credential values into a reusable PowerShell runner process.
+    Clear-E2eCredentialEnvironment
     if ($null -ne $runFailure -and $null -ne $artifactRoot) {
         try {
             Save-E2eFailureDiagnostics `
@@ -450,9 +477,9 @@ finally {
                 -ArtifactRoot $artifactRoot `
                 -RunRoot $runRoot `
                 -Secrets @($postgresPassword, $authInitialPassword, $authPassword, $runToken) `
-                -FailureMessage $runFailure.Exception.Message
+                -FailureCode $runFailure
         }
-        catch { $cleanupErrors.Add("Diagnostics: $($_.Exception.Message)") }
+        catch { $cleanupErrors.Add('E2E_DIAGNOSTICS_FAILED') }
     }
     if ($script:DockerContextVerified) {
         try {
@@ -462,18 +489,18 @@ finally {
             }
             Assert-NoE2eRuntimeResources
         }
-        catch { $cleanupErrors.Add("Docker cleanup: $($_.Exception.Message)") }
+        catch { $cleanupErrors.Add('E2E_DOCKER_CLEANUP_FAILED') }
     }
     if ($null -ne $runRoot) {
         try {
             Remove-E2eManagedRunDirectory $repositoryRoot $dataManagedRoot $runGuid $runRoot
             if (Test-Path -LiteralPath $runRoot) { throw "E2E run data remains: $runRoot" }
         }
-        catch { $cleanupErrors.Add("Run data cleanup (manual review path '$runRoot'): $($_.Exception.Message)") }
+        catch { $cleanupErrors.Add('E2E_RUN_DATA_CLEANUP_FAILED') }
     }
     if ($script:DockerContextVerified -and $null -ne $protectedBefore) {
         try { if ((Get-ProtectedState) -ne $protectedBefore) { throw 'The regular or demo Compose project/volume state changed during E2E.' } }
-        catch { $cleanupErrors.Add("Protected resource verification: $($_.Exception.Message)") }
+        catch { $cleanupErrors.Add('E2E_PROTECTED_RESOURCE_CHECK_FAILED') }
     }
     if ($null -eq $runFailure -and $cleanupErrors.Count -gt 0 -and $null -ne $artifactRoot) {
         try {
@@ -482,18 +509,19 @@ finally {
                 -ArtifactRoot $artifactRoot `
                 -RunRoot $runRoot `
                 -Secrets @($postgresPassword, $authInitialPassword, $authPassword, $runToken) `
-                -FailureMessage ($cleanupErrors -join ' | ')
+                -FailureCode 'E2E_CLEANUP_FAILED'
         }
-        catch { $cleanupErrors.Add("Post-cleanup diagnostics: $($_.Exception.Message)") }
+        catch { $cleanupErrors.Add('E2E_POST_CLEANUP_DIAGNOSTICS_FAILED') }
     }
     if ($null -eq $runFailure -and $cleanupErrors.Count -eq 0 -and $testPassed -and $null -ne $artifactRoot) {
         try { Remove-E2eManagedRunDirectory $repositoryRoot $artifactManagedRoot $runGuid $artifactRoot }
-        catch { $cleanupErrors.Add("Successful-run artifact cleanup (manual review path '$artifactRoot'): $($_.Exception.Message)") }
+        catch { $cleanupErrors.Add('E2E_ARTIFACT_CLEANUP_FAILED') }
     }
-    foreach ($name in $environmentNames) { [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], 'Process') }
+    foreach ($name in $previousEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], 'Process') }
+    Clear-E2eCredentialEnvironment
     if ($null -ne $mutex) {
         try { Exit-E2eRunMutex $mutex }
-        catch { $cleanupErrors.Add("Mutex release: $($_.Exception.Message)") }
+        catch { $cleanupErrors.Add('E2E_MUTEX_RELEASE_FAILED') }
     }
     $postgresPassword = $authEmail = $authInitialPassword = $authPassword = $runToken = $null
 }
@@ -501,7 +529,7 @@ finally {
 if ($null -ne $runFailure -or $cleanupErrors.Count -gt 0) {
     if ($null -ne $artifactRoot) { Write-Host "Failure diagnostics preserved at: $artifactRoot" }
     $parts = [Collections.Generic.List[string]]::new()
-    if ($null -ne $runFailure) { $parts.Add("E2E failed: $($runFailure.Exception.Message)") }
+    if ($null -ne $runFailure) { $parts.Add((Get-E2eSafeFailureMessage -Code $runFailure)) }
     if ($cleanupErrors.Count -gt 0) { $parts.Add("Cleanup/diagnostics errors: $($cleanupErrors -join ' | ')") }
     throw ($parts -join [Environment]::NewLine)
 }

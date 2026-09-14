@@ -273,6 +273,119 @@ function New-E2eSyntheticPassword {
     return "E2E!$(([System.BitConverter]::ToString($bytes)).Replace('-', '').ToLowerInvariant())"
 }
 
+function Get-E2eCredentialEnvironmentNames {
+    return @('E2E_AUTH_EMAIL', 'E2E_AUTH_INITIAL_PASSWORD', 'E2E_AUTH_PASSWORD', 'E2E_RUN_TOKEN')
+}
+
+function Clear-E2eCredentialEnvironment {
+    foreach ($name in @(Get-E2eCredentialEnvironmentNames)) {
+        [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+    }
+}
+
+function Invoke-E2eWithCredentialCleanup {
+    param([Parameter(Mandatory)] [scriptblock] $Action)
+
+    try { & $Action }
+    finally { Clear-E2eCredentialEnvironment }
+}
+
+function ConvertTo-E2eProcessArgument {
+    param([AllowEmptyString()] [string] $Value)
+
+    # ProcessStartInfo.ArgumentList is unavailable in Windows PowerShell 5.1.
+    # Apply the Windows argv quoting rules, including trailing backslashes.
+    return '"' + ([regex]::Replace($Value, '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"'
+}
+
+function Invoke-E2ePrivateProcess {
+    param(
+        [Parameter(Mandatory)] [string] $FilePath,
+        [Parameter(Mandatory)] [string[]] $Arguments,
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $StandardInput
+    )
+
+    $process = [Diagnostics.Process]::new()
+    $outputTask = $errorTask = $inputBytes = $null
+    $started = $false
+    try {
+        $process.StartInfo.FileName = $FilePath
+        $process.StartInfo.Arguments = (@($Arguments | ForEach-Object { ConvertTo-E2eProcessArgument $_ }) -join ' ')
+        $process.StartInfo.UseShellExecute = $false
+        $process.StartInfo.CreateNoWindow = $true
+        $process.StartInfo.RedirectStandardInput = $true
+        $process.StartInfo.RedirectStandardOutput = $true
+        $process.StartInfo.RedirectStandardError = $true
+        [void]$process.Start()
+        $started = $true
+        # Drain both streams concurrently, but never return, print or persist
+        # their content, including getpass prompts/warnings on CLI failures.
+        $outputTask = $process.StandardOutput.ReadToEndAsync()
+        $errorTask = $process.StandardError.ReadToEndAsync()
+        # Write UTF-8 bytes directly: Windows PowerShell 5.1 does not expose
+        # ProcessStartInfo.StandardInputEncoding and a shell pipe is unnecessary.
+        $inputBytes = [Text.Encoding]::UTF8.GetBytes($StandardInput + [Environment]::NewLine)
+        $process.StandardInput.BaseStream.Write($inputBytes, 0, $inputBytes.Length)
+        $process.StandardInput.BaseStream.Flush()
+        $process.StandardInput.Close()
+        if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'E2E_PRIVATE_PROCESS_FAILED: Private subprocess did not complete.'
+        }
+        [void]$outputTask.GetAwaiter().GetResult()
+        [void]$errorTask.GetAwaiter().GetResult()
+        return [int]$process.ExitCode
+    }
+    catch {
+        # Exception messages can include subprocess input or environment data.
+        throw 'E2E_PRIVATE_PROCESS_FAILED: Private subprocess could not complete.'
+    }
+    finally {
+        $StandardInput = $null
+        if ($null -ne $inputBytes) { [Array]::Clear($inputBytes, 0, $inputBytes.Length) }
+        $outputTask = $errorTask = $null
+        # An early stdin failure must not leave this owned child running. Never
+        # target any process other than the process object created above.
+        if ($started) {
+            try { if (-not $process.HasExited) { $process.Kill() } }
+            catch { } # Do not expose process exceptions or buffered output.
+        }
+        $process.Dispose()
+    }
+}
+
+function Invoke-E2ePrivateBootstrap {
+    param(
+        [Parameter(Mandatory)] [string] $FilePath,
+        [Parameter(Mandatory)] [string[]] $Arguments,
+        [Parameter(Mandatory)] [string] $StandardInput
+    )
+
+    try { $exitCode = Invoke-E2ePrivateProcess -FilePath $FilePath -Arguments $Arguments -StandardInput $StandardInput }
+    catch { throw 'E2E_BOOTSTRAP_FAILED: Administrator provisioning could not complete.' }
+    if ($exitCode -ne 0) {
+        throw "E2E_BOOTSTRAP_FAILED: Administrator provisioning failed (exit code $exitCode)."
+    }
+}
+
+function Get-E2eSafeFailureMessage {
+    param([string] $Code)
+
+    # Do not derive messages from ErrorRecord/Exception or external output.
+    switch ($Code) {
+        'E2E_PREREQUISITE_FAILED' { return 'E2E_PREREQUISITE_FAILED: Required local tooling or a repository safety check failed.' }
+        'E2E_DOCKER_UNAVAILABLE' { return 'E2E_DOCKER_UNAVAILABLE: Docker CLI is required; runtime tests were not run.' }
+        'E2E_ISOLATION_FAILED' { return 'E2E_ISOLATION_FAILED: Isolated E2E environment validation failed.' }
+        'E2E_START_FAILED' { return 'E2E_START_FAILED: The isolated E2E environment could not start.' }
+        'E2E_BOOTSTRAP_FAILED' { return 'E2E_BOOTSTRAP_FAILED: Administrator provisioning could not complete.' }
+        'E2E_SEED_FAILED' { return 'E2E_SEED_FAILED: Synthetic E2E data could not be prepared.' }
+        'E2E_PLAYWRIGHT_FAILED' { return 'E2E_PLAYWRIGHT_FAILED: Browser tests failed; consult the sanitized scenario report.' }
+        'E2E_LOG_SCAN_FAILED' { return 'E2E_LOG_SCAN_FAILED: Service logs failed the safety check or could not be read.' }
+        'E2E_CLEANUP_FAILED' { return 'E2E_CLEANUP_FAILED: Isolated cleanup or protected-resource verification needs manual review.' }
+        default { return 'E2E_RUN_FAILED: The isolated E2E run could not complete.' }
+    }
+}
+
 function Protect-E2eDiagnosticText {
     param(
         [AllowEmptyString()] [string] $Text,

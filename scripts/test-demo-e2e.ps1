@@ -342,11 +342,6 @@ try {
 
     $safeFailureCode = 'E2E_ISOLATION_FAILED'
     Start-E2eRunnerPhase -Phase 'docker_context_validation' -OperationId 'docker_context_validation'
-    if (-not (Get-Command docker -CommandType Application -ErrorAction SilentlyContinue)) {
-        $safeFailureCode = 'E2E_DOCKER_UNAVAILABLE'
-        Set-E2eDiagnosticFailure -State $script:E2eDiagnostics -ErrorCategory 'process_start' -ExitCode $null
-        throw 'E2E_DOCKER_UNAVAILABLE'
-    }
     [void](Assert-LocalDockerContext)
     $script:DockerContextVerified = $true
     Complete-E2eRunnerPhase

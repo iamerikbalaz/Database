@@ -2,6 +2,8 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot 'e2e-private-process.ps1')
+. (Join-Path $PSScriptRoot 'e2e-phase-diagnostics.ps1')
+. (Join-Path $PSScriptRoot 'e2e-runner-operations.ps1')
 
 function ConvertTo-E2eCanonicalPath {
     param([Parameter(Mandatory)] [string] $Path)
@@ -621,45 +623,118 @@ function Test-E2eLocalDockerEndpoint {
     )
 
     if ($WindowsHost) {
-        return $Endpoint -match '^npipe:////\./pipe/[A-Za-z0-9._-]+$'
+        return $Endpoint -cmatch '\Anpipe:////\./pipe/[A-Za-z0-9._-]+\z'
     }
-    return $Endpoint -match '^unix:///[^\r\n]+$'
+    return $Endpoint -cmatch '\Aunix:///[^\r\n\x00]+\z'
 }
 
 function Invoke-E2eDockerContextRead {
-    param([Parameter(Mandatory)] [string[]] $Arguments)
-    if (Get-Command Invoke-E2eReadCommand -ErrorAction SilentlyContinue) {
-        return Invoke-E2eReadCommand -Executable 'docker' -Arguments $Arguments -OperationId 'docker_context_validation'
-    }
-    # Standalone helper users retain the same validation without raw stderr.
-    $output = @(& docker @Arguments 2>$null)
-    if ($LASTEXITCODE -ne 0) { throw 'E2E_DOCKER_CONTEXT_FAILED' }
-    return $output
+    param(
+        [Parameter(Mandatory)] [string[]] $Arguments,
+        [Parameter(Mandatory)] [string] $OperationId,
+        [Parameter(Mandatory)] [string] $ResolvedExecutable
+    )
+    # Standalone smoke and runner use exactly the same native process path.
+    Invoke-E2eReadCommand -Executable 'docker' -Arguments $Arguments `
+        -OperationId $OperationId -ResolvedExecutable $ResolvedExecutable
+}
+
+function Stop-E2eDockerContextValidation {
+    param([Parameter(Mandatory)] [string] $Category, $ProcessStarted = $null, $ExitCode = $null)
+    Set-E2eDiagnosticFailure -State $script:E2eDiagnostics -ErrorCategory $Category `
+        -ProcessStarted $ProcessStarted -ExitCode $ExitCode
+    throw 'E2E_SAFE_OPERATION_FAILED'
 }
 
 function Assert-LocalDockerContext {
+    # Also support read-only standalone callers, without changing the current
+    # runner phase when this guard is repeated before a later mutation.
+    if (-not (Get-Variable E2eDiagnostics -Scope Script -ErrorAction SilentlyContinue) -or
+        $null -eq $script:E2eDiagnostics) {
+        $script:E2eDiagnostics = New-E2ePhaseDiagnosticsState
+    }
+    if ($null -eq $script:E2eDiagnostics.current_phase) {
+        Start-E2eRunnerPhase -Phase 'docker_context_validation' -OperationId 'docker_executable_resolution'
+    }
     $isWindows = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
     $dockerHost = [System.Environment]::GetEnvironmentVariable('DOCKER_HOST', 'Process')
+    Set-E2eRunnerOperation -OperationId 'docker_context_policy_validation'
     if (-not [string]::IsNullOrWhiteSpace($dockerHost) -and
         -not (Test-E2eLocalDockerEndpoint -Endpoint $dockerHost -WindowsHost $isWindows)) {
-        throw "DOCKER_HOST must be unset or point to a local named pipe/Unix socket; remote tcp:// and ssh:// endpoints are forbidden."
+        Stop-E2eDockerContextValidation -Category 'policy_rejected' -ProcessStarted $false
     }
 
-    $contextName = (Invoke-E2eDockerContextRead -Arguments @('context', 'show')) -join ''
-    if ([string]::IsNullOrWhiteSpace($contextName)) {
-        throw "Could not determine the active Docker context."
+    $application = Resolve-E2eReadExecutable -Executable 'docker' -OperationId 'docker_executable_resolution'
+    $nameLines = @(Invoke-E2eDockerContextRead -Arguments @('context', 'show') `
+        -OperationId 'docker_context_show' -ResolvedExecutable $application)
+    if ($nameLines.Count -eq 0 -or ($nameLines.Count -eq 1 -and
+        $nameLines[0] -is [string] -and [string]::IsNullOrWhiteSpace($nameLines[0]))) {
+        Stop-E2eDockerContextValidation -Category 'empty_output' -ProcessStarted $true -ExitCode 0
     }
-    $contextName = $contextName.Trim()
-    $contextJson = (Invoke-E2eDockerContextRead -Arguments @('context', 'inspect', $contextName)) -join [System.Environment]::NewLine
-    $context = @($contextJson | ConvertFrom-Json -ErrorAction Stop)
-    if ($context.Count -ne 1) {
-        throw "Docker returned an unexpected context inspection result."
+    # Do not concatenate lines into a different context, or allow option-like
+    # names to change the meaning of the subsequent inspect invocation.
+    if ($nameLines.Count -ne 1 -or $nameLines[0] -isnot [string] -or
+        $nameLines[0] -cnotmatch '\A[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\z') {
+        Stop-E2eDockerContextValidation -Category 'invalid_output' -ProcessStarted $true -ExitCode 0
     }
-    $endpoint = [string]$context[0].Endpoints.docker.Host
-    if (-not (Test-E2eLocalDockerEndpoint -Endpoint $endpoint -WindowsHost $isWindows)) {
-        throw "Active Docker context is remote; only a local named pipe/Unix socket is allowed."
+    $contextName = $nameLines[0]
+    $jsonLines = @(Invoke-E2eDockerContextRead -Arguments @('context', 'inspect', $contextName) `
+        -OperationId 'docker_context_inspect' -ResolvedExecutable $application)
+    if (@($jsonLines | Where-Object { $_ -isnot [string] }).Count -ne 0) {
+        Stop-E2eDockerContextValidation -Category 'invalid_output' -ProcessStarted $true -ExitCode 0
     }
-    Write-Host 'Local Docker context validated.'
+    $contextJson = $jsonLines -join [System.Environment]::NewLine
+    if ([string]::IsNullOrWhiteSpace($contextJson)) {
+        Stop-E2eDockerContextValidation -Category 'empty_output' -ProcessStarted $true -ExitCode 0
+    }
+
+    Set-E2eRunnerOperation -OperationId 'docker_context_parse'
+    try {
+        # Windows PowerShell emits the JSON array as one pipeline item. Assign
+        # first, then normalize; @($json | ConvertFrom-Json) would nest arrays.
+        # Check the root token too so a bare object is not accepted.
+        if (-not $contextJson.TrimStart().StartsWith('[')) { throw 'E2E_INVALID_JSON_SHAPE' }
+        $parsedContext = ConvertFrom-Json -InputObject $contextJson -ErrorAction Stop
+        $context = @($parsedContext)
+        if ($context.Count -ne 1 -or $context[0] -is [array] -or $context[0] -isnot [pscustomobject]) {
+            throw 'E2E_INVALID_JSON_SHAPE'
+        }
+        # Read properties directly, not through a pipeline-returning helper:
+        # otherwise a singleton array could be unwrapped into an accepted scalar.
+        $inspectedName = $context[0].PSObject.Properties['Name'].Value
+        $endpoints = $context[0].PSObject.Properties['Endpoints'].Value
+        if ($endpoints -is [array] -or $endpoints -isnot [pscustomobject]) { throw 'E2E_INVALID_JSON_SHAPE' }
+        $docker = $endpoints.PSObject.Properties['docker'].Value
+        if ($docker -is [array] -or $docker -isnot [pscustomobject]) { throw 'E2E_INVALID_JSON_SHAPE' }
+        $endpoint = $docker.PSObject.Properties['Host'].Value
+        if ($inspectedName -isnot [string] -or $inspectedName -cne $contextName -or
+            $endpoint -isnot [string] -or [string]::IsNullOrWhiteSpace($endpoint)) {
+            throw 'E2E_INVALID_JSON_SHAPE'
+        }
+    }
+    catch {
+        Stop-E2eDockerContextValidation -Category 'invalid_output'
+    }
+
+    Set-E2eRunnerOperation -OperationId 'docker_context_policy_validation'
+    if (-not (Test-E2eLocalDockerEndpoint -Endpoint $endpoint -WindowsHost $isWindows) -or
+        (-not [string]::IsNullOrWhiteSpace($dockerHost) -and $dockerHost -cne $endpoint)) {
+        Stop-E2eDockerContextValidation -Category 'policy_rejected'
+    }
+    # A local pipe alone does not prove the Linux engine required by this demo.
+    # This read-only query runs only after the endpoint has passed local policy.
+    $engine = @(Invoke-E2eDockerContextRead -Arguments @('--context', $contextName, 'info', '--format', '{{.OSType}}') `
+        -OperationId 'docker_context_policy_validation' -ResolvedExecutable $application)
+    if ($engine.Count -eq 0 -or ($engine.Count -eq 1 -and
+        $engine[0] -is [string] -and [string]::IsNullOrWhiteSpace($engine[0]))) {
+        Stop-E2eDockerContextValidation -Category 'empty_output' -ProcessStarted $true -ExitCode 0
+    }
+    if ($engine.Count -ne 1 -or $engine[0] -isnot [string] -or $engine[0] -cnotin @('linux', 'windows')) {
+        Stop-E2eDockerContextValidation -Category 'invalid_output' -ProcessStarted $true -ExitCode 0
+    }
+    if ($engine[0] -cne 'linux') {
+        Stop-E2eDockerContextValidation -Category 'policy_rejected' -ProcessStarted $true -ExitCode 0
+    }
     return $contextName
 }
 

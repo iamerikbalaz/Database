@@ -243,37 +243,104 @@ foreach ($scenario in $scenarios) {
     Write-Host ('PASS: actual runner flow; scenario={0}' -f $scenario)
 }
 
-# Exercise the actual read wrapper, not the flow double: a failed native launch
-# must not inherit a previous successful command's exit code on Windows PS 5.1.
-foreach ($readCase in @('missing_application', 'actual_node_query')) {
-    $script:E2eDiagnostics = New-E2ePhaseDiagnosticsState
-    Start-E2eDiagnosticOperation $script:E2eDiagnostics 'safety_preflight' 'node_version_check'
-    $flowHarness.ResolvedApplication = if ($readCase -eq 'missing_application') {
-        Join-Path $PSScriptRoot ('missing-application-' + $flowHarness.Secret + '.exe')
+# These cases invoke a real local node.exe (or attempt a real missing executable),
+# not the flow double. They perform no Docker query/mutation, child stdin write,
+# directory mutation, browser launch or network request.
+# Explicitly supplying the already-resolved executable avoids the Get-Command
+# flow double and exercises the same native process boundary as Docker context.
+$savedGlobalExit = Get-Variable -Name LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue
+$savedGlobalExitPresent = $null -ne $savedGlobalExit
+$savedGlobalExitValue = if ($savedGlobalExitPresent) { $savedGlobalExit.Value } else { $null }
+try {
+    foreach ($readCase in @('missing_application', 'actual_node_query', 'stderr_success',
+        'stderr_nonzero', 'line_preservation', 'argument_quoting')) {
+        $script:E2eDiagnostics = New-E2ePhaseDiagnosticsState
+        Start-E2eDiagnosticOperation $script:E2eDiagnostics 'safety_preflight' 'node_version_check'
+        $resolvedExecutable = if ($readCase -eq 'missing_application') {
+            Join-Path $PSScriptRoot ('missing-application-' + $flowHarness.Secret + '.exe')
+        }
+        else { $actualNodeApplication }
+        $nativeArguments = @('--version')
+        $expectedLines = @()
+        $quotedArguments = @('with spaces', 'embedded"quote', 'trailing\', 'spaces and trailing\',
+            'two\\before"quote', '', ('non-ascii-' + [char]0x017E))
+        switch ($readCase) {
+            'stderr_success' {
+                $nativeArguments = @('-e', 'process.stderr.write(process.argv[1]); process.stdout.write("safe stdout\n");', $flowHarness.Secret)
+                $expectedLines = @('safe stdout')
+            }
+            'stderr_nonzero' {
+                $nativeArguments = @('-e', 'process.stderr.write(process.argv[1]); process.stdout.write(process.argv[1]); process.exitCode = 17;', $flowHarness.Secret)
+            }
+            'line_preservation' {
+                $nativeArguments = @('-e', 'process.stderr.write(process.argv[1]); process.stdout.write(" first line \r\n\nlast line\n");', $flowHarness.Secret)
+                $expectedLines = @(' first line ', '', 'last line')
+            }
+            'argument_quoting' {
+                $nativeArguments = @('-e', 'process.stdout.write(JSON.stringify(process.argv.slice(1)));') + $quotedArguments
+            }
+        }
+        # Simultaneously leave a stale global failure and a shadowing local
+        # success. Neither is the status of the new Process instance.
+        $global:LASTEXITCODE = 93
+        $readOutcome = [pscustomobject]@{ Failure = $null; LocalExitAfterRead = $null }
+        $captured = @(& {
+            $LASTEXITCODE = 0
+            try {
+                & $realReadCommand -Executable 'node' -ResolvedExecutable $resolvedExecutable `
+                    -Arguments $nativeArguments -OperationId 'node_version_check'
+            }
+            catch { $readOutcome.Failure = $_.Exception.Message }
+            finally { $readOutcome.LocalExitAfterRead = $LASTEXITCODE }
+        } 2>&1 3>&1 4>&1 5>&1 6>&1)
+        $safeText = ($captured | Out-String) + $readOutcome.Failure +
+            (ConvertTo-E2eSafeDiagnostics $script:E2eDiagnostics 'E2E_PREREQUISITE_FAILED')
+        Assert-FlowRegression (-not $safeText.Contains($flowHarness.Secret))
+        Assert-FlowRegression ($global:LASTEXITCODE -eq 93 -and $readOutcome.LocalExitAfterRead -eq 0)
+        if ($readCase -in @('missing_application', 'stderr_nonzero')) {
+            Assert-FlowRegression ($captured.Count -eq 0 -and $readOutcome.Failure -ceq 'E2E_SAFE_OPERATION_FAILED')
+            $snapshot = $script:E2eDiagnostics.failure_snapshot
+            Assert-FlowRegression ($snapshot.current_phase -ceq 'safety_preflight' -and
+                $snapshot.operation_id -ceq 'node_version_check')
+            if ($readCase -eq 'missing_application') {
+                Assert-FlowRegression ($snapshot.error_category -ceq 'process_start' -and
+                    $snapshot.process_started -ceq $false -and $null -eq $snapshot.exit_code)
+                Assert-FlowRegression ($snapshot.system_error_code -is [int])
+            }
+            else {
+                Assert-FlowRegression ($snapshot.error_category -ceq 'nonzero_exit' -and
+                    $snapshot.process_started -ceq $true -and $snapshot.exit_code -eq 17)
+            }
+        }
+        else {
+            Assert-FlowRegression ($null -eq $readOutcome.Failure -and $null -eq $script:E2eDiagnostics.failure_snapshot)
+            Assert-FlowRegression ($script:E2eDiagnostics.process_started -ceq $true -and $script:E2eDiagnostics.exit_code -eq 0)
+            if ($readCase -eq 'actual_node_query') {
+                Assert-FlowRegression ($captured.Count -eq 1 -and [string]$captured[0] -match '^v[0-9]+\.[0-9]+\.[0-9]+$')
+            }
+            elseif ($readCase -eq 'argument_quoting') {
+                Assert-FlowRegression ($captured.Count -eq 1)
+                $roundTrippedArguments = [string]$captured[0] | ConvertFrom-Json
+                Assert-FlowRegression ($roundTrippedArguments.Count -eq $quotedArguments.Count)
+                for ($argumentIndex = 0; $argumentIndex -lt $quotedArguments.Count; $argumentIndex++) {
+                    Assert-FlowRegression ($roundTrippedArguments[$argumentIndex] -ceq $quotedArguments[$argumentIndex])
+                }
+            }
+            else {
+                Assert-FlowRegression ($captured.Count -eq $expectedLines.Count)
+                for ($lineIndex = 0; $lineIndex -lt $expectedLines.Count; $lineIndex++) {
+                    Assert-FlowRegression ([string]$captured[$lineIndex] -ceq $expectedLines[$lineIndex])
+                }
+            }
+        }
+        $passed++
+        Write-Host ('PASS: actual native read wrapper; scenario={0}' -f $readCase)
     }
-    else { $actualNodeApplication }
-    $global:LASTEXITCODE = 0
-    $LASTEXITCODE = 0
-    $readOutcome = [pscustomobject]@{ Failure = $null }
-    $captured = @(& {
-        try { & $realReadCommand -Executable 'node' -Arguments @('--version') -OperationId 'node_version_check' }
-        catch { $readOutcome.Failure = $_.Exception.Message }
-    } 2>&1 3>&1 4>&1 5>&1 6>&1)
-    $safeText = ($captured | Out-String) + $readOutcome.Failure +
-        (ConvertTo-E2eSafeDiagnostics $script:E2eDiagnostics 'E2E_PREREQUISITE_FAILED')
-    Assert-FlowRegression (-not $safeText.Contains($flowHarness.Secret))
-    if ($readCase -eq 'missing_application') {
-        Assert-FlowRegression ($captured.Count -eq 0 -and $readOutcome.Failure -ceq 'E2E_SAFE_OPERATION_FAILED')
-        $snapshot = $script:E2eDiagnostics.failure_snapshot
-        Assert-FlowRegression ($snapshot.current_phase -ceq 'safety_preflight' -and
-            $snapshot.operation_id -ceq 'node_version_check' -and
-            $snapshot.error_category -ceq 'process_start' -and $null -eq $snapshot.exit_code)
-    }
-    else {
-        Assert-FlowRegression ($null -eq $readOutcome.Failure -and $null -eq $script:E2eDiagnostics.failure_snapshot)
-        Assert-FlowRegression ($captured.Count -eq 1 -and [string]$captured[0] -match '^v[0-9]+\.[0-9]+\.[0-9]+$')
-    }
-    $passed++
-    Write-Host ('PASS: actual read wrapper; scenario={0}' -f $readCase)
+}
+finally {
+    if ($savedGlobalExitPresent) { $global:LASTEXITCODE = $savedGlobalExitValue }
+    else { Remove-Variable -Name LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue }
+    $nativeArguments = $null
+    $flowHarness.Secret = $null
 }
 Write-Host ('E2E runner flow tests: {0} passed, 0 skipped, 0 failed.' -f $passed)

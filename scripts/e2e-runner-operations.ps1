@@ -231,19 +231,52 @@ function Invoke-E2eRunnerPrivateProcess {
         [Parameter(Mandatory)] [string[]] $Arguments,
         [Parameter(Mandatory)] [string] $OperationId,
         [AllowEmptyString()] [string] $StandardInput = '',
-        [string] $WorkingDirectory = (Get-Location).ProviderPath,
+        [AllowEmptyString()] [string] $WorkingDirectory = '',
         [int] $TimeoutMilliseconds = 60000,
         [scriptblock] $OnStarted,
         [switch] $Bootstrap
     )
     Set-E2eRunnerOperation -OperationId $OperationId
-    $parameters = @{
-        FilePath = $FilePath; Arguments = $Arguments; StandardInput = $StandardInput
-        WorkingDirectory = $WorkingDirectory; TimeoutMilliseconds = $TimeoutMilliseconds
+    $results = $result = $parameters = $null
+    $invocationFailureCategory = 'invalid_state'
+    try {
+        # Default-parameter expressions execute before the function body. Keep
+        # the location lookup inside this safe boundary so a provider/lookup
+        # exception cannot masquerade as a resource ownership validation error.
+        if ([string]::IsNullOrEmpty($WorkingDirectory)) {
+            $WorkingDirectory = (Get-Location -ErrorAction Stop).ProviderPath
+        }
+        $parameters = @{
+            FilePath = $FilePath; Arguments = $Arguments; StandardInput = $StandardInput
+            WorkingDirectory = $WorkingDirectory; TimeoutMilliseconds = $TimeoutMilliseconds
+        }
+        if ($null -ne $OnStarted) { $parameters.OnStarted = $OnStarted }
+        $invocationFailureCategory = 'unknown_safe_failure'
+        # Only one structured transport result is accepted. Unexpected output
+        # on any stream stays private and is rejected, never printed by the
+        # runner or included in its allowlisted diagnostic.
+        $results = @(& {
+            if ($Bootstrap) { Invoke-E2ePrivateBootstrap @parameters }
+            else { Invoke-E2ePrivateProcess @parameters }
+        } 2>&1 3>&1 4>&1 5>&1 6>&1)
+        $result = ConvertTo-E2eSafeProcessResult -Result $(
+            if ($results.Count -eq 1) { $results[0] } else { $null }
+        )
+        Assert-E2ePrivateResult -Result $result
+        $script:E2eDiagnostics.process_started = $true
+        $script:E2eDiagnostics.exit_code = 0
+        $script:E2eDiagnostics.system_error_code = $null
     }
-    if ($null -ne $OnStarted) { $parameters.OnStarted = $OnStarted }
-    $result = if ($Bootstrap) { Invoke-E2ePrivateBootstrap @parameters } else { Invoke-E2ePrivateProcess @parameters }
-    Assert-E2ePrivateResult -Result $result
+    catch {
+        # The result checker and callbacks may already have recorded a more
+        # precise failure. Preserve it, including the immutable first failure.
+        if ($null -eq $script:E2eDiagnostics.error_category) {
+            Set-E2eDiagnosticFailure -State $script:E2eDiagnostics -ErrorCategory $invocationFailureCategory `
+                -ExitCode $null -ProcessStarted $null
+        }
+        throw 'E2E_SAFE_OPERATION_FAILED'
+    }
+    finally { $results = $result = $parameters = $StandardInput = $null }
 }
 
 function Invoke-E2eCleanupOperation {

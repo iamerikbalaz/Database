@@ -125,6 +125,13 @@ function Test-RealSchemaResetTransport {
         if ($denyVolume) { throw 'E2E_STDIN_REGRESSION_GUARD_REFUSED' }
     }
     function Assert-LocalDockerContext { $events.Add('local_context') }
+    function Resolve-E2eReadExecutable {
+        param([string] $Executable, [string] $OperationId)
+        Assert-Transport ($Executable -ceq 'docker' -and $OperationId -ceq 'docker_mutation_executable_resolution') 'reset_safe_executable_resolution'
+        Set-E2eRunnerOperation -OperationId $OperationId
+        $events.Add('executable_resolution')
+        return 'private-test-docker'
+    }
     function Get-Command {
         param([string] $Name, $CommandType, $ErrorAction)
         if ($Name -eq 'docker') { return [pscustomobject]@{ Source = 'private-test-docker' } }
@@ -145,7 +152,7 @@ function Test-RealSchemaResetTransport {
     try {
         $captured = @(& { Reset-E2eDatabaseSchema -Password $callsiteSecret } *>&1)
         Assert-Transport ($captured.Count -eq 0) 'reset_never_returns_private_output'
-        Assert-Transport (($events -join ',') -eq 'ownership,runtime_volume,engine_volume,local_context,private_transport') 'reset_safety_precedes_real_transport'
+        Assert-Transport (($events -join ',') -eq 'ownership,runtime_volume,engine_volume,local_context,executable_resolution,private_transport') 'reset_safety_precedes_real_transport'
         $script:TransportPassed += 1
         Write-Host 'PASS actual_schema_reset_callsite_uses_exact_private_transport'
 

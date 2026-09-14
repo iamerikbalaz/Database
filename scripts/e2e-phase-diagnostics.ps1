@@ -1,7 +1,7 @@
 # Only fixed identifiers and primitive process status may leave this module.
 # Never retain an exception, command line, process output or request payload here.
 $script:E2eDiagnosticPhases = @(
-    'safety_preflight', 'docker_context_validation', 'compose_config_validation',
+    'safety_preflight', 'docker_context_validation', 'compose_config_validation', 'previous_runtime_cleanup',
     'database_start', 'database_readiness', 'database_runtime_validation',
     'database_schema_reset', 'browser_installation', 'image_build',
     'application_start', 'application_readiness', 'administrator_bootstrap',
@@ -14,6 +14,13 @@ $script:E2eDiagnosticOperations = @(
     'compose_config_render', 'compose_config_validation', 'protected_state_check',
     'resource_ownership_check', 'volume_inspection', 'container_inspection',
     'network_inspection', 'runtime_resources_check', 'previous_runtime_cleanup',
+    'runtime_inventory', 'runtime_inventory_parse', 'runtime_project_validation',
+    'container_ownership_validation', 'container_mount_validation',
+    'network_ownership_validation', 'network_attachment_validation',
+    'volume_name_validation', 'volume_driver_validation', 'volume_scope_validation',
+    'volume_options_validation', 'volume_ownership_validation',
+    'docker_mutation_executable_resolution', 'cleanup_resource_revalidation',
+    'cleanup_container_remove', 'cleanup_network_remove', 'runtime_cleanup_verification',
     'docker_database_start', 'docker_database_readiness', 'database_mount_validation',
     'postgres_schema_reset', 'browser_installation', 'docker_image_build',
     'docker_application_start', 'docker_application_readiness', 'administrator_bootstrap',

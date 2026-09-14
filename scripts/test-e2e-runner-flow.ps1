@@ -69,6 +69,11 @@ function Get-Command {
     param($Name, $CommandType, $ErrorAction)
     return [pscustomobject]@{ Source = $flowHarness.ResolvedApplication }
 }
+function Resolve-E2eReadExecutable {
+    param($Executable, $OperationId)
+    Invoke-FlowBoundary $OperationId
+    return $flowHarness.ResolvedApplication
+}
 function Resolve-Path {
     param($LiteralPath)
     return [pscustomobject]@{ ProviderPath = $flowHarness.RunnerPath }
@@ -126,6 +131,15 @@ function Assert-E2eDatabaseEngineVolume {
 }
 function Assert-NoE2eRuntimeResources { Invoke-FlowBoundary 'runtime_resources_check' }
 function Test-E2eRuntimeResourcesExist { return $true }
+function Invoke-E2eRuntimeCleanup {
+    # Ownership and exact-ID cleanup are exercised by their separate regression
+    # suite. This flow boundary never queries or mutates the real Docker host.
+    $operation = if ($script:E2eDiagnostics.current_phase -eq 'cleanup') {
+        'cleanup_containers'
+    }
+    else { 'runtime_inventory' }
+    Invoke-FlowBoundary $operation
+}
 function Assert-RenderedE2eCompose { param($Json); Invoke-FlowBoundary 'compose_config_validation' }
 function New-E2eSeedManifestData {
     param($BackendUrl, $RepositoryRoot, $RunRoot, $MaterialsRoot)
@@ -162,7 +176,7 @@ function Invoke-E2ePrivateBootstrap {
 
 $expectedPhases = @(
     'safety_preflight', 'docker_context_validation', 'compose_config_validation',
-    'database_start', 'database_readiness', 'database_runtime_validation',
+    'previous_runtime_cleanup', 'database_start', 'database_readiness', 'database_runtime_validation',
     'database_schema_reset', 'browser_installation', 'image_build', 'application_start',
     'application_readiness', 'administrator_bootstrap', 'fixture_seed', 'playwright_start',
     'playwright_execution'

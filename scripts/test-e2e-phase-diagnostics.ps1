@@ -27,6 +27,7 @@ $phaseOperations = [ordered]@{
     safety_preflight = 'repository_validation'
     docker_context_validation = 'docker_context_validation'
     compose_config_validation = 'compose_config_validation'
+    previous_runtime_cleanup = 'runtime_inventory'
     database_start = 'docker_database_start'
     database_readiness = 'docker_database_readiness'
     database_runtime_validation = 'database_mount_validation'
@@ -232,6 +233,32 @@ foreach ($operation in @('docker_executable_resolution', 'docker_context_show',
     Assert-E2eDiagnosticTest ($null -eq $state.process_started -and $null -eq $state.system_error_code)
     Set-E2eDiagnosticFailure $state 'nonzero_exit' 19 -ProcessStarted $true -SystemErrorCode 87
     Assert-E2eDiagnosticTest ((ConvertTo-E2eSafeDiagnostics $state 'E2E_START_FAILED') -ceq $expected)
+    $passed++
+}
+
+# Resource validation must identify its exact check, not imply that the already
+# completed Compose configuration validation failed. Preserve these identifiers
+# and null process status when later cleanup attempts fail independently.
+foreach ($operation in @(
+    'runtime_inventory', 'runtime_inventory_parse', 'runtime_project_validation',
+    'container_ownership_validation', 'container_mount_validation',
+    'network_ownership_validation', 'network_attachment_validation',
+    'volume_name_validation', 'volume_driver_validation', 'volume_scope_validation',
+    'volume_options_validation', 'volume_ownership_validation',
+    'docker_mutation_executable_resolution', 'cleanup_resource_revalidation',
+    'cleanup_container_remove', 'cleanup_network_remove', 'runtime_cleanup_verification'
+)) {
+    $state = New-E2ePhaseDiagnosticsState
+    Start-E2eDiagnosticOperation $state 'compose_config_validation' 'compose_config_validation'
+    Complete-E2eDiagnosticPhase $state
+    Start-E2eDiagnosticOperation $state 'previous_runtime_cleanup' $operation
+    Set-E2eDiagnosticFailure $state 'validation_failure'
+    $expected = New-ExpectedE2eDiagnosticText 'compose_config_validation' 'previous_runtime_cleanup' `
+        'previous_runtime_cleanup' $operation 'validation_failure' $null -Code 'E2E_ISOLATION_FAILED'
+    Assert-E2eDiagnosticTest ((ConvertTo-E2eSafeDiagnostics $state 'E2E_ISOLATION_FAILED') -ceq $expected)
+    Start-E2eDiagnosticOperation $state 'cleanup' 'cleanup_container_remove'
+    Set-E2eDiagnosticFailure $state 'nonzero_exit' 17 -ProcessStarted $true
+    Assert-E2eDiagnosticTest ((ConvertTo-E2eSafeDiagnostics $state 'E2E_ISOLATION_FAILED') -ceq $expected)
     $passed++
 }
 

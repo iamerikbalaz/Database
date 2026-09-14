@@ -4,6 +4,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'e2e-private-process.ps1')
 . (Join-Path $PSScriptRoot 'e2e-phase-diagnostics.ps1')
 . (Join-Path $PSScriptRoot 'e2e-runner-operations.ps1')
+. (Join-Path $PSScriptRoot 'e2e-resource-policy.ps1')
 
 function ConvertTo-E2eCanonicalPath {
     param([Parameter(Mandatory)] [string] $Path)
@@ -413,22 +414,31 @@ function Assert-E2eEngineVolumeInspection {
         [Parameter(Mandatory)] $Inspection,
         [Parameter(Mandatory)] [string] $ExpectedName,
         [Parameter(Mandatory)] [string] $ExpectedProjectName,
-        [string] $ExpectedLogicalVolumeName = 'postgres_data'
+        [string] $ExpectedLogicalVolumeName = 'postgres_data',
+        [scriptblock] $OnCheck
     )
 
-    $name = [string](Get-E2eObjectPropertyValue $Inspection 'Name')
+    if ($null -ne $OnCheck) { [void](& $OnCheck 'volume_name_validation') }
+    if ($Inspection -is [array] -or $Inspection -isnot [pscustomobject]) { throw 'E2E_SAFE_RESOURCE_REJECTED' }
+    $name = $Inspection.PSObject.Properties['Name'].Value
+    if ($name -isnot [string]) { throw 'E2E_SAFE_RESOURCE_REJECTED' }
     if (-not $name.Equals($ExpectedName, [System.StringComparison]::Ordinal)) {
         throw 'E2E Docker engine volume has an unexpected name.'
     }
-    $driver = [string](Get-E2eObjectPropertyValue $Inspection 'Driver')
+    if ($null -ne $OnCheck) { [void](& $OnCheck 'volume_driver_validation') }
+    $driver = $Inspection.PSObject.Properties['Driver'].Value
+    if ($driver -isnot [string]) { throw 'E2E_SAFE_RESOURCE_REJECTED' }
     if (-not $driver.Equals('local', [System.StringComparison]::Ordinal)) {
         throw "E2E Docker engine volume must use Driver='local'."
     }
-    $scope = [string](Get-E2eObjectPropertyValue $Inspection 'Scope')
+    if ($null -ne $OnCheck) { [void](& $OnCheck 'volume_scope_validation') }
+    $scope = $Inspection.PSObject.Properties['Scope'].Value
+    if ($scope -isnot [string]) { throw 'E2E_SAFE_RESOURCE_REJECTED' }
     if (-not $scope.Equals('local', [System.StringComparison]::Ordinal)) {
         throw "E2E Docker engine volume must use Scope='local'."
     }
 
+    if ($null -ne $OnCheck) { [void](& $OnCheck 'volume_options_validation') }
     $optionsProperty = $Inspection.PSObject.Properties['Options']
     if ($null -eq $optionsProperty) {
         throw 'E2E Docker engine volume must expose Options as null or an empty object.'
@@ -440,7 +450,7 @@ function Assert-E2eEngineVolumeInspection {
     elseif ($options -is [System.Collections.IDictionary]) {
         $options.Count -ne 0
     }
-    elseif ($options -is [pscustomobject]) {
+    elseif ($options -is [pscustomobject] -and $options -isnot [array]) {
         @($options.PSObject.Properties).Count -ne 0
     }
     else {
@@ -450,9 +460,12 @@ function Assert-E2eEngineVolumeInspection {
         throw 'E2E Docker engine volume has non-empty Options; refusing all database mutations.'
     }
 
-    $labels = Get-E2eObjectPropertyValue $Inspection 'Labels'
-    $projectLabel = [string](Get-E2eObjectPropertyValue $labels 'com.docker.compose.project')
-    $volumeLabel = [string](Get-E2eObjectPropertyValue $labels 'com.docker.compose.volume')
+    if ($null -ne $OnCheck) { [void](& $OnCheck 'volume_ownership_validation') }
+    $labels = $Inspection.PSObject.Properties['Labels'].Value
+    if ($null -eq $labels -or $labels -is [array] -or $labels -isnot [pscustomobject]) { throw 'E2E_SAFE_RESOURCE_REJECTED' }
+    $projectLabel = $labels.PSObject.Properties['com.docker.compose.project'].Value
+    $volumeLabel = $labels.PSObject.Properties['com.docker.compose.volume'].Value
+    if ($projectLabel -isnot [string] -or $volumeLabel -isnot [string]) { throw 'E2E_SAFE_RESOURCE_REJECTED' }
     if (-not $projectLabel.Equals($ExpectedProjectName, [System.StringComparison]::Ordinal) -or
         -not $volumeLabel.Equals($ExpectedLogicalVolumeName, [System.StringComparison]::Ordinal)) {
         throw 'E2E Docker engine volume does not have the exact expected Compose ownership labels.'

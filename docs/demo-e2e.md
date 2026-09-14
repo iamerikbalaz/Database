@@ -80,7 +80,7 @@ potřebného pro Windows `npm.cmd`.
 ### Diagnostika startu a cleanupu
 
 Runner odděluje `safety_preflight`, `docker_context_validation`,
-`compose_config_validation`, `database_start`, `database_readiness`,
+`compose_config_validation`, `previous_runtime_cleanup`, `database_start`, `database_readiness`,
 `database_runtime_validation`, `database_schema_reset`, `browser_installation`,
 `image_build`, `application_start`, `application_readiness`,
 `administrator_bootstrap`, `fixture_seed`, `playwright_start`,
@@ -161,8 +161,45 @@ jeho Compose ownership labely a skutečný mount PostgreSQL kontejneru a potom
 otočí náhodné heslo pevně dané E2E role a obnoví pouze schéma `public` v databázi
 `reawote_e2e`. SQL se předává `psql` přes standardní vstup, takže heslo není v
 argumentech procesu. Runner nepoužívá
-`docker volume rm` ani `docker compose down --volumes`; kontejnery a síť odstraní
-pomocí `docker compose down --remove-orphans` a volume zachová pro další běh.
+`docker volume rm` ani `docker compose down --volumes`. Cleanup nepoužívá ani
+plošné `compose down --remove-orphans`: odstraňuje jen jednotlivé zkontrolované
+immutable container/network ID, bez přepínače pro odstranění volumes.
+
+### Předchozí runtime a zachovaný volume
+
+Stav **žádné kontejnery, žádná síť, pouze bezpečný zachovaný volume** je očekávaný
+a nevyžaduje žádnou Docker mutaci. Totéž platí pro úplně prázdnou inventuru.
+Volume není runtime prostředek určený k odstranění. Jeho přesný kontrakt zůstává:
+`Name=reawote-e2e-postgres-data`, `Driver=local`, `Scope=local`, `Options=null`
+nebo prázdný objekt, `com.docker.compose.project=reawote-e2e` a
+`com.docker.compose.volume=postgres_data`. Neprázdné options (včetně bind/NFS),
+cizí driver, chybějící či nesprávné labely runner odmítne.
+
+Inventura vyhledá jak prostředky s přesným project labelem, tak kolize názvů
+začínajících `reawote-e2e`; název sám vlastnictví nedokládá. Před jakoukoli
+mutací musí projít **celá** inventura. Kontejner musí mít přesné ID, očekávaný
+název, project/service/container-number/oneoff labely a povolené mounty.
+Databáze smí mít pouze očekávaný lokální named volume; backend/frontend žádné
+mounty. Jedinou výjimkou pro bind je zamýšlený read-only worker mount
+`/e2e-materials` z přesného repository-local `.e2e-data/runs/<GUID>/materials`.
+Jiný mount není povolen. Síť musí být lokální bridge `reawote-e2e_default`
+se správnými project/network labely a bez cizích připojených kontejnerů.
+
+Před každým odstraněním se znovu ověří lokální Docker context a celá inventura.
+Mazání se adresuje pouze konkrétním dříve validovaným ID pomocí
+`docker container rm --force <ID>` nebo `docker network rm <ID>`; nový či
+nejasně vlastněný prostředek nelze přibrat plošným orphan cleanupem.
+Stejný postup platí před startem i ve `finally`. Projekty `reawote` a
+`reawote-demo` se k mazání nikdy nevybírají. Bezpečný volume musí zůstat zachován
+i při dvou po sobě jdoucích bězích.
+
+Cleanup má vlastní fázi `previous_runtime_cleanup`, až po dokončené
+`compose_config_validation`. Pevné operation ID rozlišují inventuru, parsování,
+vlastnictví kontejneru/sítě, mounty, připojené kontejnery, název/driver/scope/
+options/labely volume, opětovnou kontrolu a odstranění konkrétního typu prostředku.
+Selhání přípravy či volání privátního procesu se zaznamená na jeho bezpečné
+hranici a nezaměňuje se automaticky za chybu validace prostředků. Výstup stále
+obsahuje jen 11 povolených diagnostických polí, nikoli inspect JSON či výjimku.
 
 Před každým vytvořením, zápisem a cleanupem se kontrolují všechny existující
 komponenty cesty. Symlink, junction, mount point nebo jiný `ReparsePoint` cleanup
@@ -219,6 +256,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e-stdin-t
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e-phase-diagnostics.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e-runner-flow.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e-docker-context.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e-resource-policy.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e-runtime-cleanup.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e-private-runner.ps1
 ```
 
 Transportní testy ověřují přesné bajty UTF-8, LF, EOF, oba bootstrapové řádky,
@@ -242,6 +282,18 @@ nevytváří kontejnery a nemění Docker stav. Pouze chybějící CLI (nebo ne-
 hostitel) způsobí explicitní SKIP. Chyba spuštění, výstupu, policy nebo dostupného
 CLI vrací nenulový exit code a bezpečnou diagnostiku. Úspěch znamená ověření
 contextu, nikoli úspěšný browser E2E běh.
+
+Před opakováním E2E na Docker hostiteli ověřte také skutečnou inventuru stejnými
+pravidly jako runner, **bez cleanupu nebo jiné Docker mutace**:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-e2e-runtime-inventory-smoke.ps1
+```
+
+Po úspěšném read-only smoke spusťte první E2E běh; pouze při jeho úspěchu druhý.
+Každý musí dokončit všech šest scénářů. Po nich znovu spusťte inventory smoke.
+Mockovaný test dvou lifecycle průchodů ani discovery šesti scénářů nejsou
+náhradou těchto skutečných Docker/browser běhů.
 
 Skutečné ověření vyžaduje dva běhy `scripts/test-demo-e2e.ps1`, každý **6/6
 passed**. Reporter odmítne dílčí nebo skipped běh i při jinak nulovém exit code.

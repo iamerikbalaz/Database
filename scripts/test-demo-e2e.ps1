@@ -32,18 +32,18 @@ function Assert-NodeVersion {
 function Get-ExactVolumeInspection {
     param([Parameter(Mandatory)] [string] $Name)
     $names = @(Invoke-E2eReadCommand -Executable 'docker' -Arguments @('volume', 'ls', '--format', '{{.Name}}') -OperationId 'volume_inspection')
-    if ($names -notcontains $Name) { return $null }
+    if ($names -cnotcontains $Name) { return $null }
     $json = (Invoke-E2eReadCommand -Executable 'docker' -Arguments @('volume', 'inspect', $Name) -OperationId 'volume_inspection') -join [Environment]::NewLine
     try {
-        $inspection = @($json | ConvertFrom-Json -ErrorAction Stop)
+        Set-E2eRunnerOperation -OperationId 'runtime_inventory_parse'
+        $inspection = ConvertFrom-E2eInspectionJson -Json $json
+        if ($inspection.Name -isnot [string] -or $inspection.Name -cne $Name) { throw 'E2E_SAFE_RESOURCE_REJECTED' }
     }
     catch {
-        throw 'Docker returned invalid structured JSON for the expected E2E volume.'
+        Set-E2eDiagnosticFailure -State $script:E2eDiagnostics -ErrorCategory 'invalid_output'
+        throw 'E2E_SAFE_OPERATION_FAILED'
     }
-    if ($inspection.Count -ne 1 -or $inspection[0].Name -ne $Name) {
-        throw "Docker returned an unexpected inspection for volume '$Name'."
-    }
-    return $inspection[0]
+    return $inspection
 }
 
 function Assert-E2eDatabaseEngineVolume {
@@ -56,11 +56,11 @@ function Assert-E2eDatabaseEngineVolume {
         }
         return $null
     }
-    [void](Assert-E2eEngineVolumeInspection `
-        -Inspection $volume `
-        -ExpectedName $script:E2eDatabaseVolumeName `
-        -ExpectedProjectName $script:E2eProjectName `
-        -ExpectedLogicalVolumeName 'postgres_data')
+    Invoke-E2eResourceValidation -OperationId 'volume_name_validation' -Action {
+        [void](Assert-E2eEngineVolumeInspection -Inspection $volume `
+            -ExpectedName $script:E2eDatabaseVolumeName -ExpectedProjectName $script:E2eProjectName `
+            -ExpectedLogicalVolumeName 'postgres_data' -OnCheck { param($operation) Set-E2eRunnerOperation $operation })
+    }
     return $volume
 }
 
@@ -89,42 +89,117 @@ function Get-ProtectedState {
     } | ConvertTo-Json -Depth 10 -Compress
 }
 
-function Assert-E2eResourcesOwned {
-    $containerIds = @(Invoke-E2eReadCommand -Executable 'docker' -Arguments @('ps', '--all', '--quiet', '--filter', "label=com.docker.compose.project=$script:E2eProjectName") -OperationId 'runtime_resources_check')
-    foreach ($containerId in $containerIds) {
-        if ([string]::IsNullOrWhiteSpace($containerId)) { continue }
-        $inspectionJson = (Invoke-E2eReadCommand -Executable 'docker' -Arguments @('inspect', $containerId) -OperationId 'container_inspection') -join [Environment]::NewLine
-
-        $inspection = @($inspectionJson | ConvertFrom-Json -ErrorAction Stop)
-        if ($inspection.Count -ne 1) { throw 'Docker returned an unexpected existing E2E container inspection result.' }
-        $label = [string](Get-E2eObjectPropertyValue $inspection[0].Config.Labels 'com.docker.compose.project')
-        if ($label -ne $script:E2eProjectName) { throw 'Refusing cleanup: container is not owned by the exact E2E project.' }
+function Invoke-E2eResourceValidation {
+    param([string] $OperationId, [scriptblock] $Action)
+    Set-E2eRunnerOperation -OperationId $OperationId
+    try { & $Action }
+    catch {
+        Set-E2eDiagnosticFailure -State $script:E2eDiagnostics -ErrorCategory 'validation_failure'
+        throw 'E2E_SAFE_OPERATION_FAILED'
     }
-    $networkIds = @(Invoke-E2eReadCommand -Executable 'docker' -Arguments @('network', 'ls', '--quiet', '--filter', "label=com.docker.compose.project=$script:E2eProjectName") -OperationId 'runtime_resources_check')
-    foreach ($networkId in $networkIds) {
-        if ([string]::IsNullOrWhiteSpace($networkId)) { continue }
-        $inspectionJson = (Invoke-E2eReadCommand -Executable 'docker' -Arguments @('network', 'inspect', $networkId) -OperationId 'network_inspection') -join [Environment]::NewLine
-
-        $inspection = @($inspectionJson | ConvertFrom-Json -ErrorAction Stop)
-        if ($inspection.Count -ne 1) { throw 'Docker returned an unexpected existing E2E network inspection result.' }
-        $label = [string](Get-E2eObjectPropertyValue $inspection[0].Labels 'com.docker.compose.project')
-        if ($label -ne $script:E2eProjectName) { throw 'Refusing cleanup: network is not owned by the exact E2E project.' }
-    }
-    [void](Assert-E2eDatabaseEngineVolume)
 }
 
+function Get-E2eResourceInspection {
+    param([ValidateSet('container', 'network')] [string] $Kind, [string] $Id)
+    $json = (Invoke-E2eReadCommand -Executable 'docker' -Arguments @($Kind, 'inspect', $Id) `
+        -OperationId ($Kind + '_inspection')) -join [Environment]::NewLine
+    Set-E2eRunnerOperation -OperationId 'runtime_inventory_parse'
+    try { return ConvertFrom-E2eInspectionJson -Json $json }
+    catch {
+        Set-E2eDiagnosticFailure -State $script:E2eDiagnostics -ErrorCategory 'invalid_output'
+        throw 'E2E_SAFE_OPERATION_FAILED'
+    }
+}
+
+function Get-E2eRuntimeInventory {
+    Invoke-E2eResourceValidation -OperationId 'runtime_project_validation' -Action {
+        if ($script:E2eProjectName -cne 'reawote-e2e' -or $script:E2eDatabaseVolumeName -cne 'reawote-e2e-postgres-data') {
+            throw 'E2E_SAFE_RESOURCE_REJECTED'
+        }
+    }
+    # Label selection alone would miss a foreign/mislabelled name collision.
+    # Inspect the union, but never remove a resource just because its name matches.
+    $ids = @{}
+    foreach ($kind in @('container', 'network')) {
+        $prefix = if ($kind -eq 'container') { @('ps', '--all') } else { @('network', 'ls') }
+        $found = @()
+        foreach ($filter in @('label=com.docker.compose.project=reawote-e2e', 'name=^/?reawote-e2e')) {
+            $found += @(Invoke-E2eReadCommand -Executable 'docker' `
+                -Arguments ($prefix + @('--no-trunc', '--quiet', '--filter', $filter)) -OperationId 'runtime_inventory')
+        }
+        Invoke-E2eResourceValidation -OperationId 'runtime_inventory_parse' -Action {
+            foreach ($id in $found) {
+                if ($id -isnot [string] -or $id -cnotmatch '\A[0-9a-f]{64}\z') { throw 'E2E_SAFE_RESOURCE_REJECTED' }
+            }
+        }
+        $ids[$kind] = @($found | Sort-Object -Unique)
+    }
+    $volumeNames = @(Invoke-E2eReadCommand -Executable 'docker' -Arguments @('volume', 'ls', '--format', '{{.Name}}') -OperationId 'volume_inspection')
+    $labelledVolumes = @(Invoke-E2eReadCommand -Executable 'docker' `
+        -Arguments @('volume', 'ls', '--filter', 'label=com.docker.compose.project=reawote-e2e', '--format', '{{.Name}}') -OperationId 'volume_inspection')
+    Invoke-E2eResourceValidation -OperationId 'volume_name_validation' -Action {
+        foreach ($name in @($labelledVolumes) + @($volumeNames | Where-Object { $_ -imatch '\Areawote-e2e' })) {
+            if ($name -isnot [string] -or $name -cne 'reawote-e2e-postgres-data') { throw 'E2E_SAFE_RESOURCE_REJECTED' }
+        }
+    }
+    $volume = Assert-E2eDatabaseEngineVolume
+    foreach ($id in $ids.container) {
+        $inspection = Get-E2eResourceInspection -Kind container -Id $id
+        Invoke-E2eResourceValidation -OperationId 'container_ownership_validation' -Action {
+            $service = Assert-E2eOwnedContainer -Inspection $inspection -ExpectedId $id -RepositoryRoot $repositoryRoot `
+                -OnCheck { param($operation) Set-E2eRunnerOperation $operation }
+            if ($service -eq 'database' -and $null -eq $volume) { throw 'E2E_SAFE_RESOURCE_REJECTED' }
+            if ($service -eq 'worker') {
+                $source = Resolve-E2eOwnedWorkerSource -Source $inspection.Mounts[0].Source -RepositoryRoot $repositoryRoot
+                Assert-E2eNoReparsePath -Root $repositoryRoot -Target $source
+            }
+        }
+    }
+    foreach ($id in $ids.network) {
+        $inspection = Get-E2eResourceInspection -Kind network -Id $id
+        Invoke-E2eResourceValidation -OperationId 'network_ownership_validation' -Action {
+            [void](Assert-E2eOwnedNetwork -Inspection $inspection -ExpectedId $id -ContainerIds $ids.container `
+                -OnCheck { param($operation) Set-E2eRunnerOperation $operation })
+        }
+    }
+    return [pscustomobject]@{ ContainerIds = $ids.container; NetworkIds = $ids.network; VolumePresent = ($null -ne $volume) }
+}
+
+function Assert-E2eResourcesOwned { [void](Get-E2eRuntimeInventory) }
+
 function Assert-NoE2eRuntimeResources {
-    $containers = @(Invoke-E2eReadCommand -Executable 'docker' -Arguments @('ps', '--all', '--quiet', '--filter', "label=com.docker.compose.project=$script:E2eProjectName") -OperationId 'runtime_resources_check')
-    $networks = @(Invoke-E2eReadCommand -Executable 'docker' -Arguments @('network', 'ls', '--quiet', '--filter', "label=com.docker.compose.project=$script:E2eProjectName") -OperationId 'runtime_resources_check')
-    if (@($containers | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -ne 0) { throw 'E2E containers remain after cleanup.' }
-    if (@($networks | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -ne 0) { throw 'E2E networks remain after cleanup.' }
-    Assert-E2eResourcesOwned
+    $inventory = Get-E2eRuntimeInventory
+    Invoke-E2eResourceValidation -OperationId 'runtime_cleanup_verification' -Action {
+        if ($inventory.ContainerIds.Count -ne 0 -or $inventory.NetworkIds.Count -ne 0) { throw 'E2E_SAFE_RESOURCE_REJECTED' }
+    }
 }
 
 function Test-E2eRuntimeResourcesExist {
-    $containers = @(Invoke-E2eReadCommand -Executable 'docker' -Arguments @('ps', '--all', '--quiet', '--filter', "label=com.docker.compose.project=$script:E2eProjectName") -OperationId 'runtime_resources_check')
-    $networks = @(Invoke-E2eReadCommand -Executable 'docker' -Arguments @('network', 'ls', '--quiet', '--filter', "label=com.docker.compose.project=$script:E2eProjectName") -OperationId 'runtime_resources_check')
-    return (@($containers | Where-Object { $_ }).Count -gt 0 -or @($networks | Where-Object { $_ }).Count -gt 0)
+    $inventory = Get-E2eRuntimeInventory
+    return ($inventory.ContainerIds.Count -gt 0 -or $inventory.NetworkIds.Count -gt 0)
+}
+
+function Invoke-E2eRuntimeCleanup {
+    # Validate the entire inventory before *any* mutation; a safe retained volume
+    # is expected and never makes the runtime non-empty.
+    $inventory = Get-E2eRuntimeInventory
+    foreach ($kind in @('container', 'network')) {
+        $targets = if ($kind -eq 'container') { $inventory.ContainerIds } else { $inventory.NetworkIds }
+        foreach ($id in $targets) {
+            [void](Assert-LocalDockerContext)
+            # Recheck ownership, mounts, volume and attached containers before
+            # each exact-ID deletion, not a broad Compose down/orphan sweep.
+            $current = Get-E2eRuntimeInventory
+            $currentIds = if ($kind -eq 'container') { $current.ContainerIds } else { $current.NetworkIds }
+            Invoke-E2eResourceValidation -OperationId 'cleanup_resource_revalidation' -Action {
+                if ($currentIds -cnotcontains $id) { throw 'E2E_SAFE_RESOURCE_REJECTED' }
+            }
+            $application = Resolve-E2eReadExecutable -Executable 'docker' -OperationId 'docker_mutation_executable_resolution'
+            $arguments = if ($kind -eq 'container') { @('container', 'rm', '--force', $id) } else { @('network', 'rm', $id) }
+            Invoke-E2eRunnerPrivateProcess -FilePath $application -Arguments $arguments -OperationId ('cleanup_' + $kind + '_remove')
+        }
+    }
+    Assert-NoE2eRuntimeResources
 }
 
 function Invoke-E2eCompose {
@@ -134,7 +209,7 @@ function Invoke-E2eCompose {
     $processArguments = @('compose', '--project-name', $script:E2eProjectName, '-f', $script:BaseComposePath, '-f', $script:E2eComposePath) + $Arguments
     if ($Mutation) {
         Set-E2eRunnerOperation -OperationId $OperationId
-        $dockerPath = (Get-Command docker -CommandType Application -ErrorAction Stop).Source
+        $dockerPath = Resolve-E2eReadExecutable -Executable 'docker' -OperationId 'docker_mutation_executable_resolution'
         Invoke-E2eRunnerPrivateProcess -FilePath $dockerPath -Arguments $processArguments `
             -OperationId $OperationId -TimeoutMilliseconds $TimeoutMilliseconds
     }
@@ -154,7 +229,7 @@ function Invoke-E2eComposeWithStandardInput {
     if ($Mutation) { [void](Assert-LocalDockerContext) }
     $operationId = if ($Bootstrap) { 'administrator_bootstrap' } else { 'postgres_schema_reset' }
     Set-E2eRunnerOperation -OperationId $operationId
-    $dockerPath = (Get-Command docker -CommandType Application -ErrorAction Stop).Source
+    $dockerPath = Resolve-E2eReadExecutable -Executable 'docker' -OperationId 'docker_mutation_executable_resolution'
     $processArguments = @('compose', '--project-name', $script:E2eProjectName, '-f', $script:BaseComposePath, '-f', $script:E2eComposePath) + $Arguments
     Invoke-E2eRunnerPrivateProcess -FilePath $dockerPath -Arguments $processArguments `
         -StandardInput $StandardInput -OperationId $operationId -Bootstrap:$Bootstrap
@@ -194,17 +269,14 @@ function Assert-RuntimeDatabaseMount {
     $containerId = (Invoke-E2eCompose -Arguments @('ps', '--quiet', 'database') -Step 'Locate E2E database container') -join ''
     if ([string]::IsNullOrWhiteSpace($containerId)) { throw 'E2E database container was not found after Compose up.' }
     $inspectionJson = (Invoke-E2eReadCommand -Executable 'docker' -Arguments @('inspect', $containerId.Trim()) -OperationId 'database_mount_validation') -join [Environment]::NewLine
-    $inspection = @($inspectionJson | ConvertFrom-Json -ErrorAction Stop)
-    if ($inspection.Count -ne 1) {
-        throw 'Docker returned an unexpected database container inspection result.'
-    }
-    $containerLabels = Get-E2eObjectPropertyValue $inspection[0].Config 'Labels'
+    $inspection = ConvertFrom-E2eInspectionJson -Json $inspectionJson
+    $containerLabels = Get-E2eObjectPropertyValue $inspection.Config 'Labels'
     $containerProject = [string](Get-E2eObjectPropertyValue $containerLabels 'com.docker.compose.project')
     $containerService = [string](Get-E2eObjectPropertyValue $containerLabels 'com.docker.compose.service')
     if ($containerProject -ne $script:E2eProjectName -or $containerService -ne 'database') {
         throw 'Runtime database container does not have the exact expected Compose project and service labels.'
     }
-    [void](Assert-E2eRuntimeDatabaseVolume -Mounts @($inspection[0].Mounts) -ExpectedEngineName $script:E2eDatabaseVolumeName)
+    [void](Assert-E2eRuntimeDatabaseVolume -Mounts @($inspection.Mounts) -ExpectedEngineName $script:E2eDatabaseVolumeName)
 }
 
 function Reset-E2eDatabaseSchema {
@@ -373,9 +445,10 @@ try {
     Set-E2eRunnerOperation -OperationId 'compose_config_validation'
     Assert-RenderedE2eCompose $rendered
     $rendered = $null
-    Assert-E2eResourcesOwned
-    Invoke-E2eCompose @('down', '--remove-orphans') 'Remove previous isolated runtime' -Mutation -OperationId 'previous_runtime_cleanup'
-    Assert-NoE2eRuntimeResources
+    Complete-E2eRunnerPhase
+
+    Start-E2eRunnerPhase -Phase 'previous_runtime_cleanup' -OperationId 'runtime_inventory'
+    Invoke-E2eRuntimeCleanup
     Complete-E2eRunnerPhase
 
     $startupAttempted = $true
@@ -490,11 +563,7 @@ finally {
     Invoke-E2eCleanupOperation -OperationId 'cleanup_environment' -Action { Clear-E2eCredentialEnvironment }
     if ($script:DockerContextVerified) {
         Invoke-E2eCleanupOperation -OperationId 'cleanup_containers' -Action {
-            if ($startupAttempted -or (Test-E2eRuntimeResourcesExist)) {
-                Assert-E2eResourcesOwned
-                Invoke-E2eCompose @('down', '--remove-orphans') 'Clean isolated containers and network' -Mutation -OperationId 'cleanup_containers'
-            }
-            Assert-NoE2eRuntimeResources
+            Invoke-E2eRuntimeCleanup
         }
     }
     if ($null -ne $runRoot) {

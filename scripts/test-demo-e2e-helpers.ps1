@@ -355,5 +355,8 @@ finally {
 & (Join-Path $PSScriptRoot 'test-e2e-phase-diagnostics.ps1')
 & (Join-Path $PSScriptRoot 'test-e2e-runner-flow.ps1')
 & (Join-Path $PSScriptRoot 'test-e2e-docker-context.ps1')
+& (Join-Path $PSScriptRoot 'test-e2e-resource-policy.ps1')
+& (Join-Path $PSScriptRoot 'test-e2e-runtime-cleanup.ps1')
+& (Join-Path $PSScriptRoot 'test-e2e-private-runner.ps1')
 
 Write-Host 'All demo E2E helper safety tests passed.'

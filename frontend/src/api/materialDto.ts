@@ -3,7 +3,7 @@ import { boolean, nullable, record, string, uuid } from "./dto";
 export const workflowStatuses = ["IN_PROGRESS", "DONE"] as const;
 export const validationStatuses = ["NOT_CHECKED", "VALID", "WARNING", "ERROR", "METADATA_MISSING"] as const;
 export const publicationStatuses = ["NOT_PUBLISHED", "PREPARING", "UPLOADED_WAITING_FOR_IMPORT", "WAITING_FOR_VERIFICATION", "PUBLISHED_CURRENT", "PUBLISHED_UPDATE_REQUIRED", "PUBLICATION_ERROR"] as const;
-const userRoles = ["PROCESSOR", "PRODUCTION_LEAD", "LEADERSHIP", "ADMIN"] as const;
+export const userRoles = ["PROCESSOR", "PRODUCTION_LEAD", "LEADERSHIP", "ADMIN"] as const;
 function choice<T extends string>(value: unknown, choices: readonly T[]): T {
   const match = choices.find((item) => item === value);
   if (match === undefined) throw new Error("Invalid API status or role");

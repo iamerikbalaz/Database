@@ -1,5 +1,5 @@
-import { responseError } from "./errors";
 import { materialApi, type MaterialApi } from "./materialClient";
+import { httpTransport } from "./transport";
 import type {
   CompanyCreateDto,
   CompanyPatchDto,
@@ -41,28 +41,12 @@ export interface ApiClient extends MaterialApi {
   getProjects(): Promise<Project[]>;
   getProject(id: string): Promise<ProjectDetail>;
 }
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "/api").replace(
-  /\/$/,
-  "",
-);
 async function request(
   path: string,
   method = "GET",
   payload?: object,
 ): Promise<unknown> {
-  const response = await fetch(apiBaseUrl + path, {
-    method,
-    body: payload === undefined ? undefined : JSON.stringify(payload),
-    headers: {
-      Accept: "application/json",
-      ...(payload === undefined ? {} : { "Content-Type": "application/json" }),
-    },
-  });
-  if (!response.ok) {
-    const body: unknown = await response.json().catch(() => null);
-    throw responseError(response.status, body);
-  }
-  return response.json();
+  return httpTransport.request(path, { method, body: payload });
 }
 export const httpApiClient: ApiClient = {
   ...materialApi(request),

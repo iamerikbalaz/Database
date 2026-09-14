@@ -13,10 +13,12 @@ export function AppShell({
   currentPath,
   navigate,
   children,
+  userMenu,
 }: {
   currentPath: string;
   navigate: (path: string) => void;
   children: ReactNode;
+  userMenu?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -114,14 +116,14 @@ export function AppShell({
             <span />
             Internal workspace
           </div>
-          <button
+          {userMenu ?? <button
             disabled
             className="user-button"
             aria-label="User menu"
             title="Coming later"
           >
             User
-          </button>
+          </button>}
         </header>
         <main className="content">{children}</main>
       </div>

@@ -161,6 +161,13 @@ function Assert-RenderedE2eCompose {
     $configuration = $Json | ConvertFrom-Json -ErrorAction Stop
     if ($configuration.name -ne $script:E2eProjectName) { throw 'Rendered Compose project is not the exact E2E project.' }
     if ($Json.Contains('reawote-demo-postgres-data')) { throw 'Rendered E2E Compose unexpectedly references the protected demo volume.' }
+    $backendEnvironment = $configuration.services.backend.environment
+    if ([string](Get-E2eObjectPropertyValue $backendEnvironment 'APP_ENV') -ne 'e2e' -or
+        [string](Get-E2eObjectPropertyValue $backendEnvironment 'CORS_ORIGINS') -ne "http://127.0.0.1:$($script:E2eFrontendPort)" -or
+        [string](Get-E2eObjectPropertyValue $backendEnvironment 'AUTH_COOKIE_SECURE') -ne 'false' -or
+        [string](Get-E2eObjectPropertyValue $backendEnvironment 'AUTH_ALLOW_INSECURE_COOKIE') -ne 'true') {
+        throw 'Rendered E2E backend must use the explicit insecure-cookie exception only for its loopback origin.'
+    }
     foreach ($serviceProperty in $configuration.services.PSObject.Properties) {
         $portsProperty = $serviceProperty.Value.PSObject.Properties['ports']
         if ($null -eq $portsProperty) { continue }
@@ -261,7 +268,13 @@ function New-E2eSeedManifestData {
 }
 
 function Save-E2eFailureDiagnostics {
-    param([string] $RepositoryRoot, [string] $ArtifactRoot, [string] $RunRoot, [string] $Password, [string] $FailureMessage)
+    param(
+        [string] $RepositoryRoot,
+        [string] $ArtifactRoot,
+        [string] $RunRoot,
+        [string[]] $Secrets,
+        [string] $FailureMessage
+    )
     $lines = [Collections.Generic.List[string]]::new()
     $lines.Add("Runner failure: $FailureMessage")
     if ($script:DockerContextVerified) {
@@ -270,15 +283,30 @@ function Save-E2eFailureDiagnostics {
             foreach ($line in @(Invoke-E2eCompose @('ps', '--all') 'Capture E2E Compose status')) { $lines.Add([string]$line) }
             $lines.Add(''); $lines.Add('Synthetic service logs:')
             foreach ($line in @(& docker compose --project-name $script:E2eProjectName -f $script:BaseComposePath -f $script:E2eComposePath logs --no-color --tail 300 backend worker frontend)) {
-                if ($line -match '(?i)raw_content|source_content|authorization|cookie|postgres_password') { $lines.Add('[redacted potentially sensitive log line]') }
-                else { $lines.Add([string]$line) }
+                if ($line -match '(?i)raw_content|source_content|postgres_password') {
+                    $lines.Add('[redacted potentially sensitive log line]')
+                }
+                else {
+                    $lines.Add((Protect-E2eDiagnosticText -Text ([string]$line) -Secrets $Secrets))
+                }
             }
         }
         catch { $lines.Add("Diagnostics collection error: $($_.Exception.Message)") }
     }
     $text = $lines -join [Environment]::NewLine
-    foreach ($secret in @($Password, $RunRoot)) { if ($secret) { $text = $text.Replace($secret, '[REDACTED]') } }
+    $text = Protect-E2eDiagnosticText -Text $text -Secrets (@($Secrets) + @($RunRoot))
     Write-E2eSafeTextFile -RepositoryRoot $RepositoryRoot -RunRoot $ArtifactRoot -Path (Join-Path $ArtifactRoot 'runner-diagnostics.txt') -Content $text
+}
+
+function Assert-E2eRuntimeLogsSafe {
+    param([string[]] $Secrets)
+
+    $logText = (@(Invoke-E2eCompose `
+        -Arguments @('logs', '--no-color', 'backend', 'worker', 'frontend') `
+        -Step 'Read E2E service logs for the secret scan') -join [Environment]::NewLine)
+    if (Test-E2eTextContainsSecret -Text $logText -Secrets $Secrets) {
+        throw 'E2E service logs contain an authentication secret or sensitive authentication field.'
+    }
 }
 
 $script:E2eProjectName = $projectName
@@ -290,10 +318,16 @@ $runGuid = [guid]::NewGuid()
 $mutex = $null
 $runFailure = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
-$environmentNames = @('BACKEND_PORT', 'FRONTEND_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'COMPOSE_PROJECT_NAME', 'E2E_FRONTEND_PORT', 'E2E_MATERIALS_ROOT', 'E2E_WORKER_PORT', 'E2E_RUN_MANIFEST', 'E2E_RUN_TOKEN')
+$environmentNames = @(
+    'BACKEND_PORT', 'FRONTEND_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD',
+    'COMPOSE_PROJECT_NAME', 'AUTH_COOKIE_SECURE', 'AUTH_ALLOW_INSECURE_COOKIE',
+    'E2E_FRONTEND_PORT', 'E2E_MATERIALS_ROOT', 'E2E_WORKER_PORT', 'E2E_RUN_MANIFEST',
+    'E2E_RUN_TOKEN', 'E2E_AUTH_EMAIL', 'E2E_AUTH_INITIAL_PASSWORD', 'E2E_AUTH_PASSWORD'
+)
 $previousEnvironment = @{}
 foreach ($name in $environmentNames) { $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
-$repositoryRoot = $runRoot = $artifactRoot = $dataManagedRoot = $artifactManagedRoot = $postgresPassword = $protectedBefore = $null
+$repositoryRoot = $runRoot = $artifactRoot = $dataManagedRoot = $artifactManagedRoot = $null
+$postgresPassword = $authEmail = $authInitialPassword = $authPassword = $runToken = $protectedBefore = $null
 $startupAttempted = $testPassed = $false
 
 try {
@@ -321,10 +355,15 @@ try {
     while ($allocatedPorts.Count -lt 3) { [void]$allocatedPorts.Add((Get-FreeTcpPort)) }
     $selectedPorts = @($allocatedPorts)
     $backendPort, $frontendPort, $workerPort = $selectedPorts[0], $selectedPorts[1], $selectedPorts[2]
+    $script:E2eFrontendPort = $frontendPort
     $backendUrl, $frontendUrl = "http://127.0.0.1:$backendPort", "http://127.0.0.1:$frontendPort"
     $postgresPassword = [guid]::NewGuid().ToString('N')
+    $authEmail = "e2e.admin.$($runGuid.ToString('N'))@example.invalid"
+    $authInitialPassword = New-E2eSyntheticPassword
+    do { $authPassword = New-E2eSyntheticPassword } while ($authPassword -eq $authInitialPassword)
     $env:BACKEND_PORT = "127.0.0.1:$backendPort"; $env:FRONTEND_PORT = "127.0.0.1:$frontendPort"
     $env:POSTGRES_DB = $databaseName; $env:POSTGRES_USER = $databaseUser; $env:POSTGRES_PASSWORD = $postgresPassword
+    $env:AUTH_COOKIE_SECURE = 'false'; $env:AUTH_ALLOW_INSECURE_COOKIE = 'true'
     $env:COMPOSE_PROJECT_NAME = $projectName; $env:E2E_FRONTEND_PORT = [string]$frontendPort
     $env:E2E_MATERIALS_ROOT = $script:E2eMaterialsRoot; $env:E2E_WORKER_PORT = [string]$workerPort
     $protectedBefore = Get-ProtectedState
@@ -352,6 +391,24 @@ try {
     }
     Assert-E2eResourcesOwned
     Assert-RuntimeDatabaseMount
+    $provisioningInput = [string]::Join(
+        [Environment]::NewLine,
+        @($authInitialPassword, $authInitialPassword)
+    )
+    try {
+        Invoke-E2eGuardedAction -Validation {
+            [void](Assert-E2eDatabaseEngineVolume -RequirePresent)
+            Assert-RuntimeDatabaseMount
+        } -Action {
+            Invoke-E2eComposeWithStandardInput -StandardInput $provisioningInput -Arguments @(
+                'exec', '--no-TTY', 'backend', 'python', '-m', 'app.auth.cli',
+                '--email', $authEmail, '--display-name', 'E2E QA'
+            ) -Step 'Provision the synthetic E2E administrator through the official CLI' -Mutation
+        }
+    }
+    finally {
+        $provisioningInput = $null
+    }
     $state = New-E2eSeedManifestData $backendUrl $repositoryRoot $runRoot $script:E2eMaterialsRoot
     $runToken = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
     $manifestPath = Join-Path $runRoot 'run-manifest.json'
@@ -362,15 +419,39 @@ try {
     } | ConvertTo-Json -Depth 12
     Write-E2eSafeTextFile $repositoryRoot $runRoot $manifestPath $manifest
     $env:E2E_RUN_MANIFEST = $manifestPath; $env:E2E_RUN_TOKEN = $runToken
+    $env:E2E_AUTH_EMAIL = $authEmail
+    $env:E2E_AUTH_INITIAL_PASSWORD = $authInitialPassword
+    $env:E2E_AUTH_PASSWORD = $authPassword
     Push-Location $frontendRoot
-    try { & npm.cmd exec -- playwright test; Assert-LastCommandSucceeded 'Playwright E2E scenarios' }
-    finally { Pop-Location }
+    try {
+        & npm.cmd exec -- playwright test
+        Assert-LastCommandSucceeded 'Playwright E2E scenarios'
+    }
+    finally {
+        Pop-Location
+        foreach ($name in @(
+            'E2E_RUN_MANIFEST', 'E2E_RUN_TOKEN', 'E2E_AUTH_EMAIL',
+            'E2E_AUTH_INITIAL_PASSWORD', 'E2E_AUTH_PASSWORD'
+        )) {
+            [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], 'Process')
+        }
+    }
+    Assert-E2eRuntimeLogsSafe -Secrets @(
+        $postgresPassword, $authInitialPassword, $authPassword, $runToken
+    )
     $testPassed = $true
 }
 catch { $runFailure = $_ }
 finally {
     if ($null -ne $runFailure -and $null -ne $artifactRoot) {
-        try { Save-E2eFailureDiagnostics $repositoryRoot $artifactRoot $runRoot $postgresPassword $runFailure.Exception.Message }
+        try {
+            Save-E2eFailureDiagnostics `
+                -RepositoryRoot $repositoryRoot `
+                -ArtifactRoot $artifactRoot `
+                -RunRoot $runRoot `
+                -Secrets @($postgresPassword, $authInitialPassword, $authPassword, $runToken) `
+                -FailureMessage $runFailure.Exception.Message
+        }
         catch { $cleanupErrors.Add("Diagnostics: $($_.Exception.Message)") }
     }
     if ($script:DockerContextVerified) {
@@ -396,7 +477,12 @@ finally {
     }
     if ($null -eq $runFailure -and $cleanupErrors.Count -gt 0 -and $null -ne $artifactRoot) {
         try {
-            Save-E2eFailureDiagnostics $repositoryRoot $artifactRoot $runRoot $postgresPassword ($cleanupErrors -join ' | ')
+            Save-E2eFailureDiagnostics `
+                -RepositoryRoot $repositoryRoot `
+                -ArtifactRoot $artifactRoot `
+                -RunRoot $runRoot `
+                -Secrets @($postgresPassword, $authInitialPassword, $authPassword, $runToken) `
+                -FailureMessage ($cleanupErrors -join ' | ')
         }
         catch { $cleanupErrors.Add("Post-cleanup diagnostics: $($_.Exception.Message)") }
     }
@@ -409,6 +495,7 @@ finally {
         try { Exit-E2eRunMutex $mutex }
         catch { $cleanupErrors.Add("Mutex release: $($_.Exception.Message)") }
     }
+    $postgresPassword = $authEmail = $authInitialPassword = $authPassword = $runToken = $null
 }
 
 if ($null -ne $runFailure -or $cleanupErrors.Count -gt 0) {

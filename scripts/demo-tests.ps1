@@ -165,11 +165,52 @@ try {
     }
 
     $ports = [pscustomobject]@{ Backend = 18000; Frontend = 15173; Worker = 18080 }
+    $composeEnvironmentNames = @(
+        "BACKEND_PORT",
+        "FRONTEND_PORT",
+        "WORKER_PORT",
+        "CORS_ORIGINS",
+        "AUTH_COOKIE_SECURE",
+        "AUTH_ALLOW_INSECURE_COOKIE"
+    )
+    $outerComposeEnvironment = @{}
+    foreach ($name in $composeEnvironmentNames) {
+        $outerComposeEnvironment[$name] = [System.Environment]::GetEnvironmentVariable($name, "Process")
+        [System.Environment]::SetEnvironmentVariable($name, "pre-demo-$name", "Process")
+    }
+    try {
+        $previousComposeEnvironment = Set-DemoComposePortEnvironment -Ports $ports
+        Assert-Condition `
+            -Condition ($env:AUTH_COOKIE_SECURE -eq "false" -and $env:AUTH_ALLOW_INSECURE_COOKIE -eq "true") `
+            -Label "demo Compose calls opt in to insecure cookies only for local HTTP"
+        Assert-Condition `
+            -Condition ($env:CORS_ORIGINS -eq "http://localhost:15173,http://127.0.0.1:15173") `
+            -Label "demo Compose calls constrain CORS origins to the selected loopback frontend port"
+        Restore-DemoComposePortEnvironment -Previous $previousComposeEnvironment
+        Assert-Condition `
+            -Condition ($env:AUTH_COOKIE_SECURE -eq "pre-demo-AUTH_COOKIE_SECURE" -and
+                $env:AUTH_ALLOW_INSECURE_COOKIE -eq "pre-demo-AUTH_ALLOW_INSECURE_COOKIE" -and
+                $env:CORS_ORIGINS -eq "pre-demo-CORS_ORIGINS") `
+            -Label "demo Compose authentication environment is restored after each call"
+    }
+    finally {
+        foreach ($name in $composeEnvironmentNames) {
+            [System.Environment]::SetEnvironmentVariable($name, $outerComposeEnvironment[$name], "Process")
+        }
+    }
     $validRendered = @{
         name = $context.ProjectName
         services = @{
             database = @{}
-            backend = @{ ports = @(@{ host_ip = "127.0.0.1"; published = "18000"; target = 8000 }) }
+            backend = @{
+                environment = @{
+                    APP_ENV = "demo"
+                    CORS_ORIGINS = "http://localhost:15173,http://127.0.0.1:15173"
+                    AUTH_COOKIE_SECURE = "false"
+                    AUTH_ALLOW_INSECURE_COOKIE = "true"
+                }
+                ports = @(@{ host_ip = "127.0.0.1"; published = "18000"; target = 8000 })
+            }
             frontend = @{ ports = @(@{ host_ip = "127.0.0.1"; published = "15173"; target = 5173 }) }
             worker = @{
                 ports = @(@{ host_ip = "127.0.0.1"; published = "18080"; target = 8080 })
@@ -198,6 +239,25 @@ try {
                 -Ports $ports
         } `
         -Label "rendered Compose port on 0.0.0.0 is rejected before startup"
+
+    $invalidAuthRendered = $validRendered | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+    $invalidAuthRendered.services.backend.environment.AUTH_ALLOW_INSECURE_COOKIE = "false"
+    Assert-Throws `
+        -Action {
+            Assert-DemoRenderedCompose `
+                -Json ($invalidAuthRendered | ConvertTo-Json -Depth 10) `
+                -Context $context `
+                -Ports $ports
+        } `
+        -Label "rendered demo without the explicit loopback HTTP authentication exception is rejected"
+
+    $authHelperText = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot "demo-auth.ps1"))
+    Assert-Condition `
+        -Condition ($authHelperText -match '["'']exec["''],\s*["'']backend["''],\s*["'']python["''],\s*["'']-m["''],\s*["'']app\.auth\.cli["'']') `
+        -Label "demo auth helper invokes the official backend CLI in the exact demo project"
+    Assert-Condition `
+        -Condition ($authHelperText -notmatch "(?i)--password|-T|--no-TTY") `
+        -Label "demo auth helper keeps password entry interactive and out of arguments"
 
     Write-Host "All demo script security tests passed."
 }

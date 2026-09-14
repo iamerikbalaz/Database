@@ -10,6 +10,9 @@ $artifactsRoot = Join-Path $repositoryRoot '.e2e-artifacts'
 $runRoot = $artifactRoot = $null
 $previousManifest = [Environment]::GetEnvironmentVariable('E2E_RUN_MANIFEST', 'Process')
 $previousToken = [Environment]::GetEnvironmentVariable('E2E_RUN_TOKEN', 'Process')
+$previousAuthEmail = [Environment]::GetEnvironmentVariable('E2E_AUTH_EMAIL', 'Process')
+$previousAuthInitialPassword = [Environment]::GetEnvironmentVariable('E2E_AUTH_INITIAL_PASSWORD', 'Process')
+$previousAuthPassword = [Environment]::GetEnvironmentVariable('E2E_AUTH_PASSWORD', 'Process')
 try {
     $runRoot = New-E2eManagedRunDirectory $repositoryRoot $runsRoot $runGuid
     $artifactRoot = New-E2eManagedRunDirectory $repositoryRoot $artifactsRoot $runGuid
@@ -38,6 +41,11 @@ try {
     Write-E2eSafeTextFile $repositoryRoot $runRoot $manifestPath $manifest
     $env:E2E_RUN_MANIFEST = $manifestPath
     $env:E2E_RUN_TOKEN = $token
+    $env:E2E_AUTH_EMAIL = "e2e.admin.$($runGuid.ToString('N'))@example.invalid"
+    $env:E2E_AUTH_INITIAL_PASSWORD = New-E2eSyntheticPassword
+    do { $env:E2E_AUTH_PASSWORD = New-E2eSyntheticPassword } while (
+        $env:E2E_AUTH_PASSWORD -eq $env:E2E_AUTH_INITIAL_PASSWORD
+    )
     Push-Location (Join-Path $repositoryRoot 'frontend')
     try {
         & npm.cmd exec -- playwright test --list
@@ -48,6 +56,9 @@ try {
 finally {
     [Environment]::SetEnvironmentVariable('E2E_RUN_MANIFEST', $previousManifest, 'Process')
     [Environment]::SetEnvironmentVariable('E2E_RUN_TOKEN', $previousToken, 'Process')
+    [Environment]::SetEnvironmentVariable('E2E_AUTH_EMAIL', $previousAuthEmail, 'Process')
+    [Environment]::SetEnvironmentVariable('E2E_AUTH_INITIAL_PASSWORD', $previousAuthInitialPassword, 'Process')
+    [Environment]::SetEnvironmentVariable('E2E_AUTH_PASSWORD', $previousAuthPassword, 'Process')
     if ($null -ne $runRoot) { Remove-E2eManagedRunDirectory $repositoryRoot $runsRoot $runGuid $runRoot }
     if ($null -ne $artifactRoot) { Remove-E2eManagedRunDirectory $repositoryRoot $artifactsRoot $runGuid $artifactRoot }
 }

@@ -5,26 +5,67 @@ import {
   type Page,
   type Response,
 } from "@playwright/test";
+import { authCredentials } from "./auth-credentials";
 import { runManifest, type MaterialFixture } from "./run-manifest";
 
 type BrowserDiagnostics = {
+  authenticationSecretLeak: boolean;
   consoleErrors: string[];
+  expectedHttpErrors: Array<{ method: string; pathname: string; status: number }>;
+  expectedSessionUnauthorizedResponses: number;
+  nativeSessionUnauthorizedConsoleErrors: number;
   requestFailures: string[];
-  responseBodies: Promise<string>[];
+  responseInspections: Array<Promise<{
+    pathLeak: boolean;
+    authenticationSecretLeak: boolean;
+    inspectionFailed: boolean;
+  }>>;
   unexpectedHttpErrors: string[];
 };
 
 const materialsRoot = runManifest.materialsRoot;
 const state = runManifest.state;
 const diagnostics = new WeakMap<Page, BrowserDiagnostics>();
+const frontendOrigin = new URL(runManifest.frontendUrl).origin;
 
-const expectedHttpErrors: ReadonlyArray<{ method: string; pathname: string; status: number }> = [];
+function containsAuthenticationSecret(value: string): boolean {
+  return value.includes(authCredentials.initialPassword) || value.includes(authCredentials.password);
+}
 
-function isUnexpectedHttpError(method: string, pathname: string, status: number): boolean {
+function isNativeSessionUnauthorizedConsoleError(message: {
+  text(): string;
+  location(): { url: string };
+}): boolean {
+  if (!/^Failed to load resource: the server responded with a status of 401(?: \([^\r\n]*\))?$/.test(message.text())) {
+    return false;
+  }
+  try {
+    const location = new URL(message.location().url);
+    return location.origin === frontendOrigin && location.pathname === "/api/auth/session" &&
+      location.search === "" && location.hash === "";
+  } catch {
+    return false;
+  }
+}
+
+function isUnexpectedHttpError(
+  observed: BrowserDiagnostics,
+  method: string,
+  pathname: string,
+  status: number,
+): boolean {
   if (status < 400) return false;
-  return !expectedHttpErrors.some((expected) =>
+  const expectedIndex = observed.expectedHttpErrors.findIndex((expected) =>
     expected.method === method && expected.pathname === pathname && expected.status === status,
   );
+  if (expectedIndex >= 0) {
+    observed.expectedHttpErrors.splice(expectedIndex, 1);
+    if (method === "GET" && pathname === "/api/auth/session" && status === 401) {
+      observed.expectedSessionUnauthorizedResponses += 1;
+    }
+    return false;
+  }
+  return true;
 }
 
 function containsPathLeak(value: string): boolean {
@@ -48,6 +89,64 @@ function panel(page: Page, heading: string): Locator {
   return page.locator("article").filter({
     has: page.getByRole("heading", { name: heading, exact: true }),
   });
+}
+
+async function fillSecret(input: Locator, secret: string): Promise<void> {
+  try {
+    await input.fill(secret);
+  } catch {
+    throw new Error("A protected password field could not be filled.");
+  }
+}
+
+function requestHasNonEmptyHeader(response: Response, name: string): boolean {
+  const value = response.request().headers()[name.toLowerCase()];
+  return typeof value === "string" && value.length > 0;
+}
+
+async function signIn(page: Page, password: string): Promise<void> {
+  const observed = diagnostics.get(page);
+  if (!observed) throw new Error("Browser diagnostics were not initialized.");
+  observed.expectedHttpErrors.push({
+    method: "GET",
+    pathname: "/api/auth/session",
+    status: 401,
+  });
+  await page.goto("/login");
+  await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
+  await page.getByLabel("Email", { exact: true }).fill(authCredentials.email);
+  await fillSecret(page.getByLabel("Password", { exact: true }), password);
+
+  const loginResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === "POST" &&
+    new URL(response.url()).pathname === "/api/auth/login",
+  );
+  const sessionResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === "GET" &&
+    new URL(response.url()).pathname === "/api/auth/session" &&
+    response.status() === 200,
+  );
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  const loginResponse = await loginResponsePromise;
+  const sessionResponse = await sessionResponsePromise;
+  expect(loginResponse.status()).toBe(200);
+  expect(requestHasNonEmptyHeader(loginResponse, "x-csrf-token")).toBe(false);
+  expect(sessionResponse.status()).toBe(200);
+}
+
+async function expectAnonymousServerSession(page: Page): Promise<void> {
+  const observed = diagnostics.get(page);
+  if (!observed) throw new Error("Browser diagnostics were not initialized.");
+  observed.expectedHttpErrors.push({
+    method: "GET",
+    pathname: "/api/auth/session",
+    status: 401,
+  });
+  const status = await page.evaluate(async () => {
+    const response = await fetch("/api/auth/session", { credentials: "include" });
+    return response.status;
+  });
+  expect(status).toBe(401);
 }
 
 async function openPreparedMaterial(page: Page, material: MaterialFixture): Promise<void> {
@@ -85,40 +184,84 @@ async function confirmOperation(
 
 test.beforeEach(async ({ page }) => {
   const observed: BrowserDiagnostics = {
+    authenticationSecretLeak: false,
     consoleErrors: [],
+    expectedHttpErrors: [],
+    expectedSessionUnauthorizedResponses: 0,
+    nativeSessionUnauthorizedConsoleErrors: 0,
     requestFailures: [],
-    responseBodies: [],
+    responseInspections: [],
     unexpectedHttpErrors: [],
   };
   diagnostics.set(page, observed);
   page.on("console", (message) => {
+    if (containsAuthenticationSecret(message.text())) observed.authenticationSecretLeak = true;
     if (message.type() === "error" || message.type() === "warning") {
-      observed.consoleErrors.push(`${message.type()}: ${message.text()}`);
+      if (message.type() === "error" && isNativeSessionUnauthorizedConsoleError(message)) {
+        observed.nativeSessionUnauthorizedConsoleErrors += 1;
+        return;
+      }
+      observed.consoleErrors.push(`${message.type()} output was observed`);
     }
   });
-  page.on("pageerror", (error) => observed.consoleErrors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => {
+    if (containsAuthenticationSecret(error.message)) observed.authenticationSecretLeak = true;
+    observed.consoleErrors.push("an uncaught page error was observed");
+  });
+  page.on("request", (request) => {
+    if (containsAuthenticationSecret(request.url())) observed.authenticationSecretLeak = true;
+  });
   page.on("requestfailed", (request) => {
-    observed.requestFailures.push(`${request.method()} ${request.url()}: ${request.failure()?.errorText}`);
+    if (containsAuthenticationSecret(request.url()) ||
+        containsAuthenticationSecret(request.failure()?.errorText ?? "")) {
+      observed.authenticationSecretLeak = true;
+    }
+    observed.requestFailures.push(`${request.method()} ${new URL(request.url()).pathname} failed`);
   });
   page.on("response", (response) => {
     const url = new URL(response.url());
     if (url.pathname.startsWith("/api/")) {
-      observed.responseBodies.push(response.text().catch(() => ""));
+      observed.responseInspections.push(response.text().then((body) => ({
+        pathLeak: containsPathLeak(body),
+        authenticationSecretLeak: containsAuthenticationSecret(body),
+        inspectionFailed: false,
+      })).catch(() => ({
+        pathLeak: false,
+        authenticationSecretLeak: false,
+        inspectionFailed: true,
+      })));
     }
-    if (isUnexpectedHttpError(response.request().method(), url.pathname, response.status())) {
+    if (isUnexpectedHttpError(
+      observed,
+      response.request().method(),
+      url.pathname,
+      response.status(),
+    )) {
       observed.unexpectedHttpErrors.push(`${response.request().method()} ${url.pathname} -> ${response.status()}`);
     }
   });
 });
 
 test.afterEach(async ({ page }) => {
+  await page.locator('input[type="password"]').evaluateAll((elements) => {
+    for (const element of elements) {
+      (element as HTMLInputElement).value = "";
+    }
+  });
   const observed = diagnostics.get(page);
   expect(observed).toBeDefined();
-  const responseBodies = await Promise.all(observed?.responseBodies ?? []);
-  const exposedSensitiveValue = responseBodies.some(containsPathLeak);
+  const responseInspections = await Promise.all(observed?.responseInspections ?? []);
+  const exposedSensitiveValue = responseInspections.some((inspection) => inspection.pathLeak);
+  const exposedAuthenticationSecret = responseInspections.some(
+    (inspection) => inspection.authenticationSecretLeak,
+  );
   expect(exposedSensitiveValue).toBe(false);
+  expect(exposedAuthenticationSecret).toBe(false);
+  expect(responseInspections.some((inspection) => inspection.inspectionFailed)).toBe(false);
+  expect(observed?.authenticationSecretLeak).toBe(false);
   const visibleText = await page.locator("body").innerText();
   expect(containsPathLeak(visibleText)).toBe(false);
+  expect(containsAuthenticationSecret(visibleText)).toBe(false);
   const folderInputs = await page.getByLabel("Relative folder path").evaluateAll((elements) =>
     elements.map((element) => (element as HTMLInputElement).value),
   );
@@ -126,12 +269,74 @@ test.afterEach(async ({ page }) => {
     value.includes(materialsRoot) || value.includes("/e2e-materials"),
   )).toBe(false);
   expect(observed?.consoleErrors).toEqual([]);
+  expect(observed?.expectedHttpErrors).toEqual([]);
+  expect(
+    (observed?.nativeSessionUnauthorizedConsoleErrors ?? 0) <=
+      (observed?.expectedSessionUnauthorizedResponses ?? 0),
+  ).toBe(true);
   expect(observed?.requestFailures).toEqual([]);
   expect(observed?.unexpectedHttpErrors).toEqual([]);
 });
 
+test.describe.configure({ mode: "serial" });
+
+test("required password change revokes the initial session and requires a new login", async ({ page }) => {
+  await signIn(page, authCredentials.initialPassword);
+  await expect(page.getByRole("heading", { name: "Change password", exact: true })).toBeVisible();
+
+  await fillSecret(
+    page.getByLabel("Current password", { exact: true }),
+    authCredentials.initialPassword,
+  );
+  await fillSecret(page.getByLabel("New password", { exact: true }), authCredentials.password);
+  await fillSecret(
+    page.getByLabel("Confirm new password", { exact: true }),
+    authCredentials.password,
+  );
+  const changeResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === "POST" &&
+    new URL(response.url()).pathname === "/api/auth/change-password",
+  );
+  await page.getByRole("button", { name: "Change password", exact: true }).click();
+  const changeResponse = await changeResponsePromise;
+  expect(changeResponse.status()).toBe(200);
+  expect(requestHasNonEmptyHeader(changeResponse, "x-csrf-token")).toBe(true);
+
+  await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
+  await expect(page.getByText(
+    "Your password was changed. Please sign in again with your new password.",
+    { exact: true },
+  )).toBeVisible();
+  await expectAnonymousServerSession(page);
+  await signIn(page, authCredentials.password);
+  await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+});
+
+test("login loads the server session and logout revokes it", async ({ page }) => {
+  await signIn(page, authCredentials.password);
+  await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "User menu", exact: true }).click();
+  const accountDialog = page.getByRole("dialog", { name: "Your account", exact: true });
+  await expect(accountDialog).toBeVisible();
+  await expect(accountDialog.getByText("E2E QA", { exact: true })).toBeVisible();
+  await expect(accountDialog.getByText(authCredentials.email, { exact: true })).toBeVisible();
+  await expect(accountDialog.getByText("ADMIN", { exact: true })).toBeVisible();
+
+  const logoutResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === "POST" &&
+    new URL(response.url()).pathname === "/api/auth/logout",
+  );
+  await accountDialog.getByRole("button", { name: "Sign out", exact: true }).click();
+  const logoutResponse = await logoutResponsePromise;
+  expect(logoutResponse.status()).toBe(200);
+  expect(requestHasNonEmptyHeader(logoutResponse, "x-csrf-token")).toBe(true);
+  await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
+  await expectAnonymousServerSession(page);
+});
+
 test("happy path persists Done metadata and snapshot after reload", async ({ page }) => {
-  await page.goto("/");
+  await signIn(page, authCredentials.password);
   await page.getByRole("link", { name: "Companies", exact: true }).click();
   await page.getByRole("link", { name: "E2E Company", exact: true }).click();
   await expect(page.getByRole("heading", { name: "E2E Company", exact: true })).toBeVisible();
@@ -192,6 +397,7 @@ test("happy path persists Done metadata and snapshot after reload", async ({ pag
 });
 
 test("missing metadata remains non-blocking and its warning stays visible", async ({ page }) => {
+  await signIn(page, authCredentials.password);
   await openPreparedMaterial(page, state.missing);
   const preflightResponse = await checkFolder(page, state.missing.relativePath);
   expect(preflightResponse.status()).toBe(200);
@@ -215,6 +421,7 @@ test("missing metadata remains non-blocking and its warning stays visible", asyn
 });
 
 test("identity mismatch cannot be linked or marked Done", async ({ page }) => {
+  await signIn(page, authCredentials.password);
   await openPreparedMaterial(page, state.mismatch);
   const preflightResponse = await checkFolder(page, state.mismatch.relativePath);
   expect(preflightResponse.status()).toBe(200);
@@ -237,6 +444,7 @@ test("identity mismatch cannot be linked or marked Done", async ({ page }) => {
 });
 
 test("client validation rejects absolute and traversal paths without HTTP", async ({ page }) => {
+  await signIn(page, authCredentials.password);
   await openPreparedMaterial(page, state.mismatch);
   let preflightRequests = 0;
   page.on("request", (request) => {

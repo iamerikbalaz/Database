@@ -9,6 +9,19 @@
   --border: #dfe3dc;
   --muted: #6d776f;
 }
+.auth-layout { min-height: 100dvh; display: grid; place-items: center; padding: 32px 20px; }
+.auth-card.panel { width: min(100%, 520px); padding: clamp(24px, 5vw, 42px); }
+.auth-card .auth-brand { margin: 0 0 36px; color: var(--green); }
+.auth-card .page-heading h1 { font-size: clamp(34px, 7vw, 46px); }
+.auth-form .form-actions .button { width: 100%; }
+.auth-hint { margin: 0; color: #54645a; font-size: 13px; line-height: 1.6; }
+.auth-progress { min-height: 20px; font-size: 13px; color: #54645a; }
+.auth-notice:empty { display: none; }
+.auth-notice { padding: 14px; background: #edf5e5; color: #294d34; line-height: 1.5; }
+.account-trigger { max-width: min(280px, 65vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-dialog dd { overflow-wrap: anywhere; }
+.auth-card .account-trigger { margin-top: 12px; }
+[role="alert"]:focus { outline: 3px solid #a52e20; outline-offset: 3px; }
 * {
   box-sizing: border-box;
 }

@@ -52,8 +52,11 @@ $env:DEMO_WORKER_PORT = "18080"
 Hodnoty musí být bez whitespace v rozsahu `1`–`65535`. Host, dvojtečka, URL,
 `*` ani další text nejsou povoleny. `BACKEND_PORT`, `FRONTEND_PORT` a
 `WORKER_PORT` v Compose env nejsou uživatelské vstupy; demo skripty je pro
-každé volání Compose dočasně přepíší bezpečným bindem na `127.0.0.1` a původní
-procesní hodnoty následně obnoví.
+každé volání Compose dočasně přepíší bezpečným bindem na `127.0.0.1`. Stejně
+dočasně nastaví přesné loopback CORS origins a dvojici explicitních auth voleb
+pro lokální HTTP (`AUTH_COOKIE_SECURE=false` a
+`AUTH_ALLOW_INSECURE_COOKIE=true`). Všechny původní procesní hodnoty následně
+obnoví.
 
 ## Spuštění a seed
 
@@ -61,9 +64,18 @@ Z kořene repozitáře spusťte přesně:
 
 ```powershell
 .\scripts\demo-up.ps1
+.\scripts\demo-auth.ps1
 .\scripts\demo-seed.ps1
 .\scripts\demo-status.ps1
 ```
+
+`demo-auth.ps1` spusťte jen jednou pro nový prázdný demo volume. Používá výhradně
+oficiální backend CLI v projektu `reawote-demo`; heslo zadáte dvakrát interaktivně
+a terminál je nezobrazuje. Skript heslo nepřijímá jako argument, neukládá je do
+souboru ani prostředí a odmítne přesměrovaný standardní vstup. Výchozí syntetický
+účet je `demo.admin@example.invalid`; jiné demo jméno a e-mail lze zadat pomocí
+parametrů `-DisplayName` a `-Email`. CLI záměrně odmítne založit dalšího prvního
+administrátora, pokud už v zachovaném volume přihlašovací údaj existuje.
 
 `demo-up.ps1` ještě před prvním Docker příkazem validuje všechny tři číselné
 porty a výsledné URL. Následně ověří základní konfiguraci a načte sloučenou
@@ -114,7 +126,9 @@ Pokud jste změnili porty v `.env.demo`, skripty vypíší odpovídající URL.
 
 ## Prezentační scénář v prohlížeči
 
-Současný frontend zobrazuje entity, materiály, bezpečný folder preflight,
+Současný frontend nejprve vyžaduje přihlášení. Při prvním přihlášení účtem
+vytvořeným přes `demo-auth.ps1` je povinná změna hesla; po ní se přihlaste novým
+heslem. Frontend dále zobrazuje entity, materiály, bezpečný folder preflight,
 propojení složky, Done i metadata historii. Swagger UI lze ponechat otevřené
 jen jako volitelný pohled na kontrakt; prezentační tok se provádí v aplikaci.
 
@@ -176,6 +190,7 @@ file a pevný název projektu `reawote-demo`:
 ```powershell
 .\scripts\demo-tests.ps1
 .\scripts\demo-up.ps1
+# Pouze u nového prázdného volume: .\scripts\demo-auth.ps1
 .\scripts\demo-seed.ps1
 .\scripts\demo-seed.ps1
 .\scripts\demo-status.ps1

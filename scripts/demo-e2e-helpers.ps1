@@ -259,6 +259,57 @@ function Get-E2eSha256Hex {
     }
 }
 
+function New-E2eSyntheticPassword {
+    $bytes = [byte[]]::new(32)
+    $generator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $generator.GetBytes($bytes)
+    }
+    finally {
+        $generator.Dispose()
+    }
+    # The prefix keeps the value clear of the offline common-password list. The
+    # random hexadecimal suffix is shell-safe and contains no line separators.
+    return "E2E!$(([System.BitConverter]::ToString($bytes)).Replace('-', '').ToLowerInvariant())"
+}
+
+function Protect-E2eDiagnosticText {
+    param(
+        [AllowEmptyString()] [string] $Text,
+        [AllowEmptyCollection()] [string[]] $Secrets = @()
+    )
+
+    $protected = $Text
+    foreach ($secret in $Secrets) {
+        if (-not [string]::IsNullOrEmpty($secret)) {
+            $protected = $protected.Replace($secret, '[REDACTED]')
+        }
+    }
+    $sensitivePattern = '(?i)(csrf[_-]?token|session[_-]?token|set-cookie|authorization|__Host-reawote_session|reawote_dev_session|\$argon2(?:id)?\$)'
+    return (([regex]::Split($protected, '\r?\n') | ForEach-Object {
+        if ($_ -match $sensitivePattern) {
+            '[redacted potentially sensitive log line]'
+        }
+        else {
+            $_
+        }
+    }) -join [Environment]::NewLine)
+}
+
+function Test-E2eTextContainsSecret {
+    param(
+        [AllowEmptyString()] [string] $Text,
+        [AllowEmptyCollection()] [string[]] $Secrets = @()
+    )
+
+    foreach ($secret in $Secrets) {
+        if (-not [string]::IsNullOrEmpty($secret) -and $Text.Contains($secret)) {
+            return $true
+        }
+    }
+    return $Text -match '(?i)(csrf[_-]?token|session[_-]?token|set-cookie|authorization|__Host-reawote_session|reawote_dev_session|\$argon2(?:id)?\$)'
+}
+
 function Assert-E2eTreeNoReparse {
     param([Parameter(Mandatory)] [string] $RunRoot)
 

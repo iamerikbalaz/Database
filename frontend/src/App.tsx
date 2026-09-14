@@ -4,7 +4,7 @@ import { MaterialDetailPage } from "./pages/MaterialDetailPage";
 import { MaterialEditorPage } from "./pages/MaterialEditorPage";
 import { isMaterialId } from "./api/materialDto";
 import { BrandDetailPage } from "./pages/BrandDetailPage";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, type ReactNode } from "react";
 import { apiClient, type ApiClient } from "./api/client";
 import { AppShell } from "./components/AppShell";
 import { CompanyDetailPage } from "./pages/CompanyDetailPage";
@@ -16,11 +16,12 @@ import { ProjectsPage } from "./pages/ProjectsPage";
 interface AppProps {
   client?: ApiClient;
   initialPath?: string;
+  userMenu?: ReactNode;
 }
 const normalizePath = (path: string) =>
   path.split(/[?#]/)[0].replace(/\/+$/, "") || "/";
 
-function App({ client = apiClient, initialPath }: AppProps) {
+function App({ client = apiClient, initialPath, userMenu }: AppProps) {
   const [notice, setNotice] = useState("");
   const [path, setPath] = useState(() =>
     normalizePath(initialPath ?? window.location.pathname),
@@ -196,7 +197,7 @@ function App({ client = apiClient, initialPath }: AppProps) {
     );
   }
   return (
-    <AppShell currentPath={path} navigate={navigate}>
+    <AppShell currentPath={path} navigate={navigate} userMenu={userMenu}>
       {notice && (
         <p
           ref={noticeRef}

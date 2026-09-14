@@ -151,4 +151,8 @@ assertNoSymlinkComponents(repositoryRoot, artifactRunRoot);
 if (readFileSync(path.join(artifactRunRoot, ".reawote-e2e-run"), "utf8") !== `reawote-e2e-owned-v2:${runManifest.runGuid}`) {
   fail("artifact ownership marker is invalid");
 }
-export const e2eOutputDirectory = path.join(artifactRunRoot, "playwright-results");
+// Playwright can create framework-owned error context files even when screenshots,
+// video and traces are disabled. Keep all such transient files in the run-data
+// directory, which the guarded runner removes on both success and failure. The
+// separately guarded artifact directory is reserved for sanitized text diagnostics.
+export const e2eOutputDirectory = path.join(path.dirname(runManifest.materialsRoot), "playwright-results");

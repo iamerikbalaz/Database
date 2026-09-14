@@ -49,6 +49,28 @@ $junctions = [Collections.Generic.List[string]]::new()
 $sentinels = [Collections.Generic.List[string]]::new()
 
 try {
+    $firstSyntheticPassword = New-E2eSyntheticPassword
+    $secondSyntheticPassword = New-E2eSyntheticPassword
+    Assert-Equal ($firstSyntheticPassword -match '^E2E![0-9a-f]{64}$') $true 'synthetic password uses the constrained ASCII format'
+    Assert-Equal ($secondSyntheticPassword -match '^E2E![0-9a-f]{64}$') $true 'second synthetic password uses the constrained ASCII format'
+    Assert-Equal ($firstSyntheticPassword -ne $secondSyntheticPassword) $true 'synthetic passwords are unique per generation'
+
+    $diagnosticSecret = New-E2eSyntheticPassword
+    $safeDiagnostic = @(
+        "safe service status",
+        "password=$diagnosticSecret",
+        'response header set-cookie: must-not-survive',
+        'safe cleanup status'
+    ) -join [Environment]::NewLine
+    $protectedDiagnostic = Protect-E2eDiagnosticText -Text $safeDiagnostic -Secrets @($diagnosticSecret)
+    Assert-Equal ($protectedDiagnostic.Contains($diagnosticSecret)) $false 'diagnostic protection removes exact generated secrets'
+    Assert-Equal ($protectedDiagnostic.Contains('set-cookie: must-not-survive')) $false 'diagnostic protection removes sensitive authentication lines'
+    Assert-Equal ($protectedDiagnostic.Contains('safe service status')) $true 'diagnostic protection preserves safe lines before a redaction'
+    Assert-Equal ($protectedDiagnostic.Contains('safe cleanup status')) $true 'diagnostic protection preserves safe lines after a redaction'
+    Assert-Equal (Test-E2eTextContainsSecret -Text "log $diagnosticSecret" -Secrets @($diagnosticSecret)) $true 'secret scan finds an exact generated secret'
+    Assert-Equal (Test-E2eTextContainsSecret -Text 'csrf_token=must-not-survive') $true 'secret scan finds a sensitive authentication field'
+    Assert-Equal (Test-E2eTextContainsSecret -Text 'ordinary synthetic service log') $false 'secret scan accepts ordinary service logs'
+
     $safeGuid = [guid]::NewGuid()
     $safeRun = New-E2eManagedRunDirectory $repositoryRoot $runsRoot $safeGuid
     $createdRuns.Add([pscustomobject]@{ Guid = $safeGuid; Path = $safeRun })
@@ -218,6 +240,25 @@ try {
     Assert-Equal $guardedComposeUpCalls.Count $allComposeUpCalls.Count 'every Compose up is protected by engine volume validation'
     $guardedDropPattern = "(?s)function\s+Reset-E2eDatabaseSchema\s*\{.*?Invoke-E2eGuardedAction\s+-Validation\s+\{\s*\[void\]\(Assert-E2eDatabaseEngineVolume\s+-RequirePresent\)\s*\}\s+-Action\s+\{.*?DROP SCHEMA public CASCADE"
     Assert-Equal ([regex]::IsMatch($runnerText, $guardedDropPattern)) $true 'DROP SCHEMA is inside a require-present engine volume guard'
+    $guardedProvisionPattern = "(?s)Invoke-E2eGuardedAction\s+-Validation\s+\{\s*\[void\]\(Assert-E2eDatabaseEngineVolume\s+-RequirePresent\)\s*Assert-RuntimeDatabaseMount\s*\}\s+-Action\s+\{\s*Invoke-E2eComposeWithStandardInput.*?'exec',\s*'--no-TTY',\s*'backend',\s*'python',\s*'-m',\s*'app\.auth\.cli'"
+    Assert-Equal ([regex]::IsMatch($runnerText, $guardedProvisionPattern)) $true 'administrator provisioning is stdin-only and immediately volume guarded'
+    Assert-Equal ($runnerText -notmatch "(?i)'--password'") $true 'runner never places an authentication password in CLI arguments'
+    $manifestDefinition = [regex]::Match(
+        $runnerText,
+        '(?s)\$manifest\s*=\s*\[ordered\]@\{(?<body>.*?)\}\s*\|\s*ConvertTo-Json'
+    )
+    Assert-Equal $manifestDefinition.Success $true 'runner manifest definition is structurally recognizable'
+    Assert-Equal ($manifestDefinition.Groups['body'].Value -notmatch '(?i)auth|password|cookie|csrf') $true 'runner manifest contains no authentication credentials'
+
+    $playwrightConfigText = [IO.File]::ReadAllText((Join-Path $repositoryRoot 'frontend\playwright.config.ts'))
+    Assert-Equal ($playwrightConfigText -match 'reporter:\s*"\.\/e2e\/safe-reporter\.ts"') $true 'Playwright uses the sanitized reporter'
+    Assert-Equal ($playwrightConfigText -match 'PLAYWRIGHT_NO_COPY_PROMPT\s*=\s*"1"') $true 'Playwright automatic live-page failure context is disabled'
+    Assert-Equal ($playwrightConfigText -match 'screenshot:\s*"off"') $true 'Playwright screenshots are disabled for authenticated scenarios'
+    Assert-Equal ($playwrightConfigText -match 'trace:\s*"off"') $true 'Playwright traces are disabled for authenticated scenarios'
+    Assert-Equal ($playwrightConfigText -match 'video:\s*"off"') $true 'Playwright videos are disabled for authenticated scenarios'
+    $runManifestText = [IO.File]::ReadAllText((Join-Path $repositoryRoot 'frontend\e2e\run-manifest.ts'))
+    Assert-Equal ($runManifestText -match 'e2eOutputDirectory\s*=\s*path\.join\(path\.dirname\(runManifest\.materialsRoot\)') $true 'transient Playwright framework files stay in the always-cleaned run directory'
+    Assert-Equal ($runManifestText -notmatch 'e2eOutputDirectory\s*=\s*path\.join\(artifactRunRoot') $true 'unsanitized Playwright framework files are never retained as diagnostics'
 
     $mutexName = "Local\ReawoteDemoE2E-helper-$([guid]::NewGuid().ToString('N'))"
     $firstMutex = Enter-E2eRunMutex $mutexName

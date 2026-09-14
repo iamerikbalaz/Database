@@ -4,6 +4,8 @@ Playwright test ověřuje skutečný řetězec Vite frontend → FastAPI backend
 PostgreSQL → worker. Mock API se nepoužívá. Test přes skutečné API založí firmu,
 publikovanou značku, projekt, procesora a tři materiály a v Chromium provede:
 
+- povinnou změnu počátečního hesla a ověření revokace původní session;
+- nové přihlášení, načtení skutečné serverové session a serverový logout;
 - validní preflight, link, Done, current metadata, snapshot a reload;
 - chybějící `metadata.txt` jako neblokující warning;
 - blokovaný identity mismatch;
@@ -32,6 +34,12 @@ porty publikované výhradně na `127.0.0.1`. Skript `npm.cmd run test:e2e` pouz
 přesměruje na tentýž PowerShell runner. Přímé `npx playwright test` není
 podporované: bez krátkodobého manifestu a capability tokenu skončí konfigurace
 před jakýmkoli requestem nebo zápisem fixture.
+
+Každý běh vytvoří vlastního syntetického administrátora přes oficiální
+`python -m app.auth.cli`. Náhodné počáteční a nové heslo se předají pouze přes
+standardní vstup a krátkodobé procesní prostředí Playwrightu; nejsou v argumentech
+příkazu, manifestu ani souboru. Všechny scénáře používají skutečné auth endpointy
+a browser requesty se nemockují ani neinterceptují.
 
 ## Izolace a cleanup
 
@@ -63,8 +71,12 @@ konkrétní GUID run adresář a nikdy nadřazené `.e2e-data`. Stav projektů `
 `reawote-demo` a volumes `reawote_postgres_data`,
 `reawote-demo-postgres-data` se porovná před a po běhu.
 
-Při selhání zůstane Playwright trace, screenshot a sanitizované syntetické logy v
-`<repo>/.e2e-artifacts/<run-guid>`; credentials ani raw metadata se neukládají.
+Kvůli ochraně hesel, session cookie a CSRF tokenu jsou Playwright trace,
+screenshoty i video vypnuté. Při selhání může v
+`<repo>/.e2e-artifacts/<run-guid>` zůstat pouze textová diagnostika, která
+odstraňuje generovaná tajemství a celé řádky s citlivými auth poli; credentials
+ani raw metadata se neukládají. Dočasné interní soubory Playwrightu patří do
+vždy uklízeného run-data adresáře, nikoli mezi zachované diagnostické artefakty.
 Po úspěchu se tento konkrétní artifact adresář odstraní. Cleanup ověříte závěrem
 `Cleanup removed only project ...; volume ... was preserved.` a nulovým návratovým kódem; navíc lze spustit
 `npm.cmd run test:e2e:helpers`, který kontroluje path a cleanup invarianty bez

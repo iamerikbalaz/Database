@@ -177,10 +177,22 @@ backend 527, PostgreSQL 90 (auth gate 27/27), Linux worker 213, previous fronten
 concurrency with actual API edits/reopen/account disable during a delayed check.
 An earlier local unit/API run passed 526 before the final stable-recheck test.
 
+## Completed slice: technical review and approval UI
+
+Material detail displays verified maps, concrete errors/warnings, reviewer/time/
+note and separate technical/publication decisions. The UI requires explicit
+warning acknowledgment and a note, retains retry keys for unknown network
+outcomes and refreshes after rejection. Frontend 214 tests, lint/build passed.
+E2E safety helpers passed 49 checks including guarded binary fixture writes.
+All 10 actual E2E scenarios passed twice (run 6e80f4db), with the second pass
+using the same database, files and accounts after service restart. The new
+scenario uses generated 1K PNGs and verifies both approvals persist through
+restart and unchanged revalidation. Only owned resources were cleaned up;
+the exact own volume was retained and protected projects remained unchanged.
+
 ## In progress
 
-Technical review UI and real image/approval E2E are being verified, including
-the retained-data restart. Next are controlled identity/filesystem operations
+Next are controlled identity/filesystem operations
 and the remaining PBR catalog/publication backlog below.
 This intermediate version is not the complete PBR product.
 

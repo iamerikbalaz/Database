@@ -53,6 +53,10 @@ try {
     $safeRun = New-E2eManagedRunDirectory $repositoryRoot $runsRoot $safeGuid
     $createdRuns.Add([pscustomobject]@{ Guid = $safeGuid; Path = $safeRun })
     Assert-Equal (Test-E2ePathWithinRoot $runsRoot $safeRun) $true 'safe local run root'
+    $binaryFixture = Join-Path $safeRun 'fixture.bin'
+    Write-E2eSafeBytes $repositoryRoot $safeRun $binaryFixture ([byte[]]@(0, 1, 2, 255))
+    Assert-Equal ([Convert]::ToBase64String([IO.File]::ReadAllBytes($binaryFixture))) 'AAEC/w==' 'binary fixture remains byte-exact'
+    Assert-Throws { Write-E2eSafeBytes $repositoryRoot $safeRun (Join-Path $repositoryRoot 'outside.bin') ([byte[]]@(1)) } 'binary fixture escape rejection'
 
     Assert-Throws { Assert-LocalE2eRepositoryRoot '\\server\share\repo' } 'UNC repository root'
     Assert-Throws { Assert-LocalE2eRepositoryRoot $repositoryRoot ([IO.DriveType]::Network) } 'network drive repository root'
@@ -91,6 +95,7 @@ try {
         [void](New-Item -ItemType Junction -Path $nestedLink -Target $outsideSentinel)
         $junctions.Add($nestedLink)
         Assert-Throws { Assert-E2eNoReparsePath $repositoryRoot (Join-Path $nestedLink 'keep.txt') } 'nested junction rejection before write'
+        Assert-Throws { Write-E2eSafeBytes $repositoryRoot $nestedRun (Join-Path $nestedLink 'keep.txt') ([byte[]]@(1)) } 'binary fixture junction rejection'
         Assert-Throws { Remove-E2eManagedRunDirectory $repositoryRoot $runsRoot $nestedGuid $nestedRun } 'cleanup refusal on nested reparse point'
         Assert-Equal ([IO.File]::ReadAllText((Join-Path $outsideSentinel 'keep.txt'))) 'must survive' 'outside-run data remains untouched'
         [IO.Directory]::Delete($nestedLink)

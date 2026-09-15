@@ -65,6 +65,23 @@ contents; packaging must independently create and verify immutable staged inputs
 before consuming them. Catalog fields introduced later must join revision context
 and invalidation rules before they may influence approved publication output.
 
+## Detail UI
+
+The material detail shows actual map dimensions/depth/format, blocking errors,
+nonblocking warnings, and the two separate decisions. Role-aware buttons call the
+authenticated API; the warning checkbox and note refer to the displayed report.
+The UI retains the same operation key after an unknown network result and reloads
+the current report after a server rejection. Approval history shows reviewer,
+time and note. Controls require production Done before either decision.
+
+Frontend validation: 214 tests, lint and build passed. Eight new panel tests
+cover warning acknowledgment, roles/prerequisites, errors, request keys and safe
+failures. Real E2E passed all 10 scenarios twice, before and after restarting
+services against the same database, files and accounts (run 6e80f4db). The new
+scenario generates real 1K PNGs, decodes them in Linux, accepts metadata warnings,
+grants both decisions in the UI, then proves identical hashes and preserved
+approvals after restart/revalidation. E2E safety helpers passed 49 checks.
+
 ## Verification and rollback
 
 The isolated Docker run for the server slice passed 527 backend unit/API tests,

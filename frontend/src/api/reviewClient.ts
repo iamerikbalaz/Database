@@ -11,7 +11,7 @@ function hash(value: unknown) {
   if (!/^[0-9a-f]{64}$/.test(result)) throw new Error("Invalid revision hash");
   return result;
 }
-function review(value: unknown) {
+export function review(value: unknown) {
   const data = record(value);
   return { generation: nonnegative(data.generation), revisionHash: data.revision_hash === null ? null : hash(data.revision_hash),
     inventoryId: data.inventory_id === null ? null : uuid(data.inventory_id), checkedAt: nullable(data.checked_at), failureCode: nullable(data.failure_code) };

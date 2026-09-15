@@ -26,6 +26,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { NavigationLink } from "../components/NavigationLink";
 import { MaterialReviewPanel } from "../components/MaterialReviewPanel";
+import { MaterialTechnicalPanel } from "../components/MaterialTechnicalPanel";
 
 function Value({ children }: { children: ReactNode }) {
   return children === null || children === undefined || children === "" ? (
@@ -614,6 +615,7 @@ function MaterialDetailContent({
       <CurrentMetadataPanel result={data.metadata} retry={data.retry} focusError={!data.refreshFailure} />
       <SnapshotHistoryPanel result={data.snapshots} retry={data.retry} focusError={!data.refreshFailure} />
     </div>
+    {role && <MaterialTechnicalPanel key={`technical-${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material} onChanged={() => data.refreshAll(undefined, undefined)} />}
     {role && <MaterialReviewPanel key={`${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material}
       onScanned={() => data.refreshAll(undefined, undefined)}
       onReopened={() => data.refreshAll({ ...material, workflowStatus: "IN_PROGRESS", validationStatus: "NOT_CHECKED" }, "reopen")} />}

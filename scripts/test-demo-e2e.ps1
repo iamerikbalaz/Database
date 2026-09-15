@@ -277,14 +277,26 @@ function New-E2eSeedManifestData {
     $dimensions = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Unsupported Dimensions'
     $mismatch = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Identity Mismatch'
     $review = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Source Review'
+    $approval = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Technical Approval'
     $validPath = "e2e-library/$($valid.technical_identity)"
     $missingPath = "e2e-library/$($missing.technical_identity)"
     $dimensionsPath = "e2e-library/$($dimensions.technical_identity)"
     $mismatchPath = 'e2e-library/E2E_WRONG_FOLDER_G03'
     $reviewPath = "e2e-library/$($review.technical_identity)"
+    $approvalPath = "e2e-library/$($approval.technical_identity)"
     foreach ($relativePath in @($validPath, $missingPath, $mismatchPath, $dimensionsPath, $reviewPath)) {
         $directory = Join-Path $MaterialsRoot ($relativePath -replace '/', [IO.Path]::DirectorySeparatorChar)
         [void](New-E2eSafeDirectory -RepositoryRoot $RepositoryRoot -RunRoot $RunRoot -Path (Join-Path $directory '16K'))
+    }
+    $approvalDirectory = Join-Path $MaterialsRoot ($approvalPath -replace '/', [IO.Path]::DirectorySeparatorChar)
+    [void](New-E2eSafeDirectory $RepositoryRoot $RunRoot (Join-Path $approvalDirectory '1K'))
+    $generator = Join-Path $PSScriptRoot 'generate-e2e-png.mjs'
+    Assert-E2eNoReparsePath -Root $RepositoryRoot -Target $generator
+    $encoded = (& node $generator) -join ''
+    Assert-LastCommandSucceeded 'Generate a synthetic E2E PNG'
+    $png = [Convert]::FromBase64String($encoded)
+    foreach ($map in @('COL', 'NRM', 'ROUGH')) {
+        Write-E2eSafeBytes $RepositoryRoot $RunRoot (Join-Path (Join-Path $approvalDirectory '1K') "$($approval.technical_identity)_${map}_1K.png") $png
     }
     $metadataPath = Join-Path (Join-Path $MaterialsRoot ($validPath -replace '/', [IO.Path]::DirectorySeparatorChar)) 'metadata.txt'
     Write-E2eSafeTextFile -RepositoryRoot $RepositoryRoot -RunRoot $RunRoot -Path $metadataPath -Content (@{
@@ -298,7 +310,7 @@ function New-E2eSeedManifestData {
     }}
     return [ordered]@{
         companyId = [string]$company.id; brandId = [string]$brand.id; projectId = [string]$project.id
-        valid = & $fixture $valid $validPath; missing = & $fixture $missing $missingPath; mismatch = & $fixture $mismatch $mismatchPath; dimensions = & $fixture $dimensions $dimensionsPath; review = & $fixture $review $reviewPath
+        valid = & $fixture $valid $validPath; missing = & $fixture $missing $missingPath; mismatch = & $fixture $mismatch $mismatchPath; dimensions = & $fixture $dimensions $dimensionsPath; review = & $fixture $review $reviewPath; approval = & $fixture $approval $approvalPath
     }
 }
 

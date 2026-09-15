@@ -21,6 +21,7 @@ export type SeedState = {
   mismatch: MaterialFixture;
   dimensions: MaterialFixture;
   review: MaterialFixture;
+  approval: MaterialFixture;
 };
 
 type RunManifest = {
@@ -144,6 +145,7 @@ function loadManifest(): RunManifest {
       mismatch: validateFixture(state.mismatch, "state.mismatch"),
       dimensions: validateFixture(state.dimensions, "state.dimensions"),
       review: validateFixture(state.review, "state.review"),
+      approval: validateFixture(state.approval, "state.approval"),
     },
   };
 }

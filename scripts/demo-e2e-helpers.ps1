@@ -260,6 +260,23 @@ function Get-E2eSha256Hex {
     }
 }
 
+function Write-E2eSafeBytes {
+    param(
+        [Parameter(Mandatory)] [string] $RepositoryRoot,
+        [Parameter(Mandatory)] [string] $RunRoot,
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [byte[]] $Bytes
+    )
+    if (-not (Test-E2ePathWithinRoot -Root $RunRoot -Candidate $Path)) { throw 'E2E binary file escaped its run root.' }
+    if ($Bytes.Length -gt 8MB) { throw 'E2E binary fixture exceeds its size limit.' }
+    $parent = Split-Path -Parent ([IO.Path]::GetFullPath($Path))
+    Assert-E2eNoReparsePath -Root $RepositoryRoot -Target $parent
+    Assert-E2eNoReparsePath -Root $RepositoryRoot -Target $Path
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) { throw 'E2E binary fixture parent does not exist.' }
+    [IO.File]::WriteAllBytes($Path, $Bytes)
+    Assert-E2eNoReparsePath -Root $RepositoryRoot -Target $Path
+}
+
 function Assert-E2eTreeNoReparse {
     param([Parameter(Mandatory)] [string] $RunRoot)
 

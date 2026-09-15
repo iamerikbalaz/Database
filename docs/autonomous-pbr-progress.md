@@ -148,9 +148,21 @@ metadata history and the same revision after restart. Own resources were cleaned
 up and the exact own volume retained. Main was rechecked at 88a1f99 and its
 original working tree is clean.
 
+## Completed slice: read-only technical image validation
+
+The worker now actually decodes bounded master images and checks canonical map
+names, duplicates, dimensions, required COL and 16-bit shortcuts against a full
+unchanged source inventory. Metadata issues remain explicit nonblocking warnings.
+The internal endpoint returns facts and findings only; human approvals are separate.
+Resource limits and snapshot limitations are in `docs/technical-validation.md`.
+Final isolated Linux worker run: 213 passed, no skips; two upstream test-client
+deprecation warnings. This includes real PNG/JPEG/TIFF/WebP, invalid encodings,
+source races, child diagnostics and rejection of overlapping validations. No
+schema change or source filesystem write in this slice.
+
 ## In progress
 
-Next: technical image validation, technical approval and leadership publication
+Next: persisted technical reports, technical approval and leadership publication
 approval bound to both the observed revision and invalidation generation.
 This intermediate version is not the complete PBR product.
 

@@ -19,6 +19,7 @@ from app.secure_filesystem import (
 )
 from app.source_metadata import SourceMetadataResult
 from app.inventory import InventoryError, inventory_material
+from app.technical_validation import validate_material
 
 
 SCHEMA_VERSION = 1
@@ -99,6 +100,31 @@ class InventoryResponse(StrictModel):
     entries: list[InventoryEntry]
     source_revision_hash: str
     total_bytes: int
+
+
+class TechnicalFinding(StrictModel):
+    code: str
+    path: str
+
+
+class ImageProof(StrictModel):
+    path: str
+    map: str
+    width: int
+    height: int
+    bits: int
+    format: str
+    sha256: str
+
+
+class TechnicalValidationResponse(StrictModel):
+    schema_version: Literal[1]
+    validator_version: Literal["pbr-images-1"]
+    inventory: InventoryResponse
+    images: list[ImageProof]
+    errors: list[TechnicalFinding]
+    warnings: list[TechnicalFinding]
+    can_approve: bool
 
 
 def _normalize_relative_path(value: str) -> tuple[str, tuple[str, ...]]:
@@ -291,7 +317,7 @@ def create_app(
 
     @application.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, __: RequestValidationError) -> JSONResponse:
-        if request.url.path == "/internal/material-inventory":
+        if request.url.path in {"/internal/material-inventory", "/internal/material-validate"}:
             return JSONResponse(status_code=422, content={"detail": {"code": "INVALID_REQUEST"}})
         result = _error_response(
             "",
@@ -326,8 +352,7 @@ def create_app(
         result, response.status_code = _perform_preflight(request, configured_root)
         return result
 
-    @application.post("/internal/material-inventory", response_model=InventoryResponse, tags=["internal"])
-    def material_inventory(request: MaterialPreflightRequest) -> dict:
+    def execute_source_inspection(request: MaterialPreflightRequest, operation) -> dict:
         try:
             if len(request.folder_path) > 2048:
                 raise ValueError()
@@ -339,7 +364,7 @@ def create_app(
         except RuntimeError:
             raise HTTPException(503, {"code": "MATERIALS_ROOT_UNAVAILABLE"}) from None
         try:
-            return inventory_material(root, parts)
+            return operation(root, parts)
         except MaterialFolderNotFound:
             raise HTTPException(404, {"code": "MATERIAL_FOLDER_NOT_FOUND"}) from None
         except MaterialsRootUnavailable:
@@ -349,7 +374,15 @@ def create_app(
         except UnsafeMaterialPath:
             raise HTTPException(422, {"code": "UNSAFE_MATERIAL_PATH"}) from None
         except InventoryError as exc:
-            raise HTTPException(422, {"code": str(exc)}) from None
+            raise HTTPException(503 if str(exc) == "VALIDATION_BUSY" else 422, {"code": str(exc)}) from None
+
+    @application.post("/internal/material-inventory", response_model=InventoryResponse, tags=["internal"])
+    def material_inventory(request: MaterialPreflightRequest) -> dict:
+        return execute_source_inspection(request, inventory_material)
+
+    @application.post("/internal/material-validate", response_model=TechnicalValidationResponse, tags=["internal"])
+    def material_validate(request: MaterialPreflightRequest) -> dict:
+        return execute_source_inspection(request, validate_material)
 
     return application
 

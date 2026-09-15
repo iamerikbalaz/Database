@@ -1,5 +1,6 @@
 import { useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Icon } from "./Icon";
+import { useSession } from "../auth/context";
 
 const items = [
   ["Dashboard", "/dashboard", "dashboard"],
@@ -19,6 +20,7 @@ export function AppShell({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const account = useSession();
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const close = () => dialog.current?.close();
@@ -114,14 +116,21 @@ export function AppShell({
             <span />
             Internal workspace
           </div>
-          <button
+          {account ? <details className="account-menu">
+            <summary aria-label="User menu">{account.session.user.display_name}</summary>
+            <div className="account-menu-items">
+              <span>{account.session.user.email}</span>
+              <button className="button" disabled={account.pending} onClick={account.changePassword}>Change password</button>
+              <button className="button" disabled={account.pending} onClick={account.logout}>Sign out</button>
+            </div>
+          </details> : <button
             disabled
             className="user-button"
             aria-label="User menu"
             title="Coming later"
           >
             User
-          </button>
+          </button>}
         </header>
         <main className="content">{children}</main>
       </div>

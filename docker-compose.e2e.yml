@@ -10,6 +10,8 @@ services:
   backend:
     environment:
       APP_ENV: e2e
+      AUTH_COOKIE_SECURE: false
+      AUTH_ALLOW_INSECURE_COOKIE: true
       POSTGRES_DB: reawote_e2e
       POSTGRES_USER: reawote_e2e
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?E2E runner must provide an ephemeral password}

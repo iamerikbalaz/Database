@@ -19,6 +19,7 @@ export type SeedState = {
   valid: MaterialFixture;
   missing: MaterialFixture;
   mismatch: MaterialFixture;
+  dimensions: MaterialFixture;
 };
 
 type RunManifest = {
@@ -140,6 +141,7 @@ function loadManifest(): RunManifest {
       valid: validateFixture(state.valid, "state.valid"),
       missing: validateFixture(state.missing, "state.missing"),
       mismatch: validateFixture(state.mismatch, "state.mismatch"),
+      dimensions: validateFixture(state.dimensions, "state.dimensions"),
     },
   };
 }

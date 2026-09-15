@@ -61,6 +61,8 @@ Z kořene repozitáře spusťte přesně:
 
 ```powershell
 .\scripts\demo-up.ps1
+.\scripts\demo-admin.ps1 -Email demo.admin@example.invalid -DisplayName "Demo Administrator"
+# V prohlížeči se přihlaste a změňte počáteční heslo.
 .\scripts\demo-seed.ps1
 .\scripts\demo-status.ps1
 ```
@@ -79,6 +81,15 @@ se nedotkne.
 `demo-seed.ps1` bezpečně znovu použije záznamy nalezené podle stabilních demo
 klíčů. Pokud najde více shod nebo konflikt klíče, skončí chybou místo výběru
 náhodného záznamu.
+
+`demo-admin.ps1` spusťte pouze při prvním založení prázdného vlastního demo
+prostředí. Heslo zadáte interaktivně bez echo; příkaz odmítne opakovaný bootstrap,
+pokud již existují přihlašovací údaje. Při dalších startech stačí stávající účet.
+Seed si přes `Get-Credential` vyžádá administrátorský účet s dokončenou změnou
+hesla, provede skutečný login a všechny zápisy posílá se session, Origin a CSRF.
+Na konci session odhlásí. Hesla ani cookies neukládá do state souboru.
+Demo má výslovně povolené HTTP cookies pouze pro loopback; sdílené prostředí
+vyžaduje HTTPS. Účty a dočasný přístup lze dále spravovat v Settings → Accounts.
 
 Seed vytvoří:
 
@@ -118,7 +129,7 @@ Současný frontend zobrazuje entity, materiály, bezpečný folder preflight,
 propojení složky, Done i metadata historii. Swagger UI lze ponechat otevřené
 jen jako volitelný pohled na kontrakt; prezentační tok se provádí v aplikaci.
 
-1. Otevřete URL firmy vypsané seed skriptem. Stránka ukazuje firmu, publikovanou
+1. Přihlaste se svým demo účtem a otevřete URL firmy vypsané seed skriptem. Stránka ukazuje firmu, publikovanou
    značku a projekt.
 2. Otevřete URL validního materiálu. Detail ukazuje projekt, značku a aktivního
    zpracovatele `Demo Processor`.
@@ -243,9 +254,9 @@ Následující příkaz není součást izolovaného demo postupu:
 .\scripts\test.ps1
 ```
 
-Používá běžný Compose projekt `reawote` a může během testů krátce spustit nebo
-zastavit jeho databázovou službu. Spouštějte jej samostatně, až po kontrole
-stavu hlavního vývojového prostředí. Demo skripty tento příkaz nevolají.
+Používá nový izolovaný Compose projekt `reawote-test-<GUID>` a jeho vlastní
+databázový volume. Před spuštěním ověří lokální Linux Docker endpoint a odmítne
+kolizi prostředků. Demo skripty tento příkaz nevolají.
 
 ## Automatický browserový E2E test
 

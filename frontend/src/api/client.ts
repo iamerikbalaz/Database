@@ -1,4 +1,5 @@
 import { responseError } from "./errors";
+import { apiUrl, authenticatedHeaders, notifySessionInvalidation, sessionGeneration } from "../auth/sessionTransport";
 import { materialApi, type MaterialApi } from "./materialClient";
 import type {
   CompanyCreateDto,
@@ -41,25 +42,26 @@ export interface ApiClient extends MaterialApi {
   getProjects(): Promise<Project[]>;
   getProject(id: string): Promise<ProjectDetail>;
 }
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "/api").replace(
-  /\/$/,
-  "",
-);
-async function request(
+export async function request(
   path: string,
   method = "GET",
   payload?: object,
 ): Promise<unknown> {
-  const response = await fetch(apiBaseUrl + path, {
+  const sentGeneration = sessionGeneration();
+  const response = await fetch(apiUrl(path), {
     method,
+    credentials: "same-origin",
+    cache: "no-store",
     body: payload === undefined ? undefined : JSON.stringify(payload),
     headers: {
       Accept: "application/json",
+      ...authenticatedHeaders(method),
       ...(payload === undefined ? {} : { "Content-Type": "application/json" }),
     },
   });
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => null);
+    notifySessionInvalidation(response.status, body, sentGeneration);
     throw responseError(response.status, body);
   }
   return response.json();

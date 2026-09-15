@@ -1,11 +1,16 @@
-# Material Done browser E2E
+# Authentication and Material Done browser E2E
 
 Playwright test ověřuje skutečný řetězec Vite frontend → FastAPI backend →
 PostgreSQL → worker. Mock API se nepoužívá. Test přes skutečné API založí firmu,
-publikovanou značku, projekt, procesora a tři materiály a v Chromium provede:
+publikovanou značku, projekt, procesora a čtyři materiály a v Chromium provede:
 
 - validní preflight, link, Done, current metadata, snapshot a reload;
 - chybějící `metadata.txt` jako neblokující warning;
+- rozměr nepodporovaný přesností databáze jako neblokující warning;
+- odmítnutí anonymních požadavků, vynucenou změnu hesla, skutečnou session,
+  serverové oprávnění zpracovatele, CSRF a odhlášení s revokací;
+- administrátorské vytvoření účtu, vydání a reset přístupu, změnu role,
+  deaktivaci a revokaci sessions přes skutečné UI;
 - blokovaný identity mismatch;
 - klientské odmítnutí absolutní cesty a `..` bez preflight requestu;
 - kontrolu veřejných odpovědí, UI a browser console na únik raw obsahu, host path
@@ -26,6 +31,18 @@ Samotný E2E běh má jediný podporovaný write-capable vstup:
 ```powershell
 .\scripts\test-demo-e2e.ps1
 ```
+
+Pro tuto autonomní pracovní kopii vždy nejprve nastavte
+`$env:E2E_PROJECT_NAME = 'reawote-e2e-auto-01a0a64d'`; původní výchozí E2E
+volume na hostu je chráněný. Jméno musí být `reawote-e2e` nebo jeho povolený
+suffix; volume se odvozuje jako `<projekt>-postgres-data`.
+
+Runner provede dvě celé sady scénářů. Mezi nimi restartuje aplikaci nad
+nezměněnou databází a fixtures. Druhá sada ověřuje zachované heslo, DONE,
+propojení složky a jediný snapshot; nepoužije reset ani opakované seedování.
+Před zcela novým během se vlastní izolované schéma resetuje podle níže
+uvedených kontrol. Údaje pro autentizaci vznikají náhodně pro každý běh,
+zůstávají v paměti/procesním prostředí a nejsou součástí manifestu.
 
 Runner podle potřeby doinstaluje Playwright Chromium a používá náhodné volné
 porty publikované výhradně na `127.0.0.1`. Skript `npm.cmd run test:e2e` pouze
@@ -63,8 +80,9 @@ konkrétní GUID run adresář a nikdy nadřazené `.e2e-data`. Stav projektů `
 `reawote-demo` a volumes `reawote_postgres_data`,
 `reawote-demo-postgres-data` se porovná před a po běhu.
 
-Při selhání zůstane Playwright trace, screenshot a sanitizované syntetické logy v
+Při selhání zůstane screenshot a sanitizované syntetické logy v
 `<repo>/.e2e-artifacts/<run-guid>`; credentials ani raw metadata se neukládají.
+Playwright trace je vypnutý, protože obsahuje cookies a těla auth požadavků.
 Po úspěchu se tento konkrétní artifact adresář odstraní. Cleanup ověříte závěrem
 `Cleanup removed only project ...; volume ... was preserved.` a nulovým návratovým kódem; navíc lze spustit
 `npm.cmd run test:e2e:helpers`, který kontroluje path a cleanup invarianty bez

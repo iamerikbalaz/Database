@@ -1,4 +1,6 @@
 import type { AnchorHTMLAttributes, MouseEvent } from "react";
+import { useSession } from "../auth/context";
+import { restrictedDestination } from "../auth/permissions";
 
 interface NavigationLinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
   href: string;
@@ -11,6 +13,8 @@ export function NavigationLink({
   onClick,
   ...props
 }: NavigationLinkProps) {
+  const role = useSession()?.session.user.role;
+  if (restrictedDestination(href, role)) return null;
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     onClick?.(event);
     if (

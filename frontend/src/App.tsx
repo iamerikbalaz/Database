@@ -11,6 +11,9 @@ import { CompanyDetailPage } from "./pages/CompanyDetailPage";
 import { CompaniesPage } from "./pages/CompaniesPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
+import { useSession } from "./auth/context";
+import { restrictedDestination } from "./auth/permissions";
+import { AccountsPage } from "./pages/AccountsPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 
 interface AppProps {
@@ -21,6 +24,7 @@ const normalizePath = (path: string) =>
   path.split(/[?#]/)[0].replace(/\/+$/, "") || "/";
 
 function App({ client = apiClient, initialPath }: AppProps) {
+  const role = useSession()?.session.user.role;
   const [notice, setNotice] = useState("");
   const [path, setPath] = useState(() =>
     normalizePath(initialPath ?? window.location.pathname),
@@ -60,13 +64,17 @@ function App({ client = apiClient, initialPath }: AppProps) {
   const projectEdit = path.match(/^\/projects\/([^/]+)\/edit$/);
   const materialMatch = path.match(/^\/materials\/([^/]+)(\/edit)?$/);
   let page;
-  if (invalidUrl)
+  if (restrictedDestination(path, role))
+    page = <section><h1>Access restricted</h1><p>Your role does not allow this operation.</p></section>;
+  else if (invalidUrl)
     page = (
       <PlaceholderPage
         title="Page not found"
         description="The URL is malformed."
       />
     );
+  else if (path === "/settings/users" || (path === "/settings" && role === "ADMIN"))
+    page = <AccountsPage />;
   else if (path === "/materials")
     page = <MaterialsPage client={client} navigate={navigate} />;
   else if (path === "/materials/new")

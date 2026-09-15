@@ -93,6 +93,7 @@ function Get-ProtectedState {
         DemoProject = Get-ProjectContainerFingerprint -Name 'reawote-demo'
         RegularVolume = Get-VolumeFingerprint -Name 'reawote_postgres_data'
         DemoVolume = Get-VolumeFingerprint -Name 'reawote-demo-postgres-data'
+        DefaultE2eVolume = if ($script:E2eProjectName -ne 'reawote-e2e') { Get-VolumeFingerprint -Name 'reawote-e2e-postgres-data' } else { 'owned-by-this-run' }
     } | ConvertTo-Json -Depth 10 -Compress
 }
 
@@ -218,11 +219,42 @@ function Reset-E2eDatabaseSchema {
     }
 }
 
+function Invoke-E2eAuthenticatedPost {
+    param([string] $BackendUrl, [string] $Route, $Body, [int] $ExpectedStatus = 200)
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$BackendUrl$Route" `
+            -WebSession $script:E2eWebSession -Headers @{ Origin = $script:E2eFrontendUrl; 'X-CSRF-Token' = $script:E2eCsrf } `
+            -ContentType 'application/json' -Body ($Body | ConvertTo-Json -Depth 10 -Compress)
+    }
+    catch { throw "Authenticated E2E request failed for $Route; response omitted to protect credentials." }
+    if ([int]$response.StatusCode -ne $ExpectedStatus) { throw "Unexpected status for $Route." }
+    return $response.Content | ConvertFrom-Json -ErrorAction Stop
+}
+
 function Invoke-E2eJsonPost {
     param([string] $BackendUrl, [string] $Route, $Body)
-    $response = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$BackendUrl$Route" -ContentType 'application/json' -Body ($Body | ConvertTo-Json -Depth 10 -Compress)
-    if ([int]$response.StatusCode -ne 201) { throw "POST $Route returned $($response.StatusCode), expected 201." }
-    return $response.Content | ConvertFrom-Json -ErrorAction Stop
+    return Invoke-E2eAuthenticatedPost $BackendUrl $Route $Body 201
+}
+
+function Initialize-E2eAuthentication {
+    param([string] $BackendUrl, [string] $FrontendUrl)
+    $script:E2eFrontendUrl = $FrontendUrl
+    $initial = [guid]::NewGuid().ToString('N') + '-Initial!'
+    $env:E2E_ADMIN_PASSWORD = [guid]::NewGuid().ToString('N') + '-Z!7'
+    $env:E2E_TEMPORARY_PASSWORD = [guid]::NewGuid().ToString('N') + '-Temporary!'
+    $env:E2E_USER_PASSWORD = [guid]::NewGuid().ToString('N') + '-Personal!'
+    $script:E2eWebSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+    $script:E2eCsrf = ''
+    $inputJson = @{ email = 'e2e.operator@example.invalid'; display_name = 'E2E Operator'; password = $initial } | ConvertTo-Json -Compress
+    $code = 'import json,sys; from app.auth.cli import provision_first_admin; from app.core.config import get_settings; from app.db.session import Database; s=get_settings(); d=Database(s.resolved_database_url); provision_first_admin(d,s,**json.load(sys.stdin)); d.dispose()'
+    Invoke-E2eComposeWithStandardInput -StandardInput $inputJson -Arguments @(
+        'exec', '--no-TTY', 'backend', 'python', '-c', $code
+    ) -Step 'Provision the isolated E2E administrator' -Mutation
+    $login = Invoke-E2eAuthenticatedPost $BackendUrl '/api/auth/login' @{ email = 'e2e.operator@example.invalid'; password = $initial }
+    $script:E2eCsrf = $login.csrf_token
+    [void](Invoke-E2eAuthenticatedPost $BackendUrl '/api/auth/change-password' @{ current_password = $initial; new_password = $env:E2E_ADMIN_PASSWORD })
+    $login = Invoke-E2eAuthenticatedPost $BackendUrl '/api/auth/login' @{ email = 'e2e.operator@example.invalid'; password = $env:E2E_ADMIN_PASSWORD }
+    $script:E2eCsrf = $login.csrf_token
 }
 
 function New-E2eMaterial {
@@ -239,13 +271,16 @@ function New-E2eSeedManifestData {
     $brand = Invoke-E2eJsonPost $BackendUrl '/api/brands' @{ company_id = $company.id; name = 'E2E Published Brand'; folder_prefix = 'E2E_SAFE'; brand_identifier = 'e2e-disposable-brand'; is_active = $true }
     $project = Invoke-E2eJsonPost $BackendUrl '/api/projects' @{ company_id = $company.id; project_number = 'E2E-001'; name = 'E2E Disposable Project'; status = 'IN_PROGRESS' }
     $processor = Invoke-E2eJsonPost $BackendUrl '/api/internal-users' @{ display_name = 'E2E Processor'; email = 'e2e.processor@example.invalid'; role = 'PROCESSOR'; is_active = $true }
+    [void](Invoke-E2eAuthenticatedPost $BackendUrl "/api/auth/accounts/$($processor.id)/access" @{ current_password = $env:E2E_ADMIN_PASSWORD; new_password = $env:E2E_TEMPORARY_PASSWORD })
     $valid = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Valid Metadata'
     $missing = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Missing Metadata'
+    $dimensions = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Unsupported Dimensions'
     $mismatch = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Identity Mismatch'
     $validPath = "e2e-library/$($valid.technical_identity)"
     $missingPath = "e2e-library/$($missing.technical_identity)"
+    $dimensionsPath = "e2e-library/$($dimensions.technical_identity)"
     $mismatchPath = 'e2e-library/E2E_WRONG_FOLDER_G03'
-    foreach ($relativePath in @($validPath, $missingPath, $mismatchPath)) {
+    foreach ($relativePath in @($validPath, $missingPath, $mismatchPath, $dimensionsPath)) {
         $directory = Join-Path $MaterialsRoot ($relativePath -replace '/', [IO.Path]::DirectorySeparatorChar)
         [void](New-E2eSafeDirectory -RepositoryRoot $RepositoryRoot -RunRoot $RunRoot -Path (Join-Path $directory '16K'))
     }
@@ -253,13 +288,15 @@ function New-E2eSeedManifestData {
     Write-E2eSafeTextFile -RepositoryRoot $RepositoryRoot -RunRoot $RunRoot -Path $metadataPath -Content (@{
         COLOR = @{ hex = '#A1B2C3' }; TEXTURE_SIZE = @{ cm = @{ width = 12.5; height = 34 } }
     } | ConvertTo-Json -Depth 10 -Compress)
+    $dimensionsFile = Join-Path (Join-Path $MaterialsRoot ($dimensionsPath -replace '/', [IO.Path]::DirectorySeparatorChar)) 'metadata.txt'
+    Write-E2eSafeTextFile $RepositoryRoot $RunRoot $dimensionsFile 'texture size: 1.23456x2 cm'
     $fixture = { param($item, $relativePath) [ordered]@{
         id = [string]$item.id; technical_identity = [string]$item.technical_identity; material_name = [string]$item.material_name
         folder_path = $item.folder_path; workflow_status = [string]$item.workflow_status; relativePath = $relativePath
     }}
     return [ordered]@{
         companyId = [string]$company.id; brandId = [string]$brand.id; projectId = [string]$project.id
-        valid = & $fixture $valid $validPath; missing = & $fixture $missing $missingPath; mismatch = & $fixture $mismatch $mismatchPath
+        valid = & $fixture $valid $validPath; missing = & $fixture $missing $missingPath; mismatch = & $fixture $mismatch $mismatchPath; dimensions = & $fixture $dimensions $dimensionsPath
     }
 }
 
@@ -273,14 +310,14 @@ function Save-E2eFailureDiagnostics {
             foreach ($line in @(Invoke-E2eCompose @('ps', '--all') 'Capture E2E Compose status')) { $lines.Add([string]$line) }
             $lines.Add(''); $lines.Add('Synthetic service logs:')
             foreach ($line in @(& docker compose --project-name $script:E2eProjectName -f $script:BaseComposePath -f $script:E2eComposePath logs --no-color --tail 300 backend worker frontend)) {
-                if ($line -match '(?i)raw_content|source_content|authorization|cookie|postgres_password') { $lines.Add('[redacted potentially sensitive log line]') }
+                if ($line -match '(?i)raw_content|source_content|authorization|cookie|password|csrf|token') { $lines.Add('[redacted potentially sensitive log line]') }
                 else { $lines.Add([string]$line) }
             }
         }
         catch { $lines.Add("Diagnostics collection error: $($_.Exception.Message)") }
     }
     $text = $lines -join [Environment]::NewLine
-    foreach ($secret in @($Password, $RunRoot)) { if ($secret) { $text = $text.Replace($secret, '[REDACTED]') } }
+    foreach ($secret in @($Password, $RunRoot, $env:E2E_RUN_TOKEN, $env:E2E_ADMIN_PASSWORD, $env:E2E_TEMPORARY_PASSWORD, $env:E2E_USER_PASSWORD, $script:E2eCsrf)) { if ($secret) { $text = $text.Replace($secret, '[REDACTED]') } }
     Write-E2eSafeTextFile -RepositoryRoot $RepositoryRoot -RunRoot $ArtifactRoot -Path (Join-Path $ArtifactRoot 'runner-diagnostics.txt') -Content $text
 }
 
@@ -289,11 +326,12 @@ $script:E2eDatabaseVolumeName = $databaseVolumeName
 $script:E2eDatabaseName = $databaseName
 $script:E2eDatabaseUser = $databaseUser
 $script:DockerContextVerified = $false
+$script:E2eCsrf = ''
 $runGuid = [guid]::NewGuid()
 $mutex = $null
 $runFailure = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
-$environmentNames = @('BACKEND_PORT', 'FRONTEND_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'COMPOSE_PROJECT_NAME', 'E2E_FRONTEND_PORT', 'E2E_MATERIALS_ROOT', 'E2E_WORKER_PORT', 'E2E_RUN_MANIFEST', 'E2E_RUN_TOKEN')
+$environmentNames = @('BACKEND_PORT', 'FRONTEND_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'COMPOSE_PROJECT_NAME', 'E2E_FRONTEND_PORT', 'E2E_MATERIALS_ROOT', 'E2E_WORKER_PORT', 'E2E_RUN_MANIFEST', 'E2E_RUN_TOKEN', 'E2E_ADMIN_PASSWORD', 'E2E_TEMPORARY_PASSWORD', 'E2E_USER_PASSWORD', 'E2E_RETAINED_PASS')
 $previousEnvironment = @{}
 foreach ($name in $environmentNames) { $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 $repositoryRoot = $runRoot = $artifactRoot = $dataManagedRoot = $artifactManagedRoot = $postgresPassword = $protectedBefore = $null
@@ -354,6 +392,7 @@ try {
     }
     Assert-E2eResourcesOwned
     Assert-RuntimeDatabaseMount
+    Initialize-E2eAuthentication $backendUrl $frontendUrl
     $state = New-E2eSeedManifestData $backendUrl $repositoryRoot $runRoot $script:E2eMaterialsRoot
     $runToken = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
     $manifestPath = Join-Path $runRoot 'run-manifest.json'
@@ -365,7 +404,29 @@ try {
     Write-E2eSafeTextFile $repositoryRoot $runRoot $manifestPath $manifest
     $env:E2E_RUN_MANIFEST = $manifestPath; $env:E2E_RUN_TOKEN = $runToken
     Push-Location $frontendRoot
-    try { & npm.cmd exec -- playwright test; Assert-LastCommandSucceeded 'Playwright E2E scenarios' }
+    try {
+        Write-Host 'E2E first pass: fresh isolated data.'
+        $env:E2E_RETAINED_PASS = '0'
+        & npm.cmd exec -- playwright test
+        Assert-LastCommandSucceeded 'Playwright E2E scenarios'
+        # Restart the application without resetting the database or fixtures.
+        Invoke-E2eCompose @('restart', 'backend', 'frontend') 'Restart application with retained data' -Mutation
+        $deadline = [DateTime]::UtcNow.AddSeconds(45)
+        $ready = $false
+        while ([DateTime]::UtcNow -lt $deadline) {
+            try {
+                $health = Invoke-WebRequest -UseBasicParsing -Uri "$backendUrl/health" -TimeoutSec 2
+                $web = Invoke-WebRequest -UseBasicParsing -Uri $frontendUrl -TimeoutSec 2
+                if ($health.StatusCode -eq 200 -and $web.StatusCode -eq 200) { $ready = $true; break }
+            } catch { }
+            Start-Sleep -Milliseconds 500
+        }
+        if (-not $ready) { throw 'Application did not recover after retained-data restart.' }
+        Write-Host 'E2E second pass: same database, files and accounts after application restart.'
+        $env:E2E_RETAINED_PASS = '1'
+        & npm.cmd exec -- playwright test
+        Assert-LastCommandSucceeded 'Playwright E2E retained-data scenarios'
+    }
     finally { Pop-Location }
     $testPassed = $true
 }

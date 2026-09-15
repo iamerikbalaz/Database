@@ -105,13 +105,31 @@ Read-only audit on Windows / Python 3.13.15:
   frontend 193 passed; lint/build passed; no skips. Alembic fresh/prior upgrade,
   current/heads/check remain included in the PostgreSQL suite. Schema head 0006.
 
+## Completed slice: authentication UI and account administration
+
+- New UI implements bootstrap/login/logout, forced and voluntary password
+  change, memory-only CSRF, stale-response protection and cross-tab refresh.
+- Controls reflect server roles. Settings → Accounts supports creating profiles,
+  changing role/active flag, provisioning/resetting temporary access and explains
+  the required personal password change. Password fields clear after requests.
+- Real isolated E2E passes all 8 scenarios, then all 8 again after restarting
+  services against the same database/files/accounts (run e0f37e70). This includes
+  account creation/reset/deactivation and server session revocation; worker →
+  API → PostgreSQL metadata boundaries; persisted Done and one snapshot.
+- Frontend: 199 tests, lint and production build passed. Demo auth 11, demo
+  path/port 24 and E2E safety helper 46 checks passed. E2E trace is disabled to
+  avoid storing cookies or auth request bodies.
+- Demo seed now requires a real administrator login, trusted Origin and CSRF,
+  and logs out in finally. The first-admin wrapper remains interactive. Only
+  the demo overlay explicitly permits HTTP loopback cookies. Existing protected
+  demo runtime was not started or changed; demo authentication helpers were
+  tested with isolated mocks and actual auth HTTP is covered by E2E.
+- No schema change. Reverting the UI keeps server authorization in place.
+
 ## In progress
 
-New auth UI implements bootstrap/login/logout/forced or voluntary password
-change, memory-only CSRF and stale-response protection. Its 15 new tests pass.
-Actual authenticated E2E and a second pass after restart with retained data are
-being added. Role-aware controls/account administration UI remain to finish.
-Do not treat the intermediate working tree as a completed PBR application.
+Next: inventory, technical/publication approval and reopen, bound to the source
+revision. Do not treat this intermediate version as the complete PBR product.
 
 ## Remaining sequence
 

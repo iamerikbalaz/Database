@@ -16,6 +16,7 @@ export default defineConfig({
     baseURL: runManifest.frontendUrl,
     ...devices["Desktop Chrome"],
     screenshot: "only-on-failure",
-    trace: "retain-on-failure",
+    // Traces include cookies and request bodies. Auth E2E keeps them off.
+    trace: "off",
   },
 });

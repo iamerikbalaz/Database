@@ -6,6 +6,7 @@ import {
   type Response,
 } from "@playwright/test";
 import { runManifest, type MaterialFixture } from "./run-manifest";
+import { retainedPass, signInThroughApi } from "./auth-helpers";
 
 type BrowserDiagnostics = {
   consoleErrors: string[];
@@ -56,6 +57,18 @@ async function openPreparedMaterial(page: Page, material: MaterialFixture): Prom
   await expect(page.getByRole("heading", { name: material.material_name, exact: true })).toBeVisible();
 }
 
+async function assertRetainedDone(page: Page, material: MaterialFixture, status: string) {
+  await expect(materialFact(page, "Workflow status")).toHaveText("done");
+  await expect(materialFact(page, "Folder path")).toHaveText(material.relativePath);
+  const snapshots = await page.request.get(`/api/materials/${material.id}/metadata/snapshots`);
+  expect(snapshots.status()).toBe(200);
+  expect(await snapshots.json()).toMatchObject([{ sequence_number: 1, status }]);
+  expect((await snapshots.json()).length).toBe(1);
+  await page.reload();
+  await expect(panel(page, "Snapshot history").getByText("Snapshot 1", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Mark as Done", exact: true })).toHaveCount(0);
+}
+
 async function checkFolder(page: Page, relativePath: string): Promise<Response> {
   await page.getByLabel("Relative folder path").fill(relativePath);
   const responsePromise = page.waitForResponse((response) =>
@@ -84,6 +97,7 @@ async function confirmOperation(
 }
 
 test.beforeEach(async ({ page }) => {
+  await signInThroughApi(page);
   const observed: BrowserDiagnostics = {
     consoleErrors: [],
     requestFailures: [],
@@ -102,7 +116,7 @@ test.beforeEach(async ({ page }) => {
   });
   page.on("response", (response) => {
     const url = new URL(response.url());
-    if (url.pathname.startsWith("/api/")) {
+    if (url.pathname.startsWith("/api/") && !url.pathname.startsWith("/api/auth/")) {
       observed.responseBodies.push(response.text().catch(() => ""));
     }
     if (isUnexpectedHttpError(response.request().method(), url.pathname, response.status())) {
@@ -147,6 +161,7 @@ test("happy path persists Done metadata and snapshot after reload", async ({ pag
   await expect(materialFact(page, "Project")).toContainText("E2E Disposable Project");
   await expect(materialFact(page, "Published brand")).toContainText("E2E Published Brand");
 
+  if (retainedPass) { await assertRetainedDone(page, state.valid, "VALID"); return; }
   const preflightResponse = await checkFolder(page, state.valid.relativePath);
   expect(preflightResponse.status()).toBe(200);
   expect(await preflightResponse.json()).toMatchObject({
@@ -193,6 +208,7 @@ test("happy path persists Done metadata and snapshot after reload", async ({ pag
 
 test("missing metadata remains non-blocking and its warning stays visible", async ({ page }) => {
   await openPreparedMaterial(page, state.missing);
+  if (retainedPass) { await assertRetainedDone(page, state.missing, "MISSING"); return; }
   const preflightResponse = await checkFolder(page, state.missing.relativePath);
   expect(preflightResponse.status()).toBe(200);
   expect(await preflightResponse.json()).toMatchObject({
@@ -212,6 +228,20 @@ test("missing metadata remains non-blocking and its warning stays visible", asyn
   await expect(currentMetadata.getByText("missing", { exact: true })).toBeVisible();
   await expect(currentMetadata.getByText(/SOURCE_METADATA_MISSING/)).toBeVisible();
   await expect(panel(page, "Snapshot history").getByText("Snapshot 1", { exact: true })).toBeVisible();
+});
+
+test("unsupported metadata dimensions stay nonblocking across worker, API and PostgreSQL", async ({ page }) => {
+  await openPreparedMaterial(page, state.dimensions);
+  if (retainedPass) { await assertRetainedDone(page, state.dimensions, "WARNING"); return; }
+  const preflight = await checkFolder(page, state.dimensions.relativePath);
+  expect(preflight.status()).toBe(200);
+  expect(await preflight.json()).toMatchObject({ metadata_status: "WARNING", width_cm: null, height_cm: "2", can_continue: true });
+  expect((await confirmOperation(page, "Link folder", "Link this folder?", "/folder-link")).status()).toBe(200);
+  const done = await confirmOperation(page, "Mark as Done", "Mark this material as Done?", "/mark-done");
+  expect(done.status()).toBe(200);
+  expect(await done.json()).toMatchObject({ material: { workflow_status: "DONE" },
+    metadata: { status: "WARNING", width_cm: null, height_cm: "2.0000" }, snapshot: { sequence_number: 1 } });
+  await expect(panel(page, "Current metadata").getByText(/SOURCE_METADATA_DIMENSION_UNSUPPORTED/)).toBeVisible();
 });
 
 test("identity mismatch cannot be linked or marked Done", async ({ page }) => {

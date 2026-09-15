@@ -40,7 +40,8 @@ administrator when concurrent administrators attempt to demote each other.
 1. Migrate the intended local/test database and run the existing first-admin
    command from `docs/auth-backend-foundation.md`. Password entry is interactive.
 2. Sign in and change the initial password. Old sessions are revoked.
-3. An administrator creates an InternalUser profile, then POSTs to
+3. In Settings → Accounts, an administrator creates a profile and chooses
+   Set or reset access. The UI POSTs to
    `/api/auth/accounts/{user_id}/access` with `current_password` (their own) and
    `new_password` (the recipient's temporary password), session cookie, trusted
    Origin and X-CSRF-Token. The same endpoint resets an existing account.

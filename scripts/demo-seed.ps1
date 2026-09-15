@@ -1,7 +1,9 @@
+param([pscredential] $Credential)
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot "demo-common.ps1")
+. (Join-Path $PSScriptRoot "demo-auth.ps1")
 
 function Invoke-DemoApi {
     param(
@@ -10,19 +12,7 @@ function Invoke-DemoApi {
         [hashtable] $Body
     )
 
-    $parameters = @{
-        UseBasicParsing = $true
-        Method = $Method
-        Uri = $script:BackendBase + $Path
-        Headers = @{ Accept = "application/json" }
-        TimeoutSec = 10
-    }
-    if ($null -ne $Body) {
-        $parameters.ContentType = "application/json"
-        $parameters.Body = $Body | ConvertTo-Json -Depth 10 -Compress
-    }
-    $response = Invoke-WebRequest @parameters
-    return $response.Content | ConvertFrom-Json
+    return Invoke-DemoSessionRequest -Session $script:DemoApiSession -Method $Method -Path $Path -Body $Body
 }
 
 function Get-OrCreateDemoRecord {
@@ -92,6 +82,10 @@ if ($health.status -ne "ok" -or $health.database -ne "connected") {
     throw "Demo backend health did not report an available database."
 }
 
+if ($null -eq $Credential) { $Credential = Get-Credential -Message 'Demo administrator with a completed password change' }
+$script:DemoApiSession = New-DemoApiSession -Backend $urls.Backend -Origin $urls.Frontend -Credential $Credential
+$Credential = $null
+try {
 $company = Get-OrCreateDemoRecord `
     -ListPath "/api/companies?search=Demo%20Company" `
     -Match { $_.name -eq "Demo Company" } `
@@ -307,3 +301,7 @@ foreach ($key in @("valid", "missing_metadata", "identity_mismatch")) {
     Write-Host "  $($item.url)"
 }
 Write-Host "Swagger operations and metadata history: $($urls.Backend)/docs"
+} finally {
+    Close-DemoApiSession $script:DemoApiSession
+    $script:DemoApiSession = $null
+}

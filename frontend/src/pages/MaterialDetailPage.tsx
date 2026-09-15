@@ -13,6 +13,7 @@ import {
   materialOperationError,
 } from "../api/materialClient";
 import { validateFolderPath } from "../api/folderPathValidation";
+import { useSession } from "../auth/context";
 import { statusLabel, type Material } from "../api/materialDto";
 import type {
   MaterialFinding,
@@ -232,7 +233,9 @@ function FolderControls({
       const result = await client.preflightMaterialFolder(material.id, path);
       setCheckedPath(path);
       setPreflight(result);
-      setNotice(result.canContinue && result.identityMatches
+      setNotice(material.workflowStatus === "DONE" && path !== material.folderPath
+        ? "Reopen this material before connecting a different folder."
+        : result.canContinue && result.identityMatches
         ? "Folder check passed. The folder can be linked."
         : "Folder check finished. Review the findings before continuing.");
     } catch (cause) {
@@ -245,7 +248,7 @@ function FolderControls({
 
   const canLink = Boolean(
     preflight && preflight.identityMatches && preflight.canContinue &&
-    checkedPath === folderPath,
+    checkedPath === folderPath && (material.workflowStatus !== "DONE" || checkedPath === material.folderPath),
   );
 
   const linkFolder = async () => {
@@ -568,6 +571,7 @@ function MaterialDetailContent({
   navigate: (path: string) => void;
 }) {
   const data = useMaterialDataRefresh(initialMaterial, client);
+  const canEdit = useSession()?.session.user.role !== "LEADERSHIP";
   const { material } = data;
 
   return <section>
@@ -582,19 +586,19 @@ function MaterialDetailContent({
         <div><dt>Processor</dt><dd>{processor.status === "fulfilled" ? processor.value.displayName + (processor.value.isActive ? "" : " (inactive)") : <span role="alert">Processor could not be loaded ({material.assignedProcessorId}).</span>}</dd></div>
       </dl>
       {[project, brand, processor].some((result) => result.status === "rejected") && <button className="button" onClick={retryRelated}>Retry related records</button>}
-      <MarkDoneControl
+      {canEdit && <MarkDoneControl
         material={material}
         client={client}
         refreshing={data.refreshing}
         onSaved={data.refreshAll}
-      />
+      />}
     </article>
-    <FolderControls
+    {canEdit && <FolderControls
       material={material}
       client={client}
       refreshing={data.refreshing}
       onSaved={data.refreshAll}
-    />
+    />}
     {data.refreshFailure && <RefreshError
       operation={data.refreshFailure}
       pending={data.refreshing}

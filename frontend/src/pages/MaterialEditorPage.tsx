@@ -8,6 +8,7 @@ import { ErrorState, LoadingState } from "../components/PageState";
 import { RecordForm, type FormDefinition } from "../forms/RecordForm";
 import type { Field, Values } from "../forms/fields";
 import { MaterialFacts } from "./MaterialDetailPage";
+import { useSession } from "../auth/context";
 
 function editable(v: Values): Required<MaterialPatchDto> {
   return { project_id: v.projectId, material_name: v.materialName.trim(),
@@ -16,11 +17,12 @@ function editable(v: Values): Required<MaterialPatchDto> {
 export function MaterialEditorPage({ id, client, navigate, onSaved }: {
   id?: string; client: ApiClient; navigate: (path: string) => void; onSaved: (path: string, message: string) => void;
 }) {
+  const canAssign = useSession()?.session.user.role !== "PROCESSOR";
   const load = useCallback(async () => {
     const [material, projects, brands, users] = await Promise.all([
       id ? client.getMaterial(id) : Promise.resolve(undefined), client.getProjects(), client.getBrands(), client.getInternalUsers(true),
     ]);
-    const active = users.filter((u) => u.isActive);
+    const active = users.filter((u) => u.isActive && u.role === "PROCESSOR");
     const initial: Values = {
       projectId: material?.projectId ?? "", publishedBrandId: material?.publishedBrandId ?? "",
       materialName: material?.materialName ?? "", mainCategoryCode: material?.mainCategoryCode ?? "",
@@ -39,7 +41,7 @@ export function MaterialEditorPage({ id, client, navigate, onSaved }: {
       { name: "assignedProcessorId", apiName: "assigned_processor_id", label: "Processor", type: "select", required: true, options: processorOptions },
     ];
     const definition: FormDefinition = {
-      title: id ? "Edit material" : "Add material", fields, initial, cancel: id ? "/materials/" + id : "/materials",
+      title: id ? "Edit material" : "Add material", fields: canAssign ? fields : fields.filter((field) => field.name === "materialName"), initial, cancel: id ? "/materials/" + id : "/materials",
       save: async (v) => {
         const input = editable(v);
         const saved = id
@@ -50,7 +52,7 @@ export function MaterialEditorPage({ id, client, navigate, onSaved }: {
     };
     return { definition, material, brands, unavailableProcessor,
       missingChoices: !projects.length || (!id && !brands.length) || (!material && !active.length) };
-  }, [id, client]);
+  }, [id, client, canAssign]);
   const { data, error, cause, retry } = useResource(load);
   if (error) return <ErrorState message={materialLoadError(cause)} retry={retry} />;
   if (!data) return <LoadingState label="Loading material form…" />;

@@ -336,7 +336,7 @@ function Set-DemoComposePortEnvironment {
     param([Parameter(Mandatory)] $Ports)
 
     $previous = @{}
-    foreach ($name in @("BACKEND_PORT", "FRONTEND_PORT", "WORKER_PORT")) {
+    foreach ($name in @("BACKEND_PORT", "FRONTEND_PORT", "WORKER_PORT", "CORS_ORIGINS")) {
         $previous[$name] = [System.Environment]::GetEnvironmentVariable($name, "Process")
     }
     [System.Environment]::SetEnvironmentVariable(
@@ -347,6 +347,9 @@ function Set-DemoComposePortEnvironment {
     )
     [System.Environment]::SetEnvironmentVariable(
         "WORKER_PORT", [string]$Ports.Worker, "Process"
+    )
+    [System.Environment]::SetEnvironmentVariable(
+        "CORS_ORIGINS", "http://localhost:$($Ports.Frontend),http://127.0.0.1:$($Ports.Frontend)", "Process"
     )
     return $previous
 }

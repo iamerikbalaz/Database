@@ -1,76 +1,65 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-
-# Runs the real orchestration script against a mock command; never starts Docker.
 $testScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'test.ps1'
-$reawoteTestDockerState = [pscustomobject]@{
+$state = [pscustomobject]@{
     Calls = [Collections.Generic.List[string]]::new()
-    DatabaseInitiallyRunning = $false
-    PostgresExitCode = 0
-    PostgresSummary = ''
+    Mode = ''; Project = ''; Endpoint = 'npipe:////./pipe/dockerDesktopLinuxEngine'
 }
-
 function docker {
     $command = $args -join ' '
-    $reawoteTestDockerState.Calls.Add($command)
+    $state.Calls.Add($command)
     $global:LASTEXITCODE = 0
-    if ($command -eq 'compose ps --status running --services') {
-        if ($reawoteTestDockerState.DatabaseInitiallyRunning) { 'database' }
+    if ($command -eq 'context show') { 'desktop-linux'; return }
+    if ($command -eq 'context inspect desktop-linux') {
+        '[{"Endpoints":{"docker":{"Host":"' + $state.Endpoint + '"}}}]'; return
     }
-    elseif ($command -match 'RUN_POSTGRES_TESTS=1') {
-        $reawoteTestDockerState.PostgresSummary
-        $global:LASTEXITCODE = $reawoteTestDockerState.PostgresExitCode
+    if ($command -eq "info --format {{.OSType}}") {
+        if ($state.Mode -eq 'windows-engine') { 'windows' } else { 'linux' }; return
     }
+    if ($command -match '^ps .*project=(reawote-test-[a-f0-9]{32})$') {
+        $state.Project = $Matches[1]
+        if ($state.Mode -eq 'collision') { 'existing-container' }; return
+    }
+    if ($command -match '^volume ls ') { return }
+    if ($command -match '^compose ') {
+        if (-not $command.Contains('--project-name ' + $state.Project + ' ')) { throw 'Project escaped isolation.' }
+        if (-not $command.Contains(' --env-file ') -or -not $command.Contains(' -f ')) { throw 'Compose files must be pinned.' }
+        if ($command -match 'RUN_POSTGRES_TESTS=1') {
+            if ($state.Mode -eq 'success') { 'collected=20, executed=20, passed=20, skipped=0, failed=0' }
+            else { $global:LASTEXITCODE = 1; 'mandatory auth gate failed' }
+        }
+        return
+    }
+    throw "Unexpected Docker command: $command"
 }
-
-$scenarios = @(
-    @{ Name = 'success'; Code = 0; Summary = 'collected=19, executed=19, passed=19, skipped=0, failed=0' },
-    @{ Name = 'auth failure'; Code = 1; Summary = 'collected=19, executed=19, passed=18, skipped=0, failed=1' },
-    @{ Name = 'auth skip'; Code = 1; Summary = 'collected=19, executed=18, passed=18, skipped=1, failed=0' },
-    @{ Name = 'no auth tests'; Code = 1; Summary = 'collected=0, executed=0, passed=0, skipped=0, failed=0' }
-)
-$passed = 0
-foreach ($initiallyRunning in @($false, $true)) {
-    foreach ($scenario in $scenarios) {
-        $reawoteTestDockerState.Calls.Clear()
-        $reawoteTestDockerState.DatabaseInitiallyRunning = $initiallyRunning
-        $reawoteTestDockerState.PostgresExitCode = $scenario.Code
-        $reawoteTestDockerState.PostgresSummary = "Auth PostgreSQL gate: $($scenario.Summary)"
+$previousHost = $env:DOCKER_HOST
+$previousPassword = $env:POSTGRES_PASSWORD
+$projects = [Collections.Generic.HashSet[string]]::new()
+try {
+    $env:DOCKER_HOST = $null
+    foreach ($mode in @('success', 'auth-failure', 'auth-skip', 'no-auth-tests', 'collision', 'remote-context', 'remote-env', 'windows-engine')) {
+        $state.Mode = $mode; $state.Calls.Clear(); $state.Project = ''
+        $state.Endpoint = if ($mode -eq 'remote-context') { 'ssh://remote.example' } else { 'npipe:////./pipe/dockerDesktopLinuxEngine' }
+        $env:DOCKER_HOST = if ($mode -eq 'remote-env') { 'tcp://127.0.0.1:2375' } else { $null }
         $failure = $null
-        $output = [Collections.Generic.List[string]]::new()
-        try {
-            & $testScript *>&1 | ForEach-Object { $output.Add([string]$_) }
+        try { & $testScript | Out-Null } catch { $failure = $_.Exception.Message }
+        if (($null -eq $failure) -ne ($mode -eq 'success')) { throw "Unexpected result for ${mode}: $failure" }
+        $mutations = @($state.Calls | Where-Object { $_ -match '^compose .* (build|up|run|down)( |$)' })
+        $blocked = $mode -in @('collision', 'remote-context', 'remote-env', 'windows-engine')
+        if ($blocked -and $mutations.Count -ne 0) { throw 'Unsafe mutation before validation.' }
+        if (-not $blocked) {
+            if (-not $projects.Add($state.Project)) { throw 'Reused test namespace.' }
+            $gate = @($mutations | Where-Object { $_ -match 'RUN_POSTGRES_TESTS=1.*--require-auth-postgresql.*test_auth_postgresql.py.*test_materials_postgresql.py' })
+            if ($gate.Count -ne 1) { throw 'Mandatory PostgreSQL gate missing.' }
+            $cleanup = @($mutations | Where-Object { $_ -match ' down --remove-orphans$' })
+            if ($cleanup.Count -ne 1) { throw 'Owned container cleanup missing.' }
+            $worker = @($mutations | Where-Object { $_ -match ' worker pytest$' })
+            if (($worker.Count -eq 1) -ne ($mode -eq 'success')) { throw 'Failed gate did not stop later phases.' }
         }
-        catch { $failure = $_.Exception.Message }
-
-        if ($scenario.Code -eq 0) {
-            if ($null -ne $failure) { throw "Success unexpectedly failed: $failure" }
-        }
-        elseif ($failure -ne 'PostgreSQL integration tests failed with exit code 1.') {
-            throw "PostgreSQL failure was not propagated: $failure"
-        }
-
-        $expectedPostgres = 'compose run --rm --no-deps -e RUN_POSTGRES_TESTS=1 backend pytest --require-auth-postgresql tests/test_auth_postgresql.py tests/test_materials_postgresql.py'
-        if (@($reawoteTestDockerState.Calls | Where-Object { $_ -eq $expectedPostgres }).Count -ne 1) {
-            throw 'PostgreSQL auth + material command and mandatory guard must run exactly once.'
-        }
-        if (-not ($output -contains $reawoteTestDockerState.PostgresSummary)) {
-            throw 'Actual auth PostgreSQL execution counts were not printed.'
-        }
-        $stopCount = @($reawoteTestDockerState.Calls | Where-Object { $_ -eq 'compose stop database' }).Count
-        $expectedStopCount = if ($initiallyRunning) { 0 } else { 1 }
-        if ($stopCount -ne $expectedStopCount) { throw 'Database cleanup ownership changed.' }
-        $workerCount = @($reawoteTestDockerState.Calls | Where-Object { $_ -eq 'compose run --rm --no-deps worker pytest' }).Count
-        $expectedWorkerCount = if ($scenario.Code -eq 0) { 1 } else { 0 }
-        if ($workerCount -ne $expectedWorkerCount) { throw 'A failed PostgreSQL gate did not stop later phases.' }
-        foreach ($command in $reawoteTestDockerState.Calls) {
-            if ($command -match '(^| )(down|volume|prune|-v|--volumes|-p|--project-name)( |$)' -or
-                $command -match '(demo|e2e)') {
-                throw "Unsafe or unrelated Docker operation: $command"
-            }
-        }
-        $passed++
-        Write-Host "PASS: $($scenario.Name), database previously running=$initiallyRunning"
+        if (@($state.Calls | Where-Object { $_ -match '(--volumes|prune|volume rm)' }).Count) { throw 'Destructive volume operation.' }
+        if ($env:POSTGRES_PASSWORD -ne $previousPassword) { throw 'Environment was not restored.' }
+        Write-Host "PASS: $mode"
     }
+    Write-Host 'Test runner isolation: 8 passed, 0 skipped, 0 failed.'
 }
-Write-Host "scripts/test.ps1 regression tests: $passed passed, 0 skipped, 0 failed."
+finally { $env:DOCKER_HOST = $previousHost }

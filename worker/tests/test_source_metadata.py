@@ -10,7 +10,7 @@ import pytest
 
 from app.preflight import ZipPolicy, preflight_material
 from app.secure_filesystem import secure_filesystem_access_supported
-from app.source_metadata import normalize_hex, parse_source_metadata
+from app.source_metadata import normalize_hex, parse_source_metadata, parse_source_metadata_bytes
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "source_metadata_minimal.txt"
@@ -81,16 +81,42 @@ def test_nonpositive_dimensions_keep_available_value(tmp_path, width, height):
 
 
 def test_exact_decimal_dimensions_and_serialization(tmp_path):
-    raw = b"texture size: 0.10000000000000000001x2.500 cm\r\n"
+    raw = b"texture size: 0.1001x2.500 cm\r\n"
     result = inspect(material(tmp_path, raw))
     assert isinstance(result.width_cm, Decimal)
-    assert result.width_cm == Decimal("0.10000000000000000001")
+    assert result.width_cm == Decimal("0.1001")
     assert result.height_cm == Decimal("2.500")
     payload = json.loads(json.dumps(result.to_dict()))
-    assert payload["width_cm"] == "0.10000000000000000001"
+    assert payload["width_cm"] == "0.1001"
     assert payload["height_cm"] == "2.500"
     assert result.sha256 == hashlib.sha256(raw).hexdigest()
     assert result.sha256 != hashlib.sha256(raw.strip()).hexdigest()
+
+
+@pytest.mark.parametrize("value,accepted", [
+    ("99999999.9999", True), ("0.0001", True), ("1.230000", True),
+    ("1.23456", False), ("100000000", False), ("0.00001", False),
+    ("0.10000000000000000001", False),
+])
+@pytest.mark.parametrize("format", ["text", "json"])
+def test_dimensions_obey_database_contract_without_rounding(value, accepted, format):
+    raw = (f'texture size: {value}x2 cm' if format == "text" else
+           '{"COLOR":{"hex":"#AABBCC"},"TEXTURE_SIZE":{"cm":{"width":' + value + ',"height":2}}}').encode()
+    result = parse_source_metadata_bytes(raw)
+    assert result.width_cm == (Decimal(value) if accepted else None)
+    assert result.height_cm == Decimal("2")
+    assert result.can_continue and not result.errors
+    assert result.sha256 == hashlib.sha256(raw).hexdigest()
+    assert result.raw_content == raw.decode()
+    assert ("SOURCE_METADATA_DIMENSION_UNSUPPORTED" in codes(result)) is not accepted
+
+
+@pytest.mark.parametrize("value", ["1e999999999", "1e-999999999"])
+def test_extreme_json_exponents_warn_without_decimal_exceptions(value):
+    raw = ('{"TEXTURE_SIZE":{"cm":{"width":' + value + ',"height":2}}}').encode()
+    result = parse_source_metadata_bytes(raw)
+    assert result.width_cm is None and result.height_cm == Decimal("2")
+    assert result.can_continue
 
 
 @pytest.mark.parametrize("value,expected", [("aBc123", "#ABC123"), ("#00ff00", "#00FF00")])
@@ -234,8 +260,14 @@ def test_no_master_still_reads_and_hashes_metadata(tmp_path):
 def test_json_precision_and_no_random_hex(tmp_path):
     raw = b'{"note":"#AABBCC","TEXTURE_SIZE":{"cm":{"width":0.10000000000000000001,"height":2.50}}}'
     result = inspect(material(tmp_path, raw))
-    assert result.width_cm == Decimal("0.10000000000000000001")
-    assert result.hex_color is None and codes(result) == {"HEX_COLOR_MISSING"}
+    assert result.width_cm is None
+    assert "SOURCE_METADATA_DIMENSION_UNSUPPORTED" in codes(result)
+    assert result.hex_color is None and codes(result) == {
+        "HEX_COLOR_MISSING", "SOURCE_METADATA_DIMENSION_UNSUPPORTED",
+    }
+    assert result.height_cm == Decimal("2.50")
+    assert result.sha256 == hashlib.sha256(raw).hexdigest()
+    assert result.raw_content == raw.decode()
 
 
 @pytest.mark.parametrize("raw", [b'{"COLOR":{},"COLOR":{}}', b'{"COLOR":{"hex":NaN}}',

@@ -207,6 +207,9 @@ def build_material_operations_router(
         payload: MaterialFolderRequest,
     ) -> MaterialFolderLinkRead:
         expected = _get_material_revision(database, material_id)
+        if (expected.workflow_status == MaterialWorkflowStatus.DONE.value
+                and expected.folder_path != payload.folder_path):
+            raise HTTPException(status_code=409, detail="Reopen the DONE material before changing its folder.")
         preflight = _call_worker(worker_client, payload.folder_path)
         _require_matching_identity(preflight, expected.technical_identity)
         _require_safe_preflight(preflight, expected.technical_identity)

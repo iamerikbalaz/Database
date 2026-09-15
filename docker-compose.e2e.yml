@@ -1,4 +1,4 @@
-name: reawote-e2e
+name: ${E2E_PROJECT_NAME:-reawote-e2e}
 
 services:
   database:
@@ -36,4 +36,4 @@ services:
 
 volumes:
   postgres_data:
-    name: reawote-e2e-postgres-data
+    name: ${E2E_PROJECT_NAME:-reawote-e2e}-postgres-data

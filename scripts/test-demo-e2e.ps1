@@ -3,8 +3,11 @@ Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot 'demo-e2e-helpers.ps1')
 
-$projectName = 'reawote-e2e'
-$databaseVolumeName = 'reawote-e2e-postgres-data'
+$projectName = if ($env:E2E_PROJECT_NAME) { $env:E2E_PROJECT_NAME } else { 'reawote-e2e' }
+if ($projectName -cnotmatch '^reawote-e2e(?:-[a-z0-9][a-z0-9-]{0,40})?$') {
+    throw 'E2E_PROJECT_NAME must be reawote-e2e or reawote-e2e- followed by a lowercase local test identifier.'
+}
+$databaseVolumeName = "$projectName-postgres-data"
 $databaseName = 'reawote_e2e'
 $databaseUser = 'reawote_e2e'
 
@@ -308,7 +311,6 @@ try {
     }
     Assert-NodeVersion
     $mutex = Enter-E2eRunMutex
-    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'Docker CLI is required. Start Docker Desktop in Linux containers mode.' }
     [void](Assert-LocalDockerContext)
     $script:DockerContextVerified = $true
     $dataManagedRoot = Join-Path $repositoryRoot '.e2e-data\runs'
@@ -323,7 +325,7 @@ try {
     $backendPort, $frontendPort, $workerPort = $selectedPorts[0], $selectedPorts[1], $selectedPorts[2]
     $backendUrl, $frontendUrl = "http://127.0.0.1:$backendPort", "http://127.0.0.1:$frontendPort"
     $postgresPassword = [guid]::NewGuid().ToString('N')
-    $env:BACKEND_PORT = "127.0.0.1:$backendPort"; $env:FRONTEND_PORT = "127.0.0.1:$frontendPort"
+    $env:BACKEND_PORT = [string]$backendPort; $env:FRONTEND_PORT = [string]$frontendPort
     $env:POSTGRES_DB = $databaseName; $env:POSTGRES_USER = $databaseUser; $env:POSTGRES_PASSWORD = $postgresPassword
     $env:COMPOSE_PROJECT_NAME = $projectName; $env:E2E_FRONTEND_PORT = [string]$frontendPort
     $env:E2E_MATERIALS_ROOT = $script:E2eMaterialsRoot; $env:E2E_WORKER_PORT = [string]$workerPort
@@ -404,7 +406,7 @@ finally {
         try { Remove-E2eManagedRunDirectory $repositoryRoot $artifactManagedRoot $runGuid $artifactRoot }
         catch { $cleanupErrors.Add("Successful-run artifact cleanup (manual review path '$artifactRoot'): $($_.Exception.Message)") }
     }
-    foreach ($name in $environmentNames) { [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], 'Process') }
+    Restore-ProcessEnvironment $previousEnvironment
     if ($null -ne $mutex) {
         try { Exit-E2eRunMutex $mutex }
         catch { $cleanupErrors.Add("Mutex release: $($_.Exception.Message)") }

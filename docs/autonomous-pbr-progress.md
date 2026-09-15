@@ -1,0 +1,113 @@
+# Autonomous PBR completion
+
+## Workspace and authority
+
+- User authorized implementation, new migrations, isolated test resources,
+  commits, own remote branches and a draft PR on 2026-09-15.
+- Integration branch: `codex/autonomous-pbr-completion`.
+- Dedicated worktree: `C:\Database\Database\tmp\autonomous-pbr-completion`.
+- Starting commit: `88a1f99d748d2a0edbb1fce509e13d18bfc03908`, verified against
+  GitHub. The original main checkout remains untouched.
+- Do not inspect or reuse `feature/auth-ui`. Do not modify production NAS,
+  backups, existing databases/volumes, main or live Notion/GCS data.
+
+## Environment, 2026-09-15
+
+The actual host has `C:\Database\Database`. Neither `C:\Databaze\Database`
+nor the supplied `C:\REAWOTE-Backups\REAWOTE_2026-09-15_10-13-36` path is
+available here. No backup content has been changed or restored by this task.
+
+Docker Desktop is installed per user at
+`%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin\docker.exe`, outside
+the agent PATH. Docker CLI/Engine 29.7.2 and Desktop 4.88.1 work with the
+`desktop-linux` context and local endpoint
+`npipe:////./pipe/dockerDesktopLinuxEngine`. DOCKER_HOST, DOCKER_CONTEXT,
+DOCKER_CONFIG, DOCKER_TLS_VERIFY and DOCKER_CERT_PATH were unset.
+
+Protected runtime: `reawote`, `reawote-demo`, their volumes and existing
+`reawote-e2e-postgres-data`. No task tests may reuse these resources or any
+restore-test resources. Initial task baseline project is
+`reawote-auto-baseline-01a0a64d`, with its own newly created volume.
+
+## Baseline before changes
+
+Read-only audit on Windows / Python 3.13.15:
+
+- Backend: 438 passed; PostgreSQL: 68 skipped (20 auth, 48 materials).
+- Worker: 71 passed, 58 POSIX tests skipped.
+- Frontend: 178 passed; lint, TypeScript and production build passed.
+- Orchestration mock: 8 passed; E2E helper checks: 46 passed;
+  demo helper checks: 24 passed; direct-invocation guard passed.
+- Full Docker baseline passed: backend 438, PostgreSQL 68 (including all 20
+  mandatory auth tests), Linux worker 129, frontend 178; lint and build passed.
+  No tests skipped. Own baseline database was stopped; its volume is retained.
+- Backup restoration evidence from the user is not an application test.
+
+## Confirmed defects to resolve
+
+1. Ordinary Compose ports are not loopback-only by default.
+2. Docker discovery/local endpoint validation is inconsistent between runners.
+3. Worker accepts dimensions beyond backend/database precision and range,
+   converting nonblocking metadata into a 503 on Done.
+4. A DONE material can be relinked while retaining the old metadata snapshot.
+5. Resource API is public, including user role changes. Forced password change
+   and domain RBAC are not enforced. The frontend has no authentication UI.
+
+## Product assumptions
+
+- Retain the current technical identity, metadata.txt and ZIP boundary rules.
+- Use least privilege where role permissions are unspecified; document the
+  concrete matrix before enabling the corresponding endpoints.
+- Unsupported metadata values should be omitted with a warning, without
+  inventing precision or making metadata alone block Done.
+- A different folder for DONE requires an explicit reopen workflow.
+- Existing migrations are immutable; all schema additions use new revisions.
+
+## Completed slice: local test isolation and material audit fixes
+
+- Shared Docker discovery and local Linux endpoint validation for test/demo/E2E
+  scripts; ordinary Compose ports bind only to 127.0.0.1.
+- Full test runner always allocates a new `reawote-test-<GUID>` project, refuses
+  collisions and pins its Compose/env files. Cleanup removes only that project's
+  containers/network and retains its exact named volume.
+- E2E can use `E2E_PROJECT_NAME=reawote-e2e-auto-01a0a64d`; it retains all prior
+  ownership/mount/path guards. Do not use the protected default E2E volume here.
+- Metadata dimensions outside positive Numeric(12,4) are omitted with warnings;
+  raw bytes/hash and other valid fields are preserved, with no rounding.
+- DONE rejects a different folder before calling the worker. Same-folder
+  revalidation is idempotent and retains the snapshot.
+- Verification: orchestration 8, E2E helpers 46, demo helpers 24 passed. Docker
+  backend 439 and PostgreSQL 68 passed (auth gate 20/20, no skips). Linux worker
+  145 passed after correcting two prior arbitrary-precision expectations.
+  Frontend remains unchanged from its passing baseline; the stopped full run
+  did not reach its frontend phase after the initial worker test failure.
+- No schema changes in this slice. Revert the slice commit to roll back code;
+  no original/demo/restore volumes were changed.
+
+## In progress
+
+Server application authorization and account provisioning/reset, documented in
+`docs/authorization.md`. The full auth/RBAC implementation and tests are not yet
+complete; do not treat the intermediate working tree as deployable.
+
+## Remaining sequence
+
+1. Baseline verification; safe isolated runners and local runtime checks.
+2. Fix the four concrete environment/material defects above.
+3. Server auth, role/assignment authorization, account provisioning/reset.
+4. New session/login/logout/password UI and real authentication E2E.
+5. Workflow, review/approval, reopen, inventory and invalidation.
+6. Controlled identity/filesystem operations; categories/collections/import.
+7. Gallery/comparison; publication, CSV and packaging.
+8. Configurable GCS/Notion adapters, contracts, audit/soft-delete/restore docs.
+
+Live external verification is blocked until separately authorized access and
+test targets are supplied. Implementations must never simulate successful live
+operations. 3D models and HDRI remain out of scope.
+
+## Resume
+
+Use this worktree and branch, inspect status and the latest commits, then
+continue the unfinished step. Run tools from this worktree, never migrate or
+reset the protected original database instances. Update this checkpoint with
+each completed slice, actual tests and remaining limitations.

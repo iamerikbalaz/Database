@@ -89,8 +89,12 @@ Kompletní kontrolu v kontejnerech spustíte na Windows:
 .\scripts\test.ps1
 ```
 
-Skript ověří výslednou Compose konfiguraci, sestaví obrazy a spustí testy
-backendu, workeru a frontendu. Jednotlivé kontroly lze spustit také ručně:
+Skript ověří lokální Linux Docker, vytvoří nový projekt `reawote-test-<GUID>`,
+sestaví obrazy a spustí testy backendu, skutečného PostgreSQL, workeru a frontendu.
+Běžnou ani demo databázi nepoužívá. Po běhu odstraní své kontejnery a síť;
+vlastní testovací volume ponechá a vypíše jeho přesný název. Porty aplikace
+jsou v základním Compose vázané na `127.0.0.1`; proměnné portů obsahují pouze čísla.
+Jednotlivé kontroly lze spustit také ručně proti vlastní testovací konfiguraci:
 
 ```powershell
 docker compose config --quiet

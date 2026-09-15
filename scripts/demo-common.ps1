@@ -1,4 +1,5 @@
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'docker-local.ps1')
 
 $script:DemoProjectName = "reawote-demo"
 $script:DemoDatabaseVolumeName = "reawote-demo-postgres-data"
@@ -246,9 +247,7 @@ function Write-SafeDemoTextFile {
 }
 
 function Assert-DockerAvailable {
-    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-        throw "Docker CLI is required. Start Docker Desktop and ensure 'docker' is available in PATH."
-    }
+    [void](Assert-LocalDockerContext)
 }
 
 function Get-DemoEnvironmentRawValue {
@@ -341,10 +340,10 @@ function Set-DemoComposePortEnvironment {
         $previous[$name] = [System.Environment]::GetEnvironmentVariable($name, "Process")
     }
     [System.Environment]::SetEnvironmentVariable(
-        "BACKEND_PORT", "127.0.0.1:$($Ports.Backend)", "Process"
+        "BACKEND_PORT", [string]$Ports.Backend, "Process"
     )
     [System.Environment]::SetEnvironmentVariable(
-        "FRONTEND_PORT", "127.0.0.1:$($Ports.Frontend)", "Process"
+        "FRONTEND_PORT", [string]$Ports.Frontend, "Process"
     )
     [System.Environment]::SetEnvironmentVariable(
         "WORKER_PORT", [string]$Ports.Worker, "Process"
@@ -355,9 +354,7 @@ function Set-DemoComposePortEnvironment {
 function Restore-DemoComposePortEnvironment {
     param([Parameter(Mandatory)] [hashtable] $Previous)
 
-    foreach ($name in @("BACKEND_PORT", "FRONTEND_PORT", "WORKER_PORT")) {
-        [System.Environment]::SetEnvironmentVariable($name, $Previous[$name], "Process")
-    }
+    Restore-ProcessEnvironment $Previous
 }
 
 function Invoke-DemoCompose {
@@ -371,6 +368,7 @@ function Invoke-DemoCompose {
     $previous = Set-DemoComposePortEnvironment -Ports $Ports
     $exitCode = 1
     try {
+        [void](Assert-LocalDockerContext)
         & docker compose `
             --project-name $Context.ProjectName `
             --env-file $Context.EnvFile `
@@ -398,6 +396,7 @@ function Invoke-DemoBaseCompose {
     $previous = Set-DemoComposePortEnvironment -Ports $Ports
     $exitCode = 1
     try {
+        [void](Assert-LocalDockerContext)
         & docker compose `
             --project-name $Context.ProjectName `
             --env-file $Context.EnvFile `

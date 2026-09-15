@@ -1,5 +1,6 @@
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'docker-local.ps1')
 
 function ConvertTo-E2eCanonicalPath {
     param([Parameter(Mandatory)] [string] $Path)
@@ -518,46 +519,10 @@ function Assert-E2eRuntimeDatabaseVolume {
     return $mountName
 }
 
+# Keep the public helper name used by existing safety tests.
 function Test-E2eLocalDockerEndpoint {
-    param(
-        [Parameter(Mandatory)] [string] $Endpoint,
-        [Parameter(Mandatory)] [bool] $WindowsHost
-    )
-
-    if ($WindowsHost) {
-        return $Endpoint -match '^npipe:////\./pipe/[A-Za-z0-9._-]+$'
-    }
-    return $Endpoint -match '^unix:///[^\r\n]+$'
-}
-
-function Assert-LocalDockerContext {
-    $isWindows = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
-    $dockerHost = [System.Environment]::GetEnvironmentVariable('DOCKER_HOST', 'Process')
-    if (-not [string]::IsNullOrWhiteSpace($dockerHost) -and
-        -not (Test-E2eLocalDockerEndpoint -Endpoint $dockerHost -WindowsHost $isWindows)) {
-        throw "DOCKER_HOST must be unset or point to a local named pipe/Unix socket; remote tcp:// and ssh:// endpoints are forbidden."
-    }
-
-    $contextName = (& docker context show) -join ''
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($contextName)) {
-        throw "Could not determine the active Docker context."
-    }
-    $contextName = $contextName.Trim()
-    $contextJson = (& docker context inspect $contextName) -join [System.Environment]::NewLine
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not inspect the active Docker context."
-    }
-    $context = @($contextJson | ConvertFrom-Json -ErrorAction Stop)
-    if ($context.Count -ne 1) {
-        throw "Docker returned an unexpected context inspection result."
-    }
-    $endpoint = [string]$context[0].Endpoints.docker.Host
-    if (-not (Test-E2eLocalDockerEndpoint -Endpoint $endpoint -WindowsHost $isWindows)) {
-        throw "Active Docker context is remote; only a local named pipe/Unix socket is allowed."
-    }
-    $safeName = if ($contextName -match '^[A-Za-z0-9_.-]+$') { $contextName } else { '<non-printable-name>' }
-    Write-Host "Using verified local Docker context '$safeName'."
-    return $contextName
+    param([Parameter(Mandatory)] [string] $Endpoint, [Parameter(Mandatory)] [bool] $WindowsHost)
+    return Test-LocalDockerEndpoint $Endpoint $WindowsHost
 }
 
 function Enter-E2eRunMutex {

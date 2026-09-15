@@ -564,6 +564,28 @@ def test_worker_timeout_does_not_change_database(
         assert count == 0
 
 
+def test_done_folder_change_requires_reopen_and_preserves_snapshot(operation_client):
+    client, _, worker = operation_client
+    material = _create_material(client)
+    assert _link(client, worker, material).status_code == 200
+    identity = str(material["technical_identity"])
+    worker.queue(_preflight(identity))
+    done = client.post(f"/api/materials/{material['id']}/mark-done").json()
+    calls = list(worker.calls)
+    response = client.post(f"/api/materials/{material['id']}/folder-link",
+                           json={"folder_path": f"other-library/{identity}"})
+    assert response.status_code == 409
+    assert worker.calls == calls
+    assert client.get(f"/api/materials/{material['id']}").json() == done["material"]
+    assert client.get(f"/api/materials/{material['id']}/metadata").json() == done["metadata"]
+    # Rechecking the same folder is idempotent and does not create snapshots.
+    worker.queue(_preflight(identity))
+    repeated = client.post(f"/api/materials/{material['id']}/folder-link",
+                           json={"folder_path": done["material"]["folder_path"]})
+    assert repeated.status_code == 200
+    assert client.get(f"/api/materials/{material['id']}/metadata/snapshots").json() == [done["snapshot"]]
+
+
 def test_oversized_worker_response_during_mark_done_does_not_change_database(
     operation_client: tuple[TestClient, Database, StubWorker],
     monkeypatch: pytest.MonkeyPatch,

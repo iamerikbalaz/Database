@@ -56,6 +56,22 @@ def normalize_hex(value: str) -> str:
     return "#" + value.removeprefix("#").upper()
 
 
+def dimension_fits_storage(value: Decimal) -> bool:
+    """Exact positive Numeric(12, 4), without rounding or decimal-context limits."""
+    if not value.is_finite() or value <= 0 or value >= Decimal("100000000"):
+        return False
+    # Count significant fractional digits without normalize()/quantize(), which
+    # can round under the active Decimal context or reject extreme exponents.
+    digits = value.as_tuple().digits
+    exponent = value.as_tuple().exponent
+    trailing = 0
+    for digit in reversed(digits):
+        if digit != 0:
+            break
+        trailing += 1
+    return exponent + trailing >= -4
+
+
 def parse_source_metadata_bytes(
     raw: bytes | None,
     *,
@@ -76,6 +92,13 @@ def parse_source_metadata_bytes(
     )
     def warn(code: str, message: str) -> None:
         result.warnings.append(Finding(code, result.source_filename, message))
+
+    def assign_dimension(name: str, value: Decimal) -> None:
+        if dimension_fits_storage(value):
+            setattr(result, name, value)
+        else:
+            warn("SOURCE_METADATA_DIMENSION_UNSUPPORTED",
+                 name + " must fit 8 integer and 4 fractional digits; value omitted without rounding")
 
     def stop(status: str, message: str) -> SourceMetadataResult:
         result.status = "MISSING" if status == "MISSING" else "INVALID"
@@ -119,7 +142,7 @@ def parse_source_metadata_bytes(
         for name in ("width", "height"):
             value = cm.get(name) if isinstance(cm, dict) else None
             if isinstance(value, Decimal) and value.is_finite() and value > 0:
-                setattr(result, name + "_cm", value)
+                assign_dimension(name + "_cm", value)
             else:
                 warn("SOURCE_METADATA_INVALID_DIMENSION", "TEXTURE_SIZE.cm." + name + " must be a positive JSON number")
         result.status = "WARNING" if result.warnings else "VALID"
@@ -143,7 +166,7 @@ def parse_source_metadata_bytes(
         if value <= 0:
             warn("SOURCE_METADATA_INVALID_DIMENSION", name + " must be greater than zero")
         else:
-            setattr(result, name, value)
+            assign_dimension(name, value)
     if len(lines) != 1:
         warn("SOURCE_METADATA_UNRECOGNIZED_CONTENT",
              "Additional source lines are unsupported; no values inferred from them")

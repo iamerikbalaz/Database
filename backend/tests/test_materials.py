@@ -10,7 +10,7 @@ from app.core.config import Settings
 from app.db.base import Base
 from app.db.models import InternalUser, PBRMaterial, PublishedBrand
 from app.db.session import Database
-from app.main import create_app
+from domain_support import create_domain_app as create_app
 
 
 DEFAULT_PROCESSOR_ID = UUID("00000000-0000-0000-0000-000000000001")

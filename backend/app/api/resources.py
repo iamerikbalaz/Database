@@ -8,6 +8,9 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.auth.access import AccessDependency, ADMIN, CATALOG_MANAGERS, MATERIAL_EDITORS
+from app.auth.service import database_now, lock_user_credential, revoke_all_user_sessions
+
 from app.db.models import (
     Company,
     InternalUser,
@@ -74,6 +77,8 @@ def _require_active_internal_user(session: Session, user_id: UUID) -> InternalUs
             status_code=status.HTTP_409_CONFLICT,
             detail="Internal user is inactive.",
         )
+    if user.role != "PROCESSOR":
+        raise HTTPException(409, "Assigned user must have the PROCESSOR role.")
     return user
 
 
@@ -132,8 +137,9 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
     router = APIRouter(prefix="/api")
 
     @router.get("/companies", response_model=list[CompanyRead], tags=["companies"])
-    def list_companies(filters: Annotated[CompanyListFilters, Query()]) -> list[Company]:
+    def list_companies(filters: Annotated[CompanyListFilters, Query()], access: AccessDependency) -> list[Company]:
         with database.session() as session:
+            access.check(session)
             statement = select(Company)
             if filters.search is not None:
                 statement = statement.where(Company.name.icontains(filters.search, autoescape=True))
@@ -147,8 +153,9 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         status_code=status.HTTP_201_CREATED,
         tags=["companies"],
     )
-    def create_company(payload: CompanyCreate) -> Company:
+    def create_company(payload: CompanyCreate, access: AccessDependency) -> Company:
         with database.session() as session:
+            access.check(session, CATALOG_MANAGERS)
             if payload.notion_page_id is not None:
                 _ensure_unique(
                     session,
@@ -162,13 +169,15 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             return _commit(session, company)
 
     @router.get("/companies/{company_id}", response_model=CompanyRead, tags=["companies"])
-    def get_company(company_id: UUID) -> Company:
+    def get_company(company_id: UUID, access: AccessDependency) -> Company:
         with database.session() as session:
+            access.check(session)
             return _get_or_404(session, Company, company_id, "Company")
 
     @router.patch("/companies/{company_id}", response_model=CompanyRead, tags=["companies"])
-    def update_company(company_id: UUID, payload: CompanyUpdate) -> Company:
+    def update_company(company_id: UUID, payload: CompanyUpdate, access: AccessDependency) -> Company:
         with database.session() as session:
+            access.check(session, CATALOG_MANAGERS)
             company = _get_or_404(session, Company, company_id, "Company")
             values = _values(payload, exclude_unset=True)
             if values.get("notion_page_id") is not None:
@@ -185,9 +194,9 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
 
     @router.get("/brands", response_model=list[PublishedBrandRead], tags=["brands"])
     def list_brands(
-        filters: Annotated[PublishedBrandListFilters, Query()],
-    ) -> list[PublishedBrand]:
+        filters: Annotated[PublishedBrandListFilters, Query()], access: AccessDependency) -> list[PublishedBrand]:
         with database.session() as session:
+            access.check(session)
             statement = select(PublishedBrand)
             if filters.company_id is not None:
                 statement = statement.where(PublishedBrand.company_id == filters.company_id)
@@ -213,8 +222,9 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         status_code=status.HTTP_201_CREATED,
         tags=["brands"],
     )
-    def create_brand(payload: PublishedBrandCreate) -> PublishedBrand:
+    def create_brand(payload: PublishedBrandCreate, access: AccessDependency) -> PublishedBrand:
         with database.session() as session:
+            access.check(session, CATALOG_MANAGERS)
             _require_company(session, payload.company_id)
             _ensure_unique(
                 session,
@@ -235,13 +245,15 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             return _commit(session, brand)
 
     @router.get("/brands/{brand_id}", response_model=PublishedBrandRead, tags=["brands"])
-    def get_brand(brand_id: UUID) -> PublishedBrand:
+    def get_brand(brand_id: UUID, access: AccessDependency) -> PublishedBrand:
         with database.session() as session:
+            access.check(session)
             return _get_or_404(session, PublishedBrand, brand_id, "Published brand")
 
     @router.patch("/brands/{brand_id}", response_model=PublishedBrandRead, tags=["brands"])
-    def update_brand(brand_id: UUID, payload: PublishedBrandUpdate) -> PublishedBrand:
+    def update_brand(brand_id: UUID, payload: PublishedBrandUpdate, access: AccessDependency) -> PublishedBrand:
         with database.session() as session:
+            access.check(session, CATALOG_MANAGERS)
             values = _values(payload, exclude_unset=True)
             if "folder_prefix" in values:
                 brand = session.scalar(
@@ -286,8 +298,9 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             return _commit(session, brand)
 
     @router.get("/projects", response_model=list[ProjectRead], tags=["projects"])
-    def list_projects(filters: Annotated[ProjectListFilters, Query()]) -> list[Project]:
+    def list_projects(filters: Annotated[ProjectListFilters, Query()], access: AccessDependency) -> list[Project]:
         with database.session() as session:
+            access.check(session)
             statement = select(Project)
             if filters.company_id is not None:
                 statement = statement.where(Project.company_id == filters.company_id)
@@ -308,8 +321,9 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         status_code=status.HTTP_201_CREATED,
         tags=["projects"],
     )
-    def create_project(payload: ProjectCreate) -> Project:
+    def create_project(payload: ProjectCreate, access: AccessDependency) -> Project:
         with database.session() as session:
+            access.check(session, CATALOG_MANAGERS)
             _require_company(session, payload.company_id)
             _ensure_unique(
                 session,
@@ -323,13 +337,15 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             return _commit(session, project)
 
     @router.get("/projects/{project_id}", response_model=ProjectRead, tags=["projects"])
-    def get_project(project_id: UUID) -> Project:
+    def get_project(project_id: UUID, access: AccessDependency) -> Project:
         with database.session() as session:
+            access.check(session)
             return _get_or_404(session, Project, project_id, "Project")
 
     @router.patch("/projects/{project_id}", response_model=ProjectRead, tags=["projects"])
-    def update_project(project_id: UUID, payload: ProjectUpdate) -> Project:
+    def update_project(project_id: UUID, payload: ProjectUpdate, access: AccessDependency) -> Project:
         with database.session() as session:
+            access.check(session, CATALOG_MANAGERS)
             project = _get_or_404(session, Project, project_id, "Project")
             values = _values(payload, exclude_unset=True)
             if "company_id" in values:
@@ -352,10 +368,12 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         tags=["internal-users"],
     )
     def list_internal_users(
-        filters: Annotated[InternalUserListFilters, Query()],
-    ) -> list[InternalUser]:
+        filters: Annotated[InternalUserListFilters, Query()], access: AccessDependency) -> list[InternalUser]:
         with database.session() as session:
+            access.check(session)
             statement = select(InternalUser)
+            if access.user.role == "PROCESSOR":
+                statement = statement.where(InternalUser.id == access.user.id)
             if filters.role is not None:
                 statement = statement.where(InternalUser.role == filters.role)
             if filters.is_active is not None:
@@ -377,8 +395,9 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         status_code=status.HTTP_201_CREATED,
         tags=["internal-users"],
     )
-    def create_internal_user(payload: InternalUserCreate) -> InternalUser:
+    def create_internal_user(payload: InternalUserCreate, access: AccessDependency) -> InternalUser:
         with database.session() as session:
+            access.check(session, ADMIN, exclusive=True)
             _ensure_unique(
                 session,
                 InternalUser,
@@ -395,8 +414,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         response_model=InternalUserRead,
         tags=["internal-users"],
     )
-    def get_internal_user(user_id: UUID) -> InternalUser:
+    def get_internal_user(user_id: UUID, access: AccessDependency) -> InternalUser:
         with database.session() as session:
+            access.check(session)
+            if access.user.role == "PROCESSOR" and user_id != access.user.id:
+                raise HTTPException(404, "Internal user not found.")
             return _get_or_404(session, InternalUser, user_id, "Internal user")
 
     @router.patch(
@@ -404,10 +426,20 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         response_model=InternalUserRead,
         tags=["internal-users"],
     )
-    def update_internal_user(user_id: UUID, payload: InternalUserUpdate) -> InternalUser:
+    def update_internal_user(user_id: UUID, payload: InternalUserUpdate, access: AccessDependency) -> InternalUser:
         with database.session() as session:
+            access.check(session, ADMIN, exclusive=True)
+            lock_user_credential(session, user_id)
             user = _get_or_404(session, InternalUser, user_id, "Internal user")
             values = _values(payload, exclude_unset=True)
+            if user.id == access.user.id and any(
+                field in values and values[field] != getattr(user, field)
+                for field in ("role", "is_active")
+            ):
+                raise HTTPException(409, "Use another administrator to change your own role or active state.")
+            if any(field in values and values[field] != getattr(user, field)
+                   for field in ("email", "role", "is_active")):
+                revoke_all_user_sessions(session, user.id, database_now(session))
             if "email" in values:
                 _ensure_unique(
                     session,
@@ -422,10 +454,12 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
 
     @router.get("/materials", response_model=list[PBRMaterialRead], tags=["materials"])
     def list_materials(
-        filters: Annotated[PBRMaterialListFilters, Query()],
-    ) -> list[PBRMaterial]:
+        filters: Annotated[PBRMaterialListFilters, Query()], access: AccessDependency) -> list[PBRMaterial]:
         with database.session() as session:
+            access.check(session)
             statement = select(PBRMaterial)
+            if access.user.role == "PROCESSOR":
+                statement = statement.where(PBRMaterial.assigned_processor_id == access.user.id)
             for field_name in (
                 "project_id",
                 "published_brand_id",
@@ -459,8 +493,9 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         status_code=status.HTTP_201_CREATED,
         tags=["materials"],
     )
-    def create_material(payload: PBRMaterialCreate) -> PBRMaterial:
+    def create_material(payload: PBRMaterialCreate, access: AccessDependency) -> PBRMaterial:
         with database.session() as session:
+            access.check(session, CATALOG_MANAGERS)
             _get_or_404(session, Project, payload.project_id, "Project")
             _require_active_internal_user(session, payload.assigned_processor_id)
             brand = session.scalar(
@@ -502,18 +537,22 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             return _commit(session, material)
 
     @router.get("/materials/{material_id}", response_model=PBRMaterialRead, tags=["materials"])
-    def get_material(material_id: UUID) -> PBRMaterial:
+    def get_material(material_id: UUID, access: AccessDependency) -> PBRMaterial:
         with database.session() as session:
-            return _get_or_404(session, PBRMaterial, material_id, "PBR material")
+            access.check(session)
+            material = _get_or_404(session, PBRMaterial, material_id, "PBR material")
+            access.require_material(material)
+            return material
 
     @router.get(
         "/materials/{material_id}/metadata",
         response_model=PBRMaterialMetadataRead,
         tags=["materials"],
     )
-    def get_material_metadata(material_id: UUID) -> PBRMaterialMetadata:
+    def get_material_metadata(material_id: UUID, access: AccessDependency) -> PBRMaterialMetadata:
         with database.session() as session:
-            _get_or_404(session, PBRMaterial, material_id, "PBR material")
+            access.check(session)
+            access.require_material(_get_or_404(session, PBRMaterial, material_id, "PBR material"))
             metadata = session.get(PBRMaterialMetadata, material_id)
             if metadata is None:
                 raise HTTPException(
@@ -528,10 +567,10 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         tags=["materials"],
     )
     def list_material_metadata_snapshots(
-        material_id: UUID,
-    ) -> list[PBRMaterialMetadataSnapshot]:
+        material_id: UUID, access: AccessDependency) -> list[PBRMaterialMetadataSnapshot]:
         with database.session() as session:
-            _get_or_404(session, PBRMaterial, material_id, "PBR material")
+            access.check(session)
+            access.require_material(_get_or_404(session, PBRMaterial, material_id, "PBR material"))
             statement = (
                 select(PBRMaterialMetadataSnapshot)
                 .where(PBRMaterialMetadataSnapshot.material_id == material_id)
@@ -547,8 +586,9 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         response_model=PBRMaterialRead,
         tags=["materials"],
     )
-    def update_material(material_id: UUID, payload: PBRMaterialUpdate) -> PBRMaterial:
+    def update_material(material_id: UUID, payload: PBRMaterialUpdate, access: AccessDependency) -> PBRMaterial:
         with database.session() as session:
+            access.check(session, MATERIAL_EDITORS)
             material = session.scalar(
                 select(PBRMaterial)
                 .where(PBRMaterial.id == material_id)
@@ -559,7 +599,10 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="PBR material not found.",
                 )
+            access.require_material(material)
             values = _values(payload, exclude_unset=True)
+            if access.user.role == "PROCESSOR" and set(values) - {"material_name"}:
+                raise HTTPException(403, "Only a production lead or administrator can change material assignment or identity.")
             if "project_id" in values:
                 _get_or_404(session, Project, values["project_id"], "Project")
             if "assigned_processor_id" in values:

@@ -84,11 +84,34 @@ Read-only audit on Windows / Python 3.13.15:
 - No schema changes in this slice. Revert the slice commit to roll back code;
   no original/demo/restore volumes were changed.
 
+## Completed slice: server authorization and access recovery
+
+- Every resource/material operation requires an active session, completed
+  password change and CSRF + trusted origin for mutations.
+- The role matrix and transaction/lock order are in `docs/authorization.md`.
+  Processors see/work on assigned materials; leads manage production; leadership
+  reads; only administrators manage accounts. Assignments require PROCESSOR.
+- Session, role and assignment are rechecked inside the final write transaction,
+  including after worker calls. Changing identity/role/active flag revokes
+  sessions. A processor cannot inspect another identity through preflight.
+- Admin credential provisioning/reset requires their current password, revokes
+  target sessions and forces a new personal password. Host recovery CLI preserves
+  roles and active flags. Self-demotion/deactivation is refused.
+- Real PostgreSQL tests verify role/active/forced-change/revocation races, login
+  waiting on account disable, actual authenticated concurrent Done and concurrent
+  administrators trying to demote one another.
+- Full isolated Docker run `reawote-test-a5d3d49b0ff649caab0982950b5b2dc4`:
+  backend 459, PostgreSQL 75 (mandatory auth gate 27/27), Linux worker 145,
+  frontend 193 passed; lint/build passed; no skips. Alembic fresh/prior upgrade,
+  current/heads/check remain included in the PostgreSQL suite. Schema head 0006.
+
 ## In progress
 
-Server application authorization and account provisioning/reset, documented in
-`docs/authorization.md`. The full auth/RBAC implementation and tests are not yet
-complete; do not treat the intermediate working tree as deployable.
+New auth UI implements bootstrap/login/logout/forced or voluntary password
+change, memory-only CSRF and stale-response protection. Its 15 new tests pass.
+Actual authenticated E2E and a second pass after restart with retained data are
+being added. Role-aware controls/account administration UI remain to finish.
+Do not treat the intermediate working tree as a completed PBR application.
 
 ## Remaining sequence
 

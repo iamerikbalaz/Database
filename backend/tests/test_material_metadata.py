@@ -17,7 +17,7 @@ from app.db.models import (
     PBRMaterialMetadataSnapshot,
 )
 from app.db.session import Database
-from app.main import create_app
+from domain_support import create_domain_app as create_app
 
 
 PROCESSOR_ID = UUID("00000000-0000-0000-0000-000000000099")

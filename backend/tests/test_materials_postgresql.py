@@ -33,7 +33,7 @@ from app.db.models import (
     UserCredential,
 )
 from app.db.session import Database
-from app.main import create_app
+from domain_support import create_domain_app as create_app
 from app.worker_client import WorkerMaterialPreflight, WorkerMaterialPreflightResponse
 
 

@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.resources import SessionDatabase
+from app.auth.access import AccessDependency, ApplicationAccess, MATERIAL_EDITORS
 from app.db.models import (
     MaterialWorkflowStatus,
     PBRMaterial,
@@ -49,14 +50,17 @@ def _revision(material: PBRMaterial) -> _MaterialRevision:
 def _get_material_revision(
     database: SessionDatabase,
     material_id: UUID,
+    access: ApplicationAccess,
 ) -> _MaterialRevision:
     with database.session() as session:
+        access.check(session, MATERIAL_EDITORS)
         material = session.get(PBRMaterial, material_id)
         if material is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="PBR material not found.",
             )
+        access.require_material(material)
         return _revision(material)
 
 
@@ -191,8 +195,10 @@ def build_material_operations_router(
     def folder_preflight(
         material_id: UUID,
         payload: MaterialFolderRequest,
+        access: AccessDependency,
     ) -> MaterialFolderPreflightRead:
-        expected = _get_material_revision(database, material_id)
+        expected = _get_material_revision(database, material_id, access)
+        access.require_folder(payload.folder_path, expected.technical_identity)
         return _public_preflight(
             _call_worker(worker_client, payload.folder_path),
             expected.technical_identity,
@@ -205,8 +211,10 @@ def build_material_operations_router(
     def folder_link(
         material_id: UUID,
         payload: MaterialFolderRequest,
+        access: AccessDependency,
     ) -> MaterialFolderLinkRead:
-        expected = _get_material_revision(database, material_id)
+        expected = _get_material_revision(database, material_id, access)
+        access.require_folder(payload.folder_path, expected.technical_identity)
         if (expected.workflow_status == MaterialWorkflowStatus.DONE.value
                 and expected.folder_path != payload.folder_path):
             raise HTTPException(status_code=409, detail="Reopen the DONE material before changing its folder.")
@@ -215,6 +223,7 @@ def build_material_operations_router(
         _require_safe_preflight(preflight, expected.technical_identity)
 
         with database.session() as session:
+            access.check(session, MATERIAL_EDITORS)
             material = session.scalar(
                 select(PBRMaterial)
                 .where(PBRMaterial.id == material_id)
@@ -225,6 +234,7 @@ def build_material_operations_router(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="PBR material not found.",
                 )
+            access.require_material(material)
             _require_unchanged_revision(material, expected)
             _require_matching_identity(preflight, material.technical_identity)
             material.folder_path = payload.folder_path
@@ -248,10 +258,11 @@ def build_material_operations_router(
     )
     def mark_done(
         material_id: UUID,
+        access: AccessDependency,
         payload: MaterialMarkDoneRequest | None = None,
     ) -> MaterialMarkDoneRead:
         del payload
-        expected = _get_material_revision(database, material_id)
+        expected = _get_material_revision(database, material_id, access)
         if expected.workflow_status == MaterialWorkflowStatus.DONE.value:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -269,6 +280,7 @@ def build_material_operations_router(
         loaded_at = datetime.now(UTC)
 
         with database.session() as session:
+            access.check(session, MATERIAL_EDITORS)
             material = session.scalar(
                 select(PBRMaterial)
                 .where(PBRMaterial.id == material_id)
@@ -279,6 +291,7 @@ def build_material_operations_router(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="PBR material not found.",
                 )
+            access.require_material(material)
             _require_unchanged_revision(material, expected)
             if material.workflow_status == MaterialWorkflowStatus.DONE.value:
                 raise HTTPException(

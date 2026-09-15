@@ -32,7 +32,7 @@ from app.auth.service import (
     verify_request_source,
 )
 from app.core.config import Settings
-from app.db.models import AuthSession
+from app.db.models import AuthSession, InternalUser
 
 
 def _response(context: AuthContext, csrf_token: str | None = None) -> AuthSessionResponse:
@@ -63,6 +63,8 @@ def build_auth_router(database: SessionDatabase, settings: Settings) -> APIRoute
             )
             user = find_login_user(db_session, payload.email)
             credential = lock_user_credential(db_session, user.id) if user is not None else None
+            if user is not None:
+                user = db_session.get(InternalUser, user.id, populate_existing=True)
             if credential is None:
                 password_service.dummy_verify(payload.password)
                 verified = False

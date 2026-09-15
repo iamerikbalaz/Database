@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth.router import build_auth_router
+from app.auth.accounts import build_account_router
 from app.auth.validation import safe_request_validation_handler
 from app.api.health import HealthDatabase, build_health_router
 from app.api.material_operations import build_material_operations_router
@@ -53,6 +54,7 @@ def create_app(
         allow_headers=["Accept", "Content-Type", "X-CSRF-Token"],
     )
     application.include_router(build_auth_router(app_database, app_settings))
+    application.include_router(build_account_router(app_database, app_settings))
     application.include_router(build_health_router(app_database))
     application.include_router(build_resources_router(app_database))
     application.include_router(
@@ -62,7 +64,7 @@ def create_app(
     @application.middleware("http")
     async def prevent_auth_caching(request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith("/api/auth/"):
+        if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
         return response
 

@@ -27,8 +27,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.security import PasswordService, token_digest
+from app.auth.access import ACCESS_LOCK
 from app.core.config import Settings, get_settings
-from app.db.models import AuthLoginRateLimit, AuthSession, InternalUser, UserCredential
+from app.db.models import AuthLoginRateLimit, AuthSession, InternalUser, UserCredential, Company, PBRMaterial, PBRMaterialMetadataSnapshot
 from app.db.session import Database
 from app.main import create_app
 
@@ -516,3 +517,132 @@ def test_postgresql_auth_user_delete_cascades(constraint_session: tuple[Session,
     assert db_session.get(UserCredential, user_id) is None
     assert db_session.scalar(select(AuthSession).where(AuthSession.user_id == user_id)) is None
     assert db_session.scalar(text("SELECT 1")) == 1
+
+class _AccessGateObservation(_LockObservation):
+    @staticmethod
+    def _credentials_lock(statement: str) -> bool:
+        return 'PG_ADVISORY_XACT_LOCK_SHARED' in statement.upper()
+
+
+@pytest.mark.parametrize('change,expected', [('role', 403), ('active', 401), ('password', 403), ('revoked', 401)])
+def test_domain_write_rechecks_account_after_waiting_for_access_gate(auth_case, change, expected):
+    case = auth_case
+    database = case.databases[0]
+    with database.session() as session:
+        session.get(UserCredential, case.user_id).must_change_password = False
+        session.commit()
+    waiter = _AccessGateObservation()
+    waiter.attach(database)
+    control = create_engine(case.url)
+    name = 'Denied write ' + uuid4().hex
+    try:
+        with control.connect() as connection, ThreadPoolExecutor(max_workers=1) as executor:
+            transaction = connection.begin()
+            connection.execute(text('SELECT pg_advisory_xact_lock(:key)'), {'key': ACCESS_LOCK})
+            holder = _LockObservation(backend_pid=connection.connection.driver_connection.info.backend_pid)
+            future = executor.submit(case.clients[0].post, '/api/companies', json={'name': name},
+                headers={'Origin': ORIGIN, 'X-CSRF-Token': case.csrf_tokens[0]})
+            try:
+                _wait_until_postgresql_confirms_blocking(case.url, holder, waiter)
+                if change == 'role':
+                    connection.execute(text("UPDATE internal_users SET role='LEADERSHIP' WHERE id=:id"), {'id': case.user_id})
+                elif change == 'active':
+                    connection.execute(text('UPDATE internal_users SET is_active=false WHERE id=:id'), {'id': case.user_id})
+                elif change == 'password':
+                    connection.execute(text('UPDATE user_credentials SET must_change_password=true WHERE user_id=:id'), {'id': case.user_id})
+                else:
+                    connection.execute(text('UPDATE auth_sessions SET revoked_at=clock_timestamp() WHERE user_id=:id'), {'id': case.user_id})
+                transaction.commit()
+            finally:
+                if transaction.is_active: transaction.rollback()
+            assert future.result(timeout=TIMEOUT).status_code == expected
+        with control.connect() as connection:
+            assert connection.scalar(select(Company.id).where(Company.name == name)) is None
+    finally:
+        control.dispose()
+
+
+def test_login_waiting_for_credential_lock_rechecks_disabled_account(auth_case):
+    case = auth_case
+    waiter = _LockObservation()
+    waiter.attach(case.databases[0])
+    control = create_engine(case.url)
+    try:
+        with control.connect() as connection, ThreadPoolExecutor(max_workers=1) as executor:
+            transaction = connection.begin()
+            connection.execute(text('SELECT user_id FROM user_credentials WHERE user_id=:id FOR UPDATE'), {'id': case.user_id})
+            holder = _LockObservation(backend_pid=connection.connection.driver_connection.info.backend_pid)
+            future = executor.submit(_request, case, 0, 'login')
+            try:
+                _wait_until_postgresql_confirms_blocking(case.url, holder, waiter)
+                connection.execute(text('UPDATE internal_users SET is_active=false WHERE id=:id'), {'id': case.user_id})
+                transaction.commit()
+            finally:
+                if transaction.is_active: transaction.rollback()
+            assert future.result(timeout=TIMEOUT).status_code == 401
+    finally:
+        control.dispose()
+
+
+def test_authenticated_processor_concurrent_done_and_relink_preserve_one_snapshot(auth_case):
+    from threading import Barrier
+    from test_materials_postgresql import _create_postgresql_material_with_metadata, _ConcurrentPreflightWorker
+    case = auth_case
+    material_id = _create_postgresql_material_with_metadata(case.url, uuid4().hex[:12])
+    with case.databases[0].session() as session:
+        session.get(UserCredential, case.user_id).must_change_password = False
+        session.get(InternalUser, case.user_id).role = 'PROCESSOR'
+        material = session.get(PBRMaterial, material_id)
+        material.assigned_processor_id = case.user_id
+        identity = material.technical_identity
+        path = f'library/{identity}'
+        material.folder_path = path
+        session.commit()
+    worker = _ConcurrentPreflightWorker(Barrier(2), identity)
+    settings = case.clients[0].app.state.settings
+    def complete(index):
+        with TestClient(create_app(settings, case.databases[index], worker), base_url=ORIGIN) as client:
+            client.cookies.update(case.clients[index].cookies)
+            return client.post(f'/api/materials/{material_id}/mark-done',
+                headers={'Origin': ORIGIN, 'X-CSRF-Token': case.csrf_tokens[index]})
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(executor.map(complete, (0, 1)))
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    response = case.clients[0].post(f'/api/materials/{material_id}/folder-link',
+        json={'folder_path': f'other/{identity}'}, headers={'Origin': ORIGIN, 'X-CSRF-Token': case.csrf_tokens[0]})
+    assert response.status_code == 409
+    with case.databases[0].session() as session:
+        material = session.get(PBRMaterial, material_id)
+        assert material.workflow_status == 'DONE' and material.folder_path == path
+        snapshots = list(session.scalars(select(PBRMaterialMetadataSnapshot).where(PBRMaterialMetadataSnapshot.material_id == material_id)))
+        assert len(snapshots) == 1
+
+
+def test_two_administrators_cannot_concurrently_remove_the_last_administrator(auth_case):
+    from threading import Barrier
+    case = auth_case
+    settings = case.clients[0].app.state.settings
+    second_id = uuid4()
+    second_email = f'second-admin-{uuid4().hex}@example.invalid'
+    with case.databases[0].session() as session:
+        session.get(UserCredential, case.user_id).must_change_password = False
+        second = InternalUser(id=second_id, display_name='Second Operator', email=second_email, role='ADMIN')
+        second.credential = UserCredential(password_hash=PasswordService(settings).hash_password(PASSWORD), must_change_password=False)
+        session.add(second)
+        session.commit()
+    login = case.clients[1].post('/api/auth/login', json={'email': second_email, 'password': PASSWORD}, headers={'Origin': ORIGIN})
+    assert login.status_code == 200
+    tokens = (case.csrf_tokens[0], login.json()['csrf_token'])
+    targets = (second_id, case.user_id)
+    barrier = Barrier(2)
+    def demote(index):
+        barrier.wait(timeout=TIMEOUT)
+        return case.clients[index].patch(f'/api/internal-users/{targets[index]}', json={'role': 'PROCESSOR'},
+            headers={'Origin': ORIGIN, 'X-CSRF-Token': tokens[index]})
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(demote, (0, 1)))
+    statuses = sorted(response.status_code for response in results)
+    assert statuses in ([200, 401], [200, 403])
+    with case.databases[0].session() as session:
+        users = list(session.scalars(select(InternalUser).where(InternalUser.id.in_([case.user_id, second_id]))))
+        assert sum(user.is_active and user.role == 'ADMIN' for user in users) == 1

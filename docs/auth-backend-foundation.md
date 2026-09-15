@@ -1,12 +1,9 @@
 # Backendový základ autentizace
 
-Tato větev přidává credentials a serverové sessions, ale záměrně ještě
-nezamyká existující Company, Brand, Project, InternalUser, Material ani Material
-Operations endpointy. Následná větev po sloučení login UI zapne ochranu všech
-`/api/**` rout a doménová oprávnění.
-`must_change_password` je v této foundation větvi pouze informace vrácená pro
-budoucí UI. Její hodnota ještě nevynucuje změnu hesla ani neomezuje přístup
-k existujícím veřejným resource endpointům.
+Credentials a serverové sessions nyní chrání všechny doménové endpointy.
+Povinná změna hesla blokuje přístup k aplikaci; výjimkou jsou session bootstrap,
+změna hesla a odhlášení. Přesná matice rolí, kontrola přidělení a znovuověření
+oprávnění v transakci jsou popsány v [authorization.md](authorization.md).
 
 ## Datový a kryptografický návrh
 

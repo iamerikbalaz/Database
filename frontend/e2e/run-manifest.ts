@@ -20,6 +20,7 @@ export type SeedState = {
   missing: MaterialFixture;
   mismatch: MaterialFixture;
   dimensions: MaterialFixture;
+  review: MaterialFixture;
 };
 
 type RunManifest = {
@@ -142,6 +143,7 @@ function loadManifest(): RunManifest {
       missing: validateFixture(state.missing, "state.missing"),
       mismatch: validateFixture(state.mismatch, "state.mismatch"),
       dimensions: validateFixture(state.dimensions, "state.dimensions"),
+      review: validateFixture(state.review, "state.review"),
     },
   };
 }

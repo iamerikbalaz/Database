@@ -25,6 +25,7 @@ import { useResource } from "../api/useResource";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { NavigationLink } from "../components/NavigationLink";
+import { MaterialReviewPanel } from "../components/MaterialReviewPanel";
 
 function Value({ children }: { children: ReactNode }) {
   return children === null || children === undefined || children === "" ? (
@@ -81,7 +82,7 @@ type ResourceResult<T> =
   | { state: "ready"; data: T }
   | { state: "error"; cause: unknown };
 
-type SavedOperation = "link" | "done";
+type SavedOperation = "link" | "done" | "reopen";
 
 function RefreshError({
   operation,
@@ -96,7 +97,7 @@ function RefreshError({
   useEffect(() => ref.current?.focus(), [operation]);
   const savedChange = operation === "link"
     ? "The folder was linked"
-    : "The material was marked as Done";
+    : operation === "reopen" ? "The material was reopened" : "The material was marked as Done";
   return (
     <div ref={ref} className="form-error" role="alert" tabIndex={-1}>
       <strong>Change saved, refresh incomplete</strong>
@@ -520,7 +521,10 @@ function useMaterialDataRefresh(initialMaterial: Material, client: ApiClient) {
 
       const complete = materialResult.status === "fulfilled" &&
         metadataResult.status === "fulfilled" && snapshotsResult.status === "fulfilled";
-      if (complete) setRefreshFailure(null);
+      if (complete) {
+        setRefreshFailure(null);
+        if (operation === "reopen") setRefreshNotice("Material reopened. Previous metadata snapshots remain in its history.");
+      }
       else if (operation) setRefreshFailure(operation);
       return complete;
     });
@@ -571,7 +575,8 @@ function MaterialDetailContent({
   navigate: (path: string) => void;
 }) {
   const data = useMaterialDataRefresh(initialMaterial, client);
-  const canEdit = useSession()?.session.user.role !== "LEADERSHIP";
+  const role = useSession()?.session.user.role;
+  const canEdit = role !== "LEADERSHIP";
   const { material } = data;
 
   return <section>
@@ -609,6 +614,9 @@ function MaterialDetailContent({
       <CurrentMetadataPanel result={data.metadata} retry={data.retry} focusError={!data.refreshFailure} />
       <SnapshotHistoryPanel result={data.snapshots} retry={data.retry} focusError={!data.refreshFailure} />
     </div>
+    {role && <MaterialReviewPanel key={`${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material}
+      onScanned={() => data.refreshAll(undefined, undefined)}
+      onReopened={() => data.refreshAll({ ...material, workflowStatus: "IN_PROGRESS", validationStatus: "NOT_CHECKED" }, "reopen")} />}
   </section>;
 }
 

@@ -631,3 +631,74 @@ class PBRMaterialMetadata(MaterialMetadataFieldsMixin, Base):
         back_populates="metadata_state",
         foreign_keys=[material_id],
     )
+
+
+def _review_hash_constraint(column: str, name: str) -> CheckConstraint:
+    remainder = column
+    for character in "0123456789abcdef":
+        remainder = f"replace({remainder}, '{character}', '')"
+    return CheckConstraint(f"{column} IS NULL OR (length({column}) = 64 AND {remainder} = '')", name=name)
+
+
+class MaterialInventory(Base):
+    __tablename__ = "material_inventories"
+    __table_args__ = (
+        UniqueConstraint("material_id", "id", name="uq_material_inventories_material_id"),
+        CheckConstraint("generation >= 0", name="ck_material_inventories_generation"),
+        _review_hash_constraint("revision_hash", "ck_material_inventories_revision_hash"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), index=True)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    revision_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_inventory: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+    material_context: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class MaterialReviewState(Base):
+    __tablename__ = "material_review_states"
+    __table_args__ = (
+        ForeignKeyConstraint(["material_id", "inventory_id"], ["material_inventories.material_id", "material_inventories.id"],
+                             name="fk_material_review_states_inventory", ondelete="RESTRICT"),
+        CheckConstraint("generation >= 0", name="ck_material_review_states_generation"),
+        _review_hash_constraint("revision_hash", "ck_material_review_states_revision_hash"),
+        CheckConstraint("(revision_hash IS NULL AND inventory_id IS NULL) OR (revision_hash IS NOT NULL AND inventory_id IS NOT NULL)",
+                        name="ck_material_review_states_current_inventory"),
+    )
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), primary_key=True)
+    generation: Mapped[int] = mapped_column(BigInteger, server_default=text("0"), default=0, nullable=False)
+    revision_hash: Mapped[str | None] = mapped_column(String(64))
+    inventory_id: Mapped[UUID | None] = mapped_column(Uuid)
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failure_code: Mapped[str | None] = mapped_column(String(100))
+
+
+class MaterialAuditEvent(Base):
+    __tablename__ = "material_audit_events"
+    __table_args__ = (
+        UniqueConstraint("actor_id", "request_key", name="uq_material_audit_events_actor_request"),
+        CheckConstraint("generation >= 0", name="ck_material_audit_events_generation"),
+        _review_hash_constraint("revision_hash", "ck_material_audit_events_revision_hash"),
+        _review_hash_constraint("request_hash", "ck_material_audit_events_request_hash"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), index=True)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    revision_hash: Mapped[str | None] = mapped_column(String(64))
+    request_key: Mapped[UUID | None] = mapped_column(Uuid)
+    request_hash: Mapped[str | None] = mapped_column(String(64))
+    result: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+def _reject_review_history_mutation(*_: object) -> None:
+    raise ImmutableAuditSnapshotError("Material inventory and audit history are append-only.")
+
+
+for _review_history_type in (MaterialInventory, MaterialAuditEvent):
+    event.listen(_review_history_type, "before_update", _reject_review_history_mutation)
+    event.listen(_review_history_type, "before_delete", _reject_review_history_mutation)

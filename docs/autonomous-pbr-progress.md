@@ -126,7 +126,7 @@ Read-only audit on Windows / Python 3.13.15:
   tested with isolated mocks and actual auth HTTP is covered by E2E.
 - No schema change. Reverting the UI keeps server authorization in place.
 
-## In progress
+## Completed slice: source inventory and audited reopen
 
 Worker inventory now hashes the complete source tree through no-follow Linux
 descriptors, detects changes during scanning and fails without partial output.
@@ -134,8 +134,25 @@ Its contract and filesystem snapshot limitations are in `docs/source-inventory.m
 Full Linux worker run: 178 passed without skips, including revision changes on
 ZIP policy boundary and directory replacement. Earlier Windows run: 92 passed /
 84 skipped (POSIX-only; two later POSIX tests were verified in Linux).
-Next: persisted inventory, technical/publication approval and reopen, bound to
-the source revision. This intermediate version is not the complete PBR product.
+Persisted inventory and reopen are implemented with new migration 0007,
+server role/assignment checks, idempotent mutations, immutable PostgreSQL audit
+and invalidation on material changes. The detail UI exposes inventory, an explicit
+reopen reason and recent review history. Technical/publication approval is next.
+Verification so far: full isolated Docker backend 493, PostgreSQL 82 (auth gate
+27/27), worker 178, previous frontend 199 passed with no skips. Updated frontend
+206 tests/lint/build passed. The later strict highest-resolution client check
+passed all 20 client tests. Real isolated E2E passed 9/9 on fresh data and 9/9
+after restart with retained data (run 110d45d7). The new scenario verifies real
+worker inventory, invalidation after a material edit, audited reopen, preserved
+metadata history and the same revision after restart. Own resources were cleaned
+up and the exact own volume retained. Main was rechecked at 88a1f99 and its
+original working tree is clean.
+
+## In progress
+
+Next: technical image validation, technical approval and leadership publication
+approval bound to both the observed revision and invalidation generation.
+This intermediate version is not the complete PBR product.
 
 ## Remaining sequence
 

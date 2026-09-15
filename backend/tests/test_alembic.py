@@ -5,4 +5,4 @@ from alembic.script import ScriptDirectory
 def test_alembic_has_one_expected_head() -> None:
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
 
-    assert scripts.get_heads() == ["20260914_0006"]
+    assert scripts.get_heads() == ["20260915_0007"]

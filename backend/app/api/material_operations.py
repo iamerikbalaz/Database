@@ -28,6 +28,7 @@ from app.worker_client import (
     WorkerClientError,
     WorkerMaterialPreflight,
 )
+from app.material_review import invalidate_review
 
 
 @dataclass(frozen=True)
@@ -237,6 +238,8 @@ def build_material_operations_router(
             access.require_material(material)
             _require_unchanged_revision(material, expected)
             _require_matching_identity(preflight, material.technical_identity)
+            if material.folder_path != payload.folder_path:
+                invalidate_review(session, material, access.user.id, "MATERIAL_FOLDER_CHANGED")
             material.folder_path = payload.folder_path
             try:
                 session.commit()
@@ -329,6 +332,7 @@ def build_material_operations_router(
                 for field_name, value in values.items():
                     setattr(current, field_name, value)
                 material.workflow_status = MaterialWorkflowStatus.DONE.value
+                invalidate_review(session, material, access.user.id, "MATERIAL_DONE")
                 session.commit()
             except IntegrityError as exc:
                 session.rollback()

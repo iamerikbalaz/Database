@@ -2,7 +2,7 @@
 
 Playwright test ověřuje skutečný řetězec Vite frontend → FastAPI backend →
 PostgreSQL → worker. Mock API se nepoužívá. Test přes skutečné API založí firmu,
-publikovanou značku, projekt, procesora a čtyři materiály a v Chromium provede:
+publikovanou značku, projekt, procesora a pět materiálů a v Chromium provede:
 
 - validní preflight, link, Done, current metadata, snapshot a reload;
 - chybějící `metadata.txt` jako neblokující warning;
@@ -11,6 +11,8 @@ publikovanou značku, projekt, procesora a čtyři materiály a v Chromium prove
   serverové oprávnění zpracovatele, CSRF a odhlášení s revokací;
 - administrátorské vytvoření účtu, vydání a reset přístupu, změnu role,
   deaktivaci a revokaci sessions přes skutečné UI;
+- uložení inventáře, invalidaci po změně materiálu, reopen s důvodem,
+  zachování metadata snapshotu a auditní historie po restartu;
 - blokovaný identity mismatch;
 - klientské odmítnutí absolutní cesty a `..` bez preflight requestu;
 - kontrolu veřejných odpovědí, UI a browser console na únik raw obsahu, host path

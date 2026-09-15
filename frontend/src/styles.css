@@ -1021,3 +1021,7 @@ a.button {
 .account-row > div:first-child div { color: var(--muted); margin-top: 6px; font-size: 13px; }
 .account-row .account-active { display: flex; align-items: center; }
 .account-row .field-error { width: 100%; }
+.material-review > details, .material-review > button { margin-top: 1rem; margin-right: .75rem; }
+.material-review form { display: grid; gap: .75rem; margin-top: 1rem; }
+.material-review textarea { display: block; width: 100%; min-height: 5rem; }
+.revision-hash { overflow-wrap: anywhere; font-family: monospace; }

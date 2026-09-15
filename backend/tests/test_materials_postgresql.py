@@ -31,10 +31,139 @@ from app.db.models import (
     Project,
     PublishedBrand,
     UserCredential,
+    MaterialAuditEvent, MaterialInventory, MaterialReviewState,
 )
 from app.db.session import Database
 from domain_support import create_domain_app as create_app
 from app.worker_client import WorkerMaterialPreflight, WorkerMaterialPreflightResponse
+
+
+@pytest.fixture
+def review_pg_case(migrated_postgresql_url):
+    from types import SimpleNamespace
+    from app.main import create_app as authenticated_app
+    from test_material_review import InventoryStub
+    from test_application_access import PASSWORD, ORIGIN
+
+    class SharedDatabase(Database):
+        def dispose(self): pass
+    database = SharedDatabase(migrated_postgresql_url)
+    suffix = uuid4().hex
+    settings = Settings(_env_file=None, database_url=migrated_postgresql_url, cors_origins=ORIGIN, auth_rate_limit_attempts=100)
+    password_hash = PasswordService(settings).hash_password(PASSWORD)
+    with database.session() as session:
+        users = []
+        for role in ("ADMIN", "PROCESSOR", "PROCESSOR"):
+            user = InternalUser(display_name="Review fixture", email=f"{uuid4().hex}@example.invalid", role=role)
+            user.credential = UserCredential(password_hash=password_hash, must_change_password=False)
+            session.add(user); users.append(user)
+        company = Company(name="Review company " + suffix); session.add(company); session.flush()
+        project = Project(company_id=company.id, project_number=suffix, name="Review fixture")
+        brand = PublishedBrand(company_id=company.id, name="Review brand", folder_prefix="RV" + suffix[:8], brand_identifier=suffix)
+        session.add_all([project, brand]); session.flush()
+        material = PBRMaterial(project_id=project.id, published_brand_id=brand.id, sequence_number=1,
+            assigned_processor_id=users[1].id, material_name="Review material", main_category_code="G03",
+            technical_identity=f"{brand.folder_prefix}_0001_G03", folder_path=f"library/{brand.folder_prefix}_0001_G03")
+        material.metadata_state = PBRMaterialMetadata(); session.add(material); session.commit()
+    inventory = InventoryStub()
+    app = authenticated_app(settings, database, inventory_client=inventory)
+    def client_for(index=0):
+        client = TestClient(app, base_url=ORIGIN)
+        response = client.post("/api/auth/login", json={"email": users[index].email, "password": PASSWORD}, headers={"Origin": ORIGIN})
+        assert response.status_code == 200
+        client.headers.update({"Origin": ORIGIN, "X-CSRF-Token": response.json()["csrf_token"]})
+        return client
+    yield SimpleNamespace(database=database, app=app, inventory=inventory, users=users, material=material,
+                          path=f"/api/materials/{material.id}", client_for=client_for)
+    database.engine.dispose()
+
+
+@pytest.mark.parametrize("same_key", [True, False])
+def test_postgresql_concurrent_inventory_replay_is_atomic(review_pg_case, same_key):
+    case = review_pg_case
+    barrier = Barrier(2)
+    case.inventory.callback = lambda: barrier.wait(timeout=15)
+    key = str(uuid4())
+    with case.client_for() as first, case.client_for() as second:
+        def request(client, request_key):
+            response = client.post(case.path + "/inventory/scan", json={"idempotency_key": request_key, "expected_generation": 0})
+            return response.status_code, response.json()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            one = pool.submit(request, first, key)
+            two = pool.submit(request, second, key if same_key else str(uuid4()))
+            results = [one.result(timeout=25), two.result(timeout=25)]
+        assert sorted(item[0] for item in results) == ([200, 200] if same_key else [200, 409])
+        if same_key: assert results[0][1] == results[1][1]
+    with case.database.session() as session:
+        assert len(list(session.scalars(select(MaterialInventory).where(MaterialInventory.material_id == case.material.id)))) == 1
+        assert len(list(session.scalars(select(MaterialAuditEvent).where(MaterialAuditEvent.material_id == case.material.id)))) == 1
+
+
+@pytest.mark.parametrize("change", ["name", "assignment", "reopen"])
+def test_postgresql_inventory_rechecks_material_after_worker_delay(review_pg_case, change):
+    case = review_pg_case
+    if change == "reopen":
+        with case.database.session() as session:
+            session.get(PBRMaterial, case.material.id).workflow_status = "DONE"; session.commit()
+    entered = Event(); release = Event()
+    def hold():
+        entered.set()
+        if not release.wait(15): raise TimeoutError("Review test worker was not released")
+    case.inventory.callback = hold
+    with case.client_for(1) as processor, case.client_for(0) as admin:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pending = pool.submit(processor.post, case.path + "/inventory/scan", json={"idempotency_key": str(uuid4()), "expected_generation": 0})
+            try:
+                assert entered.wait(15)
+                if change == "name": response = admin.patch(case.path, json={"material_name": "Changed while scanning"})
+                elif change == "assignment": response = admin.patch(case.path, json={"assigned_processor_id": str(case.users[2].id)})
+                else: response = admin.post(case.path + "/reopen", json={"idempotency_key": str(uuid4()), "expected_generation": 0, "reason": "Review correction"})
+                assert response.status_code == 200
+            finally: release.set()
+            assert pending.result(timeout=20).status_code == (404 if change == "assignment" else 409)
+    with case.database.session() as session:
+        assert list(session.scalars(select(MaterialInventory).where(MaterialInventory.material_id == case.material.id))) == []
+
+
+def test_postgresql_inventory_and_events_are_append_only(review_pg_case):
+    case = review_pg_case
+    with case.client_for() as client:
+        assert client.post(case.path + "/inventory/scan", json={"idempotency_key": str(uuid4()), "expected_generation": 0}).status_code == 200
+    for table in ("material_inventories", "material_audit_events"):
+        for statement in (f"UPDATE {table} SET generation = generation + 1 WHERE material_id = :id",
+                          f"DELETE FROM {table} WHERE material_id = :id", f"TRUNCATE {table} CASCADE"):
+            with pytest.raises(DBAPIError):
+                with case.database.engine.begin() as connection:
+                    connection.execute(text(statement), {"id": case.material.id})
+    with case.database.session() as session:
+        state = session.get(MaterialReviewState, case.material.id)
+        assert state.generation == 1 and state.inventory_id is not None
+
+
+def test_postgresql_review_upgrade_from_auth_head_preserves_credentials():
+    with isolated_postgresql_database() as database_url:
+        previous = os.environ.get("DATABASE_URL")
+        os.environ["DATABASE_URL"] = database_url; get_settings.cache_clear()
+        engine = create_engine(database_url)
+        try:
+            config = Config("alembic.ini"); command.upgrade(config, "20260914_0006")
+            user_id = uuid4()
+            with engine.begin() as connection:
+                connection.execute(text("INSERT INTO internal_users (id, display_name, email, role, is_active) VALUES (:id, 'Prior operator', 'prior@example.invalid', 'ADMIN', true)"), {"id": user_id})
+                connection.execute(text("INSERT INTO user_credentials (user_id, password_hash, must_change_password) VALUES (:id, 'synthetic-preserved-hash', false)"), {"id": user_id})
+            command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
+            with engine.connect() as connection:
+                assert connection.execute(text("SELECT password_hash FROM user_credentials WHERE user_id=:id"), {"id": user_id}).scalar_one() == "synthetic-preserved-hash"
+                assert connection.execute(text("SELECT count(*) FROM material_review_states")).scalar_one() == 0
+            command.downgrade(config, "20260914_0006")
+            with engine.connect() as connection:
+                assert connection.execute(text("SELECT count(*) FROM user_credentials WHERE user_id=:id"), {"id": user_id}).scalar_one() == 1
+            command.upgrade(config, "head"); command.check(config)
+        finally:
+            engine.dispose()
+            if previous is None: os.environ.pop("DATABASE_URL", None)
+            else: os.environ["DATABASE_URL"] = previous
+            get_settings.cache_clear()
 
 
 POSTGRES_TEST_ADMIN_URL = os.getenv("POSTGRES_TEST_ADMIN_URL")
@@ -116,7 +245,7 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
             current_revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            assert current_revision == "20260914_0006"
+            assert current_revision == "20260915_0007"
     finally:
         engine.dispose()
 
@@ -159,7 +288,7 @@ def test_postgresql_auth_upgrade_from_previous_head_preserves_users_without_cred
                 ).scalar_one() == 0
                 assert connection.execute(
                     text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "20260914_0006"
+                ).scalar_one() == "20260915_0007"
         finally:
             engine.dispose()
             if previous_database_url is None:

@@ -276,11 +276,13 @@ function New-E2eSeedManifestData {
     $missing = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Missing Metadata'
     $dimensions = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Unsupported Dimensions'
     $mismatch = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Identity Mismatch'
+    $review = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Source Review'
     $validPath = "e2e-library/$($valid.technical_identity)"
     $missingPath = "e2e-library/$($missing.technical_identity)"
     $dimensionsPath = "e2e-library/$($dimensions.technical_identity)"
     $mismatchPath = 'e2e-library/E2E_WRONG_FOLDER_G03'
-    foreach ($relativePath in @($validPath, $missingPath, $mismatchPath, $dimensionsPath)) {
+    $reviewPath = "e2e-library/$($review.technical_identity)"
+    foreach ($relativePath in @($validPath, $missingPath, $mismatchPath, $dimensionsPath, $reviewPath)) {
         $directory = Join-Path $MaterialsRoot ($relativePath -replace '/', [IO.Path]::DirectorySeparatorChar)
         [void](New-E2eSafeDirectory -RepositoryRoot $RepositoryRoot -RunRoot $RunRoot -Path (Join-Path $directory '16K'))
     }
@@ -296,7 +298,7 @@ function New-E2eSeedManifestData {
     }}
     return [ordered]@{
         companyId = [string]$company.id; brandId = [string]$brand.id; projectId = [string]$project.id
-        valid = & $fixture $valid $validPath; missing = & $fixture $missing $missingPath; mismatch = & $fixture $mismatch $mismatchPath; dimensions = & $fixture $dimensions $dimensionsPath
+        valid = & $fixture $valid $validPath; missing = & $fixture $missing $missingPath; mismatch = & $fixture $mismatch $mismatchPath; dimensions = & $fixture $dimensions $dimensionsPath; review = & $fixture $review $reviewPath
     }
 }
 

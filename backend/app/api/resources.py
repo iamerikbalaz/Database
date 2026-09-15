@@ -638,6 +638,9 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                     material.id,
                 )
                 material.technical_identity = technical_identity
+            if any(getattr(material, key) != value for key, value in values.items()):
+                from app.material_review import invalidate_review
+                invalidate_review(session, material, access.user.id, "MATERIAL_FIELDS_CHANGED")
             _apply_update(material, values)
             return _commit(session, material)
 

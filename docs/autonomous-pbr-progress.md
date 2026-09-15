@@ -197,6 +197,10 @@ and pure exact-number metadata transform passed all 236 Linux worker tests with
 no skips. An earlier portable planner run passed 15 with 8 POSIX skips. Its
 contract is in `docs/identity-operations.md`; execution/journal, backend
 orchestration and UI are still pending.
+Private durable journal primitives and Linux no-replace rename pass the full
+251-test Linux worker suite with no skips. Portable primitive tests: 8 passed,
+7 POSIX skips. No source-mutation API is enabled yet; the next step is the
+recoverable identity executor using these primitives, then backend coordination.
 
 The tracked `scripts/texture-zip.zip` was inspected and contains both original
 historical packaging scripts. Their observed behavior is recorded in

@@ -38,6 +38,14 @@ exact JSON numbers. Earlier portable run: 15 passed, 8 POSIX tests skipped.
 
 ## Next implementation constraints
 
+Durable journal primitives now use private per-operation directories, a
+nonblocking Linux file lock, fsync and atomic state replacement. Pending files are
+checked for type, ownership, mode and hard links before any truncation. Linux
+`renameat2(RENAME_NOREPLACE)` preserves the source inode and refuses an occupied
+destination. The full worker suite passes 251 tests with no skips, including
+interrupted state writes and symlink/hardlink attacks; portable primitive checks
+pass 8 with 7 POSIX skips. These primitives are not yet an enabled source-write API.
+
 Confirmed operations must use durable idempotent journals, no-replace renames,
 exclusive material ownership and recoverable state across backend/worker crashes.
 Only after verified filesystem completion may database identity change. A rebrand

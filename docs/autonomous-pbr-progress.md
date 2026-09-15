@@ -192,8 +192,18 @@ the exact own volume was retained and protected projects remained unchanged.
 
 ## In progress
 
-Next are controlled identity/filesystem operations
-and the remaining PBR catalog/publication backlog below.
+Controlled identity/filesystem operations are next. The read-only worker planner
+and pure exact-number metadata transform passed all 236 Linux worker tests with
+no skips. An earlier portable planner run passed 15 with 8 POSIX skips. Its
+contract is in `docs/identity-operations.md`; execution/journal, backend
+orchestration and UI are still pending.
+
+The tracked `scripts/texture-zip.zip` was inspected and contains both original
+historical packaging scripts. Their observed behavior is recorded in
+`docs/legacy-packaging-contract.md`. Script source is available for synthetic
+comparisons; production golden assets and the online importer are not yet found.
+`origin/main` was rechecked after approval/UI commits: still 88a1f99; both working
+trees were clean before starting the planner slice.
 This intermediate version is not the complete PBR product.
 
 ## Remaining sequence

@@ -20,6 +20,7 @@ from app.secure_filesystem import (
 from app.source_metadata import SourceMetadataResult
 from app.inventory import InventoryError, inventory_material
 from app.technical_validation import validate_material
+from app.identity_plan import IdentityPlanError, IdentityTarget, plan_identity_change
 
 
 SCHEMA_VERSION = 1
@@ -45,6 +46,12 @@ class StrictModel(BaseModel):
 
 class MaterialPreflightRequest(StrictModel):
     folder_path: str
+
+
+class MaterialIdentityPlanRequest(MaterialPreflightRequest):
+    target_path: str
+    brand_name: str
+    material_name: str
 
 
 class FindingResponse(StrictModel):
@@ -317,7 +324,7 @@ def create_app(
 
     @application.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, __: RequestValidationError) -> JSONResponse:
-        if request.url.path in {"/internal/material-inventory", "/internal/material-validate"}:
+        if request.url.path in {"/internal/material-inventory", "/internal/material-validate", "/internal/material-identity-plan"}:
             return JSONResponse(status_code=422, content={"detail": {"code": "INVALID_REQUEST"}})
         result = _error_response(
             "",
@@ -375,6 +382,8 @@ def create_app(
             raise HTTPException(422, {"code": "UNSAFE_MATERIAL_PATH"}) from None
         except InventoryError as exc:
             raise HTTPException(503 if str(exc) == "VALIDATION_BUSY" else 422, {"code": str(exc)}) from None
+        except IdentityPlanError as exc:
+            raise HTTPException(422, {"code": str(exc)}) from None
 
     @application.post("/internal/material-inventory", response_model=InventoryResponse, tags=["internal"])
     def material_inventory(request: MaterialPreflightRequest) -> dict:
@@ -383,6 +392,11 @@ def create_app(
     @application.post("/internal/material-validate", response_model=TechnicalValidationResponse, tags=["internal"])
     def material_validate(request: MaterialPreflightRequest) -> dict:
         return execute_source_inspection(request, validate_material)
+
+    @application.post("/internal/material-identity-plan", tags=["internal"])
+    def material_identity_plan(request: MaterialIdentityPlanRequest) -> dict:
+        target = IdentityTarget(request.target_path, request.brand_name, request.material_name)
+        return execute_source_inspection(request, lambda root, parts: plan_identity_change(root, parts, target))
 
     return application
 

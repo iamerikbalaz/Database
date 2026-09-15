@@ -57,6 +57,30 @@ def _read(fd, limit):
 class FileJournal:
     def __init__(self, fd): self.fd = fd
 
+    def backup_metadata(self, raw: bytes):
+        if len(raw) > 4 * 1024 * 1024: raise JournalError("JOURNAL_SIZE_LIMIT")
+        try:
+            fd = os.open("metadata.original", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=self.fd)
+            try:
+                remaining = memoryview(raw)
+                while remaining:
+                    written = os.write(fd, remaining)
+                    if written <= 0: raise JournalError("JOURNAL_WRITE_FAILED")
+                    remaining = remaining[written:]
+                os.fsync(fd)
+            finally: os.close(fd)
+            os.fsync(self.fd)
+        except OSError: raise JournalError("JOURNAL_BACKUP_FAILED") from None
+
+    def original_metadata(self):
+        try:
+            fd = os.open("metadata.original", _metadata_flags(), dir_fd=self.fd)
+            try:
+                _safe_private_file(fd)
+                return _read(fd, 4 * 1024 * 1024)
+            finally: os.close(fd)
+        except OSError: raise JournalError("JOURNAL_BACKUP_FAILED") from None
+
     def read(self):
         try:
             fd = os.open("state.json", _metadata_flags(), dir_fd=self.fd)

@@ -10,7 +10,9 @@ file creation, metadata write, number reservation or database update.
 `ready` means the observed plan has no blocking finding. It is not authorization
 to execute it and is not a filesystem lease. The confirmation path must recreate
 the exact plan, compare its hash and journal every mutation before enabling writes.
-Backend plan orchestration, confirmation, execution/recovery and UI are pending.
+Backend plan orchestration, confirmation and UI are pending. The recoverable
+executor below is implemented as an internal module, with no enabled HTTP source
+mutation endpoint until that coordination exists.
 
 ## Conservative rules
 
@@ -45,6 +47,28 @@ checked for type, ownership, mode and hard links before any truncation. Linux
 destination. The full worker suite passes 251 tests with no skips, including
 interrupted state writes and symlink/hardlink attacks; portable primitive checks
 pass 8 with 7 POSIX skips. These primitives are not yet an enabled source-write API.
+
+`identity_execute.execute_identity_change` requires explicit `enabled=True`, an
+operation UUID, the expected plan hash and a separate private journal root. It
+recreates the plan, records an immutable request fingerprint, moves the material
+through a temporary root, renames affected components through collision-free
+temporary names, replaces known metadata atomically and verifies the complete
+resulting inventory. File inodes and permissions remain intact for renames;
+rewritten metadata retains its owner/group/mode, and resolution-directory mtimes
+are restored so renaming does not change the historical ZIP-policy boundary.
+
+Each step is checkpointed before execution. Failure reverses applied steps and
+restores original metadata bytes and mtimes. An interrupted operation is rolled
+back on retry using the same journal. A complete/rolled-back request is idempotent.
+Conflicting inputs cannot reuse its ID. Conflicting external data is preserved and
+returns RECOVERY_REQUIRED; the executor never overwrites it to force completion.
+Private metadata backups remain in the journal for controlled recovery.
+
+Full Linux worker verification: 276 passed, no skips. New cases inject failure
+after all 11 representative steps, interrupt the process at different stages,
+force partial metadata writes and concurrent metadata edits, and replace the
+target directory after completion. No mutation endpoint is enabled by these tests;
+all source fixtures live in the container's disposable tmpfs.
 
 Confirmed operations must use durable idempotent journals, no-replace renames,
 exclusive material ownership and recoverable state across backend/worker crashes.

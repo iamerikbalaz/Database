@@ -201,6 +201,14 @@ Private durable journal primitives and Linux no-replace rename pass the full
 251-test Linux worker suite with no skips. Portable primitive tests: 8 passed,
 7 POSIX skips. No source-mutation API is enabled yet; the next step is the
 recoverable identity executor using these primitives, then backend coordination.
+The internal executor performs inode-preserving renames through
+temporary names, backs up metadata privately, persists each step before applying
+it, restores directory mtimes and validates the resulting source hash. The final
+Linux run passed 276 tests without skips, including injected failure after every
+step, process-interruption recovery, partial metadata writes and external edits.
+Backend coordination must exist before enabling a mutation endpoint. Next:
+durable operation state, target-brand number reservation, material mutation guards,
+authenticated confirmation/recovery and UI; then real PostgreSQL and E2E checks.
 
 The tracked `scripts/texture-zip.zip` was inspected and contains both original
 historical packaging scripts. Their observed behavior is recorded in

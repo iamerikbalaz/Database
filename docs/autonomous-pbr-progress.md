@@ -137,7 +137,7 @@ ZIP policy boundary and directory replacement. Earlier Windows run: 92 passed /
 Persisted inventory and reopen are implemented with new migration 0007,
 server role/assignment checks, idempotent mutations, immutable PostgreSQL audit
 and invalidation on material changes. The detail UI exposes inventory, an explicit
-reopen reason and recent review history. Technical/publication approval is next.
+reopen reason and recent review history. The approval slice below builds on it.
 Verification so far: full isolated Docker backend 493, PostgreSQL 82 (auth gate
 27/27), worker 178, previous frontend 199 passed with no skips. Updated frontend
 206 tests/lint/build passed. The later strict highest-resolution client check
@@ -160,10 +160,28 @@ deprecation warnings. This includes real PNG/JPEG/TIFF/WebP, invalid encodings,
 source races, child diagnostics and rejection of overlapping validations. No
 schema change or source filesystem write in this slice.
 
+## Completed slice: persisted reports and server approval workflow
+
+Migration 0008 adds append-only technical reports and technical/publication
+approvals bound to generation and revision. Human approval requires DONE, a fresh
+matching source check, and explicit acknowledgment plus note for warnings.
+Technical errors block approval. Leads/admins approve technically; leadership/
+admins approve publication. An approval never performs an external publication.
+Identical checks preserve approvals; source/finding changes, mutations, reopen
+and failed checks invalidate them without deleting history. See
+`docs/material-approvals.md` for API, product assumptions and rollback.
+
+Full own Docker run `reawote-test-e7f5b0d9513942c8af913ce07dc5f5d6` passed:
+backend 527, PostgreSQL 90 (auth gate 27/27), Linux worker 213, previous frontend
+206; lint/build passed, no skips. This includes fresh/prior-0007 migration and
+concurrency with actual API edits/reopen/account disable during a delayed check.
+An earlier local unit/API run passed 526 before the final stable-recheck test.
+
 ## In progress
 
-Next: persisted technical reports, technical approval and leadership publication
-approval bound to both the observed revision and invalidation generation.
+Technical review UI and real image/approval E2E are being verified, including
+the retained-data restart. Next are controlled identity/filesystem operations
+and the remaining PBR catalog/publication backlog below.
 This intermediate version is not the complete PBR product.
 
 ## Remaining sequence

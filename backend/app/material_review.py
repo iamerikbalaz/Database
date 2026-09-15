@@ -47,7 +47,9 @@ def invalidate_review(session: Session, material: PBRMaterial, actor_id: UUID,
     state.generation += 1
     state.revision_hash = None
     state.inventory_id = None
+    state.technical_check_id = None
     state.failure_code = reason
+    material.validation_status = "NOT_CHECKED"
     if material.is_published:
         material.publication_status = "PUBLISHED_UPDATE_REQUIRED"
     if record_event:

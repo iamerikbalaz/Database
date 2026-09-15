@@ -34,8 +34,9 @@ An inaccessible or changing source must never be treated as approved/current.
 
 The endpoint is internal; normal clients use the authenticated backend. Worker
 ports must not be exposed beyond the local/internal application network.
-Technical image checks, approval workflow and publication consumption are
-subsequent work. Inventory alone does not assert that image files are valid.
+Technical image checks and approvals are described in `technical-validation.md`
+and `material-approvals.md`. Publication consumption is subsequent work.
+Inventory alone does not assert that image files are valid.
 
 ## Authenticated application workflow
 
@@ -84,7 +85,8 @@ network outcomes. It displays inventory entries in batches of 100.
 
 This audit covers review operations and changes that invalidate an existing
 review. General account/catalog/create audit and full historical browsing remain
-separate backlog items. Technical and publication approvals are not yet enabled.
+separate backlog items. Technical and publication decisions have their own
+revision-bound history under migration 0008; see `material-approvals.md`.
 
 ## Upgrade and rollback
 

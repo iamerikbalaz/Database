@@ -112,7 +112,7 @@ class WorkerInventoryClient:
         self.url = base_url.rstrip("/") + "/internal/material-inventory"
         self.timeout = httpx.Timeout(timeout_seconds, connect=min(5, timeout_seconds))
 
-    def inventory(self, folder_path: str) -> SourceInventory:
+    def read_content(self, folder_path: str) -> bytes:
         try:
             validate_relative_path(folder_path)
             if len(folder_path) > 2048:
@@ -136,7 +136,15 @@ class WorkerInventoryClient:
                         if isinstance(code, str) and code in INVENTORY_CODES:
                             raise InventoryClientError(code)
                     raise InventoryClientError()
-            result = SourceInventory.model_validate_json(content, strict=True)
+            return content
+        except InventoryClientError:
+            raise
+        except (httpx.HTTPError, ValueError, TypeError, AttributeError, ArithmeticError):
+            raise InventoryClientError() from None
+
+    def inventory(self, folder_path: str) -> SourceInventory:
+        try:
+            result = SourceInventory.model_validate_json(self.read_content(folder_path), strict=True)
             if result.folder_name != folder_path.rsplit("/", 1)[-1]:
                 raise ValueError("Inventory identity does not match request")
             return result

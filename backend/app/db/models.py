@@ -662,6 +662,10 @@ class MaterialReviewState(Base):
     __table_args__ = (
         ForeignKeyConstraint(["material_id", "inventory_id"], ["material_inventories.material_id", "material_inventories.id"],
                              name="fk_material_review_states_inventory", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["material_id", "technical_check_id", "generation", "revision_hash"],
+                             ["material_technical_checks.material_id", "material_technical_checks.id",
+                              "material_technical_checks.generation", "material_technical_checks.revision_hash"],
+                             name="fk_material_review_states_technical", ondelete="RESTRICT"),
         CheckConstraint("generation >= 0", name="ck_material_review_states_generation"),
         _review_hash_constraint("revision_hash", "ck_material_review_states_revision_hash"),
         CheckConstraint("(revision_hash IS NULL AND inventory_id IS NULL) OR (revision_hash IS NOT NULL AND inventory_id IS NOT NULL)",
@@ -671,6 +675,7 @@ class MaterialReviewState(Base):
     generation: Mapped[int] = mapped_column(BigInteger, server_default=text("0"), default=0, nullable=False)
     revision_hash: Mapped[str | None] = mapped_column(String(64))
     inventory_id: Mapped[UUID | None] = mapped_column(Uuid)
+    technical_check_id: Mapped[UUID | None] = mapped_column(Uuid)
     checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failure_code: Mapped[str | None] = mapped_column(String(100))
 
@@ -695,10 +700,60 @@ class MaterialAuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class MaterialTechnicalCheck(Base):
+    __tablename__ = "material_technical_checks"
+    __table_args__ = (
+        UniqueConstraint("material_id", "id", "generation", "revision_hash", name="uq_material_technical_checks_revision"),
+        ForeignKeyConstraint(["material_id", "inventory_id"], ["material_inventories.material_id", "material_inventories.id"],
+                             name="fk_material_technical_checks_inventory", ondelete="RESTRICT"),
+        CheckConstraint("generation >= 0", name="ck_material_technical_checks_generation"),
+        _review_hash_constraint("revision_hash", "ck_material_technical_checks_revision_hash"),
+        _review_hash_constraint("report_hash", "ck_material_technical_checks_report_hash"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), index=True)
+    inventory_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    revision_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    report_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    report: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class MaterialApproval(Base):
+    __tablename__ = "material_approvals"
+    __table_args__ = (
+        UniqueConstraint("material_id", "id", name="uq_material_approvals_material_id"),
+        UniqueConstraint("material_id", "generation", "revision_hash", "kind", name="uq_material_approvals_revision_kind"),
+        ForeignKeyConstraint(["material_id", "technical_check_id", "generation", "revision_hash"],
+                             ["material_technical_checks.material_id", "material_technical_checks.id",
+                              "material_technical_checks.generation", "material_technical_checks.revision_hash"],
+                             name="fk_material_approvals_check", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["material_id", "technical_approval_id"], ["material_approvals.material_id", "material_approvals.id"],
+                             name="fk_material_approvals_technical", ondelete="RESTRICT"),
+        CheckConstraint("generation >= 0", name="ck_material_approvals_generation"),
+        _review_hash_constraint("revision_hash", "ck_material_approvals_revision_hash"),
+        CheckConstraint("(kind = 'TECHNICAL' AND technical_approval_id IS NULL) OR (kind = 'PUBLICATION' AND technical_approval_id IS NOT NULL)",
+                        name="ck_material_approvals_kind"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), index=True)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    revision_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    technical_check_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    technical_approval_id: Mapped[UUID | None] = mapped_column(Uuid)
+    note: Mapped[str | None] = mapped_column(Text)
+    warnings_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 def _reject_review_history_mutation(*_: object) -> None:
     raise ImmutableAuditSnapshotError("Material inventory and audit history are append-only.")
 
 
-for _review_history_type in (MaterialInventory, MaterialAuditEvent):
+for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval):
     event.listen(_review_history_type, "before_update", _reject_review_history_mutation)
     event.listen(_review_history_type, "before_delete", _reject_review_history_mutation)

@@ -55,6 +55,8 @@ environment. It prompts twice without echo, preserves role/active state, and
 forces a password change. It cannot create accounts or activate a disabled one.
 Never pass passwords in command arguments, environment files, URLs or logs.
 
-The application database is unchanged by this authorization slice (head 0006).
+Technical/publication approval roles and revalidation are documented in
+`material-approvals.md`. The authorization slice itself required no schema change
+(head 0006); subsequent inventory and approval slices add migrations 0007/0008.
 Rolling back this slice would reopen previously public endpoints; do not expose
 the earlier application version on a shared network.

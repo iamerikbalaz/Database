@@ -17,6 +17,8 @@ from app.db.session import Database
 from app.worker_client import MaterialPreflightClient, WorkerClient
 from app.inventory_client import InventoryClient, WorkerInventoryClient
 from app.api.material_review import build_material_review_router
+from app.api.material_approvals import build_material_approvals_router
+from app.technical_client import TechnicalClient, WorkerTechnicalClient
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -28,6 +30,7 @@ def create_app(
     database: ApplicationDatabase | None = None,
     worker_client: MaterialPreflightClient | None = None,
     inventory_client: InventoryClient | None = None,
+    technical_client: TechnicalClient | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     app_database = database or Database(app_settings.resolved_database_url)
@@ -65,6 +68,8 @@ def create_app(
     )
     application.include_router(build_material_review_router(app_database,
         inventory_client or WorkerInventoryClient(app_settings.worker_base_url)))
+    application.include_router(build_material_approvals_router(app_database,
+        technical_client or WorkerTechnicalClient(app_settings.worker_base_url)))
 
     @application.middleware("http")
     async def prevent_auth_caching(request, call_next):

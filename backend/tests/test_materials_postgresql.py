@@ -43,6 +43,7 @@ def review_pg_case(migrated_postgresql_url):
     from types import SimpleNamespace
     from app.main import create_app as authenticated_app
     from test_material_review import InventoryStub
+    from test_material_approvals import TechnicalStub
     from test_application_access import PASSWORD, ORIGIN
 
     class SharedDatabase(Database):
@@ -53,7 +54,7 @@ def review_pg_case(migrated_postgresql_url):
     password_hash = PasswordService(settings).hash_password(PASSWORD)
     with database.session() as session:
         users = []
-        for role in ("ADMIN", "PROCESSOR", "PROCESSOR"):
+        for role in ("ADMIN", "PROCESSOR", "PROCESSOR", "ADMIN"):
             user = InternalUser(display_name="Review fixture", email=f"{uuid4().hex}@example.invalid", role=role)
             user.credential = UserCredential(password_hash=password_hash, must_change_password=False)
             session.add(user); users.append(user)
@@ -66,14 +67,15 @@ def review_pg_case(migrated_postgresql_url):
             technical_identity=f"{brand.folder_prefix}_0001_G03", folder_path=f"library/{brand.folder_prefix}_0001_G03")
         material.metadata_state = PBRMaterialMetadata(); session.add(material); session.commit()
     inventory = InventoryStub()
-    app = authenticated_app(settings, database, inventory_client=inventory)
+    technical = TechnicalStub()
+    app = authenticated_app(settings, database, inventory_client=inventory, technical_client=technical)
     def client_for(index=0):
         client = TestClient(app, base_url=ORIGIN)
         response = client.post("/api/auth/login", json={"email": users[index].email, "password": PASSWORD}, headers={"Origin": ORIGIN})
         assert response.status_code == 200
         client.headers.update({"Origin": ORIGIN, "X-CSRF-Token": response.json()["csrf_token"]})
         return client
-    yield SimpleNamespace(database=database, app=app, inventory=inventory, users=users, material=material,
+    yield SimpleNamespace(database=database, app=app, inventory=inventory, technical=technical, users=users, material=material,
                           path=f"/api/materials/{material.id}", client_for=client_for)
     database.engine.dispose()
 
@@ -138,6 +140,109 @@ def test_postgresql_inventory_and_events_are_append_only(review_pg_case):
     with case.database.session() as session:
         state = session.get(MaterialReviewState, case.material.id)
         assert state.generation == 1 and state.inventory_id is not None
+
+
+def _prepare_pg_approval(case):
+    from test_material_approvals import run
+    with case.database.session() as session:
+        session.get(PBRMaterial, case.material.id).workflow_status = "DONE"
+        session.commit()
+    with case.client_for() as client:
+        response = run(client, case.path)
+        assert response.status_code == 200
+        return response.json()
+
+
+@pytest.mark.parametrize("same_key", [True, False])
+def test_postgresql_concurrent_approvals_create_one_immutable_decision(review_pg_case, same_key):
+    from app.db.models import MaterialApproval, MaterialTechnicalCheck
+    from test_material_approvals import approval_payload
+    case = review_pg_case; view = _prepare_pg_approval(case)
+    barrier = Barrier(2); case.technical.callback = lambda: barrier.wait(timeout=15)
+    payload = approval_payload(view)
+    with case.client_for() as first, case.client_for() as second:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            one = pool.submit(first.post, case.path + "/approvals", json=payload)
+            two = pool.submit(second.post, case.path + "/approvals", json=payload if same_key else approval_payload(view))
+            results = [one.result(timeout=25), two.result(timeout=25)]
+        assert sorted(item.status_code for item in results) == ([200, 200] if same_key else [200, 409])
+        if same_key: assert results[0].json() == results[1].json()
+    with case.database.session() as session:
+        assert len(list(session.scalars(select(MaterialApproval).where(MaterialApproval.material_id == case.material.id)))) == 1
+        assert len(list(session.scalars(select(MaterialTechnicalCheck).where(MaterialTechnicalCheck.material_id == case.material.id)))) == 2
+
+
+@pytest.mark.parametrize("change", ["name", "assignment", "reopen", "disable"])
+def test_postgresql_approval_rechecks_actual_api_changes_after_worker_delay(review_pg_case, change):
+    from app.db.models import MaterialApproval
+    from test_material_approvals import approval_payload
+    case = review_pg_case; view = _prepare_pg_approval(case)
+    entered = Event(); release = Event()
+    def hold():
+        entered.set()
+        if not release.wait(15): raise TimeoutError("Approval test worker was not released")
+    case.technical.callback = hold
+    with case.client_for() as approver, case.client_for(3) as admin:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pending = pool.submit(approver.post, case.path + "/approvals", json=approval_payload(view))
+            try:
+                assert entered.wait(15)
+                if change == "name": response = admin.patch(case.path, json={"material_name": "Edited during approval"})
+                elif change == "assignment": response = admin.patch(case.path, json={"assigned_processor_id": str(case.users[2].id)})
+                elif change == "disable": response = admin.patch(f"/api/internal-users/{case.users[0].id}", json={"is_active": False})
+                else: response = admin.post(case.path + "/reopen", json={"idempotency_key": str(uuid4()), "expected_generation": view["review"]["generation"], "reason": "Correct source"})
+                assert response.status_code == 200
+            finally: release.set()
+            assert pending.result(timeout=25).status_code == (401 if change == "disable" else 409)
+    with case.database.session() as session:
+        assert list(session.scalars(select(MaterialApproval).where(MaterialApproval.material_id == case.material.id))) == []
+
+
+def test_postgresql_approval_history_is_immutable_and_cannot_cross_revisions(review_pg_case):
+    from app.db.models import MaterialApproval
+    from test_material_approvals import approval_payload
+    case = review_pg_case; view = _prepare_pg_approval(case)
+    with case.client_for() as client:
+        approved = client.post(case.path + "/approvals", json=approval_payload(view))
+        assert approved.status_code == 200
+        check_id = approved.json()["validation"]["id"]
+    for table in ("material_technical_checks", "material_approvals"):
+        for statement in (f"UPDATE {table} SET generation = generation + 1 WHERE material_id = :id",
+                          f"DELETE FROM {table} WHERE material_id = :id", f"TRUNCATE {table} CASCADE"):
+            with pytest.raises(DBAPIError):
+                with case.database.engine.begin() as connection:
+                    connection.execute(text(statement), {"id": case.material.id})
+    with pytest.raises(IntegrityError), case.database.session() as session:
+        session.add(MaterialApproval(material_id=case.material.id, actor_id=case.users[0].id, generation=999,
+            revision_hash=view["review"]["revision_hash"], kind="TECHNICAL", technical_check_id=check_id, warnings_acknowledged=False))
+        session.commit()
+
+
+def test_postgresql_approval_upgrade_from_inventory_head_and_downgrade_preserve_history():
+    with isolated_postgresql_database() as database_url:
+        previous = os.environ.get("DATABASE_URL")
+        os.environ["DATABASE_URL"] = database_url; get_settings.cache_clear()
+        engine = create_engine(database_url)
+        try:
+            config = Config("alembic.ini"); command.upgrade(config, "20260915_0007")
+            material_id = _create_postgresql_material_with_metadata(database_url, uuid4().hex[:12])
+            with engine.begin() as connection:
+                actor_id = connection.execute(text("SELECT assigned_processor_id FROM pbr_materials WHERE id=:id"), {"id": material_id}).scalar_one()
+                connection.execute(text("INSERT INTO material_audit_events (id, material_id, actor_id, event_type, generation, result) VALUES (:id, :material, :actor, 'PRIOR_REVIEW', 0, '{}'::jsonb)"),
+                                   {"id": uuid4(), "material": material_id, "actor": actor_id})
+            command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
+            with engine.connect() as connection:
+                assert connection.execute(text("SELECT count(*) FROM material_audit_events WHERE material_id=:id"), {"id": material_id}).scalar_one() == 1
+                assert connection.execute(text("SELECT count(*) FROM material_approvals")).scalar_one() == 0
+            command.downgrade(config, "20260915_0007")
+            with engine.connect() as connection:
+                assert connection.execute(text("SELECT count(*) FROM material_audit_events WHERE material_id=:id"), {"id": material_id}).scalar_one() == 1
+            command.upgrade(config, "head"); command.check(config)
+        finally:
+            engine.dispose()
+            if previous is None: os.environ.pop("DATABASE_URL", None)
+            else: os.environ["DATABASE_URL"] = previous
+            get_settings.cache_clear()
 
 
 def test_postgresql_review_upgrade_from_auth_head_preserves_credentials():
@@ -245,7 +350,7 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
             current_revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            assert current_revision == "20260915_0007"
+            assert current_revision == "20260915_0008"
     finally:
         engine.dispose()
 
@@ -288,7 +393,7 @@ def test_postgresql_auth_upgrade_from_previous_head_preserves_users_without_cred
                 ).scalar_one() == 0
                 assert connection.execute(
                     text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "20260915_0007"
+                ).scalar_one() == "20260915_0008"
         finally:
             engine.dispose()
             if previous_database_url is None:

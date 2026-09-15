@@ -128,8 +128,14 @@ Read-only audit on Windows / Python 3.13.15:
 
 ## In progress
 
-Next: inventory, technical/publication approval and reopen, bound to the source
-revision. Do not treat this intermediate version as the complete PBR product.
+Worker inventory now hashes the complete source tree through no-follow Linux
+descriptors, detects changes during scanning and fails without partial output.
+Its contract and filesystem snapshot limitations are in `docs/source-inventory.md`.
+Full Linux worker run: 178 passed without skips, including revision changes on
+ZIP policy boundary and directory replacement. Earlier Windows run: 92 passed /
+84 skipped (POSIX-only; two later POSIX tests were verified in Linux).
+Next: persisted inventory, technical/publication approval and reopen, bound to
+the source revision. This intermediate version is not the complete PBR product.
 
 ## Remaining sequence
 

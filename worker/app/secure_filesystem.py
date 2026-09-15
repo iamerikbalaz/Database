@@ -3,7 +3,7 @@
 import errno
 import os
 import stat
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -236,19 +236,17 @@ def _metadata_bytes(material_fd: int) -> tuple[bytes | None, tuple[str, str] | N
         _close(metadata_fd)
 
 
-def inspect_material_secure(
+@contextmanager
+def open_material_directory(
     root: Path,
     parts: tuple[str, ...],
-    *,
-    boundary: datetime | None = None,
-) -> SourceMetadataResult:
-    """Inspect through one no-follow descriptor chain, closing every descriptor."""
+):
+    """Yield an anchored directory descriptor; never follow material links."""
     if not secure_filesystem_access_supported():
         raise SecureFilesystemAccessUnavailable(
             "Descriptor-relative no-follow filesystem access is unavailable"
         )
 
-    boundary = boundary if boundary is not None else configured_policy_boundary()
     try:
         root_fd = os.open(root, _directory_flags())
     except OSError as exc:
@@ -286,6 +284,18 @@ def inspect_material_secure(
             if not stat.S_ISDIR(component_info.st_mode):
                 raise UnsafeMaterialPath("Material component is not a directory")
 
+        yield material_fd
+
+
+def inspect_material_secure(
+    root: Path,
+    parts: tuple[str, ...],
+    *,
+    boundary: datetime | None = None,
+) -> SourceMetadataResult:
+    """Inspect through one no-follow descriptor chain, closing every descriptor."""
+    boundary = boundary if boundary is not None else configured_policy_boundary()
+    with open_material_directory(root, parts) as material_fd:
         master, modified_at, modified_ns, master_warnings, master_errors = (
             _resolution_info(material_fd)
         )

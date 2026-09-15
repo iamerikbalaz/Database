@@ -4,7 +4,7 @@ import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Literal
 
-from fastapi import FastAPI, Request, Response, status
+from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
@@ -18,6 +18,7 @@ from app.secure_filesystem import (
     inspect_material_secure,
 )
 from app.source_metadata import SourceMetadataResult
+from app.inventory import InventoryError, inventory_material
 
 
 SCHEMA_VERSION = 1
@@ -80,6 +81,24 @@ class HealthResponse(StrictModel):
     status: Literal["ok"] = "ok"
     service: Literal["worker"] = "worker"
     version: str = "0.1.0"
+
+
+class InventoryEntry(StrictModel):
+    path: str
+    kind: Literal["file", "directory"]
+    size: int
+    sha256: str | None
+
+
+class InventoryResponse(StrictModel):
+    schema_version: Literal[1]
+    folder_name: str
+    master_resolution: str | None
+    master_last_modified_at: str | None
+    policy: ZipPolicy | None
+    entries: list[InventoryEntry]
+    source_revision_hash: str
+    total_bytes: int
 
 
 def _normalize_relative_path(value: str) -> tuple[str, tuple[str, ...]]:
@@ -271,7 +290,9 @@ def create_app(
     application = FastAPI(title="REAWOTE Worker Internal API", version="0.1.0")
 
     @application.exception_handler(RequestValidationError)
-    async def invalid_request(_: Request, __: RequestValidationError) -> JSONResponse:
+    async def invalid_request(request: Request, __: RequestValidationError) -> JSONResponse:
+        if request.url.path == "/internal/material-inventory":
+            return JSONResponse(status_code=422, content={"detail": {"code": "INVALID_REQUEST"}})
         result = _error_response(
             "",
             "",
@@ -304,6 +325,31 @@ def create_app(
     ) -> MaterialPreflightResponse:
         result, response.status_code = _perform_preflight(request, configured_root)
         return result
+
+    @application.post("/internal/material-inventory", response_model=InventoryResponse, tags=["internal"])
+    def material_inventory(request: MaterialPreflightRequest) -> dict:
+        try:
+            if len(request.folder_path) > 2048:
+                raise ValueError()
+            _, parts = _normalize_relative_path(request.folder_path)
+        except ValueError:
+            raise HTTPException(422, {"code": "INVALID_FOLDER_PATH"}) from None
+        try:
+            root = _configured_root(configured_root)
+        except RuntimeError:
+            raise HTTPException(503, {"code": "MATERIALS_ROOT_UNAVAILABLE"}) from None
+        try:
+            return inventory_material(root, parts)
+        except MaterialFolderNotFound:
+            raise HTTPException(404, {"code": "MATERIAL_FOLDER_NOT_FOUND"}) from None
+        except MaterialsRootUnavailable:
+            raise HTTPException(503, {"code": "MATERIALS_ROOT_UNAVAILABLE"}) from None
+        except SecureFilesystemAccessUnavailable:
+            raise HTTPException(422, {"code": "SECURE_FILESYSTEM_ACCESS_UNAVAILABLE"}) from None
+        except UnsafeMaterialPath:
+            raise HTTPException(422, {"code": "UNSAFE_MATERIAL_PATH"}) from None
+        except InventoryError as exc:
+            raise HTTPException(422, {"code": str(exc)}) from None
 
     return application
 

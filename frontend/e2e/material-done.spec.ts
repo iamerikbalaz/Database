@@ -139,9 +139,11 @@ test.afterEach(async ({ page }) => {
   expect(folderInputs.some((value) =>
     value.includes(materialsRoot) || value.includes("/e2e-materials"),
   )).toBe(false);
-  expect(observed?.consoleErrors).toEqual([]);
-  expect(observed?.requestFailures).toEqual([]);
-  expect(observed?.unexpectedHttpErrors).toEqual([]);
+  expect({
+    consoleErrors: observed?.consoleErrors,
+    requestFailures: observed?.requestFailures,
+    unexpectedHttpErrors: observed?.unexpectedHttpErrors,
+  }).toEqual({ consoleErrors: [], requestFailures: [], unexpectedHttpErrors: [] });
 });
 
 test("happy path persists Done metadata and snapshot after reload", async ({ page }) => {

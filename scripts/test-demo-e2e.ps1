@@ -181,6 +181,35 @@ function Assert-RenderedE2eCompose {
     if (-not $renderedSource.Equals($script:E2eMaterialsRoot, [StringComparison]::OrdinalIgnoreCase)) {
         throw 'Rendered worker bind source is not the exact repository-local E2E materials root.'
     }
+    foreach ($suffix in @('sources', 'journals')) {
+        $logical = 'identity_' + $suffix
+        $expected = $env:E2E_IDENTITY_VOLUME_PREFIX + '-' + $suffix
+        if ($configuration.volumes.$logical.name -cne $expected) { throw 'Unexpected identity engine volume.' }
+        $definition = $configuration.volumes.$logical
+        $external = Get-E2eObjectPropertyValue $definition 'external'
+        $driver = Get-E2eObjectPropertyValue $definition 'driver'
+        $options = Get-E2eObjectPropertyValue $definition 'driver_opts'
+        if ($external -eq $true -or ($driver -and $driver -ne 'local') -or ($null -ne $options -and @($options.PSObject.Properties).Count -gt 0)) { throw 'Identity fixtures require fresh local volumes without external drivers or mount options.' }
+        $target = if ($suffix -eq 'sources') { '/e2e-materials/e2e-identity' } else { '/e2e-identity-journal' }
+        $mount = @($configuration.services.worker.volumes | Where-Object { $_.target -eq $target })
+        if ($mount.Count -ne 1 -or $mount[0].type -ne 'volume' -or $mount[0].source -ne $logical) { throw 'Unexpected identity worker volume mount.' }
+    }
+}
+
+function Assert-RuntimeIdentityMounts {
+    $containerId = (Invoke-E2eCompose @('ps', '--quiet', 'worker') 'Locate E2E worker') -join ''
+    $inspectionJson = (& docker inspect $containerId.Trim()) -join [Environment]::NewLine
+    Assert-LastCommandSucceeded 'Inspect E2E worker'
+    $inspection = @($inspectionJson | ConvertFrom-Json -ErrorAction Stop)
+    if ($inspection.Count -ne 1 -or $inspection[0].Config.Labels.'com.docker.compose.project' -cne $script:E2eProjectName -or $inspection[0].Config.Labels.'com.docker.compose.service' -ne 'worker') { throw 'Unexpected worker container ownership.' }
+    foreach ($suffix in @('sources', 'journals')) {
+        $expected = $env:E2E_IDENTITY_VOLUME_PREFIX + '-' + $suffix
+        $volume = Get-ExactVolumeInspection $expected
+        [void](Assert-E2eEngineVolumeInspection $volume $expected $script:E2eProjectName ('identity_' + $suffix))
+        $target = if ($suffix -eq 'sources') { '/e2e-materials/e2e-identity' } else { '/e2e-identity-journal' }
+        $mount = @($inspection[0].Mounts | Where-Object { $_.Destination -eq $target })
+        if ($mount.Count -ne 1 -or $mount[0].Type -ne 'volume' -or $mount[0].Name -cne $expected -or $mount[0].RW -ne $true) { throw 'Runtime identity mount does not belong to this run.' }
+    }
 }
 
 function Assert-RuntimeDatabaseMount {
@@ -278,6 +307,29 @@ function New-E2eSeedManifestData {
     $mismatch = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Identity Mismatch'
     $review = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Source Review'
     $approval = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Technical Approval'
+    $identity = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Controlled Identity'
+    $identityBrand = Invoke-E2eJsonPost $BackendUrl '/api/brands' @{ company_id = $company.id; name = 'E2E Identity Target'; folder_prefix = 'E2E_NEXT'; brand_identifier = 'e2e-identity-target'; is_active = $true }
+    Assert-RuntimeIdentityMounts
+    $identityCode = @'
+import json, os, sys
+from pathlib import Path
+from PIL import Image
+value = json.load(sys.stdin)
+name = value['identity']
+assert name.startswith('E2E_SAFE_') and '/' not in name and '\\' not in name
+root = Path('/e2e-materials/e2e-identity')
+assert root.is_dir() and not root.is_symlink()
+source = root / name
+source.mkdir()
+(source / '1K').mkdir()
+(source / 'SOURCE').mkdir()
+for shortcut in ('COL', 'NRM', 'ROUGH'):
+    Image.new('RGB', (1024,1024), '#607080').save(source / '1K' / f'{name}_{shortcut}_1K.png')
+(source / 'SOURCE' / f'{name}.sbs').write_bytes(b'Synthetic E2E source only')
+(source / 'metadata.txt').write_text(json.dumps({'FOLDER': name, 'PRODUCT_NAME': value['name'], 'MANUFACTURER': 'E2E Published Brand', 'CATEGORY': 'G03', 'PRODUCT_NUMBER': name.rsplit('_',2)[1], 'COLOR': {'hex':'#607080'}, 'TEXTURE_SIZE': {'cm': {'width':12.5,'height':34}}, 'SOURCE': {'SBS': f'SOURCE/{name}.sbs'}}), encoding='utf-8')
+Path('/e2e-identity-journal/private').mkdir(mode=0o700)
+'@
+    Invoke-E2eComposeWithStandardInput -StandardInput (@{ identity = $identity.technical_identity; name = $identity.material_name } | ConvertTo-Json -Compress) -Arguments @('exec', '--no-TTY', 'worker', 'python', '-c', $identityCode) -Step 'Create synthetic identity fixtures only in verified fresh Linux volumes' -Mutation
     $validPath = "e2e-library/$($valid.technical_identity)"
     $missingPath = "e2e-library/$($missing.technical_identity)"
     $dimensionsPath = "e2e-library/$($dimensions.technical_identity)"
@@ -310,6 +362,7 @@ function New-E2eSeedManifestData {
     }}
     return [ordered]@{
         companyId = [string]$company.id; brandId = [string]$brand.id; projectId = [string]$project.id
+        identity = & $fixture $identity "e2e-identity/$($identity.technical_identity)"; identityBrandId = [string]$identityBrand.id
         valid = & $fixture $valid $validPath; missing = & $fixture $missing $missingPath; mismatch = & $fixture $mismatch $mismatchPath; dimensions = & $fixture $dimensions $dimensionsPath; review = & $fixture $review $reviewPath; approval = & $fixture $approval $approvalPath
     }
 }
@@ -331,7 +384,7 @@ function Save-E2eFailureDiagnostics {
         catch { $lines.Add("Diagnostics collection error: $($_.Exception.Message)") }
     }
     $text = $lines -join [Environment]::NewLine
-    foreach ($secret in @($Password, $RunRoot, $env:E2E_RUN_TOKEN, $env:E2E_ADMIN_PASSWORD, $env:E2E_TEMPORARY_PASSWORD, $env:E2E_USER_PASSWORD, $script:E2eCsrf)) { if ($secret) { $text = $text.Replace($secret, '[REDACTED]') } }
+    foreach ($secret in @($Password, $RunRoot, $env:E2E_RUN_TOKEN, $env:E2E_ADMIN_PASSWORD, $env:E2E_TEMPORARY_PASSWORD, $env:E2E_USER_PASSWORD, $env:E2E_WORKER_MUTATION_TOKEN, $script:E2eCsrf)) { if ($secret) { $text = $text.Replace($secret, '[REDACTED]') } }
     Write-E2eSafeTextFile -RepositoryRoot $RepositoryRoot -RunRoot $ArtifactRoot -Path (Join-Path $ArtifactRoot 'runner-diagnostics.txt') -Content $text
 }
 
@@ -345,7 +398,7 @@ $runGuid = [guid]::NewGuid()
 $mutex = $null
 $runFailure = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
-$environmentNames = @('BACKEND_PORT', 'FRONTEND_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'COMPOSE_PROJECT_NAME', 'E2E_FRONTEND_PORT', 'E2E_MATERIALS_ROOT', 'E2E_WORKER_PORT', 'E2E_RUN_MANIFEST', 'E2E_RUN_TOKEN', 'E2E_ADMIN_PASSWORD', 'E2E_TEMPORARY_PASSWORD', 'E2E_USER_PASSWORD', 'E2E_RETAINED_PASS')
+$environmentNames = @('BACKEND_PORT', 'FRONTEND_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'COMPOSE_PROJECT_NAME', 'E2E_FRONTEND_PORT', 'E2E_MATERIALS_ROOT', 'E2E_WORKER_PORT', 'E2E_RUN_MANIFEST', 'E2E_RUN_TOKEN', 'E2E_ADMIN_PASSWORD', 'E2E_TEMPORARY_PASSWORD', 'E2E_USER_PASSWORD', 'E2E_RETAINED_PASS', 'E2E_IDENTITY_VOLUME_PREFIX', 'E2E_WORKER_MUTATION_TOKEN')
 $previousEnvironment = @{}
 foreach ($name in $environmentNames) { $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 $repositoryRoot = $runRoot = $artifactRoot = $dataManagedRoot = $artifactManagedRoot = $postgresPassword = $protectedBefore = $null
@@ -371,6 +424,12 @@ try {
     $artifactRoot = New-E2eManagedRunDirectory $repositoryRoot $artifactManagedRoot $runGuid
     $script:E2eMaterialsRoot = [IO.Path]::GetFullPath((Join-Path $runRoot 'materials'))
     [void](New-E2eSafeDirectory $repositoryRoot $runRoot $script:E2eMaterialsRoot)
+    [void](New-E2eSafeDirectory $repositoryRoot $runRoot (Join-Path $script:E2eMaterialsRoot 'e2e-identity'))
+    $env:E2E_IDENTITY_VOLUME_PREFIX = $projectName + '-identity-' + $runGuid.ToString('N')
+    $env:E2E_WORKER_MUTATION_TOKEN = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
+    foreach ($suffix in @('sources', 'journals')) {
+        if ($null -ne (Get-ExactVolumeInspection ($env:E2E_IDENTITY_VOLUME_PREFIX + '-' + $suffix))) { throw 'Fresh identity volume name already exists; refusing all mutations.' }
+    }
     $allocatedPorts = [Collections.Generic.HashSet[int]]::new()
     while ($allocatedPorts.Count -lt 3) { [void]$allocatedPorts.Add((Get-FreeTcpPort)) }
     $selectedPorts = @($allocatedPorts)
@@ -424,14 +483,16 @@ try {
         & npm.cmd exec -- playwright test
         Assert-LastCommandSucceeded 'Playwright E2E scenarios'
         # Restart the application without resetting the database or fixtures.
-        Invoke-E2eCompose @('restart', 'backend', 'frontend') 'Restart application with retained data' -Mutation
+        Invoke-E2eCompose @('restart', 'backend', 'frontend', 'worker') 'Restart application and worker with retained data and journals' -Mutation
+        Assert-RuntimeIdentityMounts
         $deadline = [DateTime]::UtcNow.AddSeconds(45)
         $ready = $false
         while ([DateTime]::UtcNow -lt $deadline) {
             try {
                 $health = Invoke-WebRequest -UseBasicParsing -Uri "$backendUrl/health" -TimeoutSec 2
                 $web = Invoke-WebRequest -UseBasicParsing -Uri $frontendUrl -TimeoutSec 2
-                if ($health.StatusCode -eq 200 -and $web.StatusCode -eq 200) { $ready = $true; break }
+                $workerHealth = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$workerPort/health" -TimeoutSec 2
+                if ($health.StatusCode -eq 200 -and $web.StatusCode -eq 200 -and $workerHealth.StatusCode -eq 200) { $ready = $true; break }
             } catch { }
             Start-Sleep -Milliseconds 500
         }
@@ -498,4 +559,5 @@ if ($null -ne $runFailure -or $cleanupErrors.Count -gt 0) {
 
 Write-Host 'All Playwright demo E2E scenarios passed.'
 Write-Host "Cleanup removed only project '$projectName' containers/network and run '$($runGuid.ToString('D'))'; volume '$databaseVolumeName' was preserved."
+Write-Host "Synthetic identity source/journal volumes with prefix '$projectName-identity-$($runGuid.ToString('N'))' were preserved."
 Write-Host 'Regular project reawote and demo project/volume state remained unchanged.'

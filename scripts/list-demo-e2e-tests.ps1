@@ -32,7 +32,8 @@ try {
             companyId = '00000000-0000-4000-8000-000000000002'
             brandId = '00000000-0000-4000-8000-000000000003'
             projectId = '00000000-0000-4000-8000-000000000004'
-            valid = $fixture; missing = $fixture; mismatch = $fixture; dimensions = $fixture; review = $fixture; approval = $fixture
+            valid = $fixture; missing = $fixture; mismatch = $fixture; dimensions = $fixture; review = $fixture; approval = $fixture; identity = $fixture
+            identityBrandId = '00000000-0000-4000-8000-000000000005'
         }
     } | ConvertTo-Json -Depth 10
     Write-E2eSafeTextFile $repositoryRoot $runRoot $manifestPath $manifest

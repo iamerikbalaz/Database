@@ -18,16 +18,27 @@ services:
       CORS_ORIGINS: http://127.0.0.1:${E2E_FRONTEND_PORT:?E2E frontend port is required}
       WORKER_BASE_URL: http://worker:8080
       WORKER_TIMEOUT_SECONDS: 5
+      SOURCE_MUTATIONS_ENABLED: true
+      WORKER_MUTATION_TOKEN: ${E2E_WORKER_MUTATION_TOKEN:?E2E runner must provide an ephemeral worker credential}
 
   worker:
     environment:
       APP_ENV: e2e
       MATERIALS_ROOT: /e2e-materials
+      SOURCE_MUTATIONS_ENABLED: true
+      WORKER_MUTATION_TOKEN: ${E2E_WORKER_MUTATION_TOKEN:?E2E runner must provide an ephemeral worker credential}
+      IDENTITY_JOURNAL_ROOT: /e2e-identity-journal/private
     volumes:
       - type: bind
         source: ${E2E_MATERIALS_ROOT:?E2E materials root is required}
         target: /e2e-materials
         read_only: true
+      - type: volume
+        source: identity_sources
+        target: /e2e-materials/e2e-identity
+      - type: volume
+        source: identity_journals
+        target: /e2e-identity-journal
     ports:
       - "127.0.0.1:${E2E_WORKER_PORT:?E2E worker port is required}:8080"
 
@@ -39,3 +50,7 @@ services:
 volumes:
   postgres_data:
     name: ${E2E_PROJECT_NAME:-reawote-e2e}-postgres-data
+  identity_sources:
+    name: ${E2E_IDENTITY_VOLUME_PREFIX:?E2E runner must allocate fresh identity volumes}-sources
+  identity_journals:
+    name: ${E2E_IDENTITY_VOLUME_PREFIX:?E2E runner must allocate fresh identity volumes}-journals

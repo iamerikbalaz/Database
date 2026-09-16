@@ -190,33 +190,35 @@ scenario uses generated 1K PNGs and verifies both approvals persist through
 restart and unchanged revalidation. Only owned resources were cleaned up;
 the exact own volume was retained and protected projects remained unchanged.
 
-## In progress
+## Completed slice: controlled identity and filesystem operations
 
-Controlled identity/filesystem operations are next. The read-only worker planner
-and pure exact-number metadata transform passed all 236 Linux worker tests with
-no skips. An earlier portable planner run passed 15 with 8 POSIX skips. Its
-contract is in `docs/identity-operations.md`; execution/journal, backend
-orchestration and UI are still pending.
-Private durable journal primitives and Linux no-replace rename pass the full
-251-test Linux worker suite with no skips. Portable primitive tests: 8 passed,
-7 POSIX skips. No source-mutation API is enabled yet; the next step is the
-recoverable identity executor using these primitives, then backend coordination.
-The internal executor performs inode-preserving renames through
-temporary names, backs up metadata privately, persists each step before applying
-it, restores directory mtimes and validates the resulting source hash. The final
-Linux run passed 276 tests without skips, including injected failure after every
-step, process-interruption recovery, partial metadata writes and external edits.
-Backend coordination must exist before enabling a mutation endpoint. Next:
-durable operation state, target-brand number reservation, material mutation guards,
-authenticated confirmation/recovery and UI; then real PostgreSQL and E2E checks.
+The planner, private durable journal and recoverable Linux executor now have an
+explicitly authorized backend coordinator and detail-page UI. Migration 0009 adds
+immutable number/history ledgers and durable operation ownership. Rebrands reserve
+a target-brand number permanently before filesystem IO. Verified completion changes
+the identity only after real source verification; interruptions retain ownership
+for explicit recovery. Source writes remain disabled by default. See
+`docs/identity-operations.md` for configuration, limitations and rollback.
 
-The tracked `scripts/texture-zip.zip` was inspected and contains both original
-historical packaging scripts. Their observed behavior is recorded in
-`docs/legacy-packaging-contract.md`. Script source is available for synthetic
-comparisons; production golden assets and the online importer are not yet found.
-`origin/main` was rechecked after approval/UI commits: still 88a1f99; both working
-trees were clean before starting the planner slice.
-This intermediate version is not the complete PBR product.
+Verification: backend 569, actual PostgreSQL 99 (auth gate 27/27), final Linux worker
+287, frontend 224 tests passed with no skips. Frontend lint/build passed locally and
+in Docker. Fresh/prior-0008 migrations, Alembic current/heads/check, allocation races,
+account-disable races, immutable histories and active-operation downgrade refusal
+passed. E2E safety helpers: 49 passed. The final real E2E run `f9f8e306` passed all
+11 scenarios on fresh data and all 11 after backend/frontend/worker restart with
+retained data. It verifies real source renames, unchanged UUID/project, target-brand
+number, source hashes and history. Owned containers/network were cleaned; own DB
+and per-run Linux source/journal volumes were retained. Protected resources remained
+unchanged. Earlier E2E attempts exposed a selector mismatch (fixed) and one Chromium
+ERR_NO_BUFFER_SPACE event; the final unchanged network-error gates passed both runs.
+An earlier portable worker subset skipped 30 POSIX cases; full Linux verification
+above supersedes that platform limitation. Two upstream Python test deprecations
+remain. UI error focus timing was fixed and verified by the complete Docker suite.
+
+The tracked `scripts/texture-zip.zip` contains both original historical packaging
+scripts. Observed behavior is in `docs/legacy-packaging-contract.md`. Synthetic
+comparisons are possible; production golden assets and online importer source
+remain unavailable. This is still not the complete PBR product.
 
 ## Remaining sequence
 
@@ -235,7 +237,28 @@ operations. 3D models and HDRI remain out of scope.
 
 ## Resume
 
-Use this worktree and branch, inspect status and the latest commits, then
-continue the unfinished step. Run tools from this worktree, never migrate or
-reset the protected original database instances. Update this checkpoint with
-each completed slice, actual tests and remaining limitations.
+Identity worker/API/UI are committed in `4acc874`, `07ef4db` and `0b1e3ff`.
+The next slice is normalized online categories, brand collections and versioned
+publication content, followed by historical import and gallery/publication work.
+Migration 0009 is committed: never rewrite it; add a new migration for new schema.
+
+Docker runs through the local Linux engine at desktop-linux. Startup initially
+failed on Windows error 1920 from stale zero-byte runtime socket reparse points.
+Only verified runtime directories were reversibly renamed after stopping our newly
+started Desktop processes. Retained quarantines are under
+`C:/Users/Admin/AppData/Local/Docker/run.quarantine-reawote-01a0a64d` (and `-2`) and
+`C:/Users/Admin/AppData/Local/docker-secrets-engine.quarantine-reawote-01a0a64d`.
+No secret contents were read; no factory/WSL reset, data-directory move or volume
+deletion occurred. Startup succeeded after both original runtime directories were
+clear in the same stopped cycle. The full Docker and E2E tests above then ran.
+Do not run standalone containers from Compose-built images during an E2E run:
+Compose 5.4 image labels can make them appear to belong to that active project.
+Use a separately owned project label or run sequentially.
+
+`origin/main` was reverified via `git ls-remote`: still 88a1f99; original main clean.
+Use this worktree and branch, inspect status and the latest commits, then continue
+the unfinished step. Run tools here; never migrate/reset protected original DBs.
+Set `E2E_PROJECT_NAME=reawote-e2e-auto-01a0a64d` for our isolated E2E runner. It
+retains our own database and fresh per-run Linux identity volumes. Production NAS,
+real GCS/Notion, backup and restore resources remain outside the allowed write scope.
+Update this checkpoint with each completed slice and actual remaining limitations.

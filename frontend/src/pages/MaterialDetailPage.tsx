@@ -27,6 +27,7 @@ import { ErrorState, LoadingState } from "../components/PageState";
 import { NavigationLink } from "../components/NavigationLink";
 import { MaterialReviewPanel } from "../components/MaterialReviewPanel";
 import { MaterialTechnicalPanel } from "../components/MaterialTechnicalPanel";
+import { MaterialIdentityPanel } from "../components/MaterialIdentityPanel";
 
 function Value({ children }: { children: ReactNode }) {
   return children === null || children === undefined || children === "" ? (
@@ -95,7 +96,7 @@ function RefreshError({
   retry: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => ref.current?.focus(), [operation]);
+  useLayoutEffect(() => ref.current?.focus(), [operation]);
   const savedChange = operation === "link"
     ? "The folder was linked"
     : operation === "reopen" ? "The material was reopened" : "The material was marked as Done";
@@ -616,6 +617,7 @@ function MaterialDetailContent({
       <SnapshotHistoryPanel result={data.snapshots} retry={data.retry} focusError={!data.refreshFailure} />
     </div>
     {role && <MaterialTechnicalPanel key={`technical-${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material} onChanged={() => data.refreshAll(undefined, undefined)} />}
+    {role && <MaterialIdentityPanel key={`identity-${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material} client={client} onChanged={async () => { retryRelated(); return true; }} />}
     {role && <MaterialReviewPanel key={`${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material}
       onScanned={() => data.refreshAll(undefined, undefined)}
       onReopened={() => data.refreshAll({ ...material, workflowStatus: "IN_PROGRESS", validationStatus: "NOT_CHECKED" }, "reopen")} />}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import App from "../App";
 import { authClient, AuthError, type AuthSession } from "./client";
 import { SessionContext } from "./context";
@@ -51,7 +51,7 @@ export function AuthenticatedApp() {
       unsubscribe(); channel.current?.close(); channel.current = null; setSessionToken(null);
     };
   }, [applySession, bootstrap]);
-  useEffect(() => { if (error) alert.current?.focus(); }, [error]);
+  useLayoutEffect(() => { if (error) alert.current?.focus(); }, [error]);
 
   const logout = async () => {
     if (pending) return;

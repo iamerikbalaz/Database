@@ -23,6 +23,7 @@ export type SeedState = {
   review: MaterialFixture;
   approval: MaterialFixture;
   identity: MaterialFixture;
+  content: MaterialFixture;
   identityBrandId: string;
 };
 
@@ -149,6 +150,7 @@ function loadManifest(): RunManifest {
       review: validateFixture(state.review, "state.review"),
       approval: validateFixture(state.approval, "state.approval"),
       identity: validateFixture(state.identity, "state.identity"),
+      content: validateFixture(state.content, "state.content"),
       identityBrandId: requireString(state.identityBrandId, "state.identityBrandId"),
     },
   };

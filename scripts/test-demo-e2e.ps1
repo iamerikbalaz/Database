@@ -308,6 +308,7 @@ function New-E2eSeedManifestData {
     $review = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Source Review'
     $approval = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Technical Approval'
     $identity = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Controlled Identity'
+    $content = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Publication Content'
     $identityBrand = Invoke-E2eJsonPost $BackendUrl '/api/brands' @{ company_id = $company.id; name = 'E2E Identity Target'; folder_prefix = 'E2E_NEXT'; brand_identifier = 'e2e-identity-target'; is_active = $true }
     Assert-RuntimeIdentityMounts
     $identityCode = @'
@@ -363,6 +364,7 @@ Path('/e2e-identity-journal/private').mkdir(mode=0o700)
     return [ordered]@{
         companyId = [string]$company.id; brandId = [string]$brand.id; projectId = [string]$project.id
         identity = & $fixture $identity "e2e-identity/$($identity.technical_identity)"; identityBrandId = [string]$identityBrand.id
+        content = & $fixture $content "e2e-library/$($content.technical_identity)"
         valid = & $fixture $valid $validPath; missing = & $fixture $missing $missingPath; mismatch = & $fixture $mismatch $mismatchPath; dimensions = & $fixture $dimensions $dimensionsPath; review = & $fixture $review $reviewPath; approval = & $fixture $approval $approvalPath
     }
 }

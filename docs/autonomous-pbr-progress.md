@@ -222,14 +222,41 @@ remain unavailable. This is still not the complete PBR product.
 
 ## Remaining sequence
 
-1. Baseline verification; safe isolated runners and local runtime checks.
-2. Fix the four concrete environment/material defects above.
-3. Server auth, role/assignment authorization, account provisioning/reset.
-4. New session/login/logout/password UI and real authentication E2E.
-5. Workflow, review/approval, reopen, inventory and invalidation.
-6. Controlled identity/filesystem operations; categories/collections/import.
-7. Gallery/comparison; publication, CSV and packaging.
-8. Configurable GCS/Notion adapters, contracts, audit/soft-delete/restore docs.
+Catalog server/schema are committed in `eda1767`, UI in `c96baa6`. Migration 0010
+is now immutable. The slice adds normalized vocabulary, versioned material drafts,
+immutable history, role/assignment checks and approval invalidation. Catalog names
+and collection brand ownership are immutable; availability changes are audited.
+The complete isolated Docker run `reawote-test-6d760c56aa7f44a1ad1b5fc1ed574357`
+passed: backend 592, PostgreSQL 106 (auth gate 27/27), Linux worker 287 and frontend
+240, all without skips. Frontend lint/build passed in Docker and locally. Own
+containers/network were cleaned; the exact own database volume was retained.
+Warnings: two upstream Python test deprecations and one Pydantic/FastAPI query-alias
+warning during PostgreSQL checks. Fresh/prior-0009 migrations, current/heads/check,
+concurrent catalog creation/retirement/content saves and DB immutability passed.
+
+E2E helper safety checks: 49 passed. Final E2E run `90325fd0-3a35-4074-96e4-9bef4954194a`
+passed all 12 scenarios on fresh data and all 12 after application restart with
+retained data. The catalog scenario verifies revision 2, history, normalized tags,
+category retirement/reactivation and approval invalidation. Earlier attempts
+exposed a filled-textarea label selector mismatch (fixed using its textbox role)
+and pending response bodies in existing Done tests. Those tests now await all
+detail panels before reload and report unfinished endpoint paths after a bounded
+diagnostic wait. All response leak, console and network-error gates remain enabled.
+The earlier sequential run also reproduced the timeout, so parallel execution
+alone was not its cause. Own containers/network were cleaned; own DB/source/journal
+volumes retained, protected resources verified unchanged.
+An earlier uncommitted 0010 trigger syntax error was fixed before the successful
+full PostgreSQL run; older committed migrations were never changed.
+See `docs/catalog-content.md` for the contract and migration rollback.
+
+1. Content approval and AI draft provenance.
+2. Historical Excel/NAS import with explicit brand/project/company mapping.
+3. Gallery and material comparison.
+4. Immutable publication jobs, exact nine-field CSV, packaging and historical
+   golden comparisons; online importer/production golden assets remain unavailable.
+5. Configurable GCS/Notion adapters, contracts and operational instructions.
+6. Remaining catalog/account audit coverage, soft-delete/restore, old-history
+   pagination, legacy CRUD idempotency and final operations/review documentation.
 
 Live external verification is blocked until separately authorized access and
 test targets are supplied. Implementations must never simulate successful live
@@ -238,9 +265,9 @@ operations. 3D models and HDRI remain out of scope.
 ## Resume
 
 Identity worker/API/UI are committed in `4acc874`, `07ef4db` and `0b1e3ff`.
-The next slice is normalized online categories, brand collections and versioned
-publication content, followed by historical import and gallery/publication work.
-Migration 0009 is committed: never rewrite it; add a new migration for new schema.
+Catalog server/UI and retained-data E2E are verified as noted above. Continue
+content approval (`docs/content-approval-plan.md`), then the remaining sequence. Migrations through 0010 are
+committed: never rewrite them; add 0011 or later for new schema.
 
 Docker runs through the local Linux engine at desktop-linux. Startup initially
 failed on Windows error 1920 from stale zero-byte runtime socket reparse points.

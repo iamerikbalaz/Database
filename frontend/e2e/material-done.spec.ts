@@ -11,7 +11,7 @@ import { retainedPass, signInThroughApi } from "./auth-helpers";
 type BrowserDiagnostics = {
   consoleErrors: string[];
   requestFailures: string[];
-  responseBodies: Promise<string>[];
+  responseBodies: { path: string; body: Promise<string>; settled: boolean }[];
   unexpectedHttpErrors: string[];
 };
 
@@ -64,9 +64,20 @@ async function assertRetainedDone(page: Page, material: MaterialFixture, status:
   expect(snapshots.status()).toBe(200);
   expect(await snapshots.json()).toMatchObject([{ sequence_number: 1, status }]);
   expect((await snapshots.json()).length).toBe(1);
+  await waitForMaterialReads(page);
   await page.reload();
   await expect(panel(page, "Snapshot history").getByText("Snapshot 1", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Mark as Done", exact: true })).toHaveCount(0);
+}
+
+async function waitForMaterialReads(page: Page): Promise<void> {
+  // A reload must exercise a fully loaded detail, including the independently
+  // fetched panels. Reloading after only the metadata panel can abort another
+  // panel's response between its headers and body.
+  await expect(page.getByRole("article", { name: "Publication content", exact: true }).getByText(/^Revision \d+ ·/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reload identity status", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reload technical review", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reload source review", exact: true })).toBeVisible();
 }
 
 async function checkFolder(page: Page, relativePath: string): Promise<Response> {
@@ -117,7 +128,9 @@ test.beforeEach(async ({ page }) => {
   page.on("response", (response) => {
     const url = new URL(response.url());
     if (url.pathname.startsWith("/api/") && !url.pathname.startsWith("/api/auth/")) {
-      observed.responseBodies.push(response.text().catch(() => ""));
+      const captured = { path: response.request().method() + " " + url.pathname, body: Promise.resolve(""), settled: false };
+      captured.body = response.text().catch(() => "").finally(() => { captured.settled = true; });
+      observed.responseBodies.push(captured);
     }
     if (isUnexpectedHttpError(response.request().method(), url.pathname, response.status())) {
       observed.unexpectedHttpErrors.push(`${response.request().method()} ${url.pathname} -> ${response.status()}`);
@@ -128,7 +141,15 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(async ({ page }) => {
   const observed = diagnostics.get(page);
   expect(observed).toBeDefined();
-  const responseBodies = await Promise.all(observed?.responseBodies ?? []);
+  await waitForMaterialReads(page);
+  const captured = observed?.responseBodies ?? [];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const responseBodies = await Promise.race([
+    Promise.all(captured.map((item) => item.body)),
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Incomplete API response bodies: " + captured.filter((item) => !item.settled).map((item) => item.path).join(", "))), 8000);
+    }),
+  ]).finally(() => clearTimeout(timer));
   const exposedSensitiveValue = responseBodies.some(containsPathLeak);
   expect(exposedSensitiveValue).toBe(false);
   const visibleText = await page.locator("body").innerText();
@@ -201,6 +222,7 @@ test("happy path persists Done metadata and snapshot after reload", async ({ pag
   await expect(panel(page, "Current metadata").getByText("#A1B2C3", { exact: true })).toBeVisible();
   await expect(panel(page, "Snapshot history").getByText("Snapshot 1", { exact: true })).toBeVisible();
 
+  await waitForMaterialReads(page);
   await page.reload();
   await expect(materialFact(page, "Workflow status")).toHaveText("done");
   await expect(materialFact(page, "Folder path")).toHaveText(state.valid.relativePath);

@@ -50,7 +50,7 @@ function ContentEditor({ content, categories, collections, onSaved, reload }: {
       onChange={(event) => change(event.target.checked ? [...selected, item.id] : selected.filter((id) => id !== item.id))} />{item.value}{!item.active && " (inactive; remove before saving)"}</label>)}
   </fieldset>;
   return <>
-    <p>Revision {content.revision} · {content.status === "EMPTY" ? "Empty" : "Manual draft"}. Saving a change invalidates technical checks and publication approvals.</p>
+    <p>Revision {content.revision} · {content.status === "EMPTY" ? "Empty" : "Saved content"}. Saving a change invalidates technical checks and publication approvals.</p>
     {error && <p role="alert" className="field-error">{error}</p>}
     {allowed ? <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <fieldset disabled={pending || uncertain}><legend>Publication draft</legend>
@@ -86,7 +86,7 @@ export function MaterialContentPanel({ material, onChanged }: { material: Materi
   }, [material.id, material.publishedBrandId]);
   const resource = useResource(load);
   return <article className="panel catalog-content" aria-label="Publication content"><h2>Publication content</h2>
-    <p>Prepare descriptions, credits, online categories, tags and brand collections. Content is saved as a draft.</p>
+    <p>Prepare descriptions, credits, online categories, tags and brand collections. Changed content requires a new approval.</p>
     {resource.error ? <ErrorState message="Publication content could not be loaded." retry={resource.retry} /> : !resource.data ? <LoadingState label="Loading publication content…" /> :
       <ContentEditor key={resource.data.content.revision} {...resource.data} onSaved={onChanged} reload={resource.retry} />}
   </article>;

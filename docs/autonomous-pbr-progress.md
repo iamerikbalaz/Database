@@ -249,9 +249,36 @@ An earlier uncommitted 0010 trigger syntax error was fixed before the successful
 full PostgreSQL run; older committed migrations were never changed.
 See `docs/catalog-content.md` for the contract and migration rollback.
 
-1. Content approval and AI draft provenance.
-2. Historical Excel/NAS import with explicit brand/project/company mapping.
-3. Gallery and material comparison.
+Content approval backend/schema are committed in `ec3be26` (migration 0011 is now
+immutable). See `docs/content-approvals.md`. Decisions bind the exact saved draft,
+catalog/material/brand fields and observed source context; changes invalidate them
+without deleting history. Brand changes now invalidate affected reviews atomically.
+Approval requires leadership/admin, current context, and acknowledgment plus note
+for empty descriptions/tags. No source/external writes or publishing occur.
+
+Verification so far: isolated Docker project
+`reawote-test-a16fd027c4424c1ca906796a32684750` passed backend 611, actual PostgreSQL
+113 (auth gate 27/27), Linux worker 287, frontend 253, lint/build, no skips. Fresh
+and prior-0010 migrations, Alembic current/heads/check, downgrade/re-upgrade,
+immutable decisions and competing approval/edit/brand/catalog operations passed.
+Own containers/network cleaned and own DB volume retained. Python deprecations and
+Pydantic/FastAPI alias warnings remain non-failing. A later explicit active-source
+operation assertion passed locally (1 selected, 22 deselected).
+
+The final UI adds a saved-content confirmation, exact retry on unknown outcome,
+history and approval refresh even when source changes leave material.updated_at
+unchanged. After these UI refinements, all 254 frontend tests, lint/build pass
+locally. Final E2E run `d073ae9b-4d7c-4c7e-ab03-2219e6ab9c01` passed all 12 scenarios
+on fresh data and all 12 after restart with retained data. It verifies exact saved
+content confirmation, credits changing from 12 to 13, invalidation, a new approval,
+three immutable content revisions and two distinct approval decisions. Own cleanup
+and protected-resource checks passed. The final UI refinements were covered by the
+254 local frontend tests and this real Docker-backed E2E; the earlier Docker unit
+image contained 253 frontend tests. No skips in either complete suite.
+
+1. Gallery and material comparison (bounded read-only previews through worker).
+2. AI draft provenance and historical Excel/NAS import with explicit
+   brand/project/company mapping.
 4. Immutable publication jobs, exact nine-field CSV, packaging and historical
    golden comparisons; online importer/production golden assets remain unavailable.
 5. Configurable GCS/Notion adapters, contracts and operational instructions.
@@ -266,8 +293,8 @@ operations. 3D models and HDRI remain out of scope.
 
 Identity worker/API/UI are committed in `4acc874`, `07ef4db` and `0b1e3ff`.
 Catalog server/UI and retained-data E2E are verified as noted above. Continue
-content approval (`docs/content-approval-plan.md`), then the remaining sequence. Migrations through 0010 are
-committed: never rewrite them; add 0011 or later for new schema.
+the gallery/preview slice, then the remaining sequence. Migrations
+through 0011 are committed: never rewrite them; add 0012 or later for new schema.
 
 Docker runs through the local Linux engine at desktop-linux. Startup initially
 failed on Windows error 1920 from stale zero-byte runtime socket reparse points.

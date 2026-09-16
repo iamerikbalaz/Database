@@ -81,6 +81,6 @@ it("offers leadership read-only content and audit history", async () => {
   expect(screen.queryByRole("button", { name: "Save publication draft" })).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Description")).not.toBeInTheDocument();
 });
-it.each([{ revision: -1 }, { credits: 1.5 }, { tags: "a:b" }, { content_status: "APPROVED" }, { categories: [{ ...category, id: "invalid" }] }])(
+it.each([{ revision: -1 }, { credits: 1.5 }, { tags: "a:b" }, { content_status: "UNKNOWN" }, { categories: [{ ...category, id: "invalid" }] }])(
   "fails closed on a malformed content response %j", (change) => { expect(() => contentFromDto({ ...empty, ...change })).toThrow(); },
 );

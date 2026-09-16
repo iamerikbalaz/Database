@@ -76,6 +76,7 @@ async function waitForMaterialReads(page: Page): Promise<void> {
   // panel's response between its headers and body.
   await expect(page.getByRole("article", { name: "Publication content", exact: true }).getByText(/^Revision \d+ ·/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Reload identity status", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reload content approval", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Reload technical review", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Reload source review", exact: true })).toBeVisible();
 }

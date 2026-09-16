@@ -29,6 +29,7 @@ import { MaterialReviewPanel } from "../components/MaterialReviewPanel";
 import { MaterialTechnicalPanel } from "../components/MaterialTechnicalPanel";
 import { MaterialIdentityPanel } from "../components/MaterialIdentityPanel";
 import { MaterialContentPanel } from "../components/MaterialContentPanel";
+import { ContentApprovalPanel } from "../components/ContentApprovalPanel";
 
 function Value({ children }: { children: ReactNode }) {
   return children === null || children === undefined || children === "" ? (
@@ -474,6 +475,7 @@ function useMaterialDataRefresh(initialMaterial: Material, client: ApiClient) {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshFailure, setRefreshFailure] = useState<SavedOperation | null>(null);
   const [refreshNotice, setRefreshNotice] = useState("");
+  const [reviewRefreshVersion, setReviewRefreshVersion] = useState(0);
   const requestGeneration = useRef(0);
   const refreshInFlight = useRef<Promise<boolean> | null>(null);
 
@@ -501,6 +503,8 @@ function useMaterialDataRefresh(initialMaterial: Material, client: ApiClient) {
 
     const generation = ++requestGeneration.current;
     if (fallback) setMaterial(fallback);
+    // Review state can change without touching the material's updated_at.
+    setReviewRefreshVersion((value) => value + 1);
     setMetadata({ state: "loading" });
     setSnapshots({ state: "loading" });
     if (fallback) setRefreshFailure(null);
@@ -550,6 +554,7 @@ function useMaterialDataRefresh(initialMaterial: Material, client: ApiClient) {
 
   return {
     material,
+    reviewRefreshVersion,
     metadata,
     snapshots,
     refreshing,
@@ -618,6 +623,7 @@ function MaterialDetailContent({
       <SnapshotHistoryPanel result={data.snapshots} retry={data.retry} focusError={!data.refreshFailure} />
     </div>
     {role && <MaterialContentPanel key={`content-${material.id}-${material.publishedBrandId}`} material={material} onChanged={retryRelated} />}
+    {role && <ContentApprovalPanel key={`content-approval-${material.id}`} materialId={material.id} refreshVersion={data.reviewRefreshVersion} onChanged={retryRelated} />}
     {role && <MaterialTechnicalPanel key={`technical-${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material} onChanged={() => data.refreshAll(undefined, undefined)} />}
     {role && <MaterialIdentityPanel key={`identity-${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material} client={client} onChanged={async () => { retryRelated(); return true; }} />}
     {role && <MaterialReviewPanel key={`${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material}

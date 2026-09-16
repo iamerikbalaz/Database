@@ -252,3 +252,18 @@ def test_invalid_cookie_configuration_fails_at_application_startup(
             create_app()
     finally:
         get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("token", [None, "short", "x" * 257, "x" * 31 + "\n", "x" * 31 + "\x7f", "x" * 31 + "č"])
+def test_source_writes_require_valid_private_service_token(token):
+    with pytest.raises(ValueError) as caught:
+        Settings(_env_file=None, source_mutations_enabled=True, worker_mutation_token=token)
+    if token is not None: assert repr(token) not in str(caught.value)
+
+
+def test_source_writes_are_disabled_by_default_and_token_is_redacted():
+    from uuid import uuid4
+    token = uuid4().hex + uuid4().hex
+    assert Settings(_env_file=None).source_mutations_enabled is False
+    settings = Settings(_env_file=None, source_mutations_enabled=True, worker_mutation_token=token)
+    assert token not in repr(settings) and token not in settings.model_dump_json()

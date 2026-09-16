@@ -19,6 +19,8 @@ from app.inventory_client import InventoryClient, WorkerInventoryClient
 from app.api.material_review import build_material_review_router
 from app.api.material_approvals import build_material_approvals_router
 from app.technical_client import TechnicalClient, WorkerTechnicalClient
+from app.identity_client import IdentityClient, WorkerIdentityClient
+from app.api.material_identity import build_material_identity_router
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -31,6 +33,7 @@ def create_app(
     worker_client: MaterialPreflightClient | None = None,
     inventory_client: InventoryClient | None = None,
     technical_client: TechnicalClient | None = None,
+    identity_client: IdentityClient | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     app_database = database or Database(app_settings.resolved_database_url)
@@ -70,6 +73,10 @@ def create_app(
         inventory_client or WorkerInventoryClient(app_settings.worker_base_url)))
     application.include_router(build_material_approvals_router(app_database,
         technical_client or WorkerTechnicalClient(app_settings.worker_base_url)))
+    application.include_router(build_material_identity_router(app_database,
+        identity_client or WorkerIdentityClient(app_settings.worker_base_url, app_settings.worker_mutation_token,
+                                               app_settings.source_mutations_enabled),
+        mutations_enabled=app_settings.source_mutations_enabled))
 
     @application.middleware("http")
     async def prevent_auth_caching(request, call_next):

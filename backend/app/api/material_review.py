@@ -13,6 +13,7 @@ from app.auth.service import database_now
 from app.db.models import MaterialAuditEvent, MaterialInventory, MaterialReviewState, PBRMaterial, PBRMaterialMetadata
 from app.inventory_client import InventoryClient, InventoryClientError
 from app.material_review import canonical_hash, invalidate_review, material_context, read_review
+from app.material_identity import require_material_idle
 from app.schemas import ApiSchema
 
 
@@ -25,12 +26,13 @@ class ReopenRequest(ReviewMutation):
     reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
 
 
-def _material(session, material_id, access, *, lock=False):
+def _material(session, material_id, access, *, lock=False, mutating=False):
     statement = select(PBRMaterial).where(PBRMaterial.id == material_id)
     if lock: statement = statement.with_for_update()
     material = session.scalar(statement)
     if material is None: raise HTTPException(404, "PBR material not found.")
     access.require_material(material)
+    if mutating: require_material_idle(session, material_id)
     return material
 
 
@@ -108,7 +110,7 @@ def build_material_review_router(database, inventory_client: InventoryClient):
         request_hash = _request_hash("INVENTORY_SCAN", material_id, payload)
         with database.session() as session:
             actor = access.check(session, MATERIAL_EDITORS)
-            material = _material(session, material_id, access)
+            material = _material(session, material_id, access, mutating=True)
             replay = _replay(session, actor.id, material_id, payload, request_hash)
             if replay is not None: return replay
             _require_generation(_state(session, material_id), payload.expected_generation)
@@ -124,7 +126,7 @@ def build_material_review_router(database, inventory_client: InventoryClient):
             failure = exc.code
         with database.session() as session:
             actor = access.check(session, MATERIAL_EDITORS)
-            material = _material(session, material_id, access, lock=True)
+            material = _material(session, material_id, access, lock=True, mutating=True)
             replay = _replay(session, actor.id, material_id, payload, request_hash)
             if replay is not None: return replay
             state = _state(session, material_id, create=True)
@@ -152,7 +154,7 @@ def build_material_review_router(database, inventory_client: InventoryClient):
         request_hash = _request_hash("REOPEN", material_id, payload)
         with database.session() as session:
             actor = access.check(session, CATALOG_MANAGERS)
-            material = _material(session, material_id, access, lock=True)
+            material = _material(session, material_id, access, lock=True, mutating=True)
             replay = _replay(session, actor.id, material_id, payload, request_hash)
             if replay is not None: return replay
             state = _state(session, material_id, create=True)

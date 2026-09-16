@@ -29,6 +29,7 @@ from app.worker_client import (
     WorkerMaterialPreflight,
 )
 from app.material_review import invalidate_review
+from app.material_identity import require_material_idle, lock_folder_catalog, require_folder_idle
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,7 @@ def _get_material_revision(
                 detail="PBR material not found.",
             )
         access.require_material(material)
+        require_material_idle(session, material_id)
         return _revision(material)
 
 
@@ -236,6 +238,9 @@ def build_material_operations_router(
                     detail="PBR material not found.",
                 )
             access.require_material(material)
+            require_material_idle(session, material_id)
+            lock_folder_catalog(session)
+            require_folder_idle(session, payload.folder_path)
             _require_unchanged_revision(material, expected)
             _require_matching_identity(preflight, material.technical_identity)
             if material.folder_path != payload.folder_path:
@@ -295,6 +300,7 @@ def build_material_operations_router(
                     detail="PBR material not found.",
                 )
             access.require_material(material)
+            require_material_idle(session, material_id)
             _require_unchanged_revision(material, expected)
             if material.workflow_status == MaterialWorkflowStatus.DONE.value:
                 raise HTTPException(

@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from decimal import Decimal
 from threading import Barrier, Event
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from alembic import command
@@ -44,6 +44,7 @@ def review_pg_case(migrated_postgresql_url):
     from app.main import create_app as authenticated_app
     from test_material_review import InventoryStub
     from test_material_approvals import TechnicalStub
+    from test_material_identity import IdentityStub
     from test_application_access import PASSWORD, ORIGIN
 
     class SharedDatabase(Database):
@@ -68,16 +69,139 @@ def review_pg_case(migrated_postgresql_url):
         material.metadata_state = PBRMaterialMetadata(); session.add(material); session.commit()
     inventory = InventoryStub()
     technical = TechnicalStub()
-    app = authenticated_app(settings, database, inventory_client=inventory, technical_client=technical)
+    identity = IdentityStub()
+    app = authenticated_app(settings.model_copy(update={"source_mutations_enabled": True}), database,
+                            inventory_client=inventory, technical_client=technical, identity_client=identity)
     def client_for(index=0):
         client = TestClient(app, base_url=ORIGIN)
         response = client.post("/api/auth/login", json={"email": users[index].email, "password": PASSWORD}, headers={"Origin": ORIGIN})
         assert response.status_code == 200
         client.headers.update({"Origin": ORIGIN, "X-CSRF-Token": response.json()["csrf_token"]})
         return client
-    yield SimpleNamespace(database=database, app=app, inventory=inventory, technical=technical, users=users, material=material,
+    yield SimpleNamespace(database=database, app=app, inventory=inventory, technical=technical, identity=identity, users=users, material=material,
                           path=f"/api/materials/{material.id}", client_for=client_for)
     database.engine.dispose()
+
+
+def _identity_target(case):
+    with case.database.session() as session:
+        old = session.get(PublishedBrand, case.material.published_brand_id)
+        suffix = uuid4().hex[:10]
+        target = PublishedBrand(company_id=old.company_id, name="Identity target", folder_prefix="NEW" + suffix,
+                                brand_identifier="identity-" + suffix)
+        session.add(target); session.commit()
+    return {"target_brand_id": str(target.id), "main_category_code": "G04"}
+
+
+@pytest.mark.parametrize("same_key", [True, False])
+def test_postgresql_identity_confirmation_allocates_and_executes_once(review_pg_case, same_key):
+    from test_material_identity import prepare
+    from app.db.models import MaterialFileOperation, MaterialIdentityHistory, MaterialNumberReservation
+    case = review_pg_case; target = _identity_target(case)
+    with case.client_for() as first, case.client_for() as second:
+        payload = prepare(first, case.path, target)
+        barrier = Barrier(2); case.identity.plan_callback = lambda: barrier.wait(timeout=15)
+        other = payload if same_key else {**payload, "idempotency_key": str(uuid4())}
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            calls = [pool.submit(client.post, case.path + "/identity-confirm", json=body)
+                     for client, body in ((first, payload), (second, other))]
+            results = [call.result(timeout=30) for call in calls]
+        assert sorted(response.status_code for response in results) == ([200, 200] if same_key else [200, 409])
+        if same_key: assert results[0].json()["id"] == results[1].json()["id"]
+    assert len(case.identity.executions) == 1
+    with case.database.session() as session:
+        for model in (MaterialFileOperation, MaterialIdentityHistory, MaterialNumberReservation):
+            assert len(list(session.scalars(select(model).where(model.material_id == case.material.id)))) == 1
+        assert session.get(PBRMaterial, case.material.id).published_brand_id == UUID(target["target_brand_id"])
+        assert session.get(PublishedBrand, UUID(target["target_brand_id"])).next_sequence_number == 2
+
+
+@pytest.mark.parametrize("mutation", ["edit", "brand", "disable", "new-material"])
+def test_postgresql_identity_io_holds_durable_ownership_without_open_transaction(review_pg_case, mutation):
+    from test_material_identity import prepare
+    case = review_pg_case; target = _identity_target(case)
+    entered = Event(); release = Event()
+    def pause():
+        entered.set(); assert release.wait(20)
+    case.identity.execute_callback = pause
+    with case.client_for() as first, case.client_for(3) as second:
+        payload = prepare(first, case.path, target)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(first.post, case.path + "/identity-confirm", json=payload)
+            try:
+                assert entered.wait(10)
+                if mutation == "edit": response = second.patch(case.path, json={"material_name": "Cannot race source write"})
+                elif mutation == "brand": response = second.patch("/api/brands/" + target["target_brand_id"], json={"name": "Cannot race rewrite"})
+                elif mutation == "disable": response = second.patch("/api/internal-users/" + str(case.users[0].id), json={"is_active": False})
+                else:
+                    response = second.post("/api/materials", json={"project_id": str(case.material.project_id),
+                        "published_brand_id": target["target_brand_id"], "assigned_processor_id": str(case.users[1].id),
+                        "material_name": "Another allocation", "main_category_code": "G03"})
+                assert response.status_code == (200 if mutation == "disable" else 201 if mutation == "new-material" else 409)
+                if mutation == "new-material": assert response.json()["sequence_number"] == 2
+            finally: release.set()
+            result = future.result(timeout=15)
+        assert result.status_code == 200 and result.json()["status"] == "COMPLETED"
+
+
+def test_postgresql_identity_ledger_history_and_authorization_are_immutable(review_pg_case):
+    from test_material_identity import prepare
+    case = review_pg_case; target = _identity_target(case)
+    with case.client_for() as client:
+        result = client.post(case.path + "/identity-confirm", json=prepare(client, case.path, target))
+        assert result.status_code == 200 and result.json()["status"] == "COMPLETED"
+    for table, column in (("material_number_reservations", "sequence_number = sequence_number + 1"),
+                          ("material_identity_history", "reason = 'tampered'"),
+                          ("material_file_operations", "status = 'RUNNING'")):
+        for sql in (f"UPDATE {table} SET {column} WHERE material_id = :id", f"DELETE FROM {table} WHERE material_id = :id", f"TRUNCATE {table} CASCADE"):
+            with pytest.raises(DBAPIError), case.database.engine.begin() as connection:
+                connection.execute(text(sql), {"id": case.material.id})
+
+
+def test_postgresql_identity_active_owner_is_unique_and_downgrade_refuses_it(review_pg_case):
+    from test_material_identity import prepare
+    from app.identity_client import IdentityClientError
+    from app.db.models import MaterialFileOperation
+    case = review_pg_case; target = _identity_target(case); case.identity.failure = IdentityClientError()
+    with case.client_for() as client:
+        result = client.post(case.path + "/identity-confirm", json=prepare(client, case.path, target))
+        assert result.status_code == 200 and result.json()["status"] == "RUNNING"
+        with case.database.session() as session:
+            existing = session.get(MaterialFileOperation, UUID(result.json()["id"]))
+            values = {column.name: getattr(existing, column.name) for column in MaterialFileOperation.__table__.columns
+                      if column.name not in {"id", "request_key", "created_at", "updated_at"}}
+            session.add(MaterialFileOperation(**values, request_key=uuid4()))
+            with pytest.raises(IntegrityError): session.commit()
+        with pytest.raises(DBAPIError), case.database.engine.begin() as connection:
+            connection.execute(text("UPDATE material_file_operations SET target_context = '{}'::jsonb WHERE id=:id"), {"id": result.json()["id"]})
+        with pytest.raises(DBAPIError): command.downgrade(Config("alembic.ini"), "20260915_0008")
+        case.identity.failure = None
+        assert client.post(case.path + "/identity-operations/" + result.json()["id"] + "/resume").json()["status"] == "COMPLETED"
+
+
+def test_postgresql_identity_upgrade_backfills_reservations_without_resetting_counter():
+    with isolated_postgresql_database() as database_url:
+        previous = os.environ.get("DATABASE_URL"); os.environ["DATABASE_URL"] = database_url; get_settings.cache_clear()
+        engine = create_engine(database_url)
+        try:
+            config = Config("alembic.ini"); command.upgrade(config, "20260915_0008")
+            material_id = _create_postgresql_material_with_metadata(database_url, uuid4().hex[:12])
+            with engine.begin() as connection:
+                connection.execute(text("UPDATE published_brands SET next_sequence_number=25 WHERE id=(SELECT published_brand_id FROM pbr_materials WHERE id=:id)"), {"id": material_id})
+            command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
+            with engine.connect() as connection:
+                row = connection.execute(text("SELECT sequence_number, actor_id, operation_id FROM material_number_reservations WHERE material_id=:id"), {"id": material_id}).one()
+                assert tuple(row) == (1, None, None)
+                assert connection.execute(text("SELECT next_sequence_number FROM published_brands")).scalar_one() == 25
+            command.downgrade(config, "20260915_0008")
+            command.upgrade(config, "head"); command.check(config)
+            with engine.connect() as connection:
+                assert connection.execute(text("SELECT next_sequence_number FROM published_brands")).scalar_one() == 25
+        finally:
+            engine.dispose()
+            if previous is None: os.environ.pop("DATABASE_URL", None)
+            else: os.environ["DATABASE_URL"] = previous
+            get_settings.cache_clear()
 
 
 @pytest.mark.parametrize("same_key", [True, False])
@@ -350,7 +474,7 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
             current_revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            assert current_revision == "20260915_0008"
+            assert current_revision == "20260916_0009"
     finally:
         engine.dispose()
 
@@ -393,7 +517,7 @@ def test_postgresql_auth_upgrade_from_previous_head_preserves_users_without_cred
                 ).scalar_one() == 0
                 assert connection.execute(
                     text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "20260915_0008"
+                ).scalar_one() == "20260916_0009"
         finally:
             engine.dispose()
             if previous_database_url is None:

@@ -13,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Integer,
+    Index,
     JSON,
     Numeric,
     String,
@@ -750,10 +751,60 @@ class MaterialApproval(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class MaterialFileOperation(TimestampMixin, Base):
+    __tablename__ = "material_file_operations"
+    __table_args__ = (
+        UniqueConstraint("actor_id", "request_key", name="uq_material_file_operations_actor_request"),
+        CheckConstraint("status IN ('RUNNING', 'COMPLETED', 'ROLLED_BACK', 'RECOVERY_REQUIRED', 'REJECTED')", name="ck_material_file_operations_status"),
+        _review_hash_constraint("request_hash", "ck_material_file_operations_request_hash"),
+        _review_hash_constraint("proposal_hash", "ck_material_file_operations_proposal_hash"),
+        Index("uq_material_file_operations_active", "material_id", unique=True,
+              postgresql_where=text("status IN ('RUNNING', 'RECOVERY_REQUIRED')"),
+              sqlite_where=text("status IN ('RUNNING', 'RECOVERY_REQUIRED')")),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), index=True)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    source_brand_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("published_brands.id", ondelete="RESTRICT"))
+    target_brand_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("published_brands.id", ondelete="RESTRICT"))
+    request_key: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    proposal_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_payload: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+    source_context: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+    target_context: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+    worker_plan: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    result: Mapped[dict | None] = mapped_column(JSON().with_variant(JSONB(), "postgresql"))
+
+
+class MaterialNumberReservation(Base):
+    __tablename__ = "material_number_reservations"
+    __table_args__ = (CheckConstraint("sequence_number BETWEEN 1 AND 9999", name="ck_material_number_reservations_sequence"),)
+    brand_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("published_brands.id", ondelete="RESTRICT"), primary_key=True)
+    sequence_number: Mapped[int] = mapped_column(Integer, primary_key=True)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), index=True)
+    operation_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("material_file_operations.id", ondelete="RESTRICT"))
+    actor_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class MaterialIdentityHistory(Base):
+    __tablename__ = "material_identity_history"
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), index=True)
+    operation_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("material_file_operations.id", ondelete="RESTRICT"), unique=True)
+    actor_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    old_context: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+    new_context: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 def _reject_review_history_mutation(*_: object) -> None:
     raise ImmutableAuditSnapshotError("Material inventory and audit history are append-only.")
 
 
-for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval):
+for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory):
     event.listen(_review_history_type, "before_update", _reject_review_history_mutation)
     event.listen(_review_history_type, "before_delete", _reject_review_history_mutation)

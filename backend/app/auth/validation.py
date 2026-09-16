@@ -174,7 +174,7 @@ def _sanitize(value: Any, protected: set[str]) -> Any:
 async def safe_request_validation_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
-    if is_auth_api_path(request.url.path):
+    if is_auth_api_path(request.url.path) or (request.url.path.startswith("/api/materials/") and "/identity-" in request.url.path):
         return _auth_validation_response(request, exc)
     # Do not log/serialize the exception itself: errors(), body, ctx, and str(exc)
     # can all contain the original secret. Collect before removing parent inputs

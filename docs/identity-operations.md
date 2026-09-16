@@ -10,9 +10,9 @@ file creation, metadata write, number reservation or database update.
 `ready` means the observed plan has no blocking finding. It is not authorization
 to execute it and is not a filesystem lease. The confirmation path must recreate
 the exact plan, compare its hash and journal every mutation before enabling writes.
-Backend plan orchestration, confirmation and UI are pending. The recoverable
-executor below is implemented as an internal module, with no enabled HTTP source
-mutation endpoint until that coordination exists.
+Backend orchestration, explicit confirmation, recovery and the detail-page UI now
+implement that coordination. Source writes remain disabled by default. The new
+authenticated worker mutation route requires separate explicit configuration.
 
 ## Conservative rules
 
@@ -76,3 +76,72 @@ Only after verified filesystem completion may database identity change. A rebran
 must burn a new target-brand number even if execution later fails. Published
 identity changes remain blocked until online importer matching is verified.
 Validate filesystem behavior exclusively with owned synthetic folders.
+
+## Database coordination and UI (migration 0009)
+
+- `POST /api/materials/{id}/identity-plan` is a read-only observed proposal. It
+  derives the identity from the selected brand, next available four-digit number
+  and category. The destination parent must already exist. Its proposal hash binds
+  the entire worker plan, generation and old/new database contexts. Planning
+  neither reserves a number nor creates an operation record.
+- `POST .../identity-confirm` requires a production lead/admin, the displayed
+  proposal hash/generation, an idempotency key, reason and warning acknowledgment.
+  It recreates the plan and checks authorization again. Under row locks it records
+  a RUNNING operation, invalidates reviews, and permanently reserves a rebrand
+  number before asking the worker to modify the source. The DB transaction ends
+  before filesystem IO. Same-brand category/folder changes keep the number.
+- Active operations block material edits, folder linking, Done, reopen, inventory,
+  technical checks and approvals. Source/target brand edits are also blocked.
+  A separate folder-catalog lock prevents a new folder link from racing ownership
+  of an overlapping source/destination tree. Read-only database detail/history
+  remain accessible. Other materials may still reserve subsequent brand numbers.
+- Verified COMPLETED results atomically update brand/number/category/identity/path,
+  preserve UUID/project/name/assignment, clear current metadata and append identity
+  history. Historical metadata and approvals remain intact. The material remains
+  IN_PROGRESS and requires fresh technical checks. Once authorized source work has
+  started, consistency finalization completes even if the initiating account is
+  later disabled; this does not authorize any new user action.
+- REJECTED is a durable worker outcome before any source action. ROLLED_BACK proves
+  original source restoration. Neither recycles the reserved number. A timeout or
+  invalid response leaves RUNNING ownership; RECOVERY_REQUIRED also stays locked.
+  `POST .../identity-operations/{operation_id}/resume` (lead/admin) reuses the same
+  journal. A repeated confirmation only returns its recorded operation. Recovery
+  never force-overwrites external source data.
+- `GET .../identity-operations` and `GET .../identity-history` return the latest
+  100 records. Pagination for older history remains backlog. PostgreSQL makes
+  number/history ledgers append-only and protects recorded authorization inputs
+  and terminal operation outcomes against updates/deletion/truncation.
+- The UI displays old/new paths, all affected file/directory names, metadata field
+  names and hashes, warnings, number reservation and approval invalidation. An
+  unknown confirmation outcome keeps the same key and freezes its inputs for retry.
+  Other roles may inspect history but cannot plan/confirm/recover.
+
+Conservative product decisions: only linked IN_PROGRESS materials can use this
+operation. DONE requires an explicit reopen first. Published identities stay
+blocked pending online importer verification. Unlinked category edits retain the
+existing PATCH contract and now append identity history. Migration 0009 backfills
+known current allocations without changing existing brand counter high-water marks;
+unknown historical actors are represented as null, never invented.
+
+## Enabling in an isolated environment
+
+Both backend and worker require `SOURCE_MUTATIONS_ENABLED=true` and the same
+private `WORKER_MUTATION_TOKEN` (32–256 printable ASCII characters, generated with
+secure randomness and supplied through environment/secret management). Never put
+the actual token in a compose file, shell transcript, source tree or log. The
+worker additionally needs `IDENTITY_JOURNAL_ROOT` pointing at an existing private
+directory outside the material root. Keep its durable storage across restarts;
+per-operation directories/backup files must remain private (0700/0600). The worker
+must have the ownership permissions required to preserve source file ownership.
+Mount only owned synthetic materials as writable during validation. Normal/demo
+configurations keep writes disabled. Do not use these settings on production NAS
+without a separately authorized rollout, recovery procedure and exclusive-writer
+coordination. The application does not claim a filesystem lease against unrelated
+NAS clients. Keep the worker on a private network; use TLS if the service boundary
+crosses a trusted local network.
+
+Rollback: migration 0009 refuses downgrade while an operation is RUNNING or
+RECOVERY_REQUIRED. Reconcile durable database and filesystem state first. Completed
+renames cannot be undone by a schema downgrade. Export/retain operation/history
+records before removing the schema; keep journals and original metadata backups.
+Counter high-water marks are not lowered by downgrade. Old migrations are unchanged.

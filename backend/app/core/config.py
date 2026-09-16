@@ -1,7 +1,7 @@
 from functools import lru_cache
 from urllib.parse import urlsplit
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
     worker_base_url: str = "http://localhost:8080"
     worker_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
+    source_mutations_enabled: bool = False
+    worker_mutation_token: SecretStr | None = None
     auth_cookie_secure: bool = True
     auth_allow_insecure_cookie: bool = False
     auth_idle_timeout_minutes: int = Field(default=30, ge=1, le=1440)
@@ -35,6 +37,7 @@ class Settings(BaseSettings):
         extra="ignore",
         case_sensitive=False,
         frozen=True,
+        hide_input_in_errors=True,
     )
 
     @property
@@ -57,6 +60,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security_configuration(self) -> "Settings":
+        if self.source_mutations_enabled:
+            token = self.worker_mutation_token.get_secret_value() if self.worker_mutation_token else ""
+            if len(token) < 32 or len(token) > 256 or not token.isascii() or any(not 33 <= ord(char) <= 126 for char in token):
+                raise ValueError("Source mutations require a private worker token of 32–256 printable ASCII characters")
         origins = self.parsed_cors_origins
         if not origins:
             raise ValueError("CORS_ORIGINS must contain at least one explicit origin")

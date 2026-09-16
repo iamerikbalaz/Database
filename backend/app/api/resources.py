@@ -10,10 +10,13 @@ from sqlalchemy.orm import Session
 
 from app.auth.access import AccessDependency, ADMIN, CATALOG_MANAGERS, MATERIAL_EDITORS
 from app.auth.service import database_now, lock_user_credential, revoke_all_user_sessions
+from app.material_identity import identity_context, require_brand_idle, require_material_idle
 
 from app.db.models import (
     Company,
     InternalUser,
+    MaterialNumberReservation,
+    MaterialIdentityHistory,
     MaterialPublicationStatus,
     MaterialValidationStatus,
     MaterialWorkflowStatus,
@@ -255,19 +258,10 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         with database.session() as session:
             access.check(session, CATALOG_MANAGERS)
             values = _values(payload, exclude_unset=True)
-            if "folder_prefix" in values:
-                brand = session.scalar(
-                    select(PublishedBrand)
-                    .where(PublishedBrand.id == brand_id)
-                    .with_for_update()
-                )
-                if brand is None:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail="Published brand not found.",
-                    )
-            else:
-                brand = _get_or_404(session, PublishedBrand, brand_id, "Published brand")
+            brand = session.scalar(select(PublishedBrand).where(PublishedBrand.id == brand_id).with_for_update())
+            if brand is None:
+                raise HTTPException(404, "Published brand not found.")
+            require_brand_idle(session, brand_id)
             if "company_id" in values:
                 _require_company(session, values["company_id"])
             if (
@@ -534,6 +528,9 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             material.metadata_state = PBRMaterialMetadata()
             brand.next_sequence_number = sequence_number + 1
             session.add(material)
+            session.flush()
+            session.add(MaterialNumberReservation(brand_id=brand.id, sequence_number=sequence_number,
+                material_id=material.id, actor_id=access.user.id if session.get(InternalUser, access.user.id) else None))
             return _commit(session, material)
 
     @router.get("/materials/{material_id}", response_model=PBRMaterialRead, tags=["materials"])
@@ -601,6 +598,8 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 )
             access.require_material(material)
             values = _values(payload, exclude_unset=True)
+            require_material_idle(session, material_id)
+            old_identity = identity_context(material)
             if access.user.role == "PROCESSOR" and set(values) - {"material_name"}:
                 raise HTTPException(403, "Only a production lead or administrator can change material assignment or identity.")
             if "project_id" in values:
@@ -642,6 +641,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 from app.material_review import invalidate_review
                 invalidate_review(session, material, access.user.id, "MATERIAL_FIELDS_CHANGED")
             _apply_update(material, values)
+            if material.technical_identity != old_identity["technical_identity"]:
+                session.add(MaterialIdentityHistory(material_id=material.id,
+                    actor_id=access.user.id if session.get(InternalUser, access.user.id) else None,
+                    old_context=old_identity, new_context=identity_context(material),
+                    reason="Category changed before linking a source folder."))
             return _commit(session, material)
 
     return router

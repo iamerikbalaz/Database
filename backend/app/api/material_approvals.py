@@ -90,7 +90,7 @@ def build_material_approvals_router(database, technical_client: TechnicalClient)
         request_hash = _request_hash(operation, material_id, payload)
         with database.session() as session:
             actor = access.check(session, roles)
-            material = _material(session, material_id, access)
+            material = _material(session, material_id, access, mutating=True)
             replay = _replay(session, actor.id, material_id, payload, request_hash)
             if replay is not None: return replay
             state = _state(session, material_id)
@@ -108,7 +108,7 @@ def build_material_approvals_router(database, technical_client: TechnicalClient)
             failure = exc.code
         with database.session() as session:
             actor = access.check(session, roles)
-            material = _material(session, material_id, access, lock=True)
+            material = _material(session, material_id, access, lock=True, mutating=True)
             replay = _replay(session, actor.id, material_id, payload, request_hash)
             if replay is not None: return replay
             state = _state(session, material_id, create=True)

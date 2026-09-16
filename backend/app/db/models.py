@@ -889,6 +889,27 @@ class MaterialContentRevision(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class MaterialContentApproval(Base):
+    __tablename__ = "material_content_approvals"
+    __table_args__ = (
+        ForeignKeyConstraint(["material_id", "content_revision"],
+            ["material_content_revisions.material_id", "material_content_revisions.revision"],
+            name="fk_material_content_approvals_revision", ondelete="RESTRICT"),
+        UniqueConstraint("material_id", "context_hash", name="uq_material_content_approvals_context"),
+        CheckConstraint("content_revision >= 1", name="ck_material_content_approvals_revision"),
+        _review_hash_constraint("context_hash", "ck_material_content_approvals_context_hash"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), index=True)
+    content_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    context_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    snapshot: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    warnings_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 def _protect_catalog_identity(_mapper, _connection, item):
     fields = ("id", "value", "normalized_key", "created_at") + (("brand_id",) if isinstance(item, BrandCollection) else ())
     if any(sa_inspect(item).attrs[field].history.has_changes() for field in fields):
@@ -900,6 +921,6 @@ for _catalog_type in (OnlineCategory, BrandCollection):
     event.listen(_catalog_type, "before_delete", _reject_review_history_mutation)
 
 
-for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision):
+for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval):
     event.listen(_review_history_type, "before_update", _reject_review_history_mutation)
     event.listen(_review_history_type, "before_delete", _reject_review_history_mutation)

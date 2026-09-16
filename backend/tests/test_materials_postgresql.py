@@ -89,6 +89,112 @@ def _catalog_pg_category(client):
     return response.json()
 
 
+def _prepare_pg_content(client, case):
+    from test_catalog_content import content_payload
+    category = _catalog_pg_category(client)
+    payload = content_payload(description="Synthetic content", credits=10, tags=["stone"], category_ids=[category["id"]])
+    assert client.post(case.path + "/content", json=payload).status_code == 200
+    return client.get(case.path + "/content-review").json(), payload, category
+
+
+@pytest.mark.parametrize("same_key", [True, False])
+def test_postgresql_content_approval_race_keeps_one_decision(review_pg_case, same_key):
+    from app.db.models import MaterialContentApproval
+    from test_content_approvals import approval_payload
+    case = review_pg_case; barrier = Barrier(2)
+    with case.client_for() as first, case.client_for(0 if same_key else 3) as second:
+        view, _, _ = _prepare_pg_content(first, case)
+        payload = approval_payload(view)
+        def approve(client, body):
+            barrier.wait(timeout=15)
+            return client.post(case.path + "/content/approve", json=body)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(approve, client, body) for client, body in
+                ((first, payload), (second, payload if same_key else approval_payload(view)))]
+            responses = [future.result(timeout=25) for future in futures]
+        assert sorted(item.status_code for item in responses) == ([200, 200] if same_key else [200, 409])
+        if same_key: assert responses[0].json() == responses[1].json()
+    with case.database.session() as session:
+        assert len(list(session.scalars(select(MaterialContentApproval).where(MaterialContentApproval.material_id == case.material.id)))) == 1
+
+
+@pytest.mark.parametrize("change", ["content", "brand", "category"])
+def test_postgresql_concurrent_edit_never_leaves_stale_content_approved(review_pg_case, change):
+    from test_content_approvals import approval_payload
+    case = review_pg_case; barrier = Barrier(2)
+    with case.client_for() as approver, case.client_for(3) as editor:
+        view, content, category = _prepare_pg_content(approver, case)
+        def approve():
+            barrier.wait(timeout=15)
+            return approver.post(case.path + "/content/approve", json=approval_payload(view))
+        def edit():
+            barrier.wait(timeout=15)
+            if change == "content":
+                return editor.post(case.path + "/content", json={**content, "idempotency_key": str(uuid4()), "expected_revision": 1, "credits": 12})
+            if change == "brand":
+                return editor.patch(f"/api/brands/{case.material.published_brand_id}", json={"brand_identifier": "changed-" + uuid4().hex})
+            return editor.patch("/api/online-categories/" + category["id"], json={"idempotency_key": str(uuid4()),
+                "expected_version": 1, "is_active": False, "reason": "Synthetic retirement"})
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            approving = pool.submit(approve); editing = pool.submit(edit)
+            approved = approving.result(timeout=25); edited = editing.result(timeout=25)
+        assert edited.status_code == 200 and approved.status_code in (200, 409)
+        current = approver.get(case.path + "/content-review").json()
+        assert current["approval"] is None and current["context_hash"] != view["context_hash"]
+        history = approver.get(case.path + "/content-approvals").json()
+        assert len(history) == (1 if approved.status_code == 200 else 0)
+
+
+def test_postgresql_content_decision_is_immutable_and_requires_exact_saved_revision(review_pg_case):
+    from app.db.models import MaterialContentApproval
+    from test_content_approvals import approval_payload
+    case = review_pg_case
+    with case.client_for() as client:
+        view, _, _ = _prepare_pg_content(client, case)
+        assert client.post(case.path + "/content/approve", json=approval_payload(view)).status_code == 200
+    for statement in ("UPDATE material_content_approvals SET note='Changed' WHERE material_id=:id",
+                      "DELETE FROM material_content_approvals WHERE material_id=:id", "TRUNCATE material_content_approvals"):
+        with pytest.raises(DBAPIError), case.database.engine.begin() as connection:
+            connection.execute(text(statement), {"id": case.material.id})
+    with pytest.raises(IntegrityError), case.database.session() as session:
+        session.add(MaterialContentApproval(material_id=case.material.id, content_revision=999, actor_id=case.users[0].id,
+            context_hash="a" * 64, snapshot={}, warnings_acknowledged=False))
+        session.commit()
+    with pytest.raises(IntegrityError), case.database.session() as session:
+        session.add(MaterialContentApproval(material_id=case.material.id, content_revision=1, actor_id=case.users[0].id,
+            context_hash=view["context_hash"], snapshot=view["snapshot"], warnings_acknowledged=False))
+        session.commit()
+
+
+def test_postgresql_content_approval_upgrade_preserves_prior_draft_and_history():
+    with isolated_postgresql_database() as database_url:
+        previous = os.environ.get("DATABASE_URL"); os.environ["DATABASE_URL"] = database_url; get_settings.cache_clear()
+        engine = create_engine(database_url)
+        try:
+            config = Config("alembic.ini"); command.upgrade(config, "20260916_0010")
+            material_id = _create_postgresql_material_with_metadata(database_url, uuid4().hex[:12])
+            with engine.begin() as connection:
+                actor_id = connection.execute(text("SELECT assigned_processor_id FROM pbr_materials WHERE id=:id"), {"id": material_id}).scalar_one()
+                connection.execute(text("INSERT INTO material_content(material_id, revision, description, credits, tags) VALUES (:id, 1, 'Prior synthetic draft', 8, '[\"stone\"]'::jsonb)"), {"id": material_id})
+                connection.execute(text("INSERT INTO material_content_revisions(id, material_id, revision, actor_id, snapshot, snapshot_hash, reason) VALUES (:id, :material, 1, :actor, '{}'::jsonb, :hash, 'Prior synthetic save')"),
+                    {"id": uuid4(), "material": material_id, "actor": actor_id, "hash": "a" * 64})
+            command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
+            with engine.connect() as connection:
+                assert connection.execute(text("SELECT description FROM material_content WHERE material_id=:id"), {"id": material_id}).scalar_one() == "Prior synthetic draft"
+                assert connection.execute(text("SELECT count(*) FROM material_content_revisions WHERE material_id=:id"), {"id": material_id}).scalar_one() == 1
+                assert connection.execute(text("SELECT count(*) FROM material_content_approvals")).scalar_one() == 0
+            command.downgrade(config, "20260916_0010")
+            with engine.connect() as connection:
+                assert connection.execute(text("SELECT credits FROM material_content WHERE material_id=:id"), {"id": material_id}).scalar_one() == 8
+                assert connection.execute(text("SELECT count(*) FROM material_content_revisions WHERE material_id=:id"), {"id": material_id}).scalar_one() == 1
+            command.upgrade(config, "head"); command.check(config)
+        finally:
+            engine.dispose()
+            if previous is None: os.environ.pop("DATABASE_URL", None)
+            else: os.environ["DATABASE_URL"] = previous
+            get_settings.cache_clear()
+
+
 @pytest.mark.parametrize("same_key", [True, False])
 def test_postgresql_catalog_creation_is_serialized_and_replayable(review_pg_case, same_key):
     case = review_pg_case
@@ -598,7 +704,7 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
             current_revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            assert current_revision == "20260916_0010"
+            assert current_revision == "20260916_0011"
     finally:
         engine.dispose()
 
@@ -641,7 +747,7 @@ def test_postgresql_auth_upgrade_from_previous_head_preserves_users_without_cred
                 ).scalar_one() == 0
                 assert connection.execute(
                     text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "20260916_0010"
+                ).scalar_one() == "20260916_0011"
         finally:
             engine.dispose()
             if previous_database_url is None:

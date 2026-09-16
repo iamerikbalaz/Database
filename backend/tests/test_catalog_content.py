@@ -168,6 +168,9 @@ def test_identity_requires_explicit_removal_of_old_brand_collections_and_blocks_
             assert client.post(path + "/content", json=content_payload(expected_revision=2, credits=5)).json()["detail"]["code"] == "MATERIAL_OPERATION_ACTIVE"
             assert client.patch("/api/online-categories/" + category["id"], json={"idempotency_key": str(uuid4()),
                 "expected_version": 1, "is_active": False, "reason": "Synthetic change"}).status_code == 409
+            current = client.get(path + "/content-review").json()
+            assert client.post(path + "/content/approve", json={"idempotency_key": str(uuid4()),
+                "expected_revision": current["content_revision"], "expected_context_hash": current["context_hash"]}).json()["detail"]["code"] == "MATERIAL_OPERATION_ACTIVE"
         worker.execute_callback = during_source_io
         assert client.post(path + "/identity-confirm", json=payload).json()["status"] == "COMPLETED"
 

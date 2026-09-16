@@ -19,8 +19,9 @@ are inferred. The main storage category remains separate from online categories.
   New saves reject inactive values. Users can explicitly remove retired values.
 - Credits are optional until publication validation, then a nonnegative integer
   (maximum 2147483647). Plain-text descriptions are optional and limited to 10000
-  characters. This slice saves manual drafts only; content approval and AI draft
-  provenance are separate remaining work. Nothing is marked ready for publication.
+  characters. Manual drafts can receive an explicit decision under migration
+  0011; see `content-approvals.md`. AI draft provenance remains separate work.
+  Content approval alone does not make a material ready for publication.
 - Content changes invalidate source checks and material approvals, including the
   published-update-required state. Identical saves are no-ops for revision and
   generation. Catalog activation/deactivation invalidates affected materials in
@@ -33,7 +34,8 @@ are inferred. The main storage category remains separate from online categories.
 
 All routes require real sessions, completed password changes, CSRF and trusted
 Origin for writes. Production leads/admins manage vocabulary; assigned processors,
-leads/admins edit material drafts. Leadership reads drafts/history. Audit viewing
+leads/admins edit material drafts. Leadership reads drafts/history and can approve
+the saved content together with admins. Audit viewing
 for global catalog changes is restricted to leads/admins.
 
 Vocabulary writes use the existing exclusive account/domain advisory gate so

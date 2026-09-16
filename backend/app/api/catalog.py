@@ -13,30 +13,11 @@ from app.db.models import (OnlineCategory, BrandCollection, CatalogAuditEvent, M
     MaterialOnlineCategory, MaterialCollection, MaterialContentRevision, PBRMaterial, PublishedBrand)
 from app.material_identity import require_material_idle
 from app.material_review import canonical_hash, invalidate_review
+from app.publication_content import catalog_view, content_view, draft_view
 
 
 def _conflict(code):
     raise HTTPException(409, {"code": code})
-
-
-def catalog_view(item):
-    result = {"id": str(item.id), "value": item.value, "version": item.version, "is_active": item.is_active}
-    if isinstance(item, BrandCollection):
-        result["brand_id"] = str(item.brand_id)
-    return result
-
-
-def content_view(session, material):
-    content = session.get(MaterialContent, material.id)
-    categories = list(session.scalars(select(OnlineCategory).join(MaterialOnlineCategory)
-        .where(MaterialOnlineCategory.material_id == material.id).order_by(OnlineCategory.normalized_key, OnlineCategory.id)))
-    collections = list(session.scalars(select(BrandCollection).join(MaterialCollection)
-        .where(MaterialCollection.material_id == material.id).order_by(BrandCollection.normalized_key, BrandCollection.id)))
-    return {"material_id": str(material.id), "revision": content.revision if content else 0,
-        "description": content.description if content else None, "credits": content.credits if content else None,
-        "tags": content.tags if content else [], "categories": [catalog_view(item) for item in categories],
-        "collections": [catalog_view(item) for item in collections],
-        "content_status": "MANUAL_DRAFT" if content else "EMPTY"}
 
 
 def _content_values(view):
@@ -144,7 +125,7 @@ def build_catalog_router(database):
     def get_content(material_id: UUID, access: AccessDependency):
         with database.session() as session:
             access.check(session)
-            return content_view(session, _material(session, material_id, access))
+            return content_view(session, _material(session, material_id, access, lock=True))
 
     @router.get("/materials/{material_id}/content-history")
     def content_history(material_id: UUID, access: AccessDependency):
@@ -190,7 +171,7 @@ def build_catalog_router(database):
                 session.add_all(MaterialOnlineCategory(material_id=material.id, category_id=item.id) for item in categories)
                 session.add_all(MaterialCollection(material_id=material.id, collection_id=item.id) for item in collections)
                 session.flush()
-                body = content_view(session, material)
+                body = draft_view(session, material)
                 snapshot = {**body, "published_brand_id": str(material.published_brand_id), "material_name": material.material_name}
                 session.add(MaterialContentRevision(material_id=material.id, revision=content.revision, actor_id=actor.id,
                     snapshot=snapshot, snapshot_hash=canonical_hash(snapshot), reason=payload.reason))

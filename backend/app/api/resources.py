@@ -256,7 +256,9 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
     @router.patch("/brands/{brand_id}", response_model=PublishedBrandRead, tags=["brands"])
     def update_brand(brand_id: UUID, payload: PublishedBrandUpdate, access: AccessDependency) -> PublishedBrand:
         with database.session() as session:
-            access.check(session, CATALOG_MANAGERS)
+            # Brand changes affect many materials. Use the same exclusive gate
+            # as catalog retirement before locking the brand and its materials.
+            actor = access.check(session, CATALOG_MANAGERS, exclusive=True)
             values = _values(payload, exclude_unset=True)
             brand = session.scalar(select(PublishedBrand).where(PublishedBrand.id == brand_id).with_for_update())
             if brand is None:
@@ -288,6 +290,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                         field_name,
                         brand.id,
                     )
+            if any(getattr(brand, key) != value for key, value in values.items()):
+                from app.material_review import invalidate_review
+                for material in session.scalars(select(PBRMaterial).where(PBRMaterial.published_brand_id == brand.id)
+                        .order_by(PBRMaterial.id).with_for_update()):
+                    invalidate_review(session, material, actor.id, "BRAND_FIELDS_CHANGED")
             _apply_update(brand, values)
             return _commit(session, brand)
 

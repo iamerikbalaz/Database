@@ -1,4 +1,7 @@
-# Next slice: approval of publication content
+# Design checkpoint: approval of publication content
+
+Implementation is documented in `content-approvals.md`. This file preserves the
+bounded plan; verification results belong in `autonomous-pbr-progress.md`.
 
 The catalog slice stores manual drafts. Before a draft can enter a publication
 snapshot, add an explicit human decision for the exact content revision and its

@@ -22,6 +22,7 @@ from sqlalchemy import (
     Uuid,
     event,
     func,
+    inspect as sa_inspect,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -805,6 +806,100 @@ def _reject_review_history_mutation(*_: object) -> None:
     raise ImmutableAuditSnapshotError("Material inventory and audit history are append-only.")
 
 
-for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory):
+class OnlineCategory(TimestampMixin, Base):
+    __tablename__ = "online_categories"
+    __table_args__ = (CheckConstraint("version >= 1", name="ck_online_categories_version"),)
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    value: Mapped[str] = mapped_column(String(255), nullable=False)
+    normalized_key: Mapped[str] = mapped_column(String(765), unique=True, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+
+
+class BrandCollection(TimestampMixin, Base):
+    __tablename__ = "brand_collections"
+    __table_args__ = (
+        UniqueConstraint("brand_id", "normalized_key", name="uq_brand_collections_brand_key"),
+        CheckConstraint("version >= 1", name="ck_brand_collections_version"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    brand_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("published_brands.id", ondelete="RESTRICT"), index=True)
+    value: Mapped[str] = mapped_column(String(255), nullable=False)
+    normalized_key: Mapped[str] = mapped_column(String(765), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+
+
+class CatalogAuditEvent(Base):
+    __tablename__ = "catalog_audit_events"
+    __table_args__ = (
+        UniqueConstraint("actor_id", "request_key", name="uq_catalog_audit_events_actor_request"),
+        _review_hash_constraint("request_hash", "ck_catalog_audit_events_request_hash"),
+        CheckConstraint("resource_kind IN ('CATEGORY', 'COLLECTION')", name="ck_catalog_audit_events_kind"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    resource_id: Mapped[UUID] = mapped_column(Uuid, index=True, nullable=False)
+    resource_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    request_key: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class MaterialContent(Base):
+    __tablename__ = "material_content"
+    __table_args__ = (
+        CheckConstraint("revision >= 1", name="ck_material_content_revision"),
+        CheckConstraint("credits IS NULL OR credits BETWEEN 0 AND 2147483647", name="ck_material_content_credits"),
+    )
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    credits: Mapped[int | None] = mapped_column(Integer)
+    tags: Mapped[list] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+
+
+class MaterialOnlineCategory(Base):
+    __tablename__ = "material_online_categories"
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), primary_key=True)
+    category_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("online_categories.id", ondelete="RESTRICT"), primary_key=True)
+
+
+class MaterialCollection(Base):
+    __tablename__ = "material_collections"
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), primary_key=True)
+    collection_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("brand_collections.id", ondelete="RESTRICT"), primary_key=True)
+
+
+class MaterialContentRevision(Base):
+    __tablename__ = "material_content_revisions"
+    __table_args__ = (
+        UniqueConstraint("material_id", "revision", name="uq_material_content_revisions_revision"),
+        CheckConstraint("revision >= 1", name="ck_material_content_revisions_revision"),
+        _review_hash_constraint("snapshot_hash", "ck_material_content_revisions_snapshot_hash"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), index=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    snapshot: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+    snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+def _protect_catalog_identity(_mapper, _connection, item):
+    fields = ("id", "value", "normalized_key", "created_at") + (("brand_id",) if isinstance(item, BrandCollection) else ())
+    if any(sa_inspect(item).attrs[field].history.has_changes() for field in fields):
+        raise ImmutableAuditSnapshotError("Catalog identity is immutable; deactivate and create a new value.")
+
+
+for _catalog_type in (OnlineCategory, BrandCollection):
+    event.listen(_catalog_type, "before_update", _protect_catalog_identity)
+    event.listen(_catalog_type, "before_delete", _reject_review_history_mutation)
+
+
+for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision):
     event.listen(_review_history_type, "before_update", _reject_review_history_mutation)
     event.listen(_review_history_type, "before_delete", _reject_review_history_mutation)

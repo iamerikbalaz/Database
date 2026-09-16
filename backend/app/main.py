@@ -21,6 +21,7 @@ from app.api.material_approvals import build_material_approvals_router
 from app.technical_client import TechnicalClient, WorkerTechnicalClient
 from app.identity_client import IdentityClient, WorkerIdentityClient
 from app.api.material_identity import build_material_identity_router
+from app.api.catalog import build_catalog_router
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -66,6 +67,7 @@ def create_app(
     application.include_router(build_account_router(app_database, app_settings))
     application.include_router(build_health_router(app_database))
     application.include_router(build_resources_router(app_database))
+    application.include_router(build_catalog_router(app_database))
     application.include_router(
         build_material_operations_router(app_database, app_worker_client)
     )

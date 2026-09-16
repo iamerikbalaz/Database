@@ -83,6 +83,130 @@ def review_pg_case(migrated_postgresql_url):
     database.engine.dispose()
 
 
+def _catalog_pg_category(client):
+    response = client.post("/api/online-categories", json={"idempotency_key": str(uuid4()), "value": "Synthetic " + uuid4().hex})
+    assert response.status_code == 201
+    return response.json()
+
+
+@pytest.mark.parametrize("same_key", [True, False])
+def test_postgresql_catalog_creation_is_serialized_and_replayable(review_pg_case, same_key):
+    case = review_pg_case
+    payload = {"idempotency_key": str(uuid4()), "value": "Concurrent " + uuid4().hex}
+    other = payload if same_key else {**payload, "idempotency_key": str(uuid4()), "value": payload["value"].upper()}
+    barrier = Barrier(2)
+    with case.client_for() as first, case.client_for(0 if same_key else 3) as second:
+        def create(client, body):
+            barrier.wait(timeout=15)
+            return client.post("/api/online-categories", json=body)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(create, client, body) for client, body in ((first, payload), (second, other))]
+            responses = [future.result(timeout=25) for future in futures]
+        assert sorted(item.status_code for item in responses) == ([201, 201] if same_key else [201, 409])
+        if same_key:
+            assert responses[0].json() == responses[1].json()
+
+
+@pytest.mark.parametrize("same_key", [True, False])
+def test_postgresql_content_version_prevents_lost_updates_and_duplicate_revisions(review_pg_case, same_key):
+    from test_catalog_content import content_payload
+    from app.db.models import MaterialContentRevision
+    case = review_pg_case; barrier = Barrier(2)
+    with case.client_for() as first, case.client_for(0 if same_key else 3) as second:
+        category = _catalog_pg_category(first)
+        payload = content_payload(category_ids=[category["id"]], credits=8, tags=["stone"])
+        other = payload if same_key else {**payload, "idempotency_key": str(uuid4()), "credits": 12}
+        def save(client, body):
+            barrier.wait(timeout=15)
+            return client.post(case.path + "/content", json=body)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(save, client, body) for client, body in ((first, payload), (second, other))]
+            responses = [future.result(timeout=25) for future in futures]
+        assert sorted(item.status_code for item in responses) == ([200, 200] if same_key else [200, 409])
+        if same_key:
+            assert responses[0].json() == responses[1].json()
+        assert first.get(case.path + "/content").json()["revision"] == 1
+    with case.database.session() as session:
+        assert len(list(session.scalars(select(MaterialContentRevision).where(MaterialContentRevision.material_id == case.material.id)))) == 1
+        assert session.get(MaterialReviewState, case.material.id).generation == 1
+
+
+def test_postgresql_catalog_retirement_cannot_race_new_material_membership(review_pg_case):
+    from test_catalog_content import content_payload
+    case = review_pg_case; barrier = Barrier(2)
+    with case.client_for() as editor, case.client_for(3) as manager:
+        category = _catalog_pg_category(manager)
+        def change(client, path, method, body):
+            barrier.wait(timeout=15)
+            return client.request(method, path, json=body)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            saving = pool.submit(change, editor, case.path + "/content", "POST", content_payload(category_ids=[category["id"]]))
+            retiring = pool.submit(change, manager, "/api/online-categories/" + category["id"], "PATCH",
+                {"idempotency_key": str(uuid4()), "expected_version": 1, "is_active": False, "reason": "Synthetic retirement"})
+            saved = saving.result(timeout=25); retired = retiring.result(timeout=25)
+        assert retired.status_code == 200
+        assert saved.status_code in (200, 409)
+        current = editor.get(case.path + "/content").json()
+        if saved.status_code == 200:
+            assert current["categories"][0]["is_active"] is False
+            review = editor.get(case.path + "/review").json()
+            assert review["generation"] == 2 and review["failure_code"] == "CATALOG_ACTIVITY_CHANGED"
+        else:
+            assert saved.json()["detail"]["code"] == "CONTENT_CATALOG_VALUE_INACTIVE"
+            assert current["revision"] == 0 and current["categories"] == []
+
+
+def test_postgresql_catalog_and_content_audit_are_immutable(review_pg_case):
+    from test_catalog_content import content_payload
+    case = review_pg_case
+    with case.client_for() as client:
+        category = _catalog_pg_category(client)
+        assert client.post(case.path + "/content", json=content_payload(category_ids=[category["id"]], credits=10)).status_code == 200
+    statements = [
+        "UPDATE online_categories SET value='Changed' WHERE id=:id",
+        "UPDATE online_categories SET normalized_key='changed' WHERE id=:id",
+        "UPDATE online_categories SET is_active=false WHERE id=:id",
+        "DELETE FROM online_categories WHERE id=:id",
+        "TRUNCATE online_categories CASCADE",
+        "UPDATE catalog_audit_events SET resource_kind='COLLECTION' WHERE resource_id=:id",
+        "DELETE FROM catalog_audit_events WHERE resource_id=:id",
+        "TRUNCATE catalog_audit_events",
+        "UPDATE material_content_revisions SET reason='Changed' WHERE material_id=:material",
+        "DELETE FROM material_content_revisions WHERE material_id=:material",
+        "TRUNCATE material_content_revisions",
+    ]
+    for statement in statements:
+        with pytest.raises(DBAPIError):
+            with case.database.engine.begin() as connection:
+                connection.execute(text(statement), {"id": UUID(category["id"]), "material": case.material.id})
+
+
+def test_postgresql_catalog_upgrade_from_identity_schema_preserves_material_and_ledger():
+    with isolated_postgresql_database() as database_url:
+        previous = os.environ.get("DATABASE_URL"); os.environ["DATABASE_URL"] = database_url; get_settings.cache_clear()
+        engine = create_engine(database_url)
+        try:
+            config = Config("alembic.ini"); command.upgrade(config, "20260915_0008")
+            material_id = _create_postgresql_material_with_metadata(database_url, uuid4().hex[:12])
+            command.upgrade(config, "20260916_0009")
+            with engine.connect() as connection:
+                original = tuple(connection.execute(text("SELECT technical_identity, published_brand_id, sequence_number FROM pbr_materials WHERE id=:id"), {"id": material_id}).one())
+            command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
+            with engine.connect() as connection:
+                assert tuple(connection.execute(text("SELECT technical_identity, published_brand_id, sequence_number FROM pbr_materials WHERE id=:id"), {"id": material_id}).one()) == original
+                assert connection.execute(text("SELECT count(*) FROM material_number_reservations WHERE material_id=:id"), {"id": material_id}).scalar_one() == 1
+                assert connection.execute(text("SELECT count(*) FROM material_content")).scalar_one() == 0
+            command.downgrade(config, "20260916_0009")
+            with engine.connect() as connection:
+                assert connection.execute(text("SELECT count(*) FROM material_number_reservations WHERE material_id=:id"), {"id": material_id}).scalar_one() == 1
+            command.upgrade(config, "head"); command.check(config)
+        finally:
+            engine.dispose()
+            if previous is None: os.environ.pop("DATABASE_URL", None)
+            else: os.environ["DATABASE_URL"] = previous
+            get_settings.cache_clear()
+
+
 def _identity_target(case):
     with case.database.session() as session:
         old = session.get(PublishedBrand, case.material.published_brand_id)
@@ -474,7 +598,7 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
             current_revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            assert current_revision == "20260916_0009"
+            assert current_revision == "20260916_0010"
     finally:
         engine.dispose()
 
@@ -517,7 +641,7 @@ def test_postgresql_auth_upgrade_from_previous_head_preserves_users_without_cred
                 ).scalar_one() == 0
                 assert connection.execute(
                     text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "20260916_0009"
+                ).scalar_one() == "20260916_0010"
         finally:
             engine.dispose()
             if previous_database_url is None:

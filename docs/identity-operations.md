@@ -123,6 +123,11 @@ existing PATCH contract and now append identity history. Migration 0009 backfill
 known current allocations without changing existing brand counter high-water marks;
 unknown historical actors are represented as null, never invented.
 
+Migration 0010 adds brand collections. A rebrand is blocked while old-brand
+collections remain assigned; remove those assignments explicitly in Publication
+content before preparing a new plan. Content and affected catalog changes are
+blocked while a filesystem operation owns the material.
+
 ## Enabling in an isolated environment
 
 Both backend and worker require `SOURCE_MUTATIONS_ENABLED=true` and the same

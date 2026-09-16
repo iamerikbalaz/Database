@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.material_review import _material, _require_generation, _state
 from app.auth.access import AccessDependency, CATALOG_MANAGERS
-from app.db.models import (MaterialAuditEvent, MaterialFileOperation, MaterialIdentityHistory,
+from app.db.models import (MaterialAuditEvent, MaterialFileOperation, MaterialIdentityHistory, MaterialCollection,
                            MaterialNumberReservation, PBRMaterial, PBRMaterialMetadata, PublishedBrand)
 from app.identity_client import IdentityClientError
 from app.inventory_client import validate_relative_path
@@ -66,6 +66,8 @@ def _contexts(session, material, payload, *, lock=False):
     old_brand = brands[material.published_brand_id]; target = brands[payload.target_brand_id]
     if not target.is_active: _conflict("IDENTITY_BRAND_INACTIVE", "The target brand must be active.")
     rebrand = old_brand.id != target.id
+    if rebrand and session.scalar(select(MaterialCollection.material_id).where(MaterialCollection.material_id == material.id).limit(1)):
+        _conflict("IDENTITY_COLLECTIONS_ASSIGNED", "Remove the old brand's collection assignments before planning a rebrand.")
     number = target.next_sequence_number if rebrand else material.sequence_number
     if number > 9999: _conflict("IDENTITY_SEQUENCE_EXHAUSTED", "The target brand has no unused four-digit numbers.")
     identity = f"{target.folder_prefix}_{number:04d}_{payload.main_category_code}"

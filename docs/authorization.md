@@ -10,6 +10,8 @@ Conservative role decisions for the four existing roles (2026-09-15):
 | Create/assign materials | no | yes | no | yes |
 | Edit name, check/link folder, Done | assigned only | all | no | all |
 | Change project/category/assignment | no | yes | no | yes |
+| Manage online categories and brand collections | no | yes | no | yes |
+| Edit publication drafts and catalog assignments | assigned only | all | no | all |
 | Read user directory | own profile | all | all | all |
 | Create/update user roles or provision/reset access | no | no | no | yes |
 
@@ -60,3 +62,7 @@ Technical/publication approval roles and revalidation are documented in
 (head 0006); subsequent inventory and approval slices add migrations 0007/0008.
 Rolling back this slice would reopen previously public endpoints; do not expose
 the earlier application version on a shared network.
+
+Versioned catalog/content rules, vocabulary transaction locking and migration 0010
+are documented in `catalog-content.md`. Draft editing does not grant publication
+approval or perform an external publication.

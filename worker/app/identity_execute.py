@@ -177,7 +177,7 @@ def _prepare(root, source_parts, target, operation_id, expected_hash, journal, r
 def _result(state, status, failure=None):
     return {"operation_id": state["operation_id"], "status": status, "plan_hash": state["plan_hash"],
         "source_path": state["source_path"], "target_path": state["target_path"],
-        "source_revision_hash": state["source_revision_hash"],
+        "source_revision_hash": None if status == "REJECTED" else state["source_revision_hash"],
         "target_revision_hash": state.get("target_revision_hash") if status == "COMPLETED" else None, "failure_code": failure}
 
 
@@ -219,6 +219,7 @@ def execute_identity_change(root: Path, journal_root: Path, operation_id: str, s
         state = journal.read()
         if state is not None:
             if state.get("schema_version") != 1 or state.get("request_hash") != request_hash: raise JournalError("JOURNAL_REQUEST_CONFLICT")
+            if state["status"] == "REJECTED": return state["result"]
             if state["status"] in {"COMPLETED", "ROLLED_BACK"}:
                 path = state["target_path"] if state["status"] == "COMPLETED" else state["source_path"]
                 if not _matches(_entry(root, path), state["root_identity"]): raise JournalError("IDENTITY_ENTRY_CHANGED")
@@ -226,10 +227,20 @@ def execute_identity_change(root: Path, journal_root: Path, operation_id: str, s
             # No source action starts in PREPARING; an interrupted prepare is safe
             # to fail without replaying partially written private backups.
             if state["status"] == "PREPARING":
-                state.update(status="ROLLED_BACK", result=_result(state, "ROLLED_BACK", "IDENTITY_PREPARATION_INTERRUPTED"))
+                state.update(status="REJECTED", result=_result(state, "REJECTED", "IDENTITY_PREPARATION_INTERRUPTED"))
                 journal.write(state); return state["result"]
             return _rollback(root, journal, state)
-        state = _prepare(root, source_parts, target, operation_id, expected_plan_hash, journal, request_hash)
+        try:
+            state = _prepare(root, source_parts, target, operation_id, expected_plan_hash, journal, request_hash)
+        except Exception:
+            # Preparation can write private checkpoints/backups but never source
+            # files. Persist this terminal outcome so a changed/rejected plan does
+            # not leave the coordinator locked forever after a lost response.
+            result = {"operation_id": operation_id, "status": "REJECTED", "plan_hash": expected_plan_hash,
+                "source_path": "/".join(source_parts), "target_path": target.path, "source_revision_hash": None,
+                "target_revision_hash": None, "failure_code": "IDENTITY_PREPARATION_REJECTED"}
+            journal.write({"schema_version": 1, "request_hash": request_hash, "status": "REJECTED", "result": result})
+            return result
         try:
             for index, step in enumerate(state["steps"]):
                 state.update(status="EXECUTING", next_step=index); journal.write(state)

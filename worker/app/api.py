@@ -1,6 +1,9 @@
 """Internal read-only HTTP API for material preflight."""
 
 import os
+import hmac
+import re
+from uuid import UUID
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Literal
 
@@ -21,6 +24,8 @@ from app.source_metadata import SourceMetadataResult
 from app.inventory import InventoryError, inventory_material
 from app.technical_validation import validate_material
 from app.identity_plan import IdentityPlanError, IdentityTarget, plan_identity_change
+from app.identity_execute import execute_identity_change
+from app.file_journal import JournalError
 
 
 SCHEMA_VERSION = 1
@@ -52,6 +57,11 @@ class MaterialIdentityPlanRequest(MaterialPreflightRequest):
     target_path: str
     brand_name: str
     material_name: str
+
+
+class MaterialIdentityExecuteRequest(MaterialIdentityPlanRequest):
+    operation_id: str
+    expected_plan_hash: str
 
 
 class FindingResponse(StrictModel):
@@ -316,15 +326,23 @@ def _perform_preflight(
 
 def create_app(
     materials_root: str | os.PathLike[str] | None | object = _FROM_ENVIRONMENT,
+    *, mutations_enabled: bool | None = None,
+    mutation_token: str | None | object = _FROM_ENVIRONMENT,
+    journal_root: str | os.PathLike[str] | None | object = _FROM_ENVIRONMENT,
 ) -> FastAPI:
     configured_root = (
         os.getenv("MATERIALS_ROOT") if materials_root is _FROM_ENVIRONMENT else materials_root
     )
+    writes_enabled = os.getenv("SOURCE_MUTATIONS_ENABLED", "false").lower() == "true" if mutations_enabled is None else mutations_enabled
+    private_token = os.getenv("WORKER_MUTATION_TOKEN") if mutation_token is _FROM_ENVIRONMENT else mutation_token
+    private_journal = os.getenv("IDENTITY_JOURNAL_ROOT") if journal_root is _FROM_ENVIRONMENT else journal_root
+    token_valid = (isinstance(private_token, str) and 32 <= len(private_token) <= 256 and private_token.isascii()
+                   and all(33 <= ord(char) <= 126 for char in private_token))
     application = FastAPI(title="REAWOTE Worker Internal API", version="0.1.0")
 
     @application.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, __: RequestValidationError) -> JSONResponse:
-        if request.url.path in {"/internal/material-inventory", "/internal/material-validate", "/internal/material-identity-plan"}:
+        if request.url.path in {"/internal/material-inventory", "/internal/material-validate", "/internal/material-identity-plan", "/internal/material-identity-execute"}:
             return JSONResponse(status_code=422, content={"detail": {"code": "INVALID_REQUEST"}})
         result = _error_response(
             "",
@@ -397,6 +415,34 @@ def create_app(
     def material_identity_plan(request: MaterialIdentityPlanRequest) -> dict:
         target = IdentityTarget(request.target_path, request.brand_name, request.material_name)
         return execute_source_inspection(request, lambda root, parts: plan_identity_change(root, parts, target))
+
+    @application.post("/internal/material-identity-execute", tags=["internal"])
+    def material_identity_execute(payload: MaterialIdentityExecuteRequest, request: Request) -> dict:
+        if writes_enabled is not True or not token_valid or not private_journal:
+            raise HTTPException(503, {"code": "SOURCE_MUTATIONS_DISABLED"})
+        authorization = request.headers.get("Authorization", "")
+        if not hmac.compare_digest(authorization.encode("utf-8"), ("Bearer " + private_token).encode("ascii")):
+            raise HTTPException(401, {"code": "UNAUTHORIZED_WORKER_MUTATION"})
+        try:
+            operation_id = UUID(payload.operation_id)
+            if operation_id.version != 4 or str(operation_id) != payload.operation_id: raise ValueError()
+            if re.fullmatch(r"[0-9a-f]{64}", payload.expected_plan_hash) is None: raise ValueError()
+            if len(payload.folder_path) > 2048: raise ValueError()
+            normalized, parts = _normalize_relative_path(payload.folder_path)
+            if normalized != payload.folder_path: raise ValueError()
+            target = IdentityTarget(payload.target_path, payload.brand_name, payload.material_name)
+            target.parts()
+        except ValueError:
+            raise HTTPException(422, {"code": "INVALID_REQUEST"}) from None
+        try:
+            root = _configured_root(configured_root)
+            return execute_identity_change(root, Path(private_journal), payload.operation_id, parts, target,
+                                           payload.expected_plan_hash, enabled=True)
+        except JournalError as exc:
+            raise HTTPException(409 if str(exc) == "JOURNAL_BUSY" else 503, {"code": str(exc)}) from None
+        except Exception:
+            # IO/parser diagnostics may contain private source data or OS paths.
+            raise HTTPException(503, {"code": "IDENTITY_UNAVAILABLE"}) from None
 
     return application
 

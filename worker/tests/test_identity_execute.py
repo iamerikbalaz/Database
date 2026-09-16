@@ -99,7 +99,9 @@ def test_process_interruption_recovers_from_persisted_journal(operation, monkeyp
 def test_changed_source_or_reused_key_cannot_execute_a_different_plan(operation):
     _, _, original, _, _ = operation
     (original / "added.txt").write_bytes(b"new content")
-    with pytest.raises(JournalError, match="IDENTITY_PLAN_CHANGED"): run(operation)
+    result = run(operation)
+    assert result["status"] == "REJECTED" and result["source_revision_hash"] is None
+    assert run(operation) == result
     assert original.exists()
 
 
@@ -109,6 +111,23 @@ def test_completed_operation_key_cannot_be_reused_for_another_request(operation)
     assert run(operation)["status"] == "COMPLETED"
     with pytest.raises(JournalError, match="JOURNAL_REQUEST_CONFLICT"):
         execute_identity_change(root, journals, key, ("old-brand", OLD), TARGET, "a" * 64, enabled=True)
+
+
+@POSIX
+def test_interrupted_private_preparation_does_not_claim_source_restoration(operation, monkeypatch):
+    root, _, original, _, _ = operation
+    before = contents(original)
+    def crash(*args): raise SystemExit("Interrupted before any source action")
+    monkeypatch.setattr("app.file_journal.FileJournal.backup_metadata", crash)
+    with pytest.raises(SystemExit): run(operation)
+    assert contents(original) == before
+    (original / "external.txt").write_bytes(b"A later independent change")
+    result = run(operation)
+    assert result["status"] == "REJECTED" and result["source_revision_hash"] is None
+    assert result["failure_code"] == "IDENTITY_PREPARATION_INTERRUPTED"
+    assert (original / "external.txt").read_bytes() == b"A later independent change"
+    assert not (root / TARGET.path).exists()
+    assert run(operation) == result
 
 
 @POSIX

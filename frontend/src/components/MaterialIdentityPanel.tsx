@@ -85,6 +85,7 @@ export function MaterialIdentityPanel({ material, client, onChanged }: { materia
           <label>Target category code<input value={category} maxLength={100} pattern="[A-Za-z0-9-]+" onChange={(event) => { setCategory(event.target.value); invalidate(); }} /></label>
           <label>Destination parent folder<input value={parent} maxLength={1792} onChange={(event) => { setParent(event.target.value); invalidate(); }} /></label>
           <p>Use an existing relative parent folder. An empty value means the materials root.</p>
+          <p>Remove collection assignments in Publication content before transferring to another brand.</p>
           <button className="button" disabled={!category.trim() || !targetBrand} onClick={() => void run("plan")}>Preview identity changes</button>
         </fieldset>
         {proposal && <section aria-label="Identity change preview"><h3>Review the proposed changes</h3>

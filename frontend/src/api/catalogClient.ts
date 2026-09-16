@@ -1,0 +1,45 @@
+import { request } from "./client";
+import { boolean, nullable, record, string, uuid } from "./dto";
+
+function integer(value: unknown, minimum = 0) {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < minimum || value > 2147483647) throw new Error("Invalid catalog number");
+  return value;
+}
+function list<T>(value: unknown, parse: (item: unknown) => T, maximum = 100): T[] {
+  if (!Array.isArray(value) || value.length > maximum) throw new Error("Invalid catalog list");
+  return value.map(parse);
+}
+export function catalogValue(input: unknown) {
+  const item = record(input);
+  return { id: uuid(item.id), value: string(item.value), version: integer(item.version, 1), active: boolean(item.is_active),
+    brandId: item.brand_id === undefined ? null : uuid(item.brand_id) };
+}
+export type CatalogValue = ReturnType<typeof catalogValue>;
+export function contentFromDto(input: unknown) {
+  const item = record(input);
+  if (item.content_status !== "EMPTY" && item.content_status !== "MANUAL_DRAFT") throw new Error("Unknown content status");
+  return { materialId: uuid(item.material_id), revision: integer(item.revision), description: nullable(item.description),
+    credits: item.credits === null ? null : integer(item.credits), tags: list(item.tags, string),
+    categories: list(item.categories, catalogValue), collections: list(item.collections, catalogValue), status: item.content_status };
+}
+export type MaterialContent = ReturnType<typeof contentFromDto>;
+export interface ContentPayload {
+  idempotency_key: string; expected_revision: number; description: string | null; credits: number | null;
+  tags: string[]; category_ids: string[]; collection_ids: string[]; reason: string;
+}
+export interface CatalogCreate { idempotency_key: string; value: string; brand_id?: string; }
+export interface CatalogActivity { idempotency_key: string; expected_version: number; is_active: boolean; reason: string; }
+export type CatalogKind = "online-categories" | "collections";
+export const catalogClient = {
+  async categories() { return list(await request("/online-categories"), catalogValue, 10000); },
+  async collections(brandId?: string) { return list(await request("/collections" + (brandId ? `?brand_id=${uuid(brandId)}` : "")), catalogValue, 10000); },
+  async create(kind: CatalogKind, payload: CatalogCreate) { return catalogValue(await request(`/${kind}`, "POST", payload)); },
+  async activity(kind: CatalogKind, id: string, payload: CatalogActivity) { return catalogValue(await request(`/${kind}/${uuid(id)}`, "PATCH", payload)); },
+  async content(id: string) { return contentFromDto(await request(`/materials/${uuid(id)}/content`)); },
+  async save(id: string, payload: ContentPayload) { return contentFromDto(await request(`/materials/${uuid(id)}/content`, "POST", payload)); },
+  async history(id: string) { return list(await request(`/materials/${uuid(id)}/content-history`), (input) => {
+    const item = record(input);
+    return { id: uuid(item.id), revision: integer(item.revision, 1), actorId: uuid(item.actor_id), reason: string(item.reason),
+      createdAt: string(item.created_at), snapshot: contentFromDto(item.snapshot) };
+  }); },
+};

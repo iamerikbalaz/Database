@@ -15,6 +15,7 @@ import { useSession } from "./auth/context";
 import { restrictedDestination } from "./auth/permissions";
 import { AccountsPage } from "./pages/AccountsPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
+import { CatalogPage } from "./pages/CatalogPage";
 
 interface AppProps {
   client?: ApiClient;
@@ -75,6 +76,8 @@ function App({ client = apiClient, initialPath }: AppProps) {
     );
   else if (path === "/settings/users" || (path === "/settings" && role === "ADMIN"))
     page = <AccountsPage />;
+  else if (path === "/catalog")
+    page = <CatalogPage client={client} />;
   else if (path === "/materials")
     page = <MaterialsPage client={client} navigate={navigate} />;
   else if (path === "/materials/new")

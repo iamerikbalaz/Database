@@ -28,6 +28,7 @@ import { NavigationLink } from "../components/NavigationLink";
 import { MaterialReviewPanel } from "../components/MaterialReviewPanel";
 import { MaterialTechnicalPanel } from "../components/MaterialTechnicalPanel";
 import { MaterialIdentityPanel } from "../components/MaterialIdentityPanel";
+import { MaterialContentPanel } from "../components/MaterialContentPanel";
 
 function Value({ children }: { children: ReactNode }) {
   return children === null || children === undefined || children === "" ? (
@@ -616,6 +617,7 @@ function MaterialDetailContent({
       <CurrentMetadataPanel result={data.metadata} retry={data.retry} focusError={!data.refreshFailure} />
       <SnapshotHistoryPanel result={data.snapshots} retry={data.retry} focusError={!data.refreshFailure} />
     </div>
+    {role && <MaterialContentPanel key={`content-${material.id}-${material.publishedBrandId}`} material={material} onChanged={retryRelated} />}
     {role && <MaterialTechnicalPanel key={`technical-${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material} onChanged={() => data.refreshAll(undefined, undefined)} />}
     {role && <MaterialIdentityPanel key={`identity-${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material} client={client} onChanged={async () => { retryRelated(); return true; }} />}
     {role && <MaterialReviewPanel key={`${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material}

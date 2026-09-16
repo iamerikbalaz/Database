@@ -1025,3 +1025,14 @@ a.button {
 .material-review form { display: grid; gap: .75rem; margin-top: 1rem; }
 .material-review textarea { display: block; width: 100%; min-height: 5rem; }
 .revision-hash { overflow-wrap: anywhere; font-family: monospace; }
+.catalog-content form, .catalog-content fieldset { display: grid; gap: 1rem; }
+.catalog-content fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; min-width: 0; }
+.catalog-content label { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; font-size: 14px; font-weight: 600; }
+.catalog-content label > textarea, .catalog-content label > select, .catalog-content label > input:not([type="checkbox"]) {
+  display: block; flex: 0 0 100%; width: 100%; max-width: 100%; box-sizing: border-box; padding: .65rem;
+  border: 1px solid var(--border); border-radius: 6px; font: inherit; background: var(--surface, #fff);
+}
+.catalog-content textarea { min-height: 6rem; resize: vertical; }
+.catalog-content .button { width: fit-content; margin: .5rem .5rem .5rem 0; }
+.catalog-content li { margin: .65rem 0; overflow-wrap: anywhere; }
+.catalog-content > details { margin-top: 1rem; }

@@ -134,6 +134,16 @@ def test_actual_oversized_image_is_rejected_before_pixel_decode(tmp_path):
     with pytest.raises(PreviewError, match="PREVIEW_PIXEL_LIMIT"): render(tmp_path, path)
 
 
+@POSIX
+def test_unsigned_16_bit_grayscale_preserves_midtones_in_display_preview(tmp_path):
+    from PIL import Image
+    path = make(tmp_path, size=(64, 64), mode="I;16")
+    Image.new("I;16", (64, 64), 32768).save(path)
+    value = render(tmp_path, path)
+    with Image.open(io.BytesIO(base64.b64decode(value["data"]))) as display:
+        assert all(126 <= channel <= 128 for channel in display.getpixel((32, 32)))
+
+
 def test_decoder_receives_only_one_descriptor_and_a_scrubbed_environment(monkeypatch):
     def inspect_child(command, **options):
         assert command[-3:] == ["-m", "app.preview_decode", "3"]

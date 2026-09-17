@@ -48,6 +48,10 @@ def decode(fd: int) -> dict:
         with Image.open(stream, formats=FORMATS) as source:
             source.load()
             oriented = ImageOps.exif_transpose(source)
+            if oriented.mode in {"I;16", "I;16B", "I;16L"}:
+                # Preserve the full unsigned grayscale range; a direct RGB
+                # conversion clips every sample above 255 to white.
+                oriented = oriented.convert("I").point(lambda sample: sample / 257).convert("L")
             # A fresh image prevents source comments/EXIF/ICC and other ancillary
             # fields from being inherited by the encoder.
             clean = Image.new("RGB", oriented.size, (255, 255, 255))

@@ -80,6 +80,26 @@ def _call_worker(
         ) from exc
 
 
+def _reauthorized_preflight(database, material_id, access, expected, worker_client, folder_path):
+    result = None
+    failure = None
+    try:
+        result = _call_worker(worker_client, folder_path)
+    except HTTPException as exc:
+        failure = exc
+    # Worker IO may outlive assignment, account or material changes. Validate
+    # fresh access before returning source findings or dependency errors;
+    # link/Done still recheck again under their final mutation transaction.
+    current = _get_material_revision(database, material_id, access)
+    if current != expected:
+        raise HTTPException(409, "PBR material changed while folder preflight was running.")
+    access.require_folder(folder_path, current.technical_identity)
+    if failure is not None:
+        raise failure
+    assert result is not None
+    return result
+
+
 def _public_preflight(
     result: WorkerMaterialPreflight,
     expected_identity: str,
@@ -203,7 +223,7 @@ def build_material_operations_router(
         expected = _get_material_revision(database, material_id, access)
         access.require_folder(payload.folder_path, expected.technical_identity)
         return _public_preflight(
-            _call_worker(worker_client, payload.folder_path),
+            _reauthorized_preflight(database, material_id, access, expected, worker_client, payload.folder_path),
             expected.technical_identity,
         )
 
@@ -221,7 +241,7 @@ def build_material_operations_router(
         if (expected.workflow_status == MaterialWorkflowStatus.DONE.value
                 and expected.folder_path != payload.folder_path):
             raise HTTPException(status_code=409, detail="Reopen the DONE material before changing its folder.")
-        preflight = _call_worker(worker_client, payload.folder_path)
+        preflight = _reauthorized_preflight(database, material_id, access, expected, worker_client, payload.folder_path)
         _require_matching_identity(preflight, expected.technical_identity)
         _require_safe_preflight(preflight, expected.technical_identity)
 
@@ -282,7 +302,7 @@ def build_material_operations_router(
                 detail="PBR material does not have a linked folder.",
             )
 
-        preflight = _call_worker(worker_client, expected.folder_path)
+        preflight = _reauthorized_preflight(database, material_id, access, expected, worker_client, expected.folder_path)
         _require_matching_identity(preflight, expected.technical_identity)
         _require_safe_preflight(preflight, expected.technical_identity)
         loaded_at = datetime.now(UTC)

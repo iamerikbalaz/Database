@@ -87,3 +87,14 @@ transakce vrati zpet. Backend neprovadi zadny zapis do NAS.
 
 Neexistujici material vraci `404`, neplatny request `422` a nedostupny nebo
 protokolove neplatny worker `503`. Pro tyto operace neexistuje `DELETE`.
+
+## Fresh authorization after worker I/O
+
+All three preflight/link/Done routes recheck the actual session, role, material
+assignment, active identity operations and original material revision immediately
+after the worker returns. This happens before returning source findings or even
+a controlled dependency error. Account role changes through the management API
+revoke existing sessions and therefore return 401; a direct role demotion with a
+still-valid session returns 403. Reassignment hides another processor's material
+with 404. Link and Done additionally repeat authorization and revision checks
+inside their final write transaction. No new schema migration is needed.

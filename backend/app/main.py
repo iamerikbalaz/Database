@@ -26,6 +26,8 @@ from app.api.content_approvals import build_content_approvals_router
 from app.api.material_previews import build_material_previews_router
 from app.preview_client import PreviewClient, WorkerPreviewClient
 from app.api.material_imports import build_material_imports_router
+from app.api.folder_discovery import build_folder_discovery_router
+from app.discovery_client import DiscoveryClient, WorkerDiscoveryClient
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -40,6 +42,7 @@ def create_app(
     technical_client: TechnicalClient | None = None,
     identity_client: IdentityClient | None = None,
     preview_client: PreviewClient | None = None,
+    discovery_client: DiscoveryClient | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     app_database = database or Database(app_settings.resolved_database_url)
@@ -74,6 +77,8 @@ def create_app(
     application.include_router(build_resources_router(app_database))
     application.include_router(build_catalog_router(app_database))
     application.include_router(build_material_imports_router(app_database))
+    application.include_router(build_folder_discovery_router(app_database,
+        discovery_client or WorkerDiscoveryClient(app_settings.worker_base_url)))
     application.include_router(build_content_approvals_router(app_database))
     application.include_router(build_material_previews_router(app_database,
         preview_client or WorkerPreviewClient(app_settings.worker_base_url)))

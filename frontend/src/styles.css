@@ -1069,3 +1069,10 @@ a.button {
 .comparison-column dd { margin: 0; overflow-wrap: anywhere; }
 .comparison-column > .preview-gallery { margin-top: 1rem; }
 @media (max-width: 950px) { .comparison-columns { grid-template-columns: minmax(0, 1fr); } }
+.folder-discovery { margin-block: 1rem; }
+.folder-discovery .button-row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+.folder-discovery-list { list-style: none; padding: 0; }
+.folder-discovery-list li { display: flex; justify-content: space-between; align-items: center; gap: 1rem; border-bottom: 1px solid #dce2dc; padding-block: .75rem; }
+.folder-discovery-list li > span { overflow-wrap: anywhere; min-width: 0; }
+.folder-discovery-list .button-row { flex-shrink: 0; }
+@media (max-width: 600px) { .folder-discovery-list li { align-items: flex-start; flex-direction: column; } }

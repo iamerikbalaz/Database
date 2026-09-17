@@ -27,6 +27,7 @@ from app.identity_plan import IdentityPlanError, IdentityTarget, plan_identity_c
 from app.identity_execute import execute_identity_change
 from app.file_journal import JournalError
 from app.previews import PreviewError, list_previews, render_preview
+from app.folder_discovery import DiscoveryError, discovery_parts, discover_folders
 
 
 SCHEMA_VERSION = 1
@@ -52,6 +53,10 @@ class StrictModel(BaseModel):
 
 class MaterialPreflightRequest(StrictModel):
     folder_path: str
+
+
+class FolderDiscoveryRequest(StrictModel):
+    parent_path: str
 
 
 class MaterialIdentityPlanRequest(MaterialPreflightRequest):
@@ -348,7 +353,7 @@ def create_app(
 
     @application.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, __: RequestValidationError) -> JSONResponse:
-        if request.url.path in {"/internal/material-inventory", "/internal/material-validate", "/internal/material-identity-plan", "/internal/material-identity-execute"}:
+        if request.url.path in {"/internal/folder-discovery", "/internal/material-inventory", "/internal/material-validate", "/internal/material-identity-plan", "/internal/material-identity-execute"}:
             return JSONResponse(status_code=422, content={"detail": {"code": "INVALID_REQUEST"}})
         result = _error_response(
             "",
@@ -415,6 +420,27 @@ def create_app(
     @application.post("/internal/material-previews", tags=["internal"])
     def material_previews(request: MaterialPreflightRequest) -> dict:
         return execute_source_inspection(request, list_previews)
+
+    @application.post("/internal/folder-discovery", tags=["internal"])
+    def folder_discovery(request: FolderDiscoveryRequest) -> dict:
+        try:
+            parts = discovery_parts(request.parent_path)
+        except (ValueError, UnicodeError):
+            raise HTTPException(422, {"code": "INVALID_FOLDER_PATH"}) from None
+        try:
+            root = _configured_root(configured_root)
+            return discover_folders(root, parts)
+        except (RuntimeError, OSError) as exc:
+            if isinstance(exc, DiscoveryError):
+                code = str(exc)
+                status_code = 503 if code == "DISCOVERY_BUSY" else 409 if code == "DISCOVERY_SOURCE_CHANGED" else 422
+            elif isinstance(exc, MaterialFolderNotFound):
+                code, status_code = "MATERIAL_FOLDER_NOT_FOUND", 404
+            elif isinstance(exc, (UnsafeMaterialPath, SecureFilesystemAccessUnavailable)):
+                code, status_code = "UNSAFE_MATERIAL_PATH", 422
+            else:
+                code, status_code = "MATERIALS_ROOT_UNAVAILABLE", 503
+            raise HTTPException(status_code, {"code": code}) from None
 
     @application.post("/internal/material-preview", tags=["internal"])
     def material_preview(request: MaterialPreviewRequest) -> dict:

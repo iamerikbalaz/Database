@@ -31,6 +31,7 @@ import { MaterialIdentityPanel } from "../components/MaterialIdentityPanel";
 import { MaterialContentPanel } from "../components/MaterialContentPanel";
 import { ContentApprovalPanel } from "../components/ContentApprovalPanel";
 import { MaterialGallery } from "../components/MaterialGallery";
+import { FolderDiscovery } from "../components/FolderDiscovery";
 
 function Value({ children }: { children: ReactNode }) {
   return children === null || children === undefined || children === "" ? (
@@ -285,6 +286,10 @@ function FolderControls({
   return <article className="panel panel--wide material-operation">
     <div className="panel-title"><div><p className="eyebrow">Folder</p><h2>Folder connection</h2></div></div>
     <p className="operation-intro">Check a relative folder path before connecting it to this material. Server locations are never shown.</p>
+    <FolderDiscovery key={`discovery-${material.id}-${material.technicalIdentity}-${material.updatedAt}`} materialId={material.id}
+      identity={material.technicalIdentity} disabled={checking || linking || refreshing} onSelect={(path) => {
+        setFolderPath(path); setPreflight(undefined); setCheckedPath(""); setPathError(""); setError(""); setNotice("Folder selected. Check it before linking."); folderInput.current?.focus();
+      }} />
     {error && <ActionError message={error} />}
     <p className="operation-notice" role="status" aria-live="polite">{notice}</p>
     <form onSubmit={checkFolder} aria-label="Check material folder" noValidate>

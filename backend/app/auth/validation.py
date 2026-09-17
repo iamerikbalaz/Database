@@ -176,7 +176,7 @@ async def safe_request_validation_handler(
 ) -> JSONResponse:
     path = request.url.path
     if (is_auth_api_path(path) or path.startswith(("/api/online-categories", "/api/collections", "/api/material-imports"))
-            or (path.startswith("/api/materials/") and ("/identity-" in path or "/content" in path or "/preview" in path))):
+            or (path.startswith("/api/materials/") and ("/identity-" in path or "/content" in path or "/preview" in path or "/folder-discovery" in path))):
         return _auth_validation_response(request, exc)
     # Do not log/serialize the exception itself: errors(), body, ctx, and str(exc)
     # can all contain the original secret. Collect before removing parent inputs

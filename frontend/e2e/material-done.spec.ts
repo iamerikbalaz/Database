@@ -185,6 +185,29 @@ test("happy path persists Done metadata and snapshot after reload", async ({ pag
   await expect(materialFact(page, "Project")).toContainText("E2E Disposable Project");
   await expect(materialFact(page, "Published brand")).toContainText("E2E Published Brand");
 
+  // Explicit one-level source discovery is a read-only aid. Verify both the
+  // fresh and retained-data passes before using the normal preflight/link flow.
+  await page.getByRole("button", { name: "Browse source folders", exact: true }).click();
+  await page.getByRole("button", { name: "List folders", exact: true }).click();
+  const discovery = page.getByRole("region", { name: "Browse source folders", exact: true });
+  await expect(discovery.getByRole("status")).toContainText("source root");
+  const parentParts = state.valid.relativePath.split("/").slice(0, -1);
+  for (const part of parentParts) {
+    await discovery.getByRole("button", { name: `Open folder ${part}`, exact: true }).click();
+    await expect(discovery.getByRole("status")).toContainText("folders in");
+  }
+  await expect(discovery.getByRole("listitem").filter({ hasText: state.valid.technical_identity })).toContainText("Exact identity match");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await discovery.screenshot({ path: test.info().outputPath("folder-discovery-mobile.png") });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await discovery.screenshot({ path: test.info().outputPath("folder-discovery.png") });
+  await discovery.getByRole("button", { name: "Use this folder", exact: true }).click();
+  await expect(page.getByLabel("Relative folder path", { exact: true })).toHaveValue(state.valid.relativePath);
+  const afterBrowse = await page.request.get(`/api/materials/${state.valid.id}`);
+  expect(afterBrowse.status()).toBe(200);
+  expect((await afterBrowse.json()).folder_path).toBe(retainedPass ? state.valid.relativePath : null);
+
   if (retainedPass) { await assertRetainedDone(page, state.valid, "VALID"); return; }
   const preflightResponse = await checkFolder(page, state.valid.relativePath);
   expect(preflightResponse.status()).toBe(200);

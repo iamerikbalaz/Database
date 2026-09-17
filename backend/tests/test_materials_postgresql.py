@@ -660,6 +660,62 @@ def test_postgresql_review_upgrade_from_auth_head_preserves_credentials():
             get_settings.cache_clear()
 
 
+@pytest.mark.parametrize("action", ["folder-preflight", "folder-link", "mark-done"])
+@pytest.mark.parametrize("unavailable", [False, True])
+def test_postgresql_preflight_disclosure_obeys_actual_concurrent_role_change(review_pg_case, monkeypatch, action, unavailable):
+    from app.worker_client import WorkerClient, WorkerUnavailableError
+    from test_material_operations import _preflight
+    case = review_pg_case; entered = Event(); release = Event()
+    def source_read(_client, _path):
+        entered.set()
+        assert release.wait(timeout=10)
+        if unavailable: raise WorkerUnavailableError("Synthetic dependency unavailable")
+        return _preflight(case.material.technical_identity)
+    monkeypatch.setattr(WorkerClient, "preflight", source_read)
+    with case.client_for(1) as processor, case.client_for() as administrator:
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(processor.post, case.path + "/" + action,
+                json={} if action == "mark-done" else {"folder_path": case.material.folder_path})
+            try:
+                assert entered.wait(timeout=10)
+                assert administrator.patch(f"/api/internal-users/{case.users[1].id}", json={"role": "LEADERSHIP"}).status_code == 200
+            finally:
+                release.set()
+            response = future.result(timeout=15)
+        # The account API revokes existing sessions when its role changes.
+        # Direct in-transaction role changes are covered by the 403 unit case.
+        assert response.status_code == 401
+        assert "#A1B2C3" not in response.text and "Synthetic dependency unavailable" not in response.text
+    with case.database.session() as session:
+        assert session.get(PBRMaterial, case.material.id).workflow_status == "IN_PROGRESS"
+        assert session.scalar(select(PBRMaterialMetadataSnapshot.id).where(PBRMaterialMetadataSnapshot.material_id == case.material.id)) is None
+
+
+@pytest.mark.parametrize("unavailable", [False, True])
+@pytest.mark.parametrize("change,expected", [("role", 401), ("material", 409)])
+def test_postgresql_folder_discovery_rechecks_after_actual_concurrent_change(review_pg_case, monkeypatch, unavailable, change, expected):
+    from app.discovery_client import DiscoveryClientError, FolderDiscovery, WorkerDiscoveryClient
+    from test_folder_discovery import payload
+    case = review_pg_case; entered = Event(); release = Event()
+    def listing(_client, parent):
+        entered.set(); assert release.wait(timeout=15)
+        if unavailable: raise DiscoveryClientError("DISCOVERY_BUSY")
+        return FolderDiscovery.model_validate(payload(parent, case.material.technical_identity))
+    monkeypatch.setattr(WorkerDiscoveryClient, "listing", listing)
+    with case.client_for() as reader, case.client_for(3) as administrator:
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(reader.post, case.path + "/folder-discovery", json={"parent_path": "library"})
+            try:
+                assert entered.wait(timeout=15)
+                response = (administrator.patch(f"/api/internal-users/{case.users[0].id}", json={"role": "LEADERSHIP"}) if change == "role"
+                    else administrator.patch(case.path, json={"assigned_processor_id": str(case.users[2].id)}))
+                assert response.status_code == 200
+            finally: release.set()
+            result = future.result(timeout=20)
+        assert result.status_code == expected
+        assert case.material.technical_identity not in result.text and "DISCOVERY_BUSY" not in result.text
+
+
 def _import_pg_payload(case, numbers=(7,)):
     from types import SimpleNamespace
     from test_import_preview import plan_payload

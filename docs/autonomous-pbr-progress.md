@@ -355,11 +355,12 @@ completion. `defusedxml` is a runtime dependency; `openpyxl` is an independent
 test writer. See `docs/historical-import-plan.md` for exact limits and conservative
 unsupported cases. Source parsing was followed by the administrator import API,
 atomic database confirmation, immutable audit migration 0012 and verified UI
-described below. NAS discovery and historical production migration remain open.
+described below. Bounded read-only folder discovery is complete as described below;
+historical production migration remains unperformed.
 
-1. Historical Excel/NAS import with explicit
-   brand/project/company mapping.
-2. AI draft provenance and generation configuration.
+1. Historical production workbook/NAS verification when actual inputs are supplied;
+   the synthetic CSV/XLSX workflow and explicit one-level folder selection are done.
+2. AI draft provenance and generation configuration (`docs/ai-content-plan.md`).
 3. Immutable publication jobs, exact nine-field CSV, packaging and historical
    golden comparisons; online importer/production golden assets remain unavailable.
 4. Configurable GCS/Notion adapters, contracts and operational instructions.
@@ -396,11 +397,29 @@ visually inspected. Own cleanup and protected-resource checks passed. The first
 browser attempt exposed a test select-label lookup mismatch; selecting the exact
 combobox role fixed it without weakening app validation or browser gates.
 
-Do not claim real historical migration or NAS discovery. A follow-on security
-fix reauthorizes all three source preflight routes after worker I/O, including
-error outcomes. Its 102 focused backend/access tests passed; new actual PostgreSQL
-concurrency cases are currently undergoing the full isolated Docker run. Continue
-that verification and bounded read-only folder discovery, then the remaining
+Do not claim real historical migration. Administrator-only one-level source folder
+discovery is implemented and documented in `docs/folder-discovery.md`. It opens no
+files, follows no links, has explicit path/entry/time/concurrency limits, and only
+fills the existing form when the folder exactly matches the material identity.
+It never links or approves automatically. The backend reauthorizes after worker
+I/O. The same correction now protects all three existing preflight/link/Done
+routes before source findings or dependency failures are disclosed.
+
+Final isolated Docker project `reawote-test-b9a02bf93fd144d988cf2f698d01b57b` passed
+883 backend, 137 actual PostgreSQL (auth gate 27/27), 354 Linux worker and 352
+frontend tests, plus lint/build, without skips. The previous attempt passed 854
+backend and 127 PostgreSQL tests but six new concurrency expectations incorrectly
+expected 403 after an account API role change: that API intentionally revokes
+sessions, so the correct response is 401. Tests now assert that contract. Direct
+role changes with still-active sessions retain their separate 403 coverage. No
+production permission or validation was relaxed. The final frontend image was
+refreshed before its checks to include a corrected test-only type import.
+
+Final E2E run `0969494a-23b5-48b7-9fd1-5105fb2ad6f1` passed 14 fresh and 14 retained
+scenarios. Source discovery/selection is verified as read-only before ordinary
+preflight/link/Done. Desktop and 390px screenshots were visually inspected; no
+horizontal document overflow. Owned cleanup and protected-resource checks passed.
+Continue AI provenance/scoped draft intake and human review, then the remaining
 sequence. Migrations
 through 0012 are committed: never rewrite them; add 0013 or later for new schema.
 

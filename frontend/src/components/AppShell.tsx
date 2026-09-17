@@ -9,6 +9,7 @@ const items = [
   ["Materials", "/materials", "materials"],
   ["Compare", "/compare", "materials"],
   ["Catalog", "/catalog", "materials"],
+  ["Imports", "/imports", "materials"],
   ["Publication", "/publication", "publication"],
   ["Settings", "/settings", "settings"],
 ];
@@ -51,7 +52,7 @@ export function AppShell({
         <span>REAWOTE</span>
       </a>
       <nav aria-label="Main navigation">
-        {items.map(([label, href, icon]) => {
+        {items.filter(([, href]) => href !== "/imports" || account?.session.user.role === "ADMIN").map(([label, href, icon]) => {
           const active =
             currentPath === href ||
             (href === "/dashboard" && currentPath === "/") ||

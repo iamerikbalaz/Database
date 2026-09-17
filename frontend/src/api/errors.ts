@@ -5,6 +5,8 @@ export interface ValidationIssue {
 export class ApiError extends Error {
   status: number;
   issues: ValidationIssue[];
+  code?: string;
+  sourcePosition?: { row?: number; column?: number };
   constructor(status: number, message: string, issues: ValidationIssue[] = []) {
     super(message);
     this.status = status;
@@ -47,5 +49,15 @@ export function responseError(status: number, body: unknown): ApiError {
           : "The request could not be completed (" +
             status +
             "). Please try again.";
-  return new ApiError(status, message, issues);
+  const error = new ApiError(status, message, issues);
+  if (detail && typeof detail === "object" && "code" in detail && typeof detail.code === "string" && /^[A-Z][A-Z0-9_]{0,99}$/.test(detail.code)) {
+    error.code = detail.code;
+    const row = "row" in detail ? detail.row : undefined;
+    const column = "column" in detail ? detail.column : undefined;
+    error.sourcePosition = {
+      ...(typeof row === "number" && Number.isSafeInteger(row) && row >= 1 && row <= 4194304 ? { row } : {}),
+      ...(typeof column === "number" && Number.isSafeInteger(column) && column >= 1 && column <= 32 ? { column } : {}),
+    };
+  }
+  return error;
 }

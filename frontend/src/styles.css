@@ -1025,6 +1025,25 @@ a.button {
 .material-review form { display: grid; gap: .75rem; margin-top: 1rem; }
 .material-review textarea { display: block; width: 100%; min-height: 5rem; }
 .revision-hash { overflow-wrap: anywhere; font-family: monospace; }
+.imports-page { display: grid; gap: 1.25rem; min-width: 0; }
+.imports-page .panel { min-width: 0; padding: 1.25rem; }
+.imports-page fieldset { display: grid; gap: 1rem; border: 1px solid var(--border); border-radius: 8px; padding: 1rem; min-width: 0; }
+.imports-page label { display: grid; gap: .5rem; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.imports-page label > input:not([type="checkbox"]), .imports-page select, .imports-page textarea {
+  width: 100%; min-width: 0; max-width: 100%; padding: .65rem; border: 1px solid var(--border); border-radius: 6px; background: white; font: inherit;
+}
+.imports-page textarea { min-height: 90px; resize: vertical; }
+.imports-page fieldset > section { display: grid; gap: .8rem; }
+.imports-page .table-scroll { overflow-x: auto; max-width: 100%; margin: 1rem 0; }
+.imports-page table { width: 100%; border-collapse: collapse; text-align: left; }
+.imports-page th, .imports-page td { padding: .75rem; border-bottom: 1px solid var(--border); vertical-align: top; min-width: 120px; max-width: 360px; overflow-wrap: anywhere; }
+.imports-page td small { display: block; font-size: 12px; margin-top: .35rem; }
+.imports-page .import-acknowledgement { display: flex; align-items: flex-start; gap: .6rem; }
+.imports-page .import-acknowledgement input { flex: 0 0 auto; margin-top: .2rem; }
+.import-pagination { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; margin-top: 1rem; }
+.import-batches { list-style: none; padding: 0; display: grid; gap: .75rem; }
+.import-batches li { display: grid; gap: .4rem; }
+.imports-page code { overflow-wrap: anywhere; }
 .catalog-content form, .catalog-content fieldset { display: grid; gap: 1rem; }
 .catalog-content fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; min-width: 0; }
 .catalog-content label { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; font-size: 14px; font-weight: 600; }

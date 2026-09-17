@@ -353,8 +353,9 @@ XLSX sheets. All 65 parser/compatibility/security tests pass on Windows Python
 skipped. The container had no network, ports or host mounts and was removed on
 completion. `defusedxml` is a runtime dependency; `openpyxl` is an independent
 test writer. See `docs/historical-import-plan.md` for exact limits and conservative
-unsupported cases. This is source parsing only: no import API/UI, database writes,
-audit migration, NAS discovery or historical production migration is claimed.
+unsupported cases. Source parsing was followed by the administrator import API,
+atomic database confirmation, immutable audit migration 0012 and verified UI
+described below. NAS discovery and historical production migration remain open.
 
 1. Historical Excel/NAS import with explicit
    brand/project/company mapping.
@@ -384,10 +385,23 @@ at an outdated hardcoded migration-head assertion (812 other tests passed); that
 test now checks the complete chain including 0012. SQLite cursor pagination was
 also corrected using native stored timestamps and regression-tested.
 
-The import UI is currently being implemented and has not yet passed retained-data
-E2E. Do not claim real historical migration or NAS discovery. Continue UI validation
-and actual fresh/retained browser tests,
-then the remaining sequence. Migrations
+The import UI now supports explicit file/sheet/column/reference choices, paginated
+preview and audit history, actionable bounded errors, and frozen exact retry for
+an unknown confirmation outcome. Full frontend verification passed 323 tests;
+the later error-code addition passed its 53 focused client/UI tests and lint/build.
+Final E2E run `d4fcb3b3-cb1a-4f82-8372-9bba5b72e447` passed 14 fresh and 14 retained
+scenarios, including real synthetic CSV/XLSX uploads, counter advancement and audit
+history after restart. Desktop/mobile preview and history screenshots were
+visually inspected. Own cleanup and protected-resource checks passed. The first
+browser attempt exposed a test select-label lookup mismatch; selecting the exact
+combobox role fixed it without weakening app validation or browser gates.
+
+Do not claim real historical migration or NAS discovery. A follow-on security
+fix reauthorizes all three source preflight routes after worker I/O, including
+error outcomes. Its 102 focused backend/access tests passed; new actual PostgreSQL
+concurrency cases are currently undergoing the full isolated Docker run. Continue
+that verification and bounded read-only folder discovery, then the remaining
+sequence. Migrations
 through 0012 are committed: never rewrite them; add 0013 or later for new schema.
 
 Docker runs through the local Linux engine at desktop-linux. Startup initially

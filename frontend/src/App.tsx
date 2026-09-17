@@ -17,6 +17,7 @@ import { AccountsPage } from "./pages/AccountsPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { CatalogPage } from "./pages/CatalogPage";
 import { ComparePage } from "./pages/ComparePage";
+import { ImportsPage } from "./pages/ImportsPage";
 
 interface AppProps {
   client?: ApiClient;
@@ -81,6 +82,8 @@ function App({ client = apiClient, initialPath }: AppProps) {
     page = <CatalogPage client={client} />;
   else if (path === "/compare")
     page = <ComparePage client={client} navigate={navigate} />;
+  else if (path === "/imports")
+    page = <ImportsPage client={client} navigate={navigate} />;
   else if (path === "/materials")
     page = <MaterialsPage client={client} navigate={navigate} />;
   else if (path === "/materials/new")

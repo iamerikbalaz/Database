@@ -1,9 +1,25 @@
 # Historical PBR import
 
-The backend provides administrator-only inspection, preview, atomic confirmation
-and immutable batch history. Synthetic CSV/XLSX sources are tested. This is not
-evidence that any real historical workbook or production NAS has been migrated.
-The UI and retained-data browser verification are the next delivery step.
+The administrator-only `/imports` page and API provide inspection, preview,
+atomic confirmation and immutable batch history. Synthetic CSV/XLSX sources are
+tested, including actual browser uploads and a restart with retained data. This
+is not evidence that any real historical workbook or production NAS has migrated.
+
+## Browser workflow
+
+Choose a file and its explicit CSV delimiter or XLSX worksheet, select the five
+source columns, and map each literal label to an existing record. Review the
+preview, provide a reason and acknowledge that the imported records still need
+normal source checks and approval. Any source or mapping change invalidates the
+preview. Tables show project company and brand company separately and paginate
+large batches. Batch history is also paginated and links to current materials.
+
+An unknown confirmation outcome freezes the exact request and its original
+idempotency key for retry. The UI validates the returned batch against that
+preview before reporting success. A definite rejected request requires another
+preview. Source bytes remain in page memory; leaving or reloading the page loses
+that local retry state. Check saved batch history before starting a replacement
+import after such a navigation.
 
 ## Source and mapping
 
@@ -79,12 +95,22 @@ rollback shortcut. Production migrations remain outside this task's authorizatio
 Full isolated Docker project `reawote-test-86961169dfcc424ebcdbca5e3e34bb2a` passed:
 818 backend, 127 actual PostgreSQL (auth gate 27/27), 330 Linux worker and 290
 existing frontend tests, plus lint and build; no skipped tests. The new import UI
-was being developed after that image was built, and needs separate verification.
+was developed after that image was built. Its full local frontend run passed 323
+tests; after adding bounded actionable error codes/coordinates, the focused
+client/UI suite passed 53 tests and lint/build passed again.
 PostgreSQL tests cover duplicate retries, competing actors/keys, ordinary creation
 races, actual concurrent account revocation, consistent reference snapshots until
 commit, direct SQL audit mutation rejection and refusal of destructive downgrade.
 Unit/API cases also inject a final audit insertion failure and verify complete
 rollback of materials, metadata, reservations, batch and brand counter.
+
+Final E2E run `d4fcb3b3-cb1a-4f82-8372-9bba5b72e447` passed all 14 scenarios on
+fresh data and all 14 after restart with retained data. It imports an actual BOM
+semicolon CSV and an independently generated XLSX workbook, verifies exact
+identities, default states, counters and two immutable batches. Desktop and
+390px mobile preview/history screenshots were visually inspected. Table overflow
+is contained within its scroll region. Console, network, response-body and
+protected-resource gates remain enabled. No skipped E2E scenarios.
 
 Original main, protected databases/volumes, backup/restore resources, production
 NAS and live GCS/Notion were not used as test targets. Run `scripts/test.ps1` from

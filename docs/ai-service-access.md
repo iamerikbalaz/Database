@@ -3,7 +3,8 @@
 The service accepts only context reads and proposal submissions for one material.
 It does not fetch URLs, generate text, adopt or approve content, expose other domain
 records or publish. The API and administrator credential management UI are verified.
-A real generation adapter remains unfinished.
+An optional context-only OpenAI CLI is described in `ai-generation-client.md`;
+its live provider verification and source-grounded generation remain unfinished.
 
 ## Administrator workspace
 

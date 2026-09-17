@@ -4,7 +4,8 @@ This delivery slice adds human-authenticated source approvals, minimal publishin
 context and storage of externally prepared AI proposals. It does not contact an
 AI provider, fetch a source URL, grant a service credential or publish content.
 Explicit human adoption and its UI are implemented and verified below. Service
-access/provider integration remain subsequent steps.
+access is now covered by `ai-service-access.md`; the optional context-only provider
+CLI and its unverified live behavior are described in `ai-generation-client.md`.
 
 ## Context and authorization
 

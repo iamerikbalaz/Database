@@ -484,6 +484,20 @@ secrets. Owned cleanup and protected-resource checks passed. No skipped tests.
 Next is an optional generation adapter with explicit model/key configuration,
 offline contract tests and no live paid calls; publication/packaging remain later.
 
+Credential UI is committed/pushed as `ca9455b` together with service backend
+`507beb0`. The optional OpenAI CLI now has 64 offline contract/real-application
+tests; see `docs/ai-generation-client.md` for explicit commands, minimal disclosure,
+one-time credential handling and unchanged-packet retry. It does not read source
+pages, auto-adopt content or run from the browser. No paid provider call was made.
+Full Docker project `reawote-test-6e02e17510344bbda4003be9220806e0` passed 1020
+backend, 155 actual PostgreSQL (auth gate 27/27), 354 Linux worker and 399 frontend
+tests plus lint/build, without skips. Fresh/prior upgrade and Alembic checks passed.
+Owned containers/network were removed and only that project's DB volume retained.
+The latest 16+16 UI E2E above is unchanged by the standalone CLI; the generator
+roundtrip uses the real service API with only its provider replaced in memory.
+Live provider compatibility/quality and source-grounded generation remain unverified.
+Next implementation sequence is in `docs/publication-plan.md`.
+
 Docker runs through the local Linux engine at desktop-linux. Startup initially
 failed on Windows error 1920 from stale zero-byte runtime socket reparse points.
 Only verified runtime directories were reversibly renamed after stopping our newly

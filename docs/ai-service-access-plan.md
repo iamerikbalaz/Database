@@ -2,8 +2,8 @@
 
 The API, migration 0014 and credential management UI are implemented and verified;
 see `ai-service-access.md`. This document records their design constraints.
-The generation provider remains a later step. No human session is to be passed
-to an AI client.
+The optional generation client is described in `ai-generation-client.md`; live
+provider verification remains outstanding. No human session is passed to an AI client.
 
 ## Conservative access contract
 

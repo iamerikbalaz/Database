@@ -1,7 +1,9 @@
 # Restricted AI service access: next additive slice
 
-This is an implementation plan, not a delivered or enabled credential mechanism.
-It follows `ai-content-plan.md`; no human session is to be passed to an AI client.
+The API and migration 0014 are now implemented and under full verification; see
+`ai-service-access.md`. This document records the design constraints. A credential
+management UI and generation provider remain later steps. No human session is to
+be passed to an AI client.
 
 ## Conservative access contract
 

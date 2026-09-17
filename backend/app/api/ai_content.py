@@ -14,11 +14,12 @@ from sqlalchemy.exc import IntegrityError
 from app.ai_content import (AiDraftCreate, AiDraftAdopt, SourceLinkActivity, SourceLinkCreate,
     ai_draft_view, publishing_context, source_link_view)
 from app.api.material_review import _material, _record, _replay, _request_hash, _state
-from app.auth.access import ADMIN, MATERIAL_EDITORS, AccessDependency
+from app.auth.access import ADMIN, AccessDependency
 from app.db.models import MaterialAiDraft, MaterialSourceLink
 from app.material_identity import require_material_idle
 from app.material_review import invalidate_review
 from app.content_saves import save_material_content
+from app.ai_draft_saves import receive_ai_draft
 
 
 def build_ai_content_router(database):
@@ -81,27 +82,7 @@ def build_ai_content_router(database):
 
     @router.post("/{material_id}/content-drafts")
     def draft(material_id: UUID, payload: AiDraftCreate, access: AccessDependency):
-        request_hash = _request_hash("AI_DRAFT_RECEIVED", material_id, payload)
-        with database.session() as session:
-            actor = access.check(session, MATERIAL_EDITORS)
-            material = _material(session, material_id, access, lock=True)
-            replay = _replay(session, actor.id, material_id, payload, request_hash)
-            if replay is not None: return replay
-            require_material_idle(session, material_id)
-            current = publishing_context(session, material)
-            if payload.expected_context_hash != current["context_hash"]:
-                raise HTTPException(409, {"code": "AI_CONTEXT_CHANGED"})
-            selected = [str(item) for item in payload.source_link_ids]
-            if not set(selected).issubset(item["id"] for item in current["context"]["source_urls"]):
-                raise HTTPException(422, {"code": "AI_SOURCE_NOT_APPROVED"})
-            item = MaterialAiDraft(material_id=material_id, actor_id=actor.id, context_hash=current["context_hash"],
-                content_revision=current["content_revision"], context=current["context"], provider=payload.provider,
-                model=payload.model, prompt_version=payload.prompt_version, description=payload.description,
-                tags=payload.tags, source_link_ids=selected, reason=payload.reason)
-            session.add(item); session.flush()
-            return _record(session, material, _state(session, material_id, create=True), actor.id, "AI_DRAFT_RECEIVED",
-                payload, request_hash, ai_draft_view(item), code=201,
-                audit={"draft_id": str(item.id), "context_hash": item.context_hash, "source_link_ids": selected})
+        return receive_ai_draft(database, material_id, payload, access)
 
     @router.post("/{material_id}/content-drafts/{draft_id}/adopt")
     def adopt(material_id: UUID, draft_id: UUID, payload: AiDraftAdopt, access: AccessDependency):

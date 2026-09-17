@@ -47,6 +47,7 @@ def save_material_content(database, material_id, payload, access, *, source_draf
             provenance = {"draft_id": str(source.id), "provider": source.provider, "model": source.model,
                 "prompt_version": source.prompt_version, "context_hash": source.context_hash,
                 "edited": payload.description != source.description or payload.tags != source.tags}
+            if source.service_credential_id: provenance["service_credential_id"] = str(source.service_credential_id)
             # Only prose/tags are adopted. Credit and membership values come from
             # the currently locked saved content, never from the AI proposal.
             payload = ContentUpdate(idempotency_key=payload.idempotency_key, expected_revision=payload.expected_revision,

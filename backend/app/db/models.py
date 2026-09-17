@@ -959,6 +959,25 @@ class MaterialSourceLink(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class AiServiceCredential(Base):
+    __tablename__ = "ai_service_credentials"
+    __table_args__ = (
+        _review_hash_constraint("token_hash", "ck_ai_service_credentials_token_hash"),
+        CheckConstraint("expires_at > created_at", name="ck_ai_service_credentials_expiration"),
+        CheckConstraint("revoked_at IS NULL OR revoked_at >= created_at", name="ck_ai_service_credentials_revocation"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), index=True)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    # A deleted issuing session invalidates access. Do not force retention of
+    # expired human session secrets merely to preserve this public audit reference.
+    issuer_session_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class MaterialAiDraft(Base):
     __tablename__ = "material_ai_drafts"
     __table_args__ = (
@@ -969,6 +988,7 @@ class MaterialAiDraft(Base):
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), index=True)
     actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    service_credential_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("ai_service_credentials.id", ondelete="RESTRICT"))
     context_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     content_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     context: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
@@ -980,6 +1000,19 @@ class MaterialAiDraft(Base):
     source_link_ids: Mapped[list] = mapped_column(_JSON_DOCUMENT, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+@event.listens_for(AiServiceCredential, "before_update")
+def _protect_ai_credential(_, __, item):
+    attributes = sa_inspect(item).attrs
+    if any(attributes[field].history.has_changes() for field in ("id", "material_id", "actor_id", "issuer_session_id", "token_hash", "created_at", "expires_at")):
+        raise ValueError("AI credential scope is immutable")
+    history = attributes.revoked_at.history
+    if history.has_changes() and (item.revoked_at is None or any(value is not None for value in history.deleted)):
+        raise ValueError("AI credential revocation is permanent")
+
+
+event.listen(AiServiceCredential, "before_delete", _reject_review_history_mutation)
 
 
 def _protect_source_link(_mapper, _connection, item):

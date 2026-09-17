@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, request } from "@playwright/test";
 import path from "node:path";
 import { e2eOutputDirectory, runManifest } from "./run-manifest";
 import { retainedPass, signInThroughApi } from "./auth-helpers";
@@ -96,4 +96,60 @@ test("approved sources and human-reviewed AI proposals retain provenance after r
   expect(history[0].snapshot.ai_provenance).toEqual(saved.ai_provenance);
   const decisions = await (await page.request.get(api + "/content-approvals")).json(); expect(decisions).toHaveLength(2);
   const sources = await (await page.request.get(api + "/content-sources")).json(); expect(sources).toHaveLength(1); expect(sources[0].is_active).toBe(true);
+});
+
+test("one-material AI service access is revocable and its proposal history survives restart", async ({ page }) => {
+  await signInThroughApi(page);
+  const auth = await (await page.request.get("/api/auth/session")).json();
+  const headers = { Origin: runManifest.frontendUrl, "X-CSRF-Token": auth.csrf_token };
+  let id: string;
+  if (!retainedPass) {
+    const original = await (await page.request.get(`/api/materials/${runManifest.state.valid.id}`)).json();
+    const created = await page.request.post("/api/materials", { headers, data: {
+      project_id: runManifest.state.projectId, published_brand_id: runManifest.state.brandId,
+      assigned_processor_id: original.assigned_processor_id, material_name: "E2E AI Service", main_category_code: "G03",
+    } });
+    expect(created.status()).toBe(201); id = (await created.json()).id;
+    const target = `/api/materials/${id}`;
+    const issue = { idempotency_key: crypto.randomUUID(), reason: "Synthetic service scope verification", lifetime_seconds: 900 };
+    const issued = await page.request.post(target + "/ai-service-credentials", { headers, data: issue });
+    expect(issued.status()).toBe(201); const credential = await issued.json();
+    // Keep the secret only in this request context's memory. Traces are disabled,
+    // and no screenshots, logs or retained fixtures contain the secret.
+    const ai = await request.newContext({ baseURL: runManifest.frontendUrl, extraHTTPHeaders: { Authorization: "Bearer " + credential.token } });
+    try {
+      const replay = await page.request.post(target + "/ai-service-credentials", { headers, data: issue });
+      expect(replay.status()).toBe(201); expect((await replay.json()).token === null).toBe(true);
+      const context = await ai.get(`/api/ai/materials/${id}/publishing-context`); expect(context.status()).toBe(200);
+      const minimal = await context.json();
+      expect(Object.keys(minimal.context).sort()).toEqual(["brand", "categories", "collections", "material_id", "name", "source_urls"]);
+      expect((await ai.get(`/api/materials/${id}`)).status()).toBe(401);
+      expect((await ai.get(`/api/ai/materials/${runManifest.state.valid.id}/publishing-context`)).status()).toBe(401);
+      const proposal = { idempotency_key: crypto.randomUUID(), expected_context_hash: minimal.context_hash, provider: "Synthetic scoped service",
+        model: "fixture-service-v1", prompt_version: "pbr-1", description: "Synthetic service proposal awaiting human review", tags: ["stone"],
+        source_link_ids: [], reason: "Record a synthetic proposal through restricted service access" };
+      const posted = await ai.post(`/api/ai/materials/${id}/content-drafts`, { data: proposal });
+      expect(posted.status()).toBe(201); expect(Object.keys(await posted.json()).sort()).toEqual(["context_hash", "id", "status"]);
+      expect((await page.request.post(target + "/ai-service-credentials/" + credential.credential.id + "/revoke", {
+        headers, data: { idempotency_key: crypto.randomUUID(), reason: "Synthetic service work complete" },
+      })).status()).toBe(200);
+      expect((await ai.get(`/api/ai/materials/${id}/publishing-context`)).status()).toBe(401);
+      expect((await ai.post(`/api/ai/materials/${id}/content-drafts`, { data: proposal })).status()).toBe(401);
+    } finally { await ai.dispose(); }
+  } else {
+    const rows = await (await page.request.get("/api/materials?search=E2E%20AI%20Service")).json();
+    expect(rows).toHaveLength(1); id = rows[0].id;
+  }
+  const target = `/api/materials/${id}`;
+  await page.goto(`/materials/${id}`);
+  const panel = page.getByRole("article", { name: "AI proposals", exact: true });
+  await panel.getByRole("button", { name: "Load AI workspace", exact: true }).click();
+  await panel.getByText("Original proposal", { exact: true }).click();
+  await expect(panel.getByText("Synthetic service proposal awaiting human review", { exact: true })).toBeVisible();
+  await expect(panel.getByRole("button", { name: "Compare and review proposal", exact: true })).toBeEnabled();
+  const content = await (await page.request.get(target + "/content")).json(); expect(content.revision).toBe(0);
+  const grants = await (await page.request.get(target + "/ai-service-credentials")).json(); expect(grants.items).toHaveLength(1);
+  expect(grants.items[0].revoked_at === null).toBe(false); expect(Object.keys(grants.items[0])).not.toContain("token_hash");
+  const drafts = await (await page.request.get(target + "/content-drafts")).json(); expect(drafts.items).toHaveLength(1);
+  expect(drafts.items[0].service_credential_id).toBe(grants.items[0].id);
 });

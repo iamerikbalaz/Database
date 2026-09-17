@@ -863,7 +863,7 @@ def test_postgresql_import_audit_rejects_direct_sql_mutation_and_destructive_dow
             command.downgrade(Config("alembic.ini"), "20260916_0011")
         assert client.get("/api/material-imports/" + str(batch_id)).json() == response.json()
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260917_0013"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260917_0014"
 
 
 def test_postgresql_import_upgrade_from_0011_and_empty_downgrade_preserve_prior_records():
@@ -969,7 +969,7 @@ def test_postgresql_ai_and_source_provenance_cannot_be_erased_or_rewritten(revie
         with pytest.raises(DBAPIError): command.downgrade(Config("alembic.ini"), "20260917_0012")
         assert client.get(case.path + "/content-drafts").json()["items"][0]["id"] == draft["id"]
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260917_0013"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260917_0014"
 
 
 def test_postgresql_ai_upgrade_from_0012_preserves_records_and_empty_downgrade():
@@ -1017,6 +1017,172 @@ def test_postgresql_ai_adoption_prevents_double_revision_or_lost_human_edits(rev
         assert len(rows) == 2
         current = next(item for item in rows if item.revision == 2)
         assert current.snapshot["ai_provenance"]["draft_id"] == draft["id"]
+
+
+def test_postgresql_ai_issuance_retry_never_persists_or_replays_secret(review_pg_case):
+    from test_ai_service import issuance
+    from app.db.models import AiServiceCredential
+    case = review_pg_case; barrier = Barrier(2); payload = issuance()
+    with case.client_for() as first, case.client_for() as second:
+        def issue(client):
+            barrier.wait(timeout=15); return client.post(case.path + "/ai-service-credentials", json=payload)
+        with ThreadPoolExecutor(2) as pool:
+            one = pool.submit(issue, first); two = pool.submit(issue, second)
+            responses = [one.result(timeout=25), two.result(timeout=25)]
+        assert all(item.status_code == 201 for item in responses)
+        assert responses[0].json()["credential"] == responses[1].json()["credential"]
+        assert sum(item.json()["secret_available"] for item in responses) == 1
+    with case.database.session() as session:
+        assert len(list(session.scalars(select(AiServiceCredential).where(AiServiceCredential.material_id == case.material.id)))) == 1
+        audit = session.scalar(select(MaterialAuditEvent).where(MaterialAuditEvent.actor_id == case.users[0].id,
+            MaterialAuditEvent.request_key == UUID(payload["idempotency_key"])))
+        assert audit.result["body"]["token"] is None and audit.result["body"]["secret_available"] is False
+
+
+def test_postgresql_ai_issuance_respects_active_bound_under_race(review_pg_case):
+    from test_ai_service import issue, issuance
+    from app.db.models import AiServiceCredential
+    case = review_pg_case; barrier = Barrier(2)
+    with case.client_for() as first, case.client_for(3) as second:
+        for _ in range(9): issue(first, case.path)
+        def create(client):
+            barrier.wait(timeout=15); return client.post(case.path + "/ai-service-credentials", json=issuance())
+        with ThreadPoolExecutor(2) as pool:
+            one = pool.submit(create, first); two = pool.submit(create, second)
+            responses = [one.result(timeout=25), two.result(timeout=25)]
+        assert sorted(item.status_code for item in responses) == [201, 409]
+    with case.database.session() as session:
+        assert len(list(session.scalars(select(AiServiceCredential).where(AiServiceCredential.material_id == case.material.id)))) == 10
+
+
+@pytest.mark.parametrize("same_key", [True, False])
+def test_postgresql_ai_service_submission_replay_is_bound_to_credential(review_pg_case, same_key):
+    from test_ai_service import issue, service_headers
+    from test_ai_content import proposal
+    from app.db.models import MaterialAiDraft
+    case = review_pg_case; barrier = Barrier(2); target = case.path.replace("/api/", "/api/ai/")
+    with case.client_for() as admin, TestClient(case.app) as first, TestClient(case.app) as second:
+        issued = issue(admin, case.path)
+        first.headers.update(service_headers(issued)); second.headers.update(service_headers(issued))
+        context = first.get(target + "/publishing-context").json(); data = proposal(context)
+        def submit(client, body):
+            barrier.wait(timeout=15); return client.post(target + "/content-drafts", json=body)
+        with ThreadPoolExecutor(2) as pool:
+            one = pool.submit(submit, first, data); two = pool.submit(submit, second, data if same_key else proposal(context))
+            responses = [one.result(timeout=25), two.result(timeout=25)]
+        assert all(item.status_code == 201 for item in responses)
+        assert (responses[0].json()["id"] == responses[1].json()["id"]) is same_key
+    with case.database.session() as session:
+        rows = list(session.scalars(select(MaterialAiDraft).where(MaterialAiDraft.material_id == case.material.id)))
+        assert len(rows) == (1 if same_key else 2)
+        assert all(str(item.service_credential_id) == issued["credential"]["id"] for item in rows)
+
+
+def test_postgresql_ai_revoke_serializes_with_inflight_submission(review_pg_case):
+    from test_ai_service import issue, service_headers
+    from test_ai_content import proposal
+    from app.db.models import MaterialAiDraft
+    case = review_pg_case; entered = Event(); release = Event(); revoke_started = Event()
+    target = case.path.replace("/api/", "/api/ai/")
+    def held_insert(_, __, item):
+        if item.material_id == case.material.id:
+            entered.set(); assert release.wait(timeout=15)
+    with case.client_for() as admin, case.client_for(3) as revoker, TestClient(case.app) as ai:
+        issued = issue(admin, case.path); ai.headers.update(service_headers(issued))
+        data = proposal(ai.get(target + "/publishing-context").json())
+        event.listen(MaterialAiDraft, "before_insert", held_insert)
+        try:
+            with ThreadPoolExecutor(2) as pool:
+                pending = pool.submit(ai.post, target + "/content-drafts", json=data)
+                assert entered.wait(timeout=10)
+                def revoke():
+                    revoke_started.set()
+                    return revoker.post(case.path + "/ai-service-credentials/" + issued["credential"]["id"] + "/revoke",
+                        json={"idempotency_key": str(uuid4()), "reason": "Stop in-flight synthetic client"})
+                revoked = pool.submit(revoke)
+                assert revoke_started.wait(timeout=5); assert not revoked.done()
+                release.set()
+                assert pending.result(timeout=20).status_code == 201
+                assert revoked.result(timeout=20).status_code == 200
+        finally:
+            release.set(); event.remove(MaterialAiDraft, "before_insert", held_insert)
+        assert ai.get(target + "/publishing-context").status_code == 401
+        assert ai.post(target + "/content-drafts", json=data).status_code == 401
+    with case.database.session() as session:
+        assert len(list(session.scalars(select(MaterialAiDraft).where(MaterialAiDraft.material_id == case.material.id)))) == 1
+
+
+@pytest.mark.parametrize("operation", ["context", "submit"])
+def test_postgresql_ai_expiry_rechecked_after_material_lock_wait(review_pg_case, monkeypatch, operation):
+    from datetime import timedelta
+    from app.auth.service import database_now, _aware
+    from app.db.models import AiServiceCredential
+    from test_ai_service import issue, service_headers
+    from test_ai_content import proposal
+    case = review_pg_case; attempted = Event(); expired = Event(); target = case.path.replace("/api/", "/api/ai/")
+    with case.client_for() as admin, TestClient(case.app) as ai:
+        issued = issue(admin, case.path); ai.headers.update(service_headers(issued))
+        data = proposal(ai.get(target + "/publishing-context").json())
+        with case.database.session() as session:
+            deadline = _aware(session.get(AiServiceCredential, UUID(issued["credential"]["id"])).expires_at)
+        monkeypatch.setattr("app.ai_service_access.database_now", lambda session: deadline + timedelta(seconds=1) if expired.is_set() else database_now(session))
+        def observe(_, __, statement, parameters, ___, ____):
+            if "FROM pbr_materials" in statement and "FOR UPDATE" in statement: attempted.set()
+        with case.database.engine.connect() as blocker:
+            transaction = blocker.begin()
+            blocker.execute(text("SELECT id FROM pbr_materials WHERE id=:id FOR UPDATE"), {"id": case.material.id})
+            event.listen(case.database.engine, "before_cursor_execute", observe)
+            try:
+                with ThreadPoolExecutor(1) as pool:
+                    result = pool.submit(ai.get, target + "/publishing-context") if operation == "context" else pool.submit(ai.post, target + "/content-drafts", json=data)
+                    try: assert attempted.wait(timeout=10)
+                    finally:
+                        expired.set(); transaction.rollback()
+                    assert result.result(timeout=20).status_code == 401
+            finally:
+                if transaction.is_active: transaction.rollback()
+                event.remove(case.database.engine, "before_cursor_execute", observe)
+
+
+def test_postgresql_ai_credential_scope_and_revocation_are_permanent(review_pg_case):
+    from test_ai_service import issue
+    case = review_pg_case
+    with case.client_for() as admin:
+        issued = issue(admin, case.path); credential_id = issued["credential"]["id"]
+        for change in ("token_hash=repeat('a',64)", "expires_at=expires_at + interval '1 hour'", "issuer_session_id=gen_random_uuid()", "actor_id=gen_random_uuid()"):
+            with pytest.raises(DBAPIError), case.database.engine.begin() as connection:
+                connection.execute(text("UPDATE ai_service_credentials SET " + change + " WHERE id=:id"), {"id": credential_id})
+        assert admin.post(case.path + "/ai-service-credentials/" + credential_id + "/revoke", json={"idempotency_key": str(uuid4()), "reason": "Permanent revocation"}).status_code == 200
+        for statement in ("UPDATE ai_service_credentials SET revoked_at=NULL WHERE id=:id", "DELETE FROM ai_service_credentials WHERE id=:id", "TRUNCATE ai_service_credentials CASCADE"):
+            with pytest.raises(DBAPIError), case.database.engine.begin() as connection:
+                connection.execute(text(statement), {"id": credential_id})
+        with pytest.raises(DBAPIError): command.downgrade(Config("alembic.ini"), "20260917_0013")
+    with case.database.engine.connect() as connection:
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260917_0014"
+
+
+def test_postgresql_ai_service_upgrade_from_0013_preserves_prior_records():
+    with isolated_postgresql_database() as database_url:
+        previous = os.environ.get("DATABASE_URL"); os.environ["DATABASE_URL"] = database_url; get_settings.cache_clear()
+        engine = create_engine(database_url)
+        try:
+            config = Config("alembic.ini"); command.upgrade(config, "20260917_0013")
+            company_id = uuid4()
+            with engine.begin() as connection:
+                connection.execute(text("INSERT INTO companies (id, name) VALUES (:id, 'Prior AI service fixture')"), {"id": company_id})
+            command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
+            assert inspect(engine).has_table("ai_service_credentials")
+            assert "service_credential_id" in {item["name"] for item in inspect(engine).get_columns("material_ai_drafts")}
+            with engine.connect() as connection:
+                assert connection.execute(text("SELECT name FROM companies WHERE id=:id"), {"id": company_id}).scalar_one() == "Prior AI service fixture"
+            command.downgrade(config, "20260917_0013")
+            assert not inspect(engine).has_table("ai_service_credentials")
+            command.upgrade(config, "head"); command.check(config)
+        finally:
+            engine.dispose()
+            if previous is None: os.environ.pop("DATABASE_URL", None)
+            else: os.environ["DATABASE_URL"] = previous
+            get_settings.cache_clear()
 
 
 POSTGRES_TEST_ADMIN_URL = os.getenv("POSTGRES_TEST_ADMIN_URL")
@@ -1098,7 +1264,7 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
             current_revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            assert current_revision == "20260917_0013"
+            assert current_revision == "20260917_0014"
     finally:
         engine.dispose()
 
@@ -1141,7 +1307,7 @@ def test_postgresql_auth_upgrade_from_previous_head_preserves_users_without_cred
                 ).scalar_one() == 0
                 assert connection.execute(
                     text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "20260917_0013"
+                ).scalar_one() == "20260917_0014"
         finally:
             engine.dispose()
             if previous_database_url is None:

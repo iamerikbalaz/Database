@@ -87,7 +87,9 @@ def access_case():
 
 def domain_routes(app):
     for path, methods in app.openapi()["paths"].items():
-        if path.startswith("/api/") and (
+        # AI service routes reject cookies entirely and have a separate exhaustive
+        # bearer scope/lifecycle suite. Human credential management stays here.
+        if path.startswith("/api/") and not path.startswith("/api/ai/") and (
             not path.startswith("/api/auth/") or path.startswith("/api/auth/accounts/")
         ):
             path = re.sub(r"\{[^}]+\}", lambda _: str(uuid4()), path)

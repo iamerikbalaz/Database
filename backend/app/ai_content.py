@@ -153,4 +153,5 @@ def ai_draft_view(item):
         "context_hash": item.context_hash, "content_revision": item.content_revision, "context": item.context,
         "provider": item.provider, "model": item.model, "prompt_version": item.prompt_version,
         "description": item.description, "tags": item.tags, "source_link_ids": item.source_link_ids,
-        "reason": item.reason, "created_at": created.isoformat()}
+        "reason": item.reason, "created_at": created.isoformat(),
+        **({"service_credential_id": str(item.service_credential_id)} if item.service_credential_id else {})}

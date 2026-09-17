@@ -458,6 +458,22 @@ sequence. Migrations through 0013 are committed and immutable. No migration ran 
 production. `origin/main` was rechecked before the backend checkpoint and remains
 `88a1f99d748d2a0edbb1fce509e13d18bfc03908`.
 
+AI backend `4d48ff4` and UI `43567b1` are pushed to the owned remote branch. The
+next uncommitted slice adds restricted service authentication and migration 0014;
+see `docs/ai-service-access.md`. It issues one-time short-lived credentials for one
+material, binds access to the issuer's still-valid session/account, permits only
+minimal context reads/proposal submission, and supports permanent audited revoke.
+Human proposal compatibility and exact replay are preserved. Local focused suite:
+93 passed. Full Docker project `reawote-test-ef16ea5d2e5445b3989d3228ff76d91c` passed
+955 backend, 155 actual PostgreSQL (auth gate 27/27), 354 Linux worker and 382 frontend
+tests, lint/build, without skips. E2E run `04d680f7-7332-4265-81cf-055fad545e69` passed
+16 fresh (54.0s) and 16 retained (36.4s) scenarios with real scoped service access and
+revocation; protected resources stayed unchanged. A later administrator credential
+management UI is being tested separately (initial 16 focused tests passed; one
+clipboard-unavailable test was added afterward). Generation adapter remains pending.
+Migration 0014 has passed its migration/concurrency checks and is ready to commit;
+after committing it must remain immutable. No real provider/source URL was contacted.
+
 Docker runs through the local Linux engine at desktop-linux. Startup initially
 failed on Windows error 1920 from stale zero-byte runtime socket reparse points.
 Only verified runtime directories were reversibly renamed after stopping our newly

@@ -93,7 +93,7 @@ def test_unlinked_folder_or_invalid_selection_never_calls_worker(preview_case):
     case, worker, path = preview_case
     with case.client("ADMIN") as client:
         marker = "PRIVATE_SYNTHETIC_MARKER"
-        for name in ("../" + marker + ".png", "C:\\" + marker + ".png", marker + ".svg"):
+        for name in ("../" + marker + ".png", "C:\\" + marker + ".png", marker + ".svg", "png"):
             result = client.get(path + "/preview", params={"name": name, "expected_sha256": "a" * 64})
             assert result.status_code == 422 and marker not in result.text
         result = client.get(path + "/preview", params={"name": "valid.png", "expected_sha256": marker})

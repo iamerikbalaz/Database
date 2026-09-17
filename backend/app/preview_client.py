@@ -30,7 +30,7 @@ class PreviewClientError(RuntimeError):
 
 def validate_preview_name(name):
     validate_relative_path(name)
-    if "/" in name or len(name.encode("utf-8")) > 255 or name.rsplit(".", 1)[-1].lower() not in {"jpg", "jpeg", "png", "tif", "tiff", "webp"}:
+    if "/" in name or "." not in name or len(name.encode("utf-8")) > 255 or name.rsplit(".", 1)[-1].lower() not in {"jpg", "jpeg", "png", "tif", "tiff", "webp"}:
         raise ValueError("Invalid preview name")
 
 

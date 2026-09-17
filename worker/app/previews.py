@@ -37,7 +37,7 @@ class PreviewError(RuntimeError):
 
 
 def valid_preview_name(name):
-    return isinstance(name, str) and _safe_name(name) and name.rsplit(".", 1)[-1].lower() in EXTENSIONS
+    return isinstance(name, str) and _safe_name(name) and "." in name and name.rsplit(".", 1)[-1].lower() in EXTENSIONS
 
 
 @contextmanager

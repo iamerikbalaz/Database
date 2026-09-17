@@ -68,9 +68,10 @@ def test_missing_and_empty_preview_are_distinct_and_other_files_are_ignored(tmp_
     (tmp_path / IDENTITY / "PREVIEW").mkdir()
     assert list_previews(tmp_path, (IDENTITY,))["missing"] is False
     (tmp_path / IDENTITY / "PREVIEW" / "notes.txt").write_text("PRIVATE_SYNTHETIC_MARKER")
+    (tmp_path / IDENTITY / "PREVIEW" / "png").write_text("PRIVATE_SYNTHETIC_MARKER")
     (tmp_path / IDENTITY / "PREVIEW" / "nested").mkdir()
     value = list_previews(tmp_path, (IDENTITY,))
-    assert value["items"] == [] and value["ignored_entries"] == 2
+    assert value["items"] == [] and value["ignored_entries"] == 3
     assert "PRIVATE_SYNTHETIC" not in json.dumps(value)
 
 

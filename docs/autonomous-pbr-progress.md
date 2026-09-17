@@ -496,7 +496,12 @@ Owned containers/network were removed and only that project's DB volume retained
 The latest 16+16 UI E2E above is unchanged by the standalone CLI; the generator
 roundtrip uses the real service API with only its provider replaced in memory.
 Live provider compatibility/quality and source-grounded generation remain unverified.
-Next implementation sequence is in `docs/publication-plan.md`.
+Next implementation sequence is in `docs/publication-plan.md`. The pure immutable
+CSV serializer (`docs/publication-csv.md`) passed 44 Windows and 44 isolated Linux
+tests, without skips. Its Linux run used read-only mounts and no network/database;
+the first collection attempt selected the older installed package, corrected by
+using `python -m pytest`. It has no HTTP endpoint and performs no real export.
+Immutable database batches, approval gating, UI, packaging and upload remain pending.
 
 Docker runs through the local Linux engine at desktop-linux. Startup initially
 failed on Windows error 1920 from stale zero-byte runtime socket reparse points.

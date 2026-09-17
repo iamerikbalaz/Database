@@ -51,6 +51,9 @@ function ContentEditor({ content, categories, collections, onSaved, reload }: {
   </fieldset>;
   return <>
     <p>Revision {content.revision} · {content.status === "EMPTY" ? "Empty" : "Saved content"}. Saving a change invalidates technical checks and publication approvals.</p>
+    {content.aiProvenance && <p>Based on AI proposal from {content.aiProvenance.provider}, {content.aiProvenance.model} ({content.aiProvenance.promptVersion}).
+      {content.aiProvenance.edited ? " The proposed wording or tags were edited." : " The proposed wording and tags were adopted unchanged."}
+      {content.status === "APPROVED" ? " This content has a current human approval." : " Human content approval is still required."}</p>}
     {error && <p role="alert" className="field-error">{error}</p>}
     {allowed ? <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <fieldset disabled={pending || uncertain}><legend>Publication draft</legend>

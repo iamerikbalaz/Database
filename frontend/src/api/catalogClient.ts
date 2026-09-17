@@ -17,10 +17,15 @@ export function catalogValue(input: unknown) {
 export type CatalogValue = ReturnType<typeof catalogValue>;
 export function contentFromDto(input: unknown) {
   const item = record(input);
-  if (item.content_status !== "EMPTY" && item.content_status !== "MANUAL_DRAFT" && item.content_status !== "APPROVED") throw new Error("Unknown content status");
+  if (item.content_status !== "EMPTY" && item.content_status !== "MANUAL_DRAFT" && item.content_status !== "AI_DRAFT" && item.content_status !== "APPROVED") throw new Error("Unknown content status");
+  const source = item.ai_provenance === undefined ? null : record(item.ai_provenance);
+  const aiProvenance = source === null ? null : { draftId: uuid(source.draft_id), provider: string(source.provider), model: string(source.model),
+    promptVersion: string(source.prompt_version), contextHash: string(source.context_hash), edited: boolean(source.edited) };
+  if ((item.content_status === "AI_DRAFT" && !aiProvenance) || (aiProvenance && !/^[a-f0-9]{64}$/.test(aiProvenance.contextHash))) throw new Error("Invalid AI content provenance");
   return { materialId: uuid(item.material_id), revision: integer(item.revision), description: nullable(item.description),
     credits: item.credits === null ? null : integer(item.credits), tags: list(item.tags, string),
-    categories: list(item.categories, catalogValue), collections: list(item.collections, catalogValue), status: item.content_status };
+    categories: list(item.categories, catalogValue), collections: list(item.collections, catalogValue), status: item.content_status,
+    ...(aiProvenance ? { aiProvenance } : {}) };
 }
 export type MaterialContent = ReturnType<typeof contentFromDto>;
 export interface ContentPayload {

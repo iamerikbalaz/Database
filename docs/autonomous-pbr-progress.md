@@ -426,13 +426,13 @@ handoffs (iamerikbalaz/Database), and the explicit user push authorization was
 provided on retry; the push succeeded without changing the destination or payload.
 
 AI context, administrator source approvals and immutable external proposal intake
-are now implemented in uncommitted migration 0013 and API code. Full isolated
+are implemented in migration 0013 and API code (backend commit `4d48ff4`). Full isolated
 project `reawote-test-0f2a26665ab042599d76456b956b596e` passed 917 backend, 144 actual
 PostgreSQL (auth gate 27/27), 354 Linux worker, 352 frontend, lint/build and migration
 checks without skips. It covers real source/draft races and immutable provenance.
 See `docs/ai-content.md` for exactly what was verified and the remaining scope.
 
-Follow-on uncommitted changes add explicit human adoption using a shared content
+The same backend commit adds explicit human adoption using a shared content
 save service. Adoption preserves credits/vocabulary, adds immutable AI ancestry,
 invalidates decisions and preserves exact replay. Ordinary save request hashes and
 old manual snapshot shapes stay unchanged. These later changes passed 86 focused
@@ -448,12 +448,15 @@ without skips. E2E run `f6e6da9c-7ccf-4d95-b18c-e3aa0fd30370` passed the
 correctly blocked from approval. The next run `d516139b-c9e8-4b77-9ae2-71984e83cccb`
 passed the 14 existing scenarios but its new test selector did not match prefilled
 textareas; the rendered fields and accessible names were verified from its DOM and
-screenshot. The corrected role/name selectors are now in a fresh/retained rerun.
+screenshot. Final E2E run `c2fc1ade-d88c-49cb-a3b9-dd81a4978cd8` passed 15 fresh
+scenarios (51.6s) and 15 retained scenarios (34s); desktop/390px screenshots were
+visually inspected. Protected resources remained unchanged and owned cleanup passed.
 Scoped service credentials (`docs/ai-service-access-plan.md`) and provider calls
 are still pending. No live
 AI/provider or source URL has been contacted. Continue this work, then the remaining
-sequence. Migrations through 0012 are committed and immutable; 0013 is still under
-development and must be verified before committing. No migration ran on production.
+sequence. Migrations through 0013 are committed and immutable. No migration ran on
+production. `origin/main` was rechecked before the backend checkpoint and remains
+`88a1f99d748d2a0edbb1fce509e13d18bfc03908`.
 
 Docker runs through the local Linux engine at desktop-linux. Startup initially
 failed on Windows error 1920 from stale zero-byte runtime socket reparse points.

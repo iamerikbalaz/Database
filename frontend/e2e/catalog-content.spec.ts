@@ -79,5 +79,6 @@ test("catalog values, material drafts and revision history persist through resta
   expect(currentReview.approval.id).toBe(approvals[0].id);
   await expect(page.getByRole("article", { name: "Content approval", exact: true }).getByText("Current content is approved.", { exact: true })).toBeVisible();
   const audit = await (await page.request.get("/api/catalog-audit")).json();
-  expect(audit).toHaveLength(4);
+  const ownedIds = [current.categories[0].id, current.collections[0].id];
+  expect(audit.filter((item: { resource_id: string }) => ownedIds.includes(item.resource_id))).toHaveLength(4);
 });

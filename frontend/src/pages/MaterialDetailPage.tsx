@@ -29,6 +29,7 @@ import { MaterialReviewPanel } from "../components/MaterialReviewPanel";
 import { MaterialTechnicalPanel } from "../components/MaterialTechnicalPanel";
 import { MaterialIdentityPanel } from "../components/MaterialIdentityPanel";
 import { MaterialContentPanel } from "../components/MaterialContentPanel";
+import { MaterialAiPanel } from "../components/MaterialAiPanel";
 import { ContentApprovalPanel } from "../components/ContentApprovalPanel";
 import { MaterialGallery } from "../components/MaterialGallery";
 import { FolderDiscovery } from "../components/FolderDiscovery";
@@ -629,6 +630,7 @@ function MaterialDetailContent({
       <SnapshotHistoryPanel result={data.snapshots} retry={data.retry} focusError={!data.refreshFailure} />
     </div>
     {role && <MaterialContentPanel key={`content-${material.id}-${material.publishedBrandId}`} material={material} onChanged={retryRelated} />}
+    {role && <MaterialAiPanel key={`ai-${material.id}`} materialId={material.id} onAdopted={retryRelated} onSourcesChanged={() => void data.refreshAll(undefined, undefined)} />}
     {role && <MaterialGallery key={`gallery-${material.id}-${material.folderPath}-${data.reviewRefreshVersion}`} materialId={material.id} linked={Boolean(material.folderPath)} />}
     {role && <ContentApprovalPanel key={`content-approval-${material.id}`} materialId={material.id} refreshVersion={data.reviewRefreshVersion} onChanged={retryRelated} />}
     {role && <MaterialTechnicalPanel key={`technical-${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material} onChanged={() => data.refreshAll(undefined, undefined)} />}

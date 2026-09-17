@@ -3,8 +3,8 @@
 This delivery slice adds human-authenticated source approvals, minimal publishing
 context and storage of externally prepared AI proposals. It does not contact an
 AI provider, fetch a source URL, grant a service credential or publish content.
-Explicit human adoption and its UI have been added and are undergoing the complete
-validation below. Service access/provider integration remain subsequent steps.
+Explicit human adoption and its UI are implemented and verified below. Service
+access/provider integration remain subsequent steps.
 
 ## Context and authorization
 
@@ -88,7 +88,7 @@ intake, duplicate URLs and active-source limits, immutable provenance, fresh and
 prior-0012 upgrade, current/heads/check and protected downgrade. Owned resources
 were cleaned and the exact owned database volume retained.
 
-## Explicit human adoption (follow-on changes under verification)
+## Explicit human adoption
 
 `POST /api/materials/{id}/content-drafts/{draft_id}/adopt` takes an idempotency key,
 expected saved-content revision/context digest, reviewed description/tags and a
@@ -140,5 +140,10 @@ edited adoption, approval invalidation, immutable originals and reapproval. Its 
 attempt correctly blocked a fixture lacking the required online category. The fixture
 now includes an independently named category, and the earlier catalog test checks
 its own four audit records rather than assuming it owns the entire shared catalog.
-Rerun and screenshot inspection are pending. No scoped service access, generation
-adapter or live provider verification is claimed by this checkpoint.
+Final E2E run `c2fc1ade-d88c-49cb-a3b9-dd81a4978cd8` passed 15 fresh scenarios in
+51.6 seconds and 15 retained-data scenarios in 34 seconds. A second failed attempt
+had a test selector that did not match a prefilled textarea; role/name selection
+now follows the rendered accessible name. The final desktop and 390px comparison
+screenshots were visually inspected, with no document overflow. Owned cleanup and
+protected-resource checks passed. No scoped service access, generation adapter or
+live provider verification is claimed by this checkpoint.

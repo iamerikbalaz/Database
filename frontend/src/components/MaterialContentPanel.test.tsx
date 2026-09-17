@@ -12,6 +12,14 @@ const category = { id: "10000000-0000-4000-8000-000000000001", value: "Stone", v
 const collection = { ...category, id: "10000000-0000-4000-8000-000000000002", value: "Studio", brand_id: materialDto.published_brand_id };
 const empty = { material_id: materialDto.id, revision: 0, description: null, credits: null, tags: [], categories: [], collections: [], content_status: "EMPTY" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+
+it("accepts AI content only with complete provenance and preserves its declared origin", () => {
+  const provenance = { draft_id: category.id, provider: "Synthetic tool", model: "fixture-v1", prompt_version: "pbr-1", context_hash: "a".repeat(64), edited: true };
+  expect(() => contentFromDto({ ...empty, content_status: "AI_DRAFT" })).toThrow();
+  expect(() => contentFromDto({ ...empty, content_status: "AI_DRAFT", ai_provenance: { ...provenance, context_hash: "bad" } })).toThrow();
+  expect(contentFromDto({ ...empty, revision: 1, content_status: "AI_DRAFT", ai_provenance: provenance }).aiProvenance).toMatchObject({ draftId: category.id, edited: true, model: "fixture-v1" });
+  expect(contentFromDto({ ...empty, revision: 1, content_status: "APPROVED", ai_provenance: provenance }).status).toBe("APPROVED");
+});
 afterEach(() => { vi.unstubAllGlobals(); setSessionToken(null); });
 function setup(role: Role = "ADMIN", inactive = false) {
   const changed = vi.fn(); const posts: RequestInit[] = [];

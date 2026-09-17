@@ -343,6 +343,19 @@ protected-project/volume checks passed; only owned resources were touched.
 
 ## Remaining sequence after current work
 
+Gallery commit `9cb6727` and its ancestors were pushed to the owned remote branch
+`codex/autonomous-pbr-completion`. Main was not changed. A draft PR has not yet
+been created; the GitHub CLI is unavailable on this host.
+
+Historical source readers now support bounded UTF-8 CSV and explicitly selected
+XLSX sheets. All 65 parser/compatibility/security tests pass on Windows Python
+3.13.15 and in the owned Linux image `reawote-import-unit-01a0a64d`. No tests were
+skipped. The container had no network, ports or host mounts and was removed on
+completion. `defusedxml` is a runtime dependency; `openpyxl` is an independent
+test writer. See `docs/historical-import-plan.md` for exact limits and conservative
+unsupported cases. This is source parsing only: no import API/UI, database writes,
+audit migration, NAS discovery or historical production migration is claimed.
+
 1. Historical Excel/NAS import with explicit
    brand/project/company mapping.
 2. AI draft provenance and generation configuration.

@@ -373,7 +373,14 @@ operations. 3D models and HDRI remain out of scope.
 
 Identity worker/API/UI are committed in `4acc874`, `07ef4db` and `0b1e3ff`.
 Catalog server/UI and gallery retained-data E2E are verified as noted above.
-Continue historical source parsing and explicit import planning/confirmation,
+Historical source inspection is now implemented: administrator-only bounded JSON
+upload, explicit five-column mapping, bounded sample/reference labels and fresh
+authorization after parsing. The focused source-mapping, transport/API and existing
+application authorization suites passed 73 tests on Windows, with no skips. The
+65 CSV/XLSX reader cases previously passed on both Windows and Linux. No batch
+insertion, audit migration or import UI is claimed by this checkpoint.
+
+Continue database-backed import planning/confirmation,
 then the remaining sequence. Migrations
 through 0011 are committed: never rewrite them; add 0012 or later for new schema.
 

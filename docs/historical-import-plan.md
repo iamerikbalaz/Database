@@ -48,8 +48,8 @@ remains blocked until its importer contract is supplied.
 
 ## Source reader contract
 
-The pure CSV and XLSX readers are implemented before adding an upload endpoint or
-any database mutation. They return immutable source rows and an original-file
+The pure CSV and XLSX readers and administrator-only `/api/material-imports/inspect`
+endpoint are implemented before database mutation. They return immutable source rows and an original-file
 SHA-256. Errors contain fixed codes and row/column coordinates, without cell data.
 No files are extracted, formulas executed, external links resolved, or source
 files rewritten. Parser inputs and table values are excluded from object reprs.
@@ -80,7 +80,21 @@ Implementation references: [Microsoft SpreadsheetML structure](https://learn.mic
 [stored cell values](https://learn.microsoft.com/en-us/office/open-xml/spreadsheet/how-to-retrieve-the-values-of-cells-in-a-spreadsheet),
 and [defusedxml parser controls](https://github.com/tiran/defusedxml).
 
-Next: administrator-only source inspection, explicit identity/name/project/brand/
-processor column mapping, immutable import audit and preview/confirm API. The
+The inspection API requires an actual active administrator session, completed
+password change, CSRF and allowed Origin. The JSON envelope is bounded at 6 MiB
+(4 MiB source encoded as base64 plus mappings), with a ten-second upload deadline
+and two in-flight imports per API process, held through parsing. Unsupported
+content encodings, duplicate JSON properties and non-finite values are rejected.
+Authorization is checked before accepting the upload and after parsing, including
+failed parsing. Errors do not reflect source cells or arbitrary request keys.
+
+Choose five distinct existing headers: identity, name, project, brand and processor.
+Inspection returns at most ten sample rows and at most 64 distinct labels for each
+reference group. Labels normalize NFC and outer whitespace; blank or multiline/
+control-bearing reference labels require source correction. Map each literal label
+to an existing UUID; do not infer IDs from names or prefixes. Identity/name validation
+and duplicate brand-number detection are implemented independently of database IO.
+
+Next: immutable import audit and database-backed preview/confirm API. The
 production lead's ordinary material-create permission does not implicitly grant
 historical number import. No workbook headers or company mappings are guessed.

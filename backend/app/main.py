@@ -25,6 +25,7 @@ from app.api.catalog import build_catalog_router
 from app.api.content_approvals import build_content_approvals_router
 from app.api.material_previews import build_material_previews_router
 from app.preview_client import PreviewClient, WorkerPreviewClient
+from app.api.material_imports import build_material_imports_router
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -72,6 +73,7 @@ def create_app(
     application.include_router(build_health_router(app_database))
     application.include_router(build_resources_router(app_database))
     application.include_router(build_catalog_router(app_database))
+    application.include_router(build_material_imports_router(app_database))
     application.include_router(build_content_approvals_router(app_database))
     application.include_router(build_material_previews_router(app_database,
         preview_client or WorkerPreviewClient(app_settings.worker_base_url)))

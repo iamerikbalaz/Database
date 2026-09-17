@@ -1,9 +1,9 @@
 # Restricted AI service access: next additive slice
 
-The API and migration 0014 are now implemented and under full verification; see
-`ai-service-access.md`. This document records the design constraints. A credential
-management UI and generation provider remain later steps. No human session is to
-be passed to an AI client.
+The API, migration 0014 and credential management UI are implemented and verified;
+see `ai-service-access.md`. This document records their design constraints.
+The generation provider remains a later step. No human session is to be passed
+to an AI client.
 
 ## Conservative access contract
 

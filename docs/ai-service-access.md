@@ -2,8 +2,18 @@
 
 The service accepts only context reads and proposal submissions for one material.
 It does not fetch URLs, generate text, adopt or approve content, expose other domain
-records or publish. This slice adds the verified API. Credential management UI is
-under separate verification and a real generation adapter remains unfinished.
+records or publish. The API and administrator credential management UI are verified.
+A real generation adapter remains unfinished.
+
+## Administrator workspace
+
+Open **Manage AI service access** on the material detail page. Give a reason and
+choose 15, 30 or 60 minutes. Issuance displays a masked one-time credential; copy
+it to the intended client and hide it. It is held only in page memory. History
+shows metadata and permanent revocation controls. Leaving the material or losing
+administrator access unmounts that memory. An unknown mutation outcome freezes
+controls and offers only the exact same request retry; issuance replay cannot
+recover a lost secret. Revocation leaves proposal history available for review.
 
 ## Human administrator operations
 
@@ -97,4 +107,11 @@ stayed only in test request memory; no secret was rendered or retained in artifa
 Owned cleanup and protected-resource checks passed. An additional focused route
 inventory regression verifies that precisely the two declared AI routes exist and
 reject anonymous and browser-only authentication. No live provider or source URL
-was contacted. Later credential-management UI is outside these image snapshots.
+was contacted. These image snapshots precede the credential-management UI.
+
+The later UI passed all 399 frontend tests, lint/build and E2E TypeScript checks.
+E2E run `1e426634-998a-434c-952f-6d0617f063bc` passed 16 fresh (54.6s) and 16 retained
+(36.1s) scenarios, including browser revocation and credential metadata after
+restart. Desktop and 390px history screenshots were visually inspected; no
+horizontal overflow. One-time test secrets remained outside rendered artifacts.
+Owned cleanup and protected-resource checks passed. No tests were skipped.

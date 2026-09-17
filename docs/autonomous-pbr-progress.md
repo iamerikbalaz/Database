@@ -474,6 +474,16 @@ clipboard-unavailable test was added afterward). Generation adapter remains pend
 Migration 0014 has passed its migration/concurrency checks and is ready to commit;
 after committing it must remain immutable. No real provider/source URL was contacted.
 
+Later checkpoint: service backend/migration 0014 are committed as `507beb0`;
+migrations through 0014 are immutable. The administrator credential UI is now
+verified: all 399 frontend tests, lint/build and E2E TypeScript check passed.
+E2E `1e426634-998a-434c-952f-6d0617f063bc` passed 16 fresh (54.6s) and 16 retained
+(36.1s) scenarios. Real browser revocation and metadata history survive restart;
+desktop and 390px screenshots were inspected without overflow or rendered test
+secrets. Owned cleanup and protected-resource checks passed. No skipped tests.
+Next is an optional generation adapter with explicit model/key configuration,
+offline contract tests and no live paid calls; publication/packaging remain later.
+
 Docker runs through the local Linux engine at desktop-linux. Startup initially
 failed on Windows error 1920 from stale zero-byte runtime socket reparse points.
 Only verified runtime directories were reversibly renamed after stopping our newly

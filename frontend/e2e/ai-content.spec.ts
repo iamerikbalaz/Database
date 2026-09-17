@@ -130,9 +130,13 @@ test("one-material AI service access is revocable and its proposal history survi
         source_link_ids: [], reason: "Record a synthetic proposal through restricted service access" };
       const posted = await ai.post(`/api/ai/materials/${id}/content-drafts`, { data: proposal });
       expect(posted.status()).toBe(201); expect(Object.keys(await posted.json()).sort()).toEqual(["context_hash", "id", "status"]);
-      expect((await page.request.post(target + "/ai-service-credentials/" + credential.credential.id + "/revoke", {
-        headers, data: { idempotency_key: crypto.randomUUID(), reason: "Synthetic service work complete" },
-      })).status()).toBe(200);
+      await page.goto(`/materials/${id}`);
+      const manager = page.getByRole("article", { name: "AI service access", exact: true });
+      await manager.getByText("Manage AI service access", { exact: true }).click();
+      await manager.getByRole("button", { name: "Load service access history", exact: true }).click();
+      await manager.getByLabel("Reason for service access change", { exact: true }).fill("Synthetic service work complete");
+      await manager.getByRole("button", { name: `Revoke credential ${credential.credential.id}`, exact: true }).click();
+      await expect(manager.getByText(/Service access revoked/)).toBeVisible();
       expect((await ai.get(`/api/ai/materials/${id}/publishing-context`)).status()).toBe(401);
       expect((await ai.post(`/api/ai/materials/${id}/content-drafts`, { data: proposal })).status()).toBe(401);
     } finally { await ai.dispose(); }
@@ -150,6 +154,15 @@ test("one-material AI service access is revocable and its proposal history survi
   const content = await (await page.request.get(target + "/content")).json(); expect(content.revision).toBe(0);
   const grants = await (await page.request.get(target + "/ai-service-credentials")).json(); expect(grants.items).toHaveLength(1);
   expect(grants.items[0].revoked_at === null).toBe(false); expect(Object.keys(grants.items[0])).not.toContain("token_hash");
+  const manager = page.getByRole("article", { name: "AI service access", exact: true });
+  await manager.getByText("Manage AI service access", { exact: true }).click();
+  await manager.getByRole("button", { name: "Load service access history", exact: true }).click();
+  await expect(manager.getByRole("button", { name: `Revoke credential ${grants.items[0].id}`, exact: true })).toBeDisabled();
+  await expect(manager.getByLabel("One-time service credential", { exact: true })).toHaveCount(0);
+  await manager.screenshot({ path: test.info().outputPath("ai-service-history.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await manager.screenshot({ path: test.info().outputPath("ai-service-history-mobile.png") });
   const drafts = await (await page.request.get(target + "/content-drafts")).json(); expect(drafts.items).toHaveLength(1);
   expect(drafts.items[0].service_credential_id).toBe(grants.items[0].id);
 });

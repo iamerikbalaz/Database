@@ -9,7 +9,7 @@ FastAPI backend, samostatný Python worker a lokální PostgreSQL 18.
 |---|---|---|
 | `frontend/` | React, TypeScript, Vite | <http://localhost:5173> |
 | `backend/` | Python 3.13, FastAPI, SQLAlchemy, Alembic | <http://localhost:8000> |
-| `worker/` | Python 3.13 | samostatný proces bez integrační logiky |
+| `worker/` | Python 3.13 | interní API pro kontrolu zdrojů, řízené změny identity a náhledy |
 | `database` | PostgreSQL 18 | interně `database:5432` |
 
 Frontend volá backend přes cestu `/api`, kterou Vite v lokálním prostředí
@@ -18,13 +18,27 @@ Backend při startu automaticky spustí `alembic upgrade head`.
 
 Bezpečnostní kontrakt backendového přihlášení, session cookie, CSRF ochrany a
 provisioningu prvního administrátora popisuje
-[`docs/auth-backend-foundation.md`](docs/auth-backend-foundation.md). Stávající
-doménové endpointy zůstávají do sloučení login UI záměrně bez plošné auth ochrany.
+[`docs/auth-backend-foundation.md`](docs/auth-backend-foundation.md). Doménové
+endpointy vyžadují aktivní přihlášení a serverově ověřují role i přidělení
+materiálů. Správu účtů a obnovu přístupu popisuje
+[`docs/authorization.md`](docs/authorization.md).
 
 Kontrakt propojeni slozky materialu a specializovane operace Mark as Done je v
 [`docs/material-folder-api.md`](docs/material-folder-api.md).
 
-Notion, Google Cloud Storage, NAS a vytváření ZIPů nejsou součástí této fáze.
+Aktuální funkce a skutečně provedené testy shrnuje
+[`docs/autonomous-pbr-progress.md`](docs/autonomous-pbr-progress.md). Kontrakty:
+
+- [Inventář a znovuotevření materiálu](docs/source-inventory.md).
+- [Technická kontrola a schválení](docs/material-approvals.md).
+- [Řízené změny identity a obnova operace](docs/identity-operations.md).
+- [Kategorie, kolekce a verzovaný obsah](docs/catalog-content.md).
+- [Schválení uloženého obsahu](docs/content-approvals.md).
+- [Galerie a porovnání náhledů](docs/preview-gallery.md).
+
+Publikační úlohy, ZIP packaging a živé integrace Notion/GCS jsou stále backlog.
+Kontroly souborů pracují přes nakonfigurovaný worker; změny identity jsou ve
+výchozí konfiguraci vypnuté a vyžadují nastavení podle provozního kontraktu.
 
 ## Databázové API
 
@@ -61,6 +75,12 @@ Copy-Item .env.example .env
 Hodnotu `POSTGRES_PASSWORD` v souboru `.env` změňte na vlastní lokální heslo.
 Soubor `.env` je ignorovaný Gitem. Proměnné s prefixem `VITE_` jsou součástí
 frontendového bundle, a proto do nich nikdy nepatří tajné údaje.
+
+Pro místní HTTP nastavte současně `AUTH_COOKIE_SECURE=false` a
+`AUTH_ALLOW_INSECURE_COOKIE=true` a ponechte CORS origin pouze na loopback adrese.
+Pro sdílené prostředí zůstává vyžadováno HTTPS a Secure cookie. Po startu nové
+vlastní databáze založte prvního administrátora interaktivně podle auth dokumentace;
+výchozí přihlašovací účet ani heslo aplikace nevytváří.
 
 Celé prostředí spusťte příkazem:
 

@@ -2,7 +2,7 @@
 
 Playwright test ověřuje skutečný řetězec Vite frontend → FastAPI backend →
 PostgreSQL → worker. Mock API se nepoužívá. Test přes skutečné API založí firmu,
-publikovanou značku, projekt, procesora a pět materiálů a v Chromium provede:
+publikované značky, projekt, procesora a osm materiálů a v Chromium provede:
 
 - validní preflight, link, Done, current metadata, snapshot a reload;
 - chybějící `metadata.txt` jako neblokující warning;
@@ -14,6 +14,10 @@ publikovanou značku, projekt, procesora a pět materiálů a v Chromium provede
 - uložení inventáře, invalidaci po změně materiálu, reopen s důvodem,
   zachování metadata snapshotu a auditní historie po restartu;
 - blokovaný identity mismatch;
+- technickou kontrolu skutečných PNG map a samostatná technická/publikační schválení;
+- řízenou změnu identity na syntetických Linux souborech, včetně zachování UUID a historie;
+- kategorie/kolekce, verzovaný publikační obsah, jeho schválení a invalidaci po úpravě;
+- skutečné dekódování náhledů, přepínání obrázků a porovnání dvou materiálů;
 - klientské odmítnutí absolutní cesty a `..` bez preflight requestu;
 - kontrolu veřejných odpovědí, UI a browser console na únik raw obsahu, host path
   nebo neočekávanou chybu.
@@ -85,7 +89,12 @@ konkrétní GUID run adresář a nikdy nadřazené `.e2e-data`. Stav projektů `
 Při selhání zůstane screenshot a sanitizované syntetické logy v
 `<repo>/.e2e-artifacts/<run-guid>`; credentials ani raw metadata se neukládají.
 Playwright trace je vypnutý, protože obsahuje cookies a těla auth požadavků.
-Po úspěchu se tento konkrétní artifact adresář odstraní. Cleanup ověříte závěrem
+Po úspěchu se tento konkrétní artifact adresář standardně odstraní. Pro vizuální
+kontrolu syntetického UI lze před během nastavit
+`$env:E2E_KEEP_SUCCESS_ARTIFACTS = '1'`: uchová pouze artifact adresář daného běhu.
+Cleanup kontejnerů, sítě a vstupních fixtures proběhne stejně; trasy a ochrana
+existujících databází zůstávají ověřované. Po kontrole lze proměnnou odstranit.
+Cleanup ověříte závěrem
 `Cleanup removed only project ...; volume ... was preserved.` a nulovým návratovým kódem; navíc lze spustit
 `npm.cmd run test:e2e:helpers`, který kontroluje path a cleanup invarianty bez
 Dockeru.

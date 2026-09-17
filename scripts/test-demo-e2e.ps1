@@ -10,6 +10,10 @@ if ($projectName -cnotmatch '^reawote-e2e(?:-[a-z0-9][a-z0-9-]{0,40})?$') {
 $databaseVolumeName = "$projectName-postgres-data"
 $databaseName = 'reawote_e2e'
 $databaseUser = 'reawote_e2e'
+if ($env:E2E_KEEP_SUCCESS_ARTIFACTS -and $env:E2E_KEEP_SUCCESS_ARTIFACTS -cnotin @('0', '1')) {
+    throw 'E2E_KEEP_SUCCESS_ARTIFACTS must be 0 or 1.'
+}
+$keepSuccessfulArtifacts = $env:E2E_KEEP_SUCCESS_ARTIFACTS -ceq '1'
 
 function Assert-LastCommandSucceeded {
     param([Parameter(Mandatory)] [string] $Step)
@@ -351,6 +355,16 @@ Path('/e2e-identity-journal/private').mkdir(mode=0o700)
     foreach ($map in @('COL', 'NRM', 'ROUGH')) {
         Write-E2eSafeBytes $RepositoryRoot $RunRoot (Join-Path (Join-Path $approvalDirectory '1K') "$($approval.technical_identity)_${map}_1K.png") $png
     }
+    foreach ($variant in @('front', 'side')) {
+        $previewEncoded = (& node $generator "preview-$variant") -join ''
+        Assert-LastCommandSucceeded 'Generate synthetic gallery PNG'
+        $previewBytes = [Convert]::FromBase64String($previewEncoded)
+        foreach ($relativePath in @($validPath, $approvalPath)) {
+            $previewDirectory = Join-Path (Join-Path $MaterialsRoot ($relativePath -replace '/', [IO.Path]::DirectorySeparatorChar)) 'PREVIEW'
+            [void](New-E2eSafeDirectory $RepositoryRoot $RunRoot $previewDirectory)
+            Write-E2eSafeBytes $RepositoryRoot $RunRoot (Join-Path $previewDirectory "$variant.png") $previewBytes
+        }
+    }
     $metadataPath = Join-Path (Join-Path $MaterialsRoot ($validPath -replace '/', [IO.Path]::DirectorySeparatorChar)) 'metadata.txt'
     Write-E2eSafeTextFile -RepositoryRoot $RepositoryRoot -RunRoot $RunRoot -Path $metadataPath -Content (@{
         COLOR = @{ hex = '#A1B2C3' }; TEXTURE_SIZE = @{ cm = @{ width = 12.5; height = 34 } }
@@ -540,7 +554,7 @@ finally {
         }
         catch { $cleanupErrors.Add("Post-cleanup diagnostics: $($_.Exception.Message)") }
     }
-    if ($null -eq $runFailure -and $cleanupErrors.Count -eq 0 -and $testPassed -and $null -ne $artifactRoot) {
+    if ($null -eq $runFailure -and $cleanupErrors.Count -eq 0 -and $testPassed -and $null -ne $artifactRoot -and -not $keepSuccessfulArtifacts) {
         try { Remove-E2eManagedRunDirectory $repositoryRoot $artifactManagedRoot $runGuid $artifactRoot }
         catch { $cleanupErrors.Add("Successful-run artifact cleanup (manual review path '$artifactRoot'): $($_.Exception.Message)") }
     }
@@ -560,6 +574,7 @@ if ($null -ne $runFailure -or $cleanupErrors.Count -gt 0) {
 }
 
 Write-Host 'All Playwright demo E2E scenarios passed.'
+if ($keepSuccessfulArtifacts) { Write-Host "Successful synthetic UI artifacts retained for visual review: $artifactRoot" }
 Write-Host "Cleanup removed only project '$projectName' containers/network and run '$($runGuid.ToString('D'))'; volume '$databaseVolumeName' was preserved."
 Write-Host "Synthetic identity source/journal volumes with prefix '$projectName-identity-$($runGuid.ToString('N'))' were preserved."
 Write-Host 'Regular project reawote and demo project/volume state remained unchanged.'

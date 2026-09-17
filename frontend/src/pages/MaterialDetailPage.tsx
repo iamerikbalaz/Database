@@ -30,6 +30,7 @@ import { MaterialTechnicalPanel } from "../components/MaterialTechnicalPanel";
 import { MaterialIdentityPanel } from "../components/MaterialIdentityPanel";
 import { MaterialContentPanel } from "../components/MaterialContentPanel";
 import { ContentApprovalPanel } from "../components/ContentApprovalPanel";
+import { MaterialGallery } from "../components/MaterialGallery";
 
 function Value({ children }: { children: ReactNode }) {
   return children === null || children === undefined || children === "" ? (
@@ -623,6 +624,7 @@ function MaterialDetailContent({
       <SnapshotHistoryPanel result={data.snapshots} retry={data.retry} focusError={!data.refreshFailure} />
     </div>
     {role && <MaterialContentPanel key={`content-${material.id}-${material.publishedBrandId}`} material={material} onChanged={retryRelated} />}
+    {role && <MaterialGallery key={`gallery-${material.id}-${material.folderPath}-${data.reviewRefreshVersion}`} materialId={material.id} linked={Boolean(material.folderPath)} />}
     {role && <ContentApprovalPanel key={`content-approval-${material.id}`} materialId={material.id} refreshVersion={data.reviewRefreshVersion} onChanged={retryRelated} />}
     {role && <MaterialTechnicalPanel key={`technical-${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material} onChanged={() => data.refreshAll(undefined, undefined)} />}
     {role && <MaterialIdentityPanel key={`identity-${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material} client={client} onChanged={async () => { retryRelated(); return true; }} />}

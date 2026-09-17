@@ -16,6 +16,7 @@ import { restrictedDestination } from "./auth/permissions";
 import { AccountsPage } from "./pages/AccountsPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { CatalogPage } from "./pages/CatalogPage";
+import { ComparePage } from "./pages/ComparePage";
 
 interface AppProps {
   client?: ApiClient;
@@ -78,6 +79,8 @@ function App({ client = apiClient, initialPath }: AppProps) {
     page = <AccountsPage />;
   else if (path === "/catalog")
     page = <CatalogPage client={client} />;
+  else if (path === "/compare")
+    page = <ComparePage client={client} navigate={navigate} />;
   else if (path === "/materials")
     page = <MaterialsPage client={client} navigate={navigate} />;
   else if (path === "/materials/new")

@@ -13,7 +13,9 @@ export function useResource<T>(load: () => Promise<T>) {
   useEffect(() => {
     let active = true;
     void Promise.resolve()
-      .then(load)
+      // StrictMode mounts/cleans/remounts effects before this microtask. Do not
+      // send the abandoned request: it still consumes a bounded worker slot.
+      .then(() => active ? load() : undefined)
       .then(
         (data) => {
           if (active) setResult({ load, attempt, data, error: false });

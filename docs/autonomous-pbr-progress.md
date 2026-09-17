@@ -276,13 +276,80 @@ and protected-resource checks passed. The final UI refinements were covered by t
 254 local frontend tests and this real Docker-backed E2E; the earlier Docker unit
 image contained 253 frontend tests. No skips in either complete suite.
 
-1. Gallery and material comparison (bounded read-only previews through worker).
-2. AI draft provenance and historical Excel/NAS import with explicit
+## Completed slice: preview gallery and comparison, 2026-09-17
+
+Worker/API/UI now implement bounded PREVIEW-only browsing and a two-material
+comparison. See `docs/preview-gallery.md` and its plan for limits/assumptions.
+There is no new migration or source write. Current local targeted backend/access
+checks passed 57 tests. Gallery/transport/comparison UI checks passed 34 tests,
+lint and production build passed. E2E safety helpers passed all 49 checks.
+The earlier worker subset passed 39 actual Linux tests; the later listing-race,
+pixel-limit and child-environment additions still await the full run below.
+
+An initial full frontend run passed 286/288; two new comparison tests used an
+ambiguous label selector matching both a region and its select. They now select
+the combobox role and all 34 new UI tests pass. Two TypeScript test typing errors
+were also corrected; neither required weakening a production/security contract.
+No full-gallery E2E result is claimed yet.
+
+Full isolated Docker suite `reawote-test-3efd0943f47a4d969c810b89f8774e13` passed:
+backend 648, actual PostgreSQL 119 (auth gate 27/27), Linux worker 329 and frontend
+288, with no skips. Lint/build and migration checks passed. Own containers/network
+were cleaned and its exact named database volume retained. Python deprecations
+and FastAPI/Pydantic alias warnings remain non-failing. This includes all six new
+PostgreSQL preview access/identity races and all 42 Linux preview tests.
+A new real-image E2E scenario is prepared, using only guarded synthetic PNG writes
+under the owned run directory. Compare screenshot verification and retained-data
+E2E results remain pending. `E2E_KEEP_SUCCESS_ARTIFACTS=1` preserves only the owned
+run's synthetic UI screenshots for review; normal resource/data cleanup remains
+unchanged. All 49 safety helper checks passed again after adding this option.
+
+First gallery E2E attempt `484d2c98-14f4-4ebe-a6cb-524b9c9d1a0f` passed the existing
+12 scenarios but failed comparison when React StrictMode issued duplicate listing
+requests and consumed both bounded worker slots. Corrected the shared resource
+hook and image effect to skip abandoned work before its first microtask; kept the
+worker concurrency bound and HTTP-error gates unchanged. Added a StrictMode
+regression assertion. Full frontend rerun and new E2E result remain pending.
+
+All 289 frontend tests then passed, together with lint/build. The next E2E attempt
+`51b327df-34d4-448c-aa93-67b41d318782` rendered both real comparison images and its
+screenshot was visually inspected, but the unchanged network/body gates detected
+an aborted completed preview on selection change. Image cleanup now aborts only
+pending fetches and cancels only an unfinished response stream; completed object
+URLs are still revoked. That cleanup refinement alone did not resolve the browser
+failure: runs `b393d4df`, `ba946c04` and `6eca2a18` still passed 12/13 scenarios.
+
+A standalone loopback Chromium reproduction then isolated the failure from React,
+FastAPI and PostgreSQL: direct stream-to-Blob consumption reported ERR_ABORTED
+after all image bytes were delivered. The client now bounds a cloned stream before
+using the native array-buffer consumer on the original. Cloning performs no extra
+HTTP request; oversize cancellation closes both branches. The synthetic browser
+reproduction passed all 20 transfers with this implementation. The byte limit,
+session behavior, no-store policy and all E2E network/body gates remain enabled.
+
+Final local frontend verification passed all 290 tests, lint and production build.
+The final Linux worker suite previously passed 330; after the filename-extension
+fix in `952557f`, all 43 actual Linux preview cases passed again. The corresponding
+backend preview subset passed 37. No new schema migration was added; 0011 remains
+the head. The earlier full Docker run above remains the full backend/PG baseline.
+
+E2E run `5d6a0f7c` passed 13/13 fresh and 13/13 retained-data scenarios. After removing
+temporary browser instrumentation and adding a 390px mobile layout check, final
+run `b17c058a-8b86-4327-a764-75f26d9e195d` passed all 13 fresh and all 13 after restart.
+Desktop and mobile comparison screenshots were visually inspected: both images
+retain their proportions, controls remain readable, and there is no horizontal
+overflow. Screenshots remain in this run's `.e2e-artifacts` directory. Cleanup and
+protected-project/volume checks passed; only owned resources were touched.
+
+## Remaining sequence after current work
+
+1. Historical Excel/NAS import with explicit
    brand/project/company mapping.
-4. Immutable publication jobs, exact nine-field CSV, packaging and historical
+2. AI draft provenance and generation configuration.
+3. Immutable publication jobs, exact nine-field CSV, packaging and historical
    golden comparisons; online importer/production golden assets remain unavailable.
-5. Configurable GCS/Notion adapters, contracts and operational instructions.
-6. Remaining catalog/account audit coverage, soft-delete/restore, old-history
+4. Configurable GCS/Notion adapters, contracts and operational instructions.
+5. Remaining catalog/account audit coverage, soft-delete/restore, old-history
    pagination, legacy CRUD idempotency and final operations/review documentation.
 
 Live external verification is blocked until separately authorized access and
@@ -292,8 +359,9 @@ operations. 3D models and HDRI remain out of scope.
 ## Resume
 
 Identity worker/API/UI are committed in `4acc874`, `07ef4db` and `0b1e3ff`.
-Catalog server/UI and retained-data E2E are verified as noted above. Continue
-the gallery/preview slice, then the remaining sequence. Migrations
+Catalog server/UI and gallery retained-data E2E are verified as noted above.
+Continue historical source parsing and explicit import planning/confirmation,
+then the remaining sequence. Migrations
 through 0011 are committed: never rewrite them; add 0012 or later for new schema.
 
 Docker runs through the local Linux engine at desktop-linux. Startup initially

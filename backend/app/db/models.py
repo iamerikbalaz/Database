@@ -910,6 +910,39 @@ class MaterialContentApproval(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class MaterialImportBatch(Base):
+    __tablename__ = "material_import_batches"
+    __table_args__ = (
+        UniqueConstraint("actor_id", "request_key", name="uq_material_import_batches_actor_request"),
+        CheckConstraint("row_count BETWEEN 1 AND 2000", name="ck_material_import_batches_row_count"),
+        CheckConstraint("source_format IN ('CSV', 'XLSX')", name="ck_material_import_batches_format"),
+        CheckConstraint("length(reason) BETWEEN 1 AND 2000", name="ck_material_import_batches_reason"),
+        _review_hash_constraint("source_sha256", "ck_material_import_batches_source_sha256"),
+        _review_hash_constraint("request_hash", "ck_material_import_batches_request_hash"),
+        _review_hash_constraint("preview_hash", "ck_material_import_batches_preview_hash"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    request_key: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    preview_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_format: Mapped[str] = mapped_column(String(4), nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+
+class MaterialImportRow(Base):
+    __tablename__ = "material_import_rows"
+    __table_args__ = (CheckConstraint("source_row BETWEEN 1 AND 4194304", name="ck_material_import_rows_source_row"),)
+    batch_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("material_import_batches.id", ondelete="RESTRICT"), primary_key=True)
+    source_row: Mapped[int] = mapped_column(Integer, primary_key=True)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), unique=True)
+    snapshot: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
+
+
 def _protect_catalog_identity(_mapper, _connection, item):
     fields = ("id", "value", "normalized_key", "created_at") + (("brand_id",) if isinstance(item, BrandCollection) else ())
     if any(sa_inspect(item).attrs[field].history.has_changes() for field in fields):
@@ -921,6 +954,6 @@ for _catalog_type in (OnlineCategory, BrandCollection):
     event.listen(_catalog_type, "before_delete", _reject_review_history_mutation)
 
 
-for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval):
+for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow):
     event.listen(_review_history_type, "before_update", _reject_review_history_mutation)
     event.listen(_review_history_type, "before_delete", _reject_review_history_mutation)

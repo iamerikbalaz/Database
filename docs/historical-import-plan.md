@@ -95,6 +95,8 @@ control-bearing reference labels require source correction. Map each literal lab
 to an existing UUID; do not infer IDs from names or prefixes. Identity/name validation
 and duplicate brand-number detection are implemented independently of database IO.
 
-Next: immutable import audit and database-backed preview/confirm API. The
+The database-backed preview/confirmation and immutable audit are now implemented
+and verified on actual PostgreSQL. See [the backend contract](historical-import.md).
+Next: complete the import UI and fresh/retained browser verification. The
 production lead's ordinary material-create permission does not implicitly grant
 historical number import. No workbook headers or company mappings are guessed.

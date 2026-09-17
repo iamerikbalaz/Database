@@ -111,6 +111,13 @@ class ConfirmImport(PlanImport):
             raise ValueError("Explicit acknowledgement required")
         return value
 
+    @field_validator("reason")
+    @classmethod
+    def safe_reason(cls, value):
+        if any(unicodedata.category(char).startswith("C") and char not in "\t\r\n" for char in value):
+            raise ValueError("Invalid import reason")
+        return unicodedata.normalize("NFC", value)
+
 
 def column_indices(table, columns):
     positions = {}
@@ -175,6 +182,8 @@ def prepare_rows(table: SourceTable, columns: ImportColumns, links: ImportLinks)
         parts = identity.rsplit("_", 2)
         prefix, number, category = parts if len(parts) == 3 else ("", "", "")
         if not prefix or len(identity) > 512 or not re.fullmatch(r"[0-9]{4}", number) or int(number) == 0:
+            issue("identity", "IMPORT_IDENTITY_FORMAT")
+        if any(char in "/\\:" or unicodedata.category(char).startswith("C") for char in prefix):
             issue("identity", "IMPORT_IDENTITY_FORMAT")
         try:
             if CATEGORY.validate_python(category) != category:

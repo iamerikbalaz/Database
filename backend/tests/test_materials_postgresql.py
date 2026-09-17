@@ -660,6 +660,183 @@ def test_postgresql_review_upgrade_from_auth_head_preserves_credentials():
             get_settings.cache_clear()
 
 
+def _import_pg_payload(case, numbers=(7,)):
+    from types import SimpleNamespace
+    from test_import_preview import plan_payload
+    prefix = case.material.technical_identity.rsplit("_", 2)[0]
+    return plan_payload(SimpleNamespace(materials=[case.material]), tuple(f"{prefix}_{number:04d}_G03" for number in numbers))
+
+
+@pytest.mark.parametrize("race", ["identical", "different_key", "different_actor"])
+def test_postgresql_import_races_preserve_single_batch_and_permanent_number_owner(review_pg_case, race):
+    from app.db.models import MaterialImportBatch, MaterialImportRow, MaterialNumberReservation, PublishedBrand
+    from test_import_confirm import confirmation
+    case = review_pg_case; barrier = Barrier(2)
+    with case.client_for() as first, case.client_for(3 if race == "different_actor" else 0) as second:
+        body = confirmation(first, _import_pg_payload(case, (7, 8)))
+        second_body = {**body, **({"idempotency_key": str(uuid4())} if race == "different_key" else {})}
+        def submit(client, payload):
+            barrier.wait(timeout=10)
+            return client.post("/api/material-imports/confirm", json=payload)
+        with ThreadPoolExecutor(2) as pool:
+            futures = [pool.submit(submit, first, body), pool.submit(submit, second, second_body)]
+            responses = [future.result(timeout=20) for future in futures]
+        if race == "identical":
+            assert [response.status_code for response in responses] == [200, 200]
+            assert responses[0].json() == responses[1].json()
+        else:
+            assert sorted(response.status_code for response in responses) == [200, 409]
+        result = next(response.json() for response in responses if response.status_code == 200)
+    with case.database.session() as session:
+        batch = session.get(MaterialImportBatch, UUID(result["id"]))
+        assert batch.row_count == 2
+        assert len(session.scalars(select(MaterialImportRow).where(MaterialImportRow.batch_id == batch.id)).all()) == 2
+        reservations = session.scalars(select(MaterialNumberReservation).where(
+            MaterialNumberReservation.brand_id == case.material.published_brand_id,
+            MaterialNumberReservation.sequence_number.in_((7, 8)))).all()
+        assert len(reservations) == 2 and len({row.material_id for row in reservations}) == 2
+        assert session.get(PublishedBrand, case.material.published_brand_id).next_sequence_number == 9
+
+
+def test_postgresql_import_and_normal_creation_serialize_number_allocation(review_pg_case):
+    from app.db.models import MaterialNumberReservation, PublishedBrand
+    from test_import_confirm import confirmation
+    case = review_pg_case; barrier = Barrier(2)
+    with case.database.session() as session:
+        session.get(PublishedBrand, case.material.published_brand_id).next_sequence_number = 7
+        session.commit()
+    with case.client_for() as importer, case.client_for(3) as normal:
+        body = confirmation(importer, _import_pg_payload(case, (7, 8)))
+        material = case.material
+        ordinary = {"project_id": str(material.project_id), "published_brand_id": str(material.published_brand_id),
+                    "assigned_processor_id": str(material.assigned_processor_id), "material_name": "Concurrent ordinary material",
+                    "main_category_code": "G03"}
+        def submit(client, path, payload):
+            barrier.wait(timeout=10)
+            return client.post(path, json=payload)
+        with ThreadPoolExecutor(2) as pool:
+            imported = pool.submit(submit, importer, "/api/material-imports/confirm", body)
+            created = pool.submit(submit, normal, "/api/materials", ordinary)
+            responses = imported.result(timeout=20), created.result(timeout=20)
+        assert responses[1].status_code == 201
+        assert responses[0].status_code in (200, 409)
+        number = responses[1].json()["sequence_number"]
+        assert number == (9 if responses[0].status_code == 200 else 7)
+    with case.database.session() as session:
+        owned = session.scalars(select(PBRMaterial).where(PBRMaterial.published_brand_id == material.published_brand_id)).all()
+        assert len({item.sequence_number for item in owned}) == len(owned)
+        for item in owned:
+            if item.sequence_number != 1:
+                assert session.get(MaterialNumberReservation, (material.published_brand_id, item.sequence_number)).material_id == item.id
+
+
+def test_postgresql_import_rechecks_real_account_revocation_after_source_parsing(review_pg_case, monkeypatch):
+    from app.api import material_imports
+    from app.db.models import MaterialImportBatch
+    from test_import_confirm import confirmation
+    case = review_pg_case; entered = Event(); release = Event()
+    original = material_imports.prepare_rows
+    def paused(*args):
+        entered.set()
+        assert release.wait(timeout=10)
+        return original(*args)
+    with case.client_for() as importer, case.client_for(3) as administrator:
+        body = confirmation(importer, _import_pg_payload(case))
+        monkeypatch.setattr(material_imports, "prepare_rows", paused)
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(importer.post, "/api/material-imports/confirm", json=body)
+            try:
+                assert entered.wait(timeout=10)
+                response = administrator.patch(f"/api/internal-users/{case.users[0].id}", json={"is_active": False})
+                assert response.status_code == 200
+            finally:
+                release.set()
+            response = future.result(timeout=15)
+        assert response.status_code == 401 and "rows" not in response.text
+    with case.database.session() as session:
+        assert session.scalar(select(MaterialImportBatch.id).where(MaterialImportBatch.actor_id == case.users[0].id)) is None
+
+
+def test_postgresql_import_gate_keeps_reference_snapshot_consistent_until_commit(review_pg_case):
+    from app.db.models import MaterialImportBatch
+    from test_import_confirm import confirmation
+    case = review_pg_case; entered = Event(); release = Event(); update_started = Event()
+    def paused(*_):
+        entered.set()
+        assert release.wait(timeout=10)
+    with case.client_for() as importer, case.client_for(3) as administrator:
+        body = confirmation(importer, _import_pg_payload(case))
+        event.listen(MaterialImportBatch, "before_insert", paused)
+        try:
+            with ThreadPoolExecutor(2) as pool:
+                imported = pool.submit(importer.post, "/api/material-imports/confirm", json=body)
+                try:
+                    assert entered.wait(timeout=10)
+                    def update():
+                        update_started.set()
+                        return administrator.patch(f"/api/projects/{case.material.project_id}", json={"name": "Changed after import"})
+                    changed = pool.submit(update)
+                    assert update_started.wait(timeout=10)
+                    assert not changed.done()
+                finally:
+                    release.set()
+                result = imported.result(timeout=15)
+                assert result.status_code == 200 and changed.result(timeout=15).status_code == 200
+        finally:
+            event.remove(MaterialImportBatch, "before_insert", paused)
+        assert result.json()["snapshot"]["references"]["projects"][0]["name"] == "Review fixture"
+        assert administrator.get(f"/api/projects/{case.material.project_id}").json()["name"] == "Changed after import"
+
+
+def test_postgresql_import_audit_rejects_direct_sql_mutation_and_destructive_downgrade(review_pg_case):
+    from test_import_confirm import confirmation
+    case = review_pg_case
+    with case.client_for() as client:
+        body = confirmation(client, _import_pg_payload(case))
+        response = client.post("/api/material-imports/confirm", json=body)
+        assert response.status_code == 200
+        batch_id = UUID(response.json()["id"])
+        for table in ("material_import_batches", "material_import_rows"):
+            key = "id" if table == "material_import_batches" else "batch_id"
+            for statement in (f"UPDATE {table} SET snapshot='{{}}'::jsonb WHERE {key}=:id",
+                              f"DELETE FROM {table} WHERE {key}=:id", f"TRUNCATE {table} CASCADE"):
+                with pytest.raises(DBAPIError):
+                    with case.database.engine.begin() as connection:
+                        connection.execute(text(statement), {"id": batch_id})
+        with pytest.raises(DBAPIError):
+            command.downgrade(Config("alembic.ini"), "20260916_0011")
+        assert client.get("/api/material-imports/" + str(batch_id)).json() == response.json()
+    with case.database.engine.connect() as connection:
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260917_0012"
+
+
+def test_postgresql_import_upgrade_from_0011_and_empty_downgrade_preserve_prior_records():
+    with isolated_postgresql_database() as database_url:
+        previous = os.environ.get("DATABASE_URL"); os.environ["DATABASE_URL"] = database_url; get_settings.cache_clear()
+        engine = create_engine(database_url)
+        try:
+            config = Config("alembic.ini"); command.upgrade(config, "20260916_0011")
+            company_id = uuid4()
+            with engine.begin() as connection:
+                connection.execute(text("INSERT INTO companies (id, name) VALUES (:id, 'Prior synthetic company')"), {"id": company_id})
+            command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
+            schema = inspect(engine)
+            assert schema.has_table("material_import_batches") and schema.has_table("material_import_rows")
+            with engine.connect() as connection:
+                assert connection.execute(text("SELECT count(*) FROM pg_trigger WHERE tgname IN "
+                    "('material_import_batches_append_only', 'material_import_rows_append_only')")).scalar_one() == 2
+                assert connection.execute(text("SELECT name FROM companies WHERE id=:id"), {"id": company_id}).scalar_one() == "Prior synthetic company"
+            command.downgrade(config, "20260916_0011")
+            assert not inspect(engine).has_table("material_import_batches")
+            assert not inspect(engine).has_table("material_import_rows")
+            command.upgrade(config, "head"); command.check(config)
+        finally:
+            engine.dispose()
+            if previous is None: os.environ.pop("DATABASE_URL", None)
+            else: os.environ["DATABASE_URL"] = previous
+            get_settings.cache_clear()
+
+
 POSTGRES_TEST_ADMIN_URL = os.getenv("POSTGRES_TEST_ADMIN_URL")
 if POSTGRES_TEST_ADMIN_URL is None and os.getenv("RUN_POSTGRES_TESTS") == "1":
     POSTGRES_TEST_ADMIN_URL = make_url(Settings().resolved_database_url).set(
@@ -739,7 +916,7 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
             current_revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            assert current_revision == "20260916_0011"
+            assert current_revision == "20260917_0012"
     finally:
         engine.dispose()
 
@@ -782,7 +959,7 @@ def test_postgresql_auth_upgrade_from_previous_head_preserves_users_without_cred
                 ).scalar_one() == 0
                 assert connection.execute(
                     text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "20260916_0011"
+                ).scalar_one() == "20260917_0012"
         finally:
             engine.dispose()
             if previous_database_url is None:

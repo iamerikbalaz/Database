@@ -42,7 +42,8 @@ def test_mapping_does_not_guess_from_names_prefixes_or_another_resource_group():
     assert all(item["code"] == "IMPORT_REFERENCE_UNMAPPED" and item["row"] == 2 for item in findings)
 
 
-@pytest.mark.parametrize("identity", ["RWT_7_G03", "RWT_0000_G03", "RWT_0007_g03", "RWT_0007_G_03", "RWT_0007_", "PRIVATE_SYNTHETIC"])
+@pytest.mark.parametrize("identity", ["RWT_7_G03", "RWT_0000_G03", "RWT_0007_g03", "RWT_0007_G_03", "RWT_0007_", "PRIVATE_SYNTHETIC",
+    "../RWT_0007_G03", "nested/RWT_0007_G03", "nested\\RWT_0007_G03", "C:RWT_0007_G03", "RWT\tTEST_0007_G03"])
 def test_invalid_historical_identity_is_not_silently_renumbered_or_reflected(identity):
     rows, findings = prepare_rows(read_csv(source(identity + ";Dub;Project A;Brand A;Processor A"), delimiter=";"), ImportColumns(**COLUMNS), mapping())
     assert not rows and findings
@@ -120,7 +121,8 @@ def test_confirmation_requires_explicit_acknowledgement_reason_and_exact_hash():
              "reason": "Reviewed historical import"}
     assert ConfirmImport.model_validate_json(json.dumps(value)).acknowledge_unverified is True
     for change in ({"acknowledge_unverified": False}, {"acknowledge_unverified": 1}, {"acknowledge_unverified": "true"},
-                   {"reason": " "}, {"expected_preview_hash": "bad"}, {"extra": "private"}):
+                   {"reason": " "}, {"reason": "private\x00"}, {"reason": "private\u202e"},
+                   {"expected_preview_hash": "bad"}, {"extra": "private"}):
         with pytest.raises(ValidationError):
             ConfirmImport.model_validate_json(json.dumps({**value, **change}))
 

@@ -373,16 +373,22 @@ operations. 3D models and HDRI remain out of scope.
 
 Identity worker/API/UI are committed in `4acc874`, `07ef4db` and `0b1e3ff`.
 Catalog server/UI and gallery retained-data E2E are verified as noted above.
-Historical source inspection is now implemented: administrator-only bounded JSON
-upload, explicit five-column mapping, bounded sample/reference labels and fresh
-authorization after parsing. The focused source-mapping, transport/API and existing
-application authorization suites passed 73 tests on Windows, with no skips. The
-65 CSV/XLSX reader cases previously passed on both Windows and Linux. No batch
-insertion, audit migration or import UI is claimed by this checkpoint.
+Historical source inspection and database-backed preview/confirmation are now
+implemented, including explicit five-column/reference mapping, permanent number
+checks, atomic insertion, actor-scoped idempotency and immutable batch/row history
+in new migration 0012. See `docs/historical-import.md` for the complete contract.
+The final isolated full Docker project `reawote-test-86961169dfcc424ebcdbca5e3e34bb2a`
+passed 818 backend, 127 actual PostgreSQL (auth gate 27/27), 330 Linux worker and
+290 existing frontend tests, lint/build, with no skips. An earlier run stopped
+at an outdated hardcoded migration-head assertion (812 other tests passed); that
+test now checks the complete chain including 0012. SQLite cursor pagination was
+also corrected using native stored timestamps and regression-tested.
 
-Continue database-backed import planning/confirmation,
+The import UI is currently being implemented and has not yet passed retained-data
+E2E. Do not claim real historical migration or NAS discovery. Continue UI validation
+and actual fresh/retained browser tests,
 then the remaining sequence. Migrations
-through 0011 are committed: never rewrite them; add 0012 or later for new schema.
+through 0012 are committed: never rewrite them; add 0013 or later for new schema.
 
 Docker runs through the local Linux engine at desktop-linux. Startup initially
 failed on Windows error 1920 from stale zero-byte runtime socket reparse points.

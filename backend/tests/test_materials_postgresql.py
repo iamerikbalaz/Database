@@ -863,7 +863,7 @@ def test_postgresql_import_audit_rejects_direct_sql_mutation_and_destructive_dow
             command.downgrade(Config("alembic.ini"), "20260916_0011")
         assert client.get("/api/material-imports/" + str(batch_id)).json() == response.json()
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260917_0012"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260917_0013"
 
 
 def test_postgresql_import_upgrade_from_0011_and_empty_downgrade_preserve_prior_records():
@@ -891,6 +891,132 @@ def test_postgresql_import_upgrade_from_0011_and_empty_downgrade_preserve_prior_
             if previous is None: os.environ.pop("DATABASE_URL", None)
             else: os.environ["DATABASE_URL"] = previous
             get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("same_key", [True, False])
+def test_postgresql_ai_proposal_retry_and_parallel_distinct_proposals_are_atomic(review_pg_case, same_key):
+    from test_ai_content import proposal
+    from app.db.models import MaterialAiDraft
+    case = review_pg_case; barrier = Barrier(2)
+    with case.client_for() as first, case.client_for(0 if same_key else 3) as second:
+        current = first.get(case.path + "/publishing-context").json()
+        data = proposal(current)
+        other = data if same_key else {**data, "idempotency_key": str(uuid4())}
+        def submit(client, body):
+            barrier.wait(timeout=15)
+            return client.post(case.path + "/content-drafts", json=body)
+        with ThreadPoolExecutor(2) as pool:
+            futures = [pool.submit(submit, client, body) for client, body in ((first, data), (second, other))]
+            responses = [future.result(timeout=25) for future in futures]
+        assert all(item.status_code == 201 for item in responses)
+        if same_key: assert responses[0].json() == responses[1].json()
+    with case.database.session() as session:
+        drafts = list(session.scalars(select(MaterialAiDraft).where(MaterialAiDraft.material_id == case.material.id)))
+        assert len(drafts) == (1 if same_key else 2)
+
+
+def test_postgresql_source_retirement_and_draft_intake_use_one_material_context(review_pg_case):
+    from test_ai_content import approve_source, proposal
+    case = review_pg_case; barrier = Barrier(2)
+    with case.client_for() as author, case.client_for(3) as admin:
+        source = approve_source(admin, case.path); current = author.get(case.path + "/publishing-context").json()
+        data = proposal(current, source_link_ids=[source["id"]])
+        def submit():
+            barrier.wait(timeout=15); return author.post(case.path + "/content-drafts", json=data)
+        def retire():
+            barrier.wait(timeout=15)
+            return admin.patch(case.path + "/content-sources/" + source["id"], json={"idempotency_key": str(uuid4()), "expected_version": 1, "is_active": False, "reason": "Concurrent retirement"})
+        with ThreadPoolExecutor(2) as pool:
+            draft = pool.submit(submit); retired = pool.submit(retire)
+            accepted = draft.result(timeout=25); changed = retired.result(timeout=25)
+        assert changed.status_code == 200 and accepted.status_code in (201, 409)
+        history = author.get(case.path + "/content-drafts").json()["items"]
+        assert len(history) == (1 if accepted.status_code == 201 else 0)
+        if history: assert history[0]["context_is_current"] is False
+
+
+@pytest.mark.parametrize("duplicate", [True, False])
+def test_postgresql_source_approval_serializes_duplicates_and_active_limit(review_pg_case, duplicate):
+    from test_ai_content import approve_source
+    from app.db.models import MaterialSourceLink
+    case = review_pg_case; barrier = Barrier(2)
+    with case.client_for() as first, case.client_for(3) as second:
+        if not duplicate:
+            for number in range(19): approve_source(first, case.path, f"https://catalog.example/{number}")
+        def submit(client, suffix):
+            barrier.wait(timeout=15)
+            return client.post(case.path + "/content-sources", json={"idempotency_key": str(uuid4()), "url": "https://catalog.example/new" + suffix, "reason": "Concurrent source approval"})
+        with ThreadPoolExecutor(2) as pool:
+            one = pool.submit(submit, first, ""); two = pool.submit(submit, second, "" if duplicate else "-other")
+            responses = [one.result(timeout=25), two.result(timeout=25)]
+        assert sorted(item.status_code for item in responses) == [201, 409]
+    with case.database.session() as session:
+        rows = list(session.scalars(select(MaterialSourceLink).where(MaterialSourceLink.material_id == case.material.id)))
+        assert len(rows) == (1 if duplicate else 20)
+
+
+def test_postgresql_ai_and_source_provenance_cannot_be_erased_or_rewritten(review_pg_case):
+    from test_ai_content import approve_source, proposal
+    case = review_pg_case
+    with case.client_for() as client:
+        source = approve_source(client, case.path)
+        draft = client.post(case.path + "/content-drafts", json=proposal(client.get(case.path + "/publishing-context").json())).json()
+        for table, record_id, column in (("material_source_links", source["id"], "url='https://catalog.example/tampered'"),
+                                          ("material_ai_drafts", draft["id"], "description='Tampered'")):
+            for statement in (f"UPDATE {table} SET {column} WHERE id=:id", f"DELETE FROM {table} WHERE id=:id", f"TRUNCATE {table} CASCADE"):
+                with pytest.raises(DBAPIError), case.database.engine.begin() as connection:
+                    connection.execute(text(statement), {"id": record_id})
+        with pytest.raises(DBAPIError): command.downgrade(Config("alembic.ini"), "20260917_0012")
+        assert client.get(case.path + "/content-drafts").json()["items"][0]["id"] == draft["id"]
+    with case.database.engine.connect() as connection:
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260917_0013"
+
+
+def test_postgresql_ai_upgrade_from_0012_preserves_records_and_empty_downgrade():
+    with isolated_postgresql_database() as database_url:
+        previous = os.environ.get("DATABASE_URL"); os.environ["DATABASE_URL"] = database_url; get_settings.cache_clear()
+        engine = create_engine(database_url)
+        try:
+            config = Config("alembic.ini"); command.upgrade(config, "20260917_0012")
+            company_id = uuid4()
+            with engine.begin() as connection:
+                connection.execute(text("INSERT INTO companies (id, name) VALUES (:id, 'Prior source context fixture')"), {"id": company_id})
+            command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
+            assert inspect(engine).has_table("material_ai_drafts") and inspect(engine).has_table("material_source_links")
+            with engine.connect() as connection:
+                assert connection.execute(text("SELECT name FROM companies WHERE id=:id"), {"id": company_id}).scalar_one() == "Prior source context fixture"
+            command.downgrade(config, "20260917_0012")
+            assert not inspect(engine).has_table("material_ai_drafts") and not inspect(engine).has_table("material_source_links")
+            command.upgrade(config, "head"); command.check(config)
+        finally:
+            engine.dispose()
+            if previous is None: os.environ.pop("DATABASE_URL", None)
+            else: os.environ["DATABASE_URL"] = previous
+            get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("same_key", [True, False])
+def test_postgresql_ai_adoption_prevents_double_revision_or_lost_human_edits(review_pg_case, same_key):
+    from test_ai_adoption import prepare, adoption
+    from app.db.models import MaterialContentRevision
+    case = review_pg_case; barrier = Barrier(2)
+    with case.client_for() as first, case.client_for(0 if same_key else 3) as second:
+        path, draft, target = prepare(first, case.material)
+        body = adoption(draft)
+        other = body if same_key else {**body, "idempotency_key": str(uuid4()), "description": "Other human edit"}
+        def save(client, data):
+            barrier.wait(timeout=15); return client.post(target, json=data)
+        with ThreadPoolExecutor(2) as pool:
+            one = pool.submit(save, first, body); two = pool.submit(save, second, other)
+            responses = [one.result(timeout=25), two.result(timeout=25)]
+        assert sorted(item.status_code for item in responses) == ([200, 200] if same_key else [200, 409])
+        if same_key: assert responses[0].json() == responses[1].json()
+        assert first.get(path + "/content").json()["revision"] == 2
+    with case.database.session() as session:
+        rows = list(session.scalars(select(MaterialContentRevision).where(MaterialContentRevision.material_id == case.material.id)))
+        assert len(rows) == 2
+        current = next(item for item in rows if item.revision == 2)
+        assert current.snapshot["ai_provenance"]["draft_id"] == draft["id"]
 
 
 POSTGRES_TEST_ADMIN_URL = os.getenv("POSTGRES_TEST_ADMIN_URL")
@@ -972,7 +1098,7 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
             current_revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            assert current_revision == "20260917_0012"
+            assert current_revision == "20260917_0013"
     finally:
         engine.dispose()
 
@@ -1015,7 +1141,7 @@ def test_postgresql_auth_upgrade_from_previous_head_preserves_users_without_cred
                 ).scalar_one() == 0
                 assert connection.execute(
                     text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "20260917_0012"
+                ).scalar_one() == "20260917_0013"
         finally:
             engine.dispose()
             if previous_database_url is None:

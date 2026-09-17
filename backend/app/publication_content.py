@@ -4,7 +4,7 @@ from datetime import UTC
 from sqlalchemy import select
 
 from app.db.models import (OnlineCategory, BrandCollection, MaterialContent, MaterialOnlineCategory,
-    MaterialCollection, MaterialContentApproval, MaterialReviewState, PublishedBrand)
+    MaterialCollection, MaterialContentApproval, MaterialContentRevision, MaterialReviewState, PublishedBrand)
 from app.material_review import canonical_hash, material_context
 
 
@@ -21,11 +21,18 @@ def draft_view(session, material):
         .where(MaterialOnlineCategory.material_id == material.id).order_by(OnlineCategory.normalized_key, OnlineCategory.id)))
     collections = list(session.scalars(select(BrandCollection).join(MaterialCollection)
         .where(MaterialCollection.material_id == material.id).order_by(BrandCollection.normalized_key, BrandCollection.id)))
-    return {"material_id": str(material.id), "revision": content.revision if content else 0,
+    result = {"material_id": str(material.id), "revision": content.revision if content else 0,
         "description": content.description if content else None, "credits": content.credits if content else None,
         "tags": content.tags if content else [], "categories": [catalog_view(item) for item in categories],
         "collections": [catalog_view(item) for item in collections],
         "content_status": "MANUAL_DRAFT" if content else "EMPTY"}
+    if content:
+        saved = session.scalar(select(MaterialContentRevision.snapshot).where(MaterialContentRevision.material_id == material.id,
+            MaterialContentRevision.revision == content.revision))
+        if saved and saved.get("ai_provenance"):
+            result["ai_provenance"] = saved["ai_provenance"]
+            result["content_status"] = saved["content_status"]
+    return result
 
 
 def approval_view(item):

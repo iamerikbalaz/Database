@@ -419,9 +419,41 @@ Final E2E run `0969494a-23b5-48b7-9fd1-5105fb2ad6f1` passed 14 fresh and 14 reta
 scenarios. Source discovery/selection is verified as read-only before ordinary
 preflight/link/Done. Desktop and 390px screenshots were visually inspected; no
 horizontal document overflow. Owned cleanup and protected-resource checks passed.
-Continue AI provenance/scoped draft intake and human review, then the remaining
-sequence. Migrations
-through 0012 are committed: never rewrite them; add 0013 or later for new schema.
+Commits `28321bc` (import UI) and `10e1415` (folder discovery/reauthorization) are
+pushed to the owned remote branch. An initial push auto-review rejection questioned
+the remote's authorization. Read-only checks proved it exactly matched both user
+handoffs (iamerikbalaz/Database), and the explicit user push authorization was
+provided on retry; the push succeeded without changing the destination or payload.
+
+AI context, administrator source approvals and immutable external proposal intake
+are now implemented in uncommitted migration 0013 and API code. Full isolated
+project `reawote-test-0f2a26665ab042599d76456b956b596e` passed 917 backend, 144 actual
+PostgreSQL (auth gate 27/27), 354 Linux worker, 352 frontend, lint/build and migration
+checks without skips. It covers real source/draft races and immutable provenance.
+See `docs/ai-content.md` for exactly what was verified and the remaining scope.
+
+Follow-on uncommitted changes add explicit human adoption using a shared content
+save service. Adoption preserves credits/vocabulary, adds immutable AI ancestry,
+invalidates decisions and preserves exact replay. Ordinary save request hashes and
+old manual snapshot shapes stay unchanged. These later changes passed 86 focused
+backend and 26 focused frontend content tests, lint/build. The new AI transport and
+source/proposal/comparison workspace passed 29 additional frontend tests, lint/build
+and the E2E TypeScript check. Full project `reawote-test-2a225f8af0d64015b511fd8b232a62af`
+passed 927 backend and 145/146 PostgreSQL cases; one new race failed during fixture
+setup on a duplicate catalog name. The fixture now uses independently named values;
+full rerun `reawote-test-f14624c38ab541a798e729a306003b6f` passed 927 backend, 146 actual
+PostgreSQL (27/27 auth gate), 354 Linux worker and 382 frontend tests, lint/build,
+without skips. E2E run `f6e6da9c-7ccf-4d95-b18c-e3aa0fd30370` passed the
+14 existing cases; the new AI fixture lacked the mandatory online category and was
+correctly blocked from approval. The next run `d516139b-c9e8-4b77-9ae2-71984e83cccb`
+passed the 14 existing scenarios but its new test selector did not match prefilled
+textareas; the rendered fields and accessible names were verified from its DOM and
+screenshot. The corrected role/name selectors are now in a fresh/retained rerun.
+Scoped service credentials (`docs/ai-service-access-plan.md`) and provider calls
+are still pending. No live
+AI/provider or source URL has been contacted. Continue this work, then the remaining
+sequence. Migrations through 0012 are committed and immutable; 0013 is still under
+development and must be verified before committing. No migration ran on production.
 
 Docker runs through the local Linux engine at desktop-linux. Startup initially
 failed on Windows error 1920 from stale zero-byte runtime socket reparse points.

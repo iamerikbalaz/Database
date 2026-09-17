@@ -3,27 +3,23 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.api.material_review import _material, _state, _record, _replay, _request_hash
-from app.auth.access import AccessDependency, CATALOG_MANAGERS, MATERIAL_EDITORS
+from app.api.material_review import _material
+from app.auth.access import AccessDependency, CATALOG_MANAGERS
 from app.catalog import CategoryCreate, CollectionCreate, CatalogActivityUpdate, ContentUpdate, value_key
-from app.db.models import (OnlineCategory, BrandCollection, CatalogAuditEvent, MaterialContent,
+from app.db.models import (OnlineCategory, BrandCollection, CatalogAuditEvent,
     MaterialOnlineCategory, MaterialCollection, MaterialContentRevision, PBRMaterial, PublishedBrand)
 from app.material_identity import require_material_idle
 from app.material_review import canonical_hash, invalidate_review
-from app.publication_content import catalog_view, content_view, draft_view
+from app.publication_content import catalog_view, content_view
+from app.content_saves import save_material_content
 
 
 def _conflict(code):
     raise HTTPException(409, {"code": code})
 
-
-def _content_values(view):
-    return {"description": view["description"], "credits": view["credits"], "tags": view["tags"],
-        "category_ids": sorted(item["id"] for item in view["categories"]),
-        "collection_ids": sorted(item["id"] for item in view["collections"])}
 
 
 def build_catalog_router(database):
@@ -138,47 +134,6 @@ def build_catalog_router(database):
 
     @router.post("/materials/{material_id}/content")
     def save_content(material_id: UUID, payload: ContentUpdate, access: AccessDependency):
-        request_hash = _request_hash("CONTENT_SAVED", material_id, payload)
-        with database.session() as session:
-            actor = access.check(session, MATERIAL_EDITORS)
-            material = _material(session, material_id, access, lock=True)
-            replay = _replay(session, actor.id, material_id, payload, request_hash)
-            if replay is not None:
-                return replay
-            require_material_idle(session, material.id)
-            before = content_view(session, material)
-            if before["revision"] != payload.expected_revision:
-                _conflict("CONTENT_REVISION_CHANGED")
-            categories = list(session.scalars(select(OnlineCategory).where(OnlineCategory.id.in_(payload.category_ids))))
-            collections = list(session.scalars(select(BrandCollection).where(BrandCollection.id.in_(payload.collection_ids))))
-            if len(categories) != len(payload.category_ids) or len(collections) != len(payload.collection_ids):
-                _conflict("CONTENT_CATALOG_VALUE_MISSING")
-            if any(not item.is_active for item in categories + collections):
-                _conflict("CONTENT_CATALOG_VALUE_INACTIVE")
-            if any(item.brand_id != material.published_brand_id for item in collections):
-                _conflict("CONTENT_COLLECTION_BRAND_MISMATCH")
-            values = payload.model_dump(mode="json", include={"description", "credits", "tags", "category_ids", "collection_ids"})
-            state = _state(session, material.id, create=True)
-            if values != _content_values(before):
-                content = session.get(MaterialContent, material.id)
-                if content is None:
-                    content = MaterialContent(material_id=material.id, revision=0)
-                    session.add(content)
-                content.revision += 1
-                content.description = payload.description; content.credits = payload.credits; content.tags = payload.tags
-                for model in (MaterialOnlineCategory, MaterialCollection):
-                    session.execute(delete(model).where(model.material_id == material.id))
-                session.add_all(MaterialOnlineCategory(material_id=material.id, category_id=item.id) for item in categories)
-                session.add_all(MaterialCollection(material_id=material.id, collection_id=item.id) for item in collections)
-                session.flush()
-                body = draft_view(session, material)
-                snapshot = {**body, "published_brand_id": str(material.published_brand_id), "material_name": material.material_name}
-                session.add(MaterialContentRevision(material_id=material.id, revision=content.revision, actor_id=actor.id,
-                    snapshot=snapshot, snapshot_hash=canonical_hash(snapshot), reason=payload.reason))
-                invalidate_review(session, material, actor.id, "CONTENT_CHANGED", record_event=False)
-            else:
-                body = before
-            return _record(session, material, state, actor.id, "CONTENT_SAVED", payload, request_hash, body,
-                audit={"revision": body["revision"], "reason": payload.reason})
+        return save_material_content(database, material_id, payload, access)
 
     return router

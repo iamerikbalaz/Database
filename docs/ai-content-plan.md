@@ -1,8 +1,9 @@
 # AI publication draft delivery plan
 
 Source contract: `docs/codex-handoff-prompt.md`, sections 15 and 17. This is the
-next slice after historical import and read-only folder discovery. It is not
-implemented or live-verified yet.
+next slice after historical import and read-only folder discovery. Context,
+explicit source approvals and human-authenticated proposal intake are now being
+implemented; see `ai-content.md`. No live provider is verified yet.
 
 ## Conservative product decisions
 
@@ -35,9 +36,11 @@ implemented or live-verified yet.
 
 ## Small implementation sequence
 
-1. Add migration 0013 for immutable source approvals/draft provenance and scoped
-   credential records; preserve migrations through 0012. Add bounded publication
-   context and draft intake with exact replay and database concurrency tests.
+1. Add migration 0013 for source references and immutable draft provenance;
+   preserve migrations through 0012. Add bounded publication context and human
+   proposal intake with exact replay and database concurrency tests. Complete
+   separately scoped short-lived service access in a subsequent additive migration
+   before making this API available to any AI agent/provider.
 2. Add explicit human comparison/adoption and retained-data UI tests. Preserve
    credits and vocabulary selections when applying description/tags, detect stale
    content, and invalidate prior decisions through the existing content workflow.

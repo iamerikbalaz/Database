@@ -943,6 +943,54 @@ class MaterialImportRow(Base):
     snapshot: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
 
 
+class MaterialSourceLink(Base):
+    __tablename__ = "material_source_links"
+    __table_args__ = (
+        UniqueConstraint("material_id", "url", name="uq_material_source_links_url"),
+        CheckConstraint("version >= 1", name="ck_material_source_links_version"),
+        CheckConstraint("length(url) BETWEEN 1 AND 2048", name="ck_material_source_links_url"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), index=True)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class MaterialAiDraft(Base):
+    __tablename__ = "material_ai_drafts"
+    __table_args__ = (
+        CheckConstraint("content_revision >= 0", name="ck_material_ai_drafts_revision"),
+        _review_hash_constraint("context_hash", "ck_material_ai_drafts_context_hash"),
+        CheckConstraint("length(reason) BETWEEN 1 AND 2000", name="ck_material_ai_drafts_reason"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), index=True)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    context_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    context: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
+    provider: Mapped[str] = mapped_column(String(100), nullable=False)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    tags: Mapped[list] = mapped_column(_JSON_DOCUMENT, nullable=False)
+    source_link_ids: Mapped[list] = mapped_column(_JSON_DOCUMENT, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+def _protect_source_link(_mapper, _connection, item):
+    if any(sa_inspect(item).attrs[field].history.has_changes() for field in ("id", "material_id", "actor_id", "url", "created_at")):
+        raise ImmutableAuditSnapshotError("Source URL identity is immutable; deactivate and create another reference.")
+
+
+event.listen(MaterialSourceLink, "before_update", _protect_source_link)
+event.listen(MaterialSourceLink, "before_delete", _reject_review_history_mutation)
+
+
 def _protect_catalog_identity(_mapper, _connection, item):
     fields = ("id", "value", "normalized_key", "created_at") + (("brand_id",) if isinstance(item, BrandCollection) else ())
     if any(sa_inspect(item).attrs[field].history.has_changes() for field in fields):
@@ -954,6 +1002,6 @@ for _catalog_type in (OnlineCategory, BrandCollection):
     event.listen(_catalog_type, "before_delete", _reject_review_history_mutation)
 
 
-for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow):
+for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow, MaterialAiDraft):
     event.listen(_review_history_type, "before_update", _reject_review_history_mutation)
     event.listen(_review_history_type, "before_delete", _reject_review_history_mutation)

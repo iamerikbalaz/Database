@@ -28,6 +28,7 @@ from app.preview_client import PreviewClient, WorkerPreviewClient
 from app.api.material_imports import build_material_imports_router
 from app.api.folder_discovery import build_folder_discovery_router
 from app.discovery_client import DiscoveryClient, WorkerDiscoveryClient
+from app.api.ai_content import build_ai_content_router
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -77,6 +78,7 @@ def create_app(
     application.include_router(build_resources_router(app_database))
     application.include_router(build_catalog_router(app_database))
     application.include_router(build_material_imports_router(app_database))
+    application.include_router(build_ai_content_router(app_database))
     application.include_router(build_folder_discovery_router(app_database,
         discovery_client or WorkerDiscoveryClient(app_settings.worker_base_url)))
     application.include_router(build_content_approvals_router(app_database))

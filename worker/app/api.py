@@ -26,6 +26,7 @@ from app.technical_validation import validate_material
 from app.identity_plan import IdentityPlanError, IdentityTarget, plan_identity_change
 from app.identity_execute import execute_identity_change
 from app.file_journal import JournalError
+from app.previews import PreviewError, list_previews, render_preview
 
 
 SCHEMA_VERSION = 1
@@ -62,6 +63,11 @@ class MaterialIdentityPlanRequest(MaterialPreflightRequest):
 class MaterialIdentityExecuteRequest(MaterialIdentityPlanRequest):
     operation_id: str
     expected_plan_hash: str
+
+
+class MaterialPreviewRequest(MaterialPreflightRequest):
+    name: str
+    expected_sha256: str
 
 
 class FindingResponse(StrictModel):
@@ -402,6 +408,17 @@ def create_app(
             raise HTTPException(503 if str(exc) == "VALIDATION_BUSY" else 422, {"code": str(exc)}) from None
         except IdentityPlanError as exc:
             raise HTTPException(422, {"code": str(exc)}) from None
+        except PreviewError as exc:
+            code = 503 if exc.code in {"PREVIEW_BUSY", "PREVIEW_DECODER_UNAVAILABLE", "PREVIEW_TIMEOUT"} else 404 if exc.code == "PREVIEW_NOT_FOUND" else 409 if exc.code == "PREVIEW_SOURCE_CHANGED" else 422
+            raise HTTPException(code, {"code": exc.code}) from None
+
+    @application.post("/internal/material-previews", tags=["internal"])
+    def material_previews(request: MaterialPreflightRequest) -> dict:
+        return execute_source_inspection(request, list_previews)
+
+    @application.post("/internal/material-preview", tags=["internal"])
+    def material_preview(request: MaterialPreviewRequest) -> dict:
+        return execute_source_inspection(request, lambda root, parts: render_preview(root, parts, request.name, request.expected_sha256))
 
     @application.post("/internal/material-inventory", response_model=InventoryResponse, tags=["internal"])
     def material_inventory(request: MaterialPreflightRequest) -> dict:

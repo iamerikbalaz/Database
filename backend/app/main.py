@@ -23,6 +23,8 @@ from app.identity_client import IdentityClient, WorkerIdentityClient
 from app.api.material_identity import build_material_identity_router
 from app.api.catalog import build_catalog_router
 from app.api.content_approvals import build_content_approvals_router
+from app.api.material_previews import build_material_previews_router
+from app.preview_client import PreviewClient, WorkerPreviewClient
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -36,6 +38,7 @@ def create_app(
     inventory_client: InventoryClient | None = None,
     technical_client: TechnicalClient | None = None,
     identity_client: IdentityClient | None = None,
+    preview_client: PreviewClient | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     app_database = database or Database(app_settings.resolved_database_url)
@@ -70,6 +73,8 @@ def create_app(
     application.include_router(build_resources_router(app_database))
     application.include_router(build_catalog_router(app_database))
     application.include_router(build_content_approvals_router(app_database))
+    application.include_router(build_material_previews_router(app_database,
+        preview_client or WorkerPreviewClient(app_settings.worker_base_url)))
     application.include_router(
         build_material_operations_router(app_database, app_worker_client)
     )

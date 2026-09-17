@@ -45,6 +45,7 @@ def review_pg_case(migrated_postgresql_url):
     from test_material_review import InventoryStub
     from test_material_approvals import TechnicalStub
     from test_material_identity import IdentityStub
+    from test_previews import PreviewStub
     from test_application_access import PASSWORD, ORIGIN
 
     class SharedDatabase(Database):
@@ -70,17 +71,51 @@ def review_pg_case(migrated_postgresql_url):
     inventory = InventoryStub()
     technical = TechnicalStub()
     identity = IdentityStub()
+    previews = PreviewStub()
     app = authenticated_app(settings.model_copy(update={"source_mutations_enabled": True}), database,
-                            inventory_client=inventory, technical_client=technical, identity_client=identity)
+                            inventory_client=inventory, technical_client=technical, identity_client=identity, preview_client=previews)
     def client_for(index=0):
         client = TestClient(app, base_url=ORIGIN)
         response = client.post("/api/auth/login", json={"email": users[index].email, "password": PASSWORD}, headers={"Origin": ORIGIN})
         assert response.status_code == 200
         client.headers.update({"Origin": ORIGIN, "X-CSRF-Token": response.json()["csrf_token"]})
         return client
-    yield SimpleNamespace(database=database, app=app, inventory=inventory, technical=technical, identity=identity, users=users, material=material,
+    yield SimpleNamespace(database=database, app=app, inventory=inventory, technical=technical, identity=identity, previews=previews, users=users, material=material,
                           path=f"/api/materials/{material.id}", client_for=client_for)
     database.engine.dispose()
+
+
+@pytest.mark.parametrize("operation", ["listing", "image"])
+@pytest.mark.parametrize("change,code", [("assignment", 404), ("disable", 401), ("identity", 409)])
+def test_postgresql_preview_reauthorizes_after_actual_concurrent_api_change(review_pg_case, operation, change, code):
+    from test_material_identity import prepare
+    from app.identity_client import IdentityClientError
+    case = review_pg_case; entered = Event(); release = Event()
+    def hold():
+        entered.set()
+        if not release.wait(15): raise TimeoutError("Preview test worker was not released")
+    case.previews.callback = hold
+    with case.client_for(1) as reader, case.client_for() as admin:
+        target = _identity_target(case) if change == "identity" else None
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pending = pool.submit(reader.get, case.path + ("/previews" if operation == "listing" else "/preview"),
+                params={} if operation == "listing" else {"name": "Synthetic preview.png", "expected_sha256": "a" * 64})
+            try:
+                assert entered.wait(15)
+                if change == "assignment": response = admin.patch(case.path, json={"assigned_processor_id": str(case.users[2].id)})
+                elif change == "disable": response = admin.patch(f"/api/internal-users/{case.users[1].id}", json={"is_active": False})
+                else:
+                    payload = prepare(admin, case.path, target); case.identity.failure = IdentityClientError()
+                    response = admin.post(case.path + "/identity-confirm", json=payload)
+                    assert response.json()["status"] == "RUNNING"
+                assert response.status_code == 200
+            finally: release.set()
+            result = pending.result(timeout=25)
+            assert result.status_code == code and result.headers["content-type"] == "application/json"
+        if change == "identity":
+            calls = len(case.previews.calls)
+            assert reader.get(case.path + "/previews").status_code == 409
+            assert len(case.previews.calls) == calls
 
 
 def _catalog_pg_category(client):

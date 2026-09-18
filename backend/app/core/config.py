@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     packaging_base_url: str = "http://localhost:8081"
     packaging_service_token: SecretStr | None = None
     packaging_timeout_seconds: float = Field(default=3630, gt=0, le=3660)
+    gcs_enabled: bool = False
+    gcs_bucket_name: str = ""
+    gcs_staging_prefix: str = ""
+    gcs_access_token: SecretStr | None = None
+    gcs_timeout_seconds: float = Field(default=900, gt=0, le=3600)
     source_mutations_enabled: bool = False
     worker_mutation_token: SecretStr | None = None
     auth_cookie_secure: bool = True
@@ -66,6 +71,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security_configuration(self) -> "Settings":
+        from app.gcs_contract import GcsConfiguration
+        GcsConfiguration(enabled=self.gcs_enabled, bucket_name=self.gcs_bucket_name,
+            staging_prefix=self.gcs_staging_prefix, timeout_seconds=self.gcs_timeout_seconds)
+        if self.gcs_enabled:
+            gcs_token = self.gcs_access_token.get_secret_value() if self.gcs_access_token else ""
+            if not 32 <= len(gcs_token) <= 8192 or not gcs_token.isascii() or any(not 33 <= ord(c) <= 126 for c in gcs_token):
+                raise ValueError("GCS requires an explicitly supplied OAuth access token")
         try:
             packaging_url = urlsplit(self.packaging_base_url)
             packaging_port = packaging_url.port

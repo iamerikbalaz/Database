@@ -3,9 +3,9 @@
 ## Latest checkpoint (2026-09-18)
 
 The owned branch is `codex/autonomous-pbr-completion`; the last verified main is
-`88a1f99d748d2a0edbb1fce509e13d18bfc03908`. UI controls (`54aed25`) and private
-proof-bound worker downloads (`95e780b`) are pushed. The next commit adds authenticated
-application downloads and browser-managed attachments for accepted PACKAGED jobs.
+`88a1f99d748d2a0edbb1fce509e13d18bfc03908`. UI controls (`54aed25`), private
+proof-bound worker downloads (`95e780b`) and authenticated application downloads
+(`fe80a35`) are pushed. Downloads use browser-managed attachments for accepted PACKAGED jobs.
 Historical packages remain readable after material edits. Current authorization is
 rechecked between bounded blocks; no database transaction spans network IO. Upstream
 connections close on cancellation and both transports verify size and SHA-256.
@@ -29,8 +29,22 @@ Final verification for the application-download slice:
 Existing dependency deprecations remain. No schema change was needed; migrations
 through 0017 remain immutable. Live GCS/Notion, production throughput and the deployed
 online-importer contract are unverified. No production resource was modified.
-Next: configurable GCS transport with offline contract tests, then durable upload and
-manual-import workflow. The older checkpoints below record historical test counts
+The configurable create-only GCS transport is implemented with bounded resumable
+uploads, full SHA-256 readback, conditional live-object verification, secret-safe
+diagnostics and read-only reconciliation. It remains disabled and has no upload API.
+The first targeted run found a forged boolean size being serialized as 1; strict
+Python-model revalidation fixed it. Final targeted transport/config tests:
+**158 passed**. Full isolated Linux backend: **1455 passed**, no skips, 558.72s,
+two existing dependency warnings; image
+`reawote-gcs-backend-431336568a1c442e8c7cb374520a668d:test`, manifest digest
+`83276a2c868b34628b5099dec46e5db10dce38dbc4ba0103cefb0f13f83804f5`.
+This image has no Compose labels; tests ran as UID 65532 without network, host
+mounts, ports or DB, with a read-only root, bounded tmpfs and automatic container
+removal. The test image remains. No live GCS operation occurred. Details and remaining
+credential/importer limitations are in `docs/gcs-staging-transport.md`.
+Next: batch planning/current-input preview, then durable upload and manual-import
+workflow. Batch compiler and preview work begun after the 1455-test image are not
+included in that result. The older checkpoints below record historical test counts
 and intermediate limitations; this section is the current download checkpoint.
 
 ## Workspace and authority

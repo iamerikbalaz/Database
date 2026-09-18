@@ -5,6 +5,7 @@ import { reviewClient } from "../api/reviewClient";
 import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
 import { ErrorState, LoadingState } from "./PageState";
+import { HistoryPages } from "./HistoryPages";
 
 function message(error: unknown) {
   if (error instanceof ApiError) {
@@ -16,11 +17,12 @@ function message(error: unknown) {
 }
 
 export function MaterialReviewPanel({ material, onReopened, onScanned }: { material: Material; onReopened: () => Promise<boolean>; onScanned?: () => Promise<boolean> }) {
-  const role = useSession()?.session.user.role;
+  const user = useSession()?.session.user, role = user?.role, actor = user?.id;
   const load = useCallback(async () => {
+    void actor; // Retire initial history/current-state reads when the account changes.
     const [current, audit] = await Promise.all([reviewClient.current(material.id), reviewClient.audit(material.id)]);
     return { ...current, audit };
-  }, [material.id]);
+  }, [material.id, actor]);
   const resource = useResource(load);
   const [pending, setPending] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState("");
   const [reason, setReason] = useState(""); const [opening, setOpening] = useState(false); const [visible, setVisible] = useState(100);
@@ -76,8 +78,10 @@ export function MaterialReviewPanel({ material, onReopened, onScanned }: { mater
         <button className="button button--primary" disabled={pending || !reason.trim()}>Confirm reopen</button>
         <button className="button" type="button" disabled={pending} onClick={() => setOpening(false)}>Cancel</button>
       </form>}
-      <details><summary>Recent source review history ({data.audit.length})</summary>
-        {data.audit.length === 0 ? <p>No source review events yet.</p> : <ol>{data.audit.map((item) => <li key={item.id}><strong>{item.eventType.replaceAll("_", " ")}</strong> · <time dateTime={item.createdAt}>{item.createdAt}</time><p>{item.reason}</p></li>)}</ol>}
+      <details><summary>Source review history</summary>
+        <HistoryPages scope={material.id} label="source review history" initial={data.audit} load={(after) => reviewClient.audit(material.id, after)}>
+          {(items) => <ol>{items.map((item) => <li key={item.id}><strong>{item.eventType.replaceAll("_", " ")}</strong> · <time dateTime={item.createdAt}>{item.createdAt}</time><p>{item.reason}</p></li>)}</ol>}
+        </HistoryPages>
       </details>
       <button className="button" disabled={pending} onClick={resource.retry}>Reload source review</button>
     </>}

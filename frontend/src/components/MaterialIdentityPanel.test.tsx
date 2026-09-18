@@ -26,7 +26,7 @@ function operation(status = "COMPLETED") {
 }
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 afterEach(() => { vi.unstubAllGlobals(); setSessionToken(null); });
-function setup(options: { role?: Role; enabled?: boolean; warning?: boolean; blocked?: boolean; outcome?: string; published?: boolean; done?: boolean } = {}) {
+function setup(options: { role?: Role; enabled?: boolean; warning?: boolean; blocked?: boolean; outcome?: string; published?: boolean; done?: boolean; history?: ReturnType<typeof operation>[] } = {}) {
   const changed = vi.fn(async () => true);
   const calls: { path: string; init?: RequestInit }[] = [];
   const fetch = vi.fn(async (path: string, init?: RequestInit) => {
@@ -34,7 +34,7 @@ function setup(options: { role?: Role; enabled?: boolean; warning?: boolean; blo
     if (path.endsWith("/brands")) return json([materialBrand]);
     if (path.endsWith("/identity-plan")) return json(plan(options.warning, options.blocked));
     if (path.endsWith("/identity-confirm") || path.endsWith("/resume")) return json(operation());
-    return json({ mutations_enabled: options.enabled ?? true, operations: options.outcome ? [operation(options.outcome)] : [] });
+    return json({ mutations_enabled: options.enabled ?? true, operations: options.history ?? (options.outcome ? [operation(options.outcome)] : []) });
   });
   vi.stubGlobal("fetch", fetch); setSessionToken("t".repeat(43));
   render(<SessionContext.Provider value={{ session: { user: { ...processorDto, role: options.role ?? "ADMIN" }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}>
@@ -48,6 +48,19 @@ async function preview() {
   fireEvent.click(screen.getByRole("button", { name: "Preview identity changes" }));
   await screen.findByRole("region", { name: "Identity change preview" });
 }
+
+it("keeps the current active operation while browsing an older finished page", async () => {
+  const rows = [operation("RUNNING"), ...Array.from({ length: 99 }, (_, index) => ({ ...operation(), id: `20000000-0000-4000-8000-${String(index).padStart(12, "0")}` }))];
+  const { fetch, changed } = setup({ history: rows });
+  await screen.findByRole("button", { name: "Reconcile recorded operation" });
+  fetch.mockResolvedValueOnce(json({ mutations_enabled: false, operations: [{ ...operation(), reason: "Older completed operation" }] }));
+  fireEvent.click(screen.getByRole("button", { name: "Older identity history" }));
+  await screen.findByText(/Older completed operation/);
+  expect(screen.getByRole("button", { name: "Reconcile recorded operation" })).toBeEnabled();
+  expect(screen.queryByRole("button", { name: "Preview identity changes" })).not.toBeInTheDocument();
+  expect(changed).not.toHaveBeenCalled();
+  expect(fetch.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
+});
 
 it("shows exact paths and requires reason and warning acknowledgment before confirmation", async () => {
   const { calls, changed } = setup({ warning: true }); await preview();

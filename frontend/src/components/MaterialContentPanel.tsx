@@ -5,6 +5,7 @@ import type { Material } from "../api/materialDto";
 import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
 import { ErrorState, LoadingState } from "./PageState";
+import { HistoryPages } from "./HistoryPages";
 
 function ContentEditor({ content, categories, collections, onSaved, reload }: {
   content: MaterialContent; categories: CatalogValue[]; collections: CatalogValue[]; onSaved: () => void; reload: () => void;
@@ -19,8 +20,6 @@ function ContentEditor({ content, categories, collections, onSaved, reload }: {
   const [reason, setReason] = useState("");
   const [error, setError] = useState(""); const [pending, setPending] = useState(false); const [uncertain, setUncertain] = useState(false);
   const payload = useRef<ContentPayload | null>(null); const sending = useRef(false);
-  const [history, setHistory] = useState<Awaited<ReturnType<typeof catalogClient.history>> | null>(null);
-  const [historyError, setHistoryError] = useState(false);
   const save = async () => {
     if (sending.current) return;
     const tagValues = tags.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
@@ -72,21 +71,23 @@ function ContentEditor({ content, categories, collections, onSaved, reload }: {
     <button className="button" disabled={pending || uncertain} onClick={reload}>Reload content and discard local edits</button>
     {(role === "ADMIN" || role === "PRODUCTION_LEAD") && <p><a href="/catalog">Manage categories and brand collections</a></p>}
     <details><summary>Content history</summary>
-      <button className="button" onClick={() => { setHistoryError(false); void catalogClient.history(content.materialId).then(setHistory, () => setHistoryError(true)); }}>Load content history</button>
-      {historyError && <p role="alert">Content history could not be loaded.</p>}
-      {history && <ul>{history.map((item) => <li key={item.id}><strong>Revision {item.revision}</strong> · {item.reason} · <time dateTime={item.createdAt}>{item.createdAt}</time>
+      <HistoryPages scope={content.materialId} label="content history" load={(after) => catalogClient.history(content.materialId, after)}>
+        {(items) => <ul>{items.map((item) => <li key={item.id}><strong>Revision {item.revision}</strong> · {item.reason} · <time dateTime={item.createdAt}>{item.createdAt}</time>
         <details><summary>Saved content</summary><p>{item.snapshot.description || "No description"}</p><p>Credits: {item.snapshot.credits ?? "Not entered"}</p>
           <p>Tags: {item.snapshot.tags.join(", ") || "None"}</p><p>Categories: {item.snapshot.categories.map((value) => value.value).join(", ") || "None"}</p>
           <p>Collections: {item.snapshot.collections.map((value) => value.value).join(", ") || "None"}</p></details></li>)}</ul>}
+      </HistoryPages>
     </details>
   </>;
 }
 
 export function MaterialContentPanel({ material, onChanged }: { material: Material; onChanged: () => void }) {
+  const actor = useSession()?.session.user.id;
   const load = useCallback(async () => {
+    void actor;
     const [content, categories, collections] = await Promise.all([catalogClient.content(material.id), catalogClient.categories(), catalogClient.collections(material.publishedBrandId)]);
     return { content, categories, collections };
-  }, [material.id, material.publishedBrandId]);
+  }, [material.id, material.publishedBrandId, actor]);
   const resource = useResource(load);
   return <article className="panel catalog-content" aria-label="Publication content"><h2>Publication content</h2>
     <p>Prepare descriptions, credits, online categories, tags and brand collections. Changed content requires a new approval.</p>

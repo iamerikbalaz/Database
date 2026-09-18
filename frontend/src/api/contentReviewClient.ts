@@ -1,6 +1,7 @@
 import { request } from "./client";
 import { contentFromDto } from "./catalogClient";
 import { boolean, nullable, record, string, uuid } from "./dto";
+import { historyPage, historyQuery } from "./historyPage";
 
 function hash(input: unknown) {
   const value = string(input);
@@ -45,9 +46,12 @@ export interface ContentApprovalPayload {
 export const contentReviewClient = {
   async review(id: string) { return contentReviewFromDto(await request(`/materials/${uuid(id)}/content-review`)); },
   async approve(id: string, payload: ContentApprovalPayload) { return contentReviewFromDto(await request(`/materials/${uuid(id)}/content/approve`, "POST", payload)); },
-  async history(id: string) {
-    const value = await request(`/materials/${uuid(id)}/content-approvals`);
-    if (!Array.isArray(value) || value.length > 100) throw new Error("Invalid content approval history");
-    return value.map((item) => ({ ...approvalFromDto(item), snapshot: snapshotFromDto(record(item).snapshot) }));
+  async history(id: string, after: string | null = null) {
+    const value = await request(`/materials/${uuid(id)}/content-approvals${historyQuery(after)}`);
+    return historyPage(value, after, (item) => {
+      const approval = approvalFromDto(item), snapshot = snapshotFromDto(record(item).snapshot);
+      if (snapshot.content.materialId !== uuid(id) || snapshot.content.revision !== approval.revision) throw new Error("Mismatched approval history");
+      return { ...approval, snapshot };
+    });
   },
 };

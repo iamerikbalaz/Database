@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { MaterialContentPanel } from "./MaterialContentPanel";
 import { SessionContext } from "../auth/context";
@@ -12,6 +12,29 @@ const category = { id: "10000000-0000-4000-8000-000000000001", value: "Stone", v
 const collection = { ...category, id: "10000000-0000-4000-8000-000000000002", value: "Studio", brand_id: materialDto.published_brand_id };
 const empty = { material_id: materialDto.id, revision: 0, description: null, credits: null, tags: [], categories: [], collections: [], content_status: "EMPTY" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+
+it("hides the previous account's initial content and history while the new account reloads", async () => {
+  const content = { ...empty, revision: 1, description: "First account draft", content_status: "MANUAL_DRAFT" };
+  let second = false, resolve!: (value: Response) => void;
+  const pending = new Promise<Response>((done) => { resolve = done; });
+  vi.stubGlobal("fetch", vi.fn(async (path: string) => {
+    if (path.endsWith("/content-history")) return json([{ id: category.id, revision: 1, actor_id: processorDto.id,
+      reason: "First account history", created_at: "2026-09-18T08:00:00Z", snapshot: content }]);
+    if (path.endsWith("/content")) return second ? pending : json(content);
+    return json([]);
+  }));
+  const tree = (id: string) => <SessionContext.Provider value={{ session: { user: { ...processorDto, id, role: "ADMIN" }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}>
+    <MaterialContentPanel material={materialFromDto(materialDto)} onChanged={vi.fn()} />
+  </SessionContext.Provider>;
+  const view = render(tree(processorDto.id));
+  fireEvent.click(await screen.findByRole("button", { name: "Load content history" }));
+  await screen.findByText(/First account history/);
+  second = true; view.rerender(tree(category.id));
+  expect(screen.queryByText(/First account history/)).not.toBeInTheDocument();
+  expect(screen.queryByDisplayValue("First account draft")).not.toBeInTheDocument();
+  await act(async () => resolve(json({ ...content, description: "Second account draft" })));
+  await screen.findByDisplayValue("Second account draft");
+});
 
 it("accepts AI content only with complete provenance and preserves its declared origin", () => {
   const provenance = { draft_id: category.id, provider: "Synthetic tool", model: "fixture-v1", prompt_version: "pbr-1", context_hash: "a".repeat(64), edited: true };

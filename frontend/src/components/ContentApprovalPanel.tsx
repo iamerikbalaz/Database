@@ -4,6 +4,7 @@ import { ApiError } from "../api/errors";
 import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
 import { ErrorState, LoadingState } from "./PageState";
+import { HistoryPages } from "./HistoryPages";
 
 const findings: Record<string, string> = {
   CONTENT_DRAFT_REQUIRED: "Save a publication draft first.", CONTENT_CREDITS_REQUIRED: "Enter credits.",
@@ -23,19 +24,19 @@ function SavedContent({ snapshot, revision }: { snapshot: ContentReview["snapsho
 }
 
 export function ContentApprovalPanel({ materialId, refreshVersion = 0, onChanged }: { materialId: string; refreshVersion?: number; onChanged: () => void }) {
+  const user = useSession()?.session.user, actor = user?.id;
   const load = useCallback(() => {
     // A new generation of detail reads also refreshes this independent report.
     void refreshVersion;
+    void actor;
     return contentReviewClient.review(materialId);
-  }, [materialId, refreshVersion]);
-  const resource = useResource(load), role = useSession()?.session.user.role;
+  }, [materialId, refreshVersion, actor]);
+  const resource = useResource(load), role = user?.role;
   const allowed = role === "ADMIN" || role === "LEADERSHIP";
   const [preview, setPreview] = useState<ContentReview | null>(null);
   const [note, setNote] = useState(""), [ack, setAck] = useState(false);
   const [error, setError] = useState(""), [pending, setPending] = useState(false), [uncertain, setUncertain] = useState(false);
   const sending = useRef(false), payload = useRef<ContentApprovalPayload | null>(null);
-  const [history, setHistory] = useState<Awaited<ReturnType<typeof contentReviewClient.history>> | null>(null);
-  const [historyError, setHistoryError] = useState(false);
   const approve = async () => {
     if (sending.current || !preview) return;
     sending.current = true; setPending(true); setError("");
@@ -43,7 +44,7 @@ export function ContentApprovalPanel({ materialId, refreshVersion = 0, onChanged
       expected_context_hash: preview.contextHash, warnings_acknowledged: ack, note: note.trim() || null };
     try {
       await contentReviewClient.approve(materialId, payload.current);
-      payload.current = null; setUncertain(false); setPreview(null); setHistory(null); resource.retry(); onChanged();
+      payload.current = null; setUncertain(false); setPreview(null); resource.retry(); onChanged();
     } catch (cause) {
       if (cause instanceof ApiError && cause.status >= 400 && cause.status < 500) {
         payload.current = null; setUncertain(false); setPreview(null); resource.retry();
@@ -77,10 +78,10 @@ export function ContentApprovalPanel({ materialId, refreshVersion = 0, onChanged
       </section>}
       <button className="button" disabled={pending || uncertain} onClick={() => { setPreview(null); resource.retry(); }}>Reload content approval</button>
       <details><summary>Content approval history</summary>
-        <button className="button" onClick={() => { setHistoryError(false); void contentReviewClient.history(materialId).then(setHistory, () => setHistoryError(true)); }}>Load content approval history</button>
-        {historyError && <p role="alert">Content approval history could not be loaded.</p>}
-        {history && <ul>{history.map((item) => <li key={item.id}>Approved revision {item.revision} · {item.createdAt} · reviewer {item.actorId} · {item.note || "No note"}
-          <details><summary>Reviewed content</summary><SavedContent snapshot={item.snapshot} revision={item.revision} /></details></li>)}</ul>}
+        <HistoryPages scope={`${materialId}:${refreshVersion}:${resource.data.approval?.id ?? resource.data.revision}`} label="content approval history" load={(after) => contentReviewClient.history(materialId, after)}>
+          {(items) => <ul>{items.map((item) => <li key={item.id}>Approved revision {item.revision} · {item.createdAt} · reviewer {item.actorId} · {item.note || "No note"}
+            <details><summary>Reviewed content</summary><SavedContent snapshot={item.snapshot} revision={item.revision} /></details></li>)}</ul>}
+        </HistoryPages>
       </details>
     </>}
   </article>;

@@ -1,5 +1,6 @@
 import { request } from "./client";
 import { boolean, nullable, record, string, uuid } from "./dto";
+import { historyPage, historyQuery } from "./historyPage";
 
 function hash(value: unknown) {
   const result = string(value);
@@ -61,9 +62,12 @@ function operation(value: unknown) {
 }
 export type IdentityOperation = ReturnType<typeof operation>;
 export const identityClient = {
-  async operations(id: string) {
-    const data = record(await request(`/materials/${uuid(id)}/identity-operations`));
-    return { enabled: boolean(data.mutations_enabled), items: list(data.operations, 100, operation) };
+  async operations(id: string, after: string | null = null) {
+    const materialId = uuid(id);
+    const data = record(await request(`/materials/${materialId}/identity-operations${historyQuery(after)}`));
+    const items = historyPage(data.operations, after, operation);
+    if (items.some((item) => item.source.materialId !== materialId || item.target.materialId !== materialId)) throw new Error("Mismatched identity history");
+    return { enabled: boolean(data.mutations_enabled), items };
   },
   async plan(id: string, target: IdentityTarget) { return plan(await request(`/materials/${uuid(id)}/identity-plan`, "POST", target)); },
   async confirm(id: string, payload: IdentityConfirmation) { return operation(await request(`/materials/${uuid(id)}/identity-confirm`, "POST", payload)); },

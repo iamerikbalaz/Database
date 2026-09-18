@@ -1,4 +1,5 @@
 import { request } from "./client";
+import { historyPage, historyQuery } from "./historyPage";
 import { boolean, nullable, record, string, uuid } from "./dto";
 
 function integer(value: unknown, minimum = 0) {
@@ -42,9 +43,11 @@ export const catalogClient = {
   async activity(kind: CatalogKind, id: string, payload: CatalogActivity) { return catalogValue(await request(`/${kind}/${uuid(id)}`, "PATCH", payload)); },
   async content(id: string) { return contentFromDto(await request(`/materials/${uuid(id)}/content`)); },
   async save(id: string, payload: ContentPayload) { return contentFromDto(await request(`/materials/${uuid(id)}/content`, "POST", payload)); },
-  async history(id: string) { return list(await request(`/materials/${uuid(id)}/content-history`), (input) => {
+  async history(id: string, after: string | null = null) { return historyPage(await request(`/materials/${uuid(id)}/content-history${historyQuery(after)}`), after, (input) => {
     const item = record(input);
-    return { id: uuid(item.id), revision: integer(item.revision, 1), actorId: uuid(item.actor_id), reason: string(item.reason),
-      createdAt: string(item.created_at), snapshot: contentFromDto(item.snapshot) };
+    const revision = integer(item.revision, 1), snapshot = contentFromDto(item.snapshot);
+    if (snapshot.materialId !== uuid(id) || snapshot.revision !== revision) throw new Error("Mismatched content history");
+    return { id: uuid(item.id), revision, actorId: uuid(item.actor_id), reason: string(item.reason),
+      createdAt: string(item.created_at), snapshot };
   }); },
 };

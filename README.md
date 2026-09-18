@@ -43,6 +43,7 @@ Aktuální funkce a skutečně provedené testy shrnuje
 - [Auditní historie změn firem](docs/company-history.md).
 - [Historie značek, projektů, profilů a materiálů](docs/resource-history.md).
 - [Historie úspěšných změn přístupu k účtům](docs/account-security-history.md).
+- [Stránkování starších materiálových a katalogových historií](docs/history-pagination.md).
 - [Ochrana HTTP odpovědí a logů při databázové chybě](docs/database-error-redaction-plan.md).
 - [Archivace a obnovení PBR materiálů](docs/material-archive-contract.md).
 - [Řízené převzetí údajů firmy z Notion](docs/notion-adoption.md).

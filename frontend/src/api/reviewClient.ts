@@ -1,6 +1,7 @@
 import { request } from "./client";
 import { nullable, record, string, uuid } from "./dto";
 import { validateFolderPath } from "./folderPathValidation";
+import { historyPage, historyQuery } from "./historyPage";
 
 function nonnegative(value: unknown) {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw new Error("Invalid inventory number");
@@ -33,10 +34,9 @@ export const reviewClient = {
     const data = record(await request(`/materials/${uuid(id)}/inventory`));
     return { review: review(data.review), inventory: inventory(data.inventory) };
   },
-  async audit(id: string) {
-    const data = await request(`/materials/${uuid(id)}/audit`);
-    if (!Array.isArray(data)) throw new Error("Invalid audit history");
-    return data.map((value) => { const item = record(value); const details = record(item.details);
+  async audit(id: string, after: string | null = null) {
+    const data = await request(`/materials/${uuid(id)}/audit${historyQuery(after)}`);
+    return historyPage(data, after, (value) => { const item = record(value); const details = record(item.details);
       return { id: uuid(item.id), eventType: string(item.event_type), actorId: uuid(item.actor_id), createdAt: string(item.created_at), reason: typeof details.reason === "string" ? details.reason : null };
     });
   },

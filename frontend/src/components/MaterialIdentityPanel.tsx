@@ -6,6 +6,7 @@ import type { Material } from "../api/materialDto";
 import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
 import { ErrorState, LoadingState } from "./PageState";
+import { HistoryPages } from "./HistoryPages";
 
 const labels: Record<string, string> = {
   COMPLETED: "Identity updated", RUNNING: "Outcome pending", ROLLED_BACK: "Source restored", REJECTED: "Rejected before source changes",
@@ -15,12 +16,13 @@ const labels: Record<string, string> = {
 };
 
 export function MaterialIdentityPanel({ material, client, onChanged }: { material: Material; client: ApiClient; onChanged: () => Promise<boolean> }) {
-  const role = useSession()?.session.user.role;
+  const user = useSession()?.session.user, role = user?.role, actor = user?.id;
   const allowed = role === "ADMIN" || role === "PRODUCTION_LEAD";
   const load = useCallback(async () => {
+    void actor;
     const [operations, brands] = await Promise.all([identityClient.operations(material.id), allowed ? client.getBrands() : Promise.resolve([])]);
     return { operations, brands };
-  }, [material.id, client, allowed]);
+  }, [material.id, client, allowed, actor]);
   const resource = useResource(load);
   const [targetBrand, setTargetBrand] = useState(material.publishedBrandId);
   const [category, setCategory] = useState(material.mainCategoryCode);
@@ -110,9 +112,13 @@ export function MaterialIdentityPanel({ material, client, onChanged }: { materia
           </>}
         </section>}
       </>}
-      {resource.data.operations.items.length > 0 && <details><summary>Recorded identity operations ({resource.data.operations.items.length})</summary><ul>{resource.data.operations.items.map((item) => <li key={item.id}>
-        <strong>{labels[item.status]}</strong> · {item.source.identity} → {item.target.identity} · {item.reason} · <time dateTime={item.createdAt}>{item.createdAt}</time>
-      </li>)}</ul></details>}
+      <details><summary>Recorded identity operations</summary>
+        <HistoryPages scope={material.id} label="identity history" initial={resource.data.operations.items} load={async (after) => (await identityClient.operations(material.id, after)).items}>
+          {(items) => <ul>{items.map((item) => <li key={item.id}>
+            <strong>{labels[item.status]}</strong> · {item.source.identity} → {item.target.identity} · {item.reason} · <time dateTime={item.createdAt}>{item.createdAt}</time>
+          </li>)}</ul>}
+        </HistoryPages>
+      </details>
       <button className="button" disabled={pending} onClick={() => { resource.retry(); void onChanged(); }}>Reload identity status</button>
     </>}
   </article>;

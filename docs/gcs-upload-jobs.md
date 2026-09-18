@@ -47,6 +47,24 @@ with a recorded dispatch. Its original payload, request digest and exact-replay
 behavior remain compatible. History reads the persisted progress introduced by 0019.
 The E2E configuration pins a synthetic bucket/prefix, GCS disabled and an empty token.
 
+The bounded journal API is also implemented. ADMIN and LEADERSHIP can read
+`/{job_id}/dispatches` and `/{job_id}/dispatches/{dispatch_id}/transfers` under the
+same prefix. Both paginate by ordinal with `after` and `limit` (20 default, 50 max).
+An intent without an observation is visible as pending; uncertain results remain
+distinct from verified receipts. The endpoints return no OAuth token, resumable
+session URL or raw remote error.
+
+Only ADMIN may `POST /{job_id}/abandon`, following the conservative existing packaging
+closure role. The payload includes `idempotency_key`, `expected_plan_sha256`,
+`expected_last_dispatch_id`, `reason` and strict boolean
+`acknowledge_possible_remote_effects: true`. It takes the same dedicated staging
+lease, preserves the current dispatch/result pointers, records the acknowledgment,
+and releases all owners atomically. An active lease returns a fixed 409; lease loss
+before commit rolls back closure, ownership release and audit. Exact replay is safe
+but still requires current ADMIN access. This action works with GCS disabled and
+NAS offline and performs no cloud/worker IO. It cannot cancel remote requests or
+delete objects. Unsent reservations keep their separate `/close` action.
+
 ## Dispatch journal (0019)
 
 Five tables separate ordered dispatch intent, per-object transfer intent, immutable
@@ -69,8 +87,8 @@ from those receipts before recording its intent and accepting readback.
 Late observations/results can be recorded without replacing newer progress. Closure
 freezes the current dispatch/result pointers and releases all owners atomically.
 A closure record must explicitly say whether dispatch occurred. The existing
-unsent-close endpoint cannot close dispatched jobs; a separate acknowledged abandon
-action still needs implementation. Closure never claims remote cancellation.
+unsent-close endpoint cannot close dispatched jobs; the separate acknowledged
+abandon action handles that case. Closure never claims remote cancellation.
 
 0019 backfills RESERVED/CLOSED progress for existing 0018 reservations. Empty journal
 downgrade preserves those old reservations and restores 0018 closure semantics.

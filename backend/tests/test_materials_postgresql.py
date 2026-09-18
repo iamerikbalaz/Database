@@ -3917,3 +3917,63 @@ def test_postgresql_staging_0019_backfills_open_and_closed_0018_jobs_without_cha
                 assert {str(row.id): row.plan for row in session.scalars(select(PublicationStagingJob))} == frozen
         finally:
             fixture.close(); get_settings.cache_clear()
+
+
+def test_postgresql_staging_abandonment_respects_lease_and_retains_late_facts(staging_history_pg):
+    import staging_history_support as journal
+    from app.staging_dispatch_lease import staging_dispatch_lease
+    from test_staging_reservations import PATH
+    case, identifier = staging_history_pg
+    with case.database.session() as session:
+        first = journal.dispatch(session, identifier); intent = journal.transfer(session, first); session.commit()
+        job = session.get(journal.PublicationStagingJob, identifier)
+        payload = dict(idempotency_key=str(uuid4()), expected_plan_sha256=job.plan_sha256,
+            expected_last_dispatch_id=str(first.id), reason="Acknowledge uncertain synthetic side effects",
+            acknowledge_possible_remote_effects=True)
+    path = PATH + "/" + str(identifier)
+    with case.client_for() as admin:
+        with staging_dispatch_lease(case.database.engine, identifier):
+            blocked = admin.post(path + "/abandon", json=payload)
+            assert blocked.status_code == 409 and blocked.json()["detail"]["code"] == "GCS_DISPATCH_BUSY"
+        closed = admin.post(path + "/abandon", json=payload)
+        assert closed.status_code == 200 and closed.json()["close"]["dispatched"] is True
+        assert closed.json()["last_dispatch_id"] == str(first.id) and closed.json()["last_result_id"] is None
+        with case.database.session() as session:
+            journal.observe(session, session.get(journal.PublicationStagingTransfer, intent.id))
+            journal.result(session, session.get(journal.PublicationStagingDispatch, first.id), progress=False); session.commit()
+        assert admin.post(path + "/abandon", json=payload).json() == closed.json()
+        history = admin.get(path + "/dispatches").json()
+        assert history["items"][0]["result"]["outcome"] == "UNCERTAIN"
+        transfers = admin.get(path + "/dispatches/" + str(first.id) + "/transfers").json()
+        assert transfers["items"][0]["observation"]["outcome"] == "VERIFIED"
+        assert admin.patch(case.path, json={"material_name": "Editable after abandoned transfer"}).status_code == 200
+
+
+def test_postgresql_staging_abandonment_serializes_duplicate_requests(staging_history_pg):
+    import staging_history_support as journal
+    from test_staging_reservations import PATH
+    case, identifier = staging_history_pg
+    with case.database.session() as session:
+        first = journal.dispatch(session, identifier); session.commit()
+        job = session.get(journal.PublicationStagingJob, identifier)
+        payload = dict(idempotency_key=str(uuid4()), expected_plan_sha256=job.plan_sha256,
+            expected_last_dispatch_id=str(first.id), reason="Concurrent synthetic abandonment",
+            acknowledge_possible_remote_effects=True)
+    barrier = Barrier(2); path = PATH + "/" + str(identifier) + "/abandon"
+    with case.client_for() as one, case.client_for() as two:
+        def request(client):
+            barrier.wait(timeout=10); return client.post(path, json=payload)
+        with ThreadPoolExecutor(2) as pool:
+            pending = [pool.submit(request, client) for client in (one, two)]
+            responses = [future.result(timeout=20) for future in pending]
+        assert 200 in [response.status_code for response in responses]
+        for response in responses:
+            if response.status_code == 409: assert response.json()["detail"]["code"] == "GCS_DISPATCH_BUSY"
+            else: assert response.status_code == 200
+        assert one.post(path, json=payload).json() == two.post(path, json=payload).json()
+    with case.database.session() as session:
+        assert len(list(session.scalars(select(journal.PublicationStagingClose).where(
+            journal.PublicationStagingClose.job_id == identifier)))) == 1
+        assert len(list(session.scalars(select(MaterialAuditEvent).where(
+            MaterialAuditEvent.material_id == case.material.id,
+            MaterialAuditEvent.event_type == "PUBLICATION_STAGING_ABANDONED")))) == 1

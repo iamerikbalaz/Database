@@ -18,11 +18,24 @@ owned containers/network removed, owned volume/image retained. Linux affected-ar
 `reawote-staging-history-8bcf0b515d63460cb52d781467a26ba1:test`, manifest digest
 `dc25560ee8727fd1462544acec0f6f88b140469abf0b90906d4aca4337247ae1`.
 This used a read-only nonroot container without network, mounts, ports or a database;
-the container was automatically removed. A separate, not yet committed slice adds
-bounded journal reads and ADMIN-only acknowledged abandonment; its initial 17 API
-tests plus two lost-lease/unsent-job tests passed. That API slice still needs actual
-PostgreSQL concurrency and final Linux verification. Upload/reconcile orchestration
-and its UI remain pending.
+the container was automatically removed. Schema commit `451af14` is pushed; main was
+again verified unchanged at `88a1f99`.
+
+The next verified API slice adds bounded journal reads and ADMIN-only acknowledged
+abandonment. Its 19 Windows API tests passed. Final Linux affected-area suite:
+**96 passed**, no skips, 154.79s, two dependency warnings; image
+`reawote-staging-api-5f415412fe4f4c4a99c67d8d5b7d2f12:test`, manifest digest
+`b1c81e49cdd3e42723bccb3b481cb0a3c2ddde6e7e34ea4f1bc6c70eb1f20bc8`.
+Final PostgreSQL: **271 passed**, auth **27/27**, no skips, 313.44s, five existing
+dependency/schema-alias warnings; project `reawote-test-4e18d3350d544dc4a928debf138ddc69`,
+manifest digest `2c4e7775b6ebbc27e6f80518b182db5577581dfb6e3ddd9b3c632e2f94c39529`.
+Tests cover real lease contention, concurrent duplicate requests and late immutable
+facts after abandonment. Owned cleanup completed; images/volumes retained.
+
+In progress: `backend/app/staging_runtime.py` is an uncommitted, untested coordinator
+draft. It is not connected to any route. Review/test its source checks, database/IO
+boundaries, cancellation, strict receipt validation and result acceptance before
+connecting upload/reconcile endpoints. GCS UI remains pending.
 No live cloud or production database operation is authorized.
 
 The owned branch is `codex/autonomous-pbr-completion`; the last verified main is

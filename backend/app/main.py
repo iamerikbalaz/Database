@@ -37,6 +37,7 @@ from app.api.packaging_jobs import build_packaging_jobs_router
 from app.packaging_client import PackagingClient, WorkerPackagingClient
 from app.api.publication_staging import build_staging_preview_router
 from app.api.publication_staging_jobs import build_staging_jobs_router
+from app.api.staging_history import build_staging_history_router
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -93,6 +94,8 @@ def create_app(
     application.include_router(build_publication_batches_router(app_database))
     application.include_router(build_staging_preview_router(app_database, app_settings))
     application.include_router(build_staging_jobs_router(app_database, app_settings))
+    application.include_router(build_staging_history_router(app_database, app_settings),
+        prefix="/api/publication-staging-jobs", tags=["publication staging"])
     application.include_router(build_packaging_policy_router(app_database, app_settings))
     application.include_router(build_packaging_jobs_router(app_database,
         packaging_client or WorkerPackagingClient(app_settings.packaging_base_url, token=app_settings.packaging_service_token,

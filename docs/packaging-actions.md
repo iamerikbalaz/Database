@@ -80,11 +80,11 @@ network and fresh private named volume, and synthetic sources mounted read-only.
 It creates actual local packages, discards the successful run response, recovers
 the same request and verifies a single READY dispatch. It also closes an unsent
 reservation and checks both records after service restart and later content/policy
-edits. That retained browser pass checks database history, not artifact bytes;
-actual worker artifact recovery is separately verified by runtime restart tests.
+edits. The download extension also verifies actual ZIP bytes against the saved
+proof before and after restart; see packaging-downloads.md.
 Frontend unit tests use explicit mocks. Backend unit tests use synthetic rebound
 proof shapes; these alone do not establish ZIP creation.
 
-No migration is changed. Schema 0017 remains the current immutable head. Proof-bound
-downloads, upload and online-import confirmation remain separate unfinished
-slices. No production deployment or publication-status change has occurred.
+No migration is changed. Schema 0017 remains the current immutable head. Upload
+and online-import confirmation remain unfinished. No production deployment or
+publication-status change has occurred.

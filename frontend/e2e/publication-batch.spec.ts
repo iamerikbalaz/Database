@@ -190,6 +190,17 @@ test("approved CSV batch, exact retry and frozen download survive retained resta
   await expect(retainedJob.getByRole("heading", { name: "Packaged", exact: true })).toBeVisible();
   await retainedJob.getByRole("button", { name: "Load packaging actions", exact: true }).click();
   await expect(retainedJob.getByRole("listitem").last()).toContainText("execute · Run approved synthetic packaging · ready");
+  await retainedJob.getByRole("button", { name: "Load packaged files", exact: true }).click();
+  const completedJob = packagingHistory.items.find((item: { status: string }) => item.status === "PACKAGED");
+  const files = await (await page.request.get(path + "/packaging-executions/" + completedJob.id + "/artifacts")).json();
+  expect(files.proof_sha256).toBe(completedJob.proof_sha256);
+  const archive = files.items.find((item: { path: string }) => item.path.endsWith(".zip"));
+  const zipStarted = page.waitForEvent("download");
+  await retainedJob.getByRole("link", { name: "Download " + archive.path, exact: true }).click();
+  const zip = await zipStarted; expect(zip.suggestedFilename()).toBe(archive.path);
+  const bytes = await readFile((await zip.path())!);
+  expect(bytes.length).toBe(archive.size);
+  expect(createHash("sha256").update(bytes).digest("hex")).toBe(archive.sha256);
   await retainedJob.screenshot({ path: test.info().outputPath("packaging-job-desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

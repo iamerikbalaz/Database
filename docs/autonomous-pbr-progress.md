@@ -1,5 +1,38 @@
 # Autonomous PBR completion
 
+## Latest checkpoint (2026-09-18)
+
+The owned branch is `codex/autonomous-pbr-completion`; the last verified main is
+`88a1f99d748d2a0edbb1fce509e13d18bfc03908`. UI controls (`54aed25`) and private
+proof-bound worker downloads (`95e780b`) are pushed. The next commit adds authenticated
+application downloads and browser-managed attachments for accepted PACKAGED jobs.
+Historical packages remain readable after material edits. Current authorization is
+rechecked between bounded blocks; no database transaction spans network IO. Upstream
+connections close on cancellation and both transports verify size and SHA-256.
+
+Final verification for the application-download slice:
+
+- Backend: **1368 passed**, no skips (584.04s), isolated Linux image
+  `reawote-download-backend-56639163886b4316ab354f6eb56e9b30:test`, manifest digest
+  `cd54199277a2ea868001fffdc81ba5ad45174eee65ef13c99cc3dbc85862d8a5`.
+- Actual PostgreSQL: **213 passed**, auth gate **27/27**, no skips (193.38s), project
+  `reawote-test-3be74d7f9f604722b5956aafadac4712`. Includes revocation during opening
+  and streaming, concurrent material edits, and checks for transactions held over IO.
+- Frontend: **486 passed**; lint, build and E2E TypeScript passed.
+- E2E `0822b9b3-ee49-455d-a198-999dd20f45e8`: **17 fresh + 17 retained passed**, including
+  real ZIP downloads with length/hash verification after material/policy changes and
+  restart. Desktop and 390px screenshots were visually inspected. Owned cleanup and
+  protected-resource checks passed. Only explicitly owned test volumes/images remain.
+- Worker is unchanged from `95e780b`: **710 passed** plus the actual production-runtime
+  HTTP smoke, including offline NAS, restart, closure and retained-file downloads.
+
+Existing dependency deprecations remain. No schema change was needed; migrations
+through 0017 remain immutable. Live GCS/Notion, production throughput and the deployed
+online-importer contract are unverified. No production resource was modified.
+Next: configurable GCS transport with offline contract tests, then durable upload and
+manual-import workflow. The older checkpoints below record historical test counts
+and intermediate limitations; this section is the current download checkpoint.
+
 ## Workspace and authority
 
 Current checkpoint (2026-09-18): publication preflight, immutable CSV batches and

@@ -22,6 +22,8 @@ publikované značky, projekt, procesora a osm materiálů a v Chromium provede:
 - skutečné lokální balení, obnovu stejného požadavku po ztracené odpovědi,
   jediný potvrzený worker příkaz a uzavření neodeslané rezervace;
 - historii balení a změn ZIP pravidel po restartu;
+- stažení skutečného ZIPu s kontrolou velikosti a SHA-256 před restartem i po něm,
+  i po následné změně obsahu a ZIP pravidla;
 - klientské odmítnutí absolutní cesty a `..` bez preflight requestu;
 - kontrolu veřejných odpovědí, UI a browser console na únik raw obsahu, host path
   nebo neočekávanou chybu.
@@ -80,8 +82,8 @@ read-only režim a vlastnictví volume. Čisté guard testy bez Dockeru jsou
 v `scripts/test-packaging-e2e-helpers.ps1`.
 
 Oba workery se restartují spolu s aplikací. Druhý browser průchod kontroluje
-zachovanou databázovou historii balení; čtení uložených ZIP bajtů po restartu
-ověřuje samostatná runtime worker sada. Packaging volume se při cleanupu zachová,
+zachovanou databázovou historii balení i skutečně stažené ZIP bajty proti uloženému
+hashi. Packaging volume se při cleanupu zachová,
 stejně jako izolované identity source/journal volumes. Tyto prostředky nejsou
 produkční data a runner nemaže ani starší volumes svých předchozích běhů.
 

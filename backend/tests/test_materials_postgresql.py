@@ -3357,3 +3357,48 @@ def test_postgresql_uncertain_dispatch_recovers_and_closes_with_nas_offline(revi
         with case.database.session() as session:
             observed = session.get(MaterialPackagingObservation, UUID(closed.json()["last_observation_id"]))
             assert observed.outcome == "RETRY_REQUIRED" and observed.worker_result["terminal"] == "CLOSED"
+
+
+@pytest.mark.parametrize("change", ["account-open", "account-stream", "material-open"])
+def test_postgresql_download_reauthorizes_without_transaction_across_stream(review_pg_case, monkeypatch, change):
+    from app.api import packaging_downloads
+    from test_packaging_downloads import DownloadStub, DATA, FILE_PATH
+    from test_packaging_reservations import close_body
+    case = review_pg_case; item = _pg_dispatch_case(case)
+    transfer = DownloadStub(); entered = Event(); release = Event(); blocks = 0
+    case.packaging.open_artifact = transfer.open
+    def hold():
+        entered.set()
+        if not release.wait(15): raise TimeoutError("Download test was not released")
+    def stream_hold():
+        nonlocal blocks
+        blocks += 1
+        if blocks == 2: hold()
+    if change == "account-stream":
+        transfer.during = stream_hold
+        monkeypatch.setattr(packaging_downloads, "RECHECK_BYTES", 4)
+    else: transfer.callback = hold
+    with case.client_for() as actor, case.client_for(3) as editor:
+        assert actor.post(item.path + "/run", json=close_body()).json()["status"] == "PACKAGED"
+        files = actor.get(item.path + "/artifacts").json()
+        chosen = next(file for file in files["items"] if file["path"] == FILE_PATH)
+        with ThreadPoolExecutor(1) as pool:
+            pending = pool.submit(actor.get, item.path + "/artifacts/" + chosen["id"], params={"proof_sha256":files["proof_sha256"]})
+            try:
+                assert entered.wait(15)
+                with case.database.engine.connect() as connection:
+                    assert connection.scalar(text("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND state LIKE 'idle in transaction%'")) == 0
+                if change.startswith("account"):
+                    assert editor.patch("/api/internal-users/" + str(case.users[0].id), json={"is_active":False}).status_code == 200
+                else:
+                    assert editor.patch(case.path, json={"material_name":"Edited while historical download is open"}).status_code == 200
+            finally: release.set()
+            if change == "account-stream":
+                with pytest.raises(RuntimeError, match="Packaging transfer interrupted"): pending.result(timeout=20)
+            else:
+                result = pending.result(timeout=20)
+                assert result.status_code == (401 if change == "account-open" else 200)
+                if change == "material-open": assert result.content == DATA
+                else: assert DATA.decode() not in result.text
+        assert editor.get(item.path).json()["status"] == "PACKAGED"
+    assert transfer.opened == transfer.closed == 1 and len(item.worker.commands) == 1

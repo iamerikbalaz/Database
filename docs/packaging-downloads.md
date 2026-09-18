@@ -40,6 +40,36 @@ uses a fresh owned namespace, no network, no host ports or database, a read-only
 root and a bounded tmpfs. Only the synthetic smoke script is mounted read-only;
 no package fixture is exported. The container is removed and its image retained.
 
-Application download authorization, the independently validating backend transport
-and operator download UI are the next integration slice. This private endpoint
-alone does not grant end-user access or mark a material as uploaded/published.
+## Application access
+
+The application exposes a bounded GET `/{execution_id}/artifacts` list under the
+material's packaging-executions route. Each entry contains a path-derived SHA-256
+file ID, display path, size and file hash. GET `/{execution_id}/artifacts/{file_id}`
+also requires the exact `proof_sha256` query parameter. Paths cannot be supplied
+directly to this public download endpoint. Only accepted PACKAGED jobs are exposed;
+unfinished/rejected executions remain unavailable here, even if the private worker
+retains some output. ADMIN and LEADERSHIP are the conservative download roles.
+
+Each read reconstructs the immutable approved report and independently verifies
+the saved worker request, dispatch, retained proof and file layout. Later content
+or policy edits do not rewrite these historical bytes or require NAS access.
+The async backend transport rejects redirects, compression, substituted hash/size
+headers, truncated/corrupt bodies and oversized errors. It streams bounded blocks,
+withholds the final block until digest completion and closes its upstream connection
+under a shield even during active cancellation. Its complete lifecycle is bounded
+to 610 seconds (or the configured lower worker timeout), without automatic retries.
+
+Current account/session/role checks happen before source IO, after opening the
+worker response, on the next available block after one second or 8 MiB, and before sending
+the last buffered block. Transactions are short and do not span network IO. A
+revocation during streaming interrupts the response; bytes already delivered cannot
+be recalled. The application also verifies streamed bytes independently of an
+injected transport implementation. Errors before headers return fixed JSON; errors
+after headers interrupt the transfer. Downloads do not create packaging attempts,
+release another operation's ownership or change publication state.
+
+The completed-job UI loads file pages explicitly and validates their execution,
+proof, path-derived IDs and bounds. Downloads use same-origin browser-managed
+attachments, keeping large ZIPs out of frontend JavaScript memory. Browser download
+progress determines completion; the UI does not infer success from clicking a link.
+Ranges/resumption are not supported in this first implementation.

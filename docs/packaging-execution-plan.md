@@ -5,8 +5,9 @@ ZIP/retention components work on actual synthetic Linux images. Recoverable work
 execution and the opt-in private HTTP service are now implemented and verified
 (packaging-execution.md and packaging-service.md). Database reservation and explicit
 action APIs are implemented; packaging-actions.md tracks their verification boundary.
-The remaining actual application/worker and UI integration completes that boundary
-without changing published state or contacting GCS/Notion.
+The actual application/worker and UI integration now completes that boundary.
+Proof-bound historical downloads are described in packaging-downloads.md. No
+published state was changed and no GCS/Notion service was contacted.
 
 ## Worker execution before exposing application jobs (implemented)
 

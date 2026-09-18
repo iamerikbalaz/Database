@@ -13,6 +13,8 @@ from app.packaging_contract import PackagingResult, PreparedPackaging, Packaging
 MAX_REQUEST_BYTES = 8 * 1024**2
 MAX_RESPONSE_BYTES = 32 * 1024**2 + 65536
 PACKAGING_CODES = frozenset({
+    "PACKAGING_DOWNLOAD_UNAVAILABLE", "PACKAGING_STORE_UNKNOWN_OPERATION", "PACKAGING_STORE_FILE_NOT_FOUND",
+    "PACKAGING_STORE_PROOF_MISMATCH", "PACKAGING_STORE_FILE_MISMATCH", "PACKAGING_STORE_REQUEST_CONFLICT",
     "PACKAGING_DISPATCH_REQUIRED", "PACKAGING_DISPATCH_INVALID", "PACKAGING_DISPATCH_ORDER", "PACKAGING_DISPATCH_STALE",
     "PACKAGING_DISPATCH_CONFLICT", "PACKAGING_EXECUTION_CLOSED",
     "PACKAGING_SERVICE_DISABLED", "PACKAGING_SERVICE_UNAVAILABLE", "PACKAGING_SERVICE_UNAUTHORIZED", "PACKAGING_SERVICE_BUSY",
@@ -38,6 +40,7 @@ class PackagingClientError(RuntimeError):
 
 
 class PackagingClient(Protocol):
+    def open_artifact(self, prepared, report, result, path): ...
     def prepare(self, payload: dict) -> PreparedPackaging: ...
     def dispatch(self, prepared: PreparedPackaging, report: dict, command: PackagingDispatch) -> DispatchedPackagingResult: ...
     def execute(self, prepared: PreparedPackaging, report: dict, *, retry: bool = False) -> PackagingResult: ...
@@ -63,6 +66,10 @@ class WorkerPackagingClient:
         if (self.enabled is not True or not isinstance(value, str) or not 32 <= len(value) <= 256
                 or not value.isascii() or not all(33 <= ord(char) <= 126 for char in value)):
             raise PackagingClientError("PACKAGING_SERVICE_DISABLED")
+
+    def open_artifact(self, prepared, report, result, path):
+        from app.packaging_download_client import open_worker_artifact
+        return open_worker_artifact(self, prepared, report, result, path)
 
     def _request(self, action, payload):
         self._enabled()

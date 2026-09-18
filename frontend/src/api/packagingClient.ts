@@ -1,5 +1,6 @@
 import { request } from "./client";
 import { boolean, record, string, uuid } from "./dto";
+import { apiUrl } from "../auth/sessionTransport";
 
 const statuses = ["RESERVED", "RUNNING", "RETRY_REQUIRED", "RECOVERY_REQUIRED", "PACKAGED", "REJECTED"] as const;
 export type PackagingStatus = typeof statuses[number];
@@ -50,6 +51,28 @@ function dispatchFromDto(value: unknown) {
       attempt: observed.attempt === null ? null : integer(observed.attempt), createdAt: text(observed.created_at, 64) } };
 }
 export const packagingClient = {
+  async files(materialId: string, job: Pick<PackagingJob, "id" | "proofSha256">, after: number | null = null) {
+    const expected = hash(job.proofSha256), offset = after === null ? 0 : integer(after);
+    if (offset > 20008) throw new Error("Invalid artifact cursor");
+    const page = record(await request(`${path(materialId)}/${uuid(job.id)}/artifacts${after === null ? "" : `?after=${offset}`}`));
+    if (uuid(page.execution_id) !== job.id || hash(page.proof_sha256) !== expected || !Array.isArray(page.items) || page.items.length > 20) throw new Error("Wrong packaged files");
+    const items = await Promise.all(page.items.map(async (value) => {
+      const item = record(value), name = text(item.path, 2048), parts = name.split("/"), id = hash(item.id);
+      if (new TextEncoder().encode(name).length > 2048 || parts.length > 16 || parts.some((part) => !part || part === "." || part === ".." || new TextEncoder().encode(part).length > 255 ||
+          [...part].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 || "\\:".includes(char))) ||
+          !(name === "metadata.json" || (parts.length === 1 && name.endsWith(".zip")) || name.startsWith("PREVIEW/")) ||
+          typeof item.size !== "number" || !Number.isSafeInteger(item.size) || item.size < 0 || item.size > 16 * 1024 ** 3) throw new Error("Invalid packaged file");
+      const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(name))), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      if (digest !== id) throw new Error("Wrong packaged file identity");
+      return { id, path: name, size: item.size, sha256: hash(item.sha256) };
+    }));
+    const nextCursor = page.next_cursor === null ? null : integer(page.next_cursor);
+    if (new Set(items.map((item) => item.id)).size !== items.length || (nextCursor !== null && (!items.length || nextCursor !== offset + items.length || nextCursor > 20008))) throw new Error("Invalid artifact page");
+    return { items, nextCursor };
+  },
+  artifactUrl(materialId: string, job: Pick<PackagingJob, "id" | "proofSha256">, fileId: string) {
+    return apiUrl(`${path(materialId)}/${uuid(job.id)}/artifacts/${hash(fileId)}?proof_sha256=${hash(job.proofSha256)}`);
+  },
   async history(materialId: string, after: string | null = null) {
     const page = record(await request(path(materialId) + (after ? `?after=${uuid(after)}` : "")));
     if (!Array.isArray(page.items) || page.items.length > 20) throw new Error("Invalid packaging history");

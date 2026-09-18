@@ -26,7 +26,10 @@ $started = $false
 function Invoke-TestCompose {
     param([string[]] $Arguments, [string] $Step)
     [void](Assert-LocalDockerContext)
-    & docker compose --project-name $testProject --env-file $testEnvFile -f $testCompose @Arguments
+    # Pytest failure tracebacks can include a fixture's database URL. Never print
+    # this run's ephemeral credential, even when a failing test echoes its URL.
+    & docker compose --project-name $testProject --env-file $testEnvFile -f $testCompose @Arguments |
+        ForEach-Object { ([string]$_).Replace([string]$testEnvironment.POSTGRES_PASSWORD, '[redacted-test-credential]') }
     Assert-LastCommandSucceeded $Step
 }
 

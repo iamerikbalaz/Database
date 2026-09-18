@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.access import AccessDependency, ADMIN, CATALOG_MANAGERS, MATERIAL_EDITORS
 from app.auth.service import database_now, lock_user_credential, revoke_all_user_sessions
+from app.company_history import append_company_change, company_snapshot
 from app.material_identity import identity_context, require_brand_idle, require_material_idle
 
 from app.db.models import (
@@ -136,6 +137,15 @@ def _apply_update(item: ModelT, values: dict[str, Any]) -> None:
         setattr(item, field_name, value)
 
 
+def _commit_company(session, company, actor_id, before, *, action="UPDATED"):
+    try:
+        append_company_change(session, company, actor_id, before, action=action)
+        return _commit(session, company)
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(409, "A record with one of the unique values already exists.") from None
+
+
 def build_resources_router(database: SessionDatabase) -> APIRouter:
     router = APIRouter(prefix="/api")
 
@@ -158,7 +168,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
     )
     def create_company(payload: CompanyCreate, access: AccessDependency) -> Company:
         with database.session() as session:
-            access.check(session, CATALOG_MANAGERS)
+            actor = access.check(session, CATALOG_MANAGERS)
             if payload.notion_page_id is not None:
                 _ensure_unique(
                     session,
@@ -169,7 +179,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 )
             company = Company(**_values(payload))
             session.add(company)
-            return _commit(session, company)
+            return _commit_company(session, company, actor.id, {}, action="CREATED")
 
     @router.get("/companies/{company_id}", response_model=CompanyRead, tags=["companies"])
     def get_company(company_id: UUID, access: AccessDependency) -> Company:
@@ -180,8 +190,10 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
     @router.patch("/companies/{company_id}", response_model=CompanyRead, tags=["companies"])
     def update_company(company_id: UUID, payload: CompanyUpdate, access: AccessDependency) -> Company:
         with database.session() as session:
-            access.check(session, CATALOG_MANAGERS)
-            company = _get_or_404(session, Company, company_id, "Company")
+            actor = access.check(session, CATALOG_MANAGERS)
+            company = session.scalar(select(Company).where(Company.id == company_id).with_for_update())
+            if company is None: raise HTTPException(404, "Company not found.")
+            before = company_snapshot(company)
             values = _values(payload, exclude_unset=True)
             if values.get("notion_page_id") is not None:
                 _ensure_unique(
@@ -193,7 +205,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                     company.id,
                 )
             _apply_update(company, values)
-            return _commit(session, company)
+            return _commit_company(session, company, actor.id, before)
 
     @router.get("/brands", response_model=list[PublishedBrandRead], tags=["brands"])
     def list_brands(

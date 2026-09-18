@@ -1114,6 +1114,10 @@ a.button {
 .folder-discovery-list li > span { overflow-wrap: anywhere; min-width: 0; }
 .folder-discovery-list .button-row { flex-shrink: 0; }
 .notion-comparison { margin-top: 1rem; }
+.company-history { margin-top: 1rem; }
+.company-history-list { list-style: none; padding: 0; }
+.company-history-list > li { border-top: 1px solid var(--border); padding-block: .8rem; }
+.company-history-list summary { overflow-wrap: anywhere; }
 .notion-values { list-style: none; padding: 0; }
 .notion-values > li { border-top: 1px solid var(--border); padding-block: .75rem; }
 .notion-values h4 { display: flex; align-items: center; gap: .75rem; margin-block: .5rem; }

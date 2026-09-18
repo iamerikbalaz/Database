@@ -39,6 +39,7 @@ Aktuální funkce a skutečně provedené testy shrnuje
 - [Spouštění, obnova a uzavření ZIP packagingu](docs/packaging-actions.md).
 - [Ověřené stahování historických balíčků](docs/packaging-downloads.md).
 - [Rezervace dávky pro GCS a ochrana materiálů](docs/gcs-upload-jobs.md).
+- [Auditní historie změn firem](docs/company-history.md).
 
 Ukládání CSV, lokální ZIP packaging a rezervace interní GCS dávky jsou implementované.
 Řízené uploady a read-only obnova mají backend a ovládání na stránce Publication

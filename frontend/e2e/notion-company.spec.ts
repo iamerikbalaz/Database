@@ -13,6 +13,8 @@ test("Notion comparison stays disabled in deployment; synthetic UI comparison ne
       name, country: "CZ", website: "https://example.invalid/", notion_page_id: notionId,
     } });
     expect(response.status()).toBe(201);
+    const created = await response.json();
+    expect((await page.request.patch(`/api/companies/${created.id}`, { headers, data: { legal_name: "Synthetic audited legal name" } })).status()).toBe(200);
   }
   const companies = await (await page.request.get("/api/companies")).json();
   const company = companies.find((item: { name: string }) => item.name === name);
@@ -52,4 +54,15 @@ test("Notion comparison stays disabled in deployment; synthetic UI comparison ne
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await panel.screenshot({ path: test.info().outputPath("notion-comparison-mobile.png") });
   expect(await (await page.request.get(path)).json()).toEqual(before);
+  const history = page.locator("details").filter({ has: page.getByText("Company change history", { exact: true }) });
+  await history.locator("summary").click();
+  await history.getByText(/^Change 2 · Company updated/).click();
+  await expect(history.getByText("Synthetic audited legal name", { exact: true })).toBeVisible();
+  const events = await (await page.request.get(path + "/history")).json();
+  expect(events.items.map((item: { version: number }) => item.version)).toEqual([2, 1]);
+  expect(events.items[0].before.legal_name).toBe(null); expect(events.items[0].after.legal_name).toBe("Synthetic audited legal name");
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await history.screenshot({ path: test.info().outputPath("company-history-mobile.png") });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await history.screenshot({ path: test.info().outputPath("company-history-desktop.png") });
 });

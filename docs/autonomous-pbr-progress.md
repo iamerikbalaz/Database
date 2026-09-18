@@ -2,6 +2,62 @@
 
 ## Latest checkpoint (2026-09-18)
 
+Notion comparison backend/UI are pushed in `6f46312` and `878bc46`. Work continues on
+company audit history in the working tree: additive migration 0020, immutable event
+model, exact whitelisted before/after snapshots, atomic company create/edit audit,
+ADMIN-only paged reads, and a lazy Company detail history panel. Existing migrations
+through 0019 are unchanged. Notion adoption is still unimplemented; 0020 reserves an
+explicitly validated event kind for that later API. Existing companies receive no
+invented baseline events. Legacy CRUD idempotency remains separate backlog work.
+
+History verification so far: **10 initial helper tests passed (6.84s)**; then
+**116 affected API/access/resource tests passed (75.66s)** and **18 history tests
+passed (12.08s)** after adding API assertions. The schema/helper-only PostgreSQL
+image passed **302 tests**, auth **27/27**, no skips, 371.85s; project
+`reawote-test-b2b15632f84844bd964bd60cebdac8f9`, manifest
+`c517aaa64160d7a5f56ec827d49d37679fb461bc8aac1669ed10556fa3f65d61`.
+Its containers/network were removed and its own volume/image retained.
+
+The following API-enabled PostgreSQL run passed 303 tests and failed one older
+brand/material lock-race fixture: lazy insertion of its newly persisted synthetic
+actor blocked the second request before it could reach the brand lock under test.
+The fixture now seeds that actor before starting its timed concurrent requests;
+no production lock/authorization check was relaxed. Run
+`reawote-test-d6789998dfb64225b15adf53abbe8ac8`, manifest
+`05bfe60a8be146d4aa5f52277f7bee4f2e404bcb5e0344c63d5d0975c127a03a`,
+370.96s, auth 27/27, no skips, four warnings; owned cleanup completed. The test runner
+now redacts its ephemeral database credential from stdout, including fixture URLs
+in failure tracebacks. Corrected full PostgreSQL verification passed **304 tests,
+359.61s**, auth **27/27**, no skips, four dependency/schema warnings, in
+`reawote-test-3ae216af4a6d4b28bc310f02682150b8`, manifest
+`2011c0c6667e197f048988982eae446785b142e8612d0e2b98aa4ecd63e0de45`.
+Owned containers/network were removed; own volume/image retained.
+
+The full Linux backend image
+`reawote-company-audit-backend-0d81b05abde641a9bbdc9cc5fd539a4a:test`, manifest
+`9036ad161b0eeae27d24f786f74bcd13b76a6594eb6055ad3ee03a0fd40f2f40`, finished with
+**1768 passed, two failed, 977.44s**, no skips, two dependency warnings. Both failures
+were old migration-head expectations; their expected chain now includes 0020.
+Both corrected tests passed locally (2.80s, 49 deselected). The complete affected
+Alembic/metadata/history suites then passed **69 Linux tests, 32.65s**, no skips,
+two dependency warnings, image
+`reawote-company-history-checks-7c7daaeda53846c7b6b44f897e3ace6c:test`, manifest
+`b47afcdb8f4ef950a6363e44323315abe9102d0cd86857cd1fed7649bbd72954`.
+Production code did not change between these runs. Both owned containers were
+automatically removed. This is targeted correction verification, not a claim of a
+single fully green 1770-test run. Company history UI: **24 targeted
+tests passed**, lint/build and E2E TypeScript passed. Full frontend: **628 passed,
+21.24s**. Updated E2E `873c4895-de28-4096-b1f9-955ccc5182bf` passed **18 fresh +
+18 retained scenarios**, 1.3m/44.2s. Real company creation/edit/history survives
+restart. Desktop and 390px history screenshots were visually inspected without
+overflow. Own cleanup/protected-resource checks passed; own volumes and synthetic
+artifacts were retained. No real Notion call or production change occurred.
+The audit slice is ready to commit; adoption API work begins separately in
+`backend/app/api/notion_adoption.py` and is not wired or verified yet.
+See `docs/company-audit-adoption-plan.md`.
+
+## Verified Notion comparison checkpoint
+
 Notion comparison backend is committed as `6f46312`: disabled-by-default reader,
 explicit source/property bindings, bounded HTTPS reads and ADMIN-only comparison
 API. It never applies values, searches for pages or writes to Notion. Company details

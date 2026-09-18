@@ -910,7 +910,7 @@ def test_postgresql_import_audit_rejects_direct_sql_mutation_and_destructive_dow
             command.downgrade(Config("alembic.ini"), "20260916_0011")
         assert client.get("/api/material-imports/" + str(batch_id)).json() == response.json()
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0019"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0020"
 
 
 def test_postgresql_import_upgrade_from_0011_and_empty_downgrade_preserve_prior_records():
@@ -1016,7 +1016,7 @@ def test_postgresql_ai_and_source_provenance_cannot_be_erased_or_rewritten(revie
         with pytest.raises(DBAPIError): command.downgrade(Config("alembic.ini"), "20260917_0012")
         assert client.get(case.path + "/content-drafts").json()["items"][0]["id"] == draft["id"]
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0019"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0020"
 
 
 def test_postgresql_ai_upgrade_from_0012_preserves_records_and_empty_downgrade():
@@ -1205,7 +1205,7 @@ def test_postgresql_ai_credential_scope_and_revocation_are_permanent(review_pg_c
                 connection.execute(text(statement), {"id": credential_id})
         with pytest.raises(DBAPIError): command.downgrade(Config("alembic.ini"), "20260917_0013")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0019"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0020"
 
 
 def test_postgresql_ai_service_upgrade_from_0013_preserves_prior_records():
@@ -1311,7 +1311,7 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
             current_revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            assert current_revision == "20260918_0019"
+            assert current_revision == "20260918_0020"
     finally:
         engine.dispose()
 
@@ -1354,7 +1354,7 @@ def test_postgresql_auth_upgrade_from_previous_head_preserves_users_without_cred
                 ).scalar_one() == 0
                 assert connection.execute(
                     text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "20260918_0019"
+                ).scalar_one() == "20260918_0020"
         finally:
             engine.dispose()
             if previous_database_url is None:
@@ -1482,6 +1482,12 @@ def _setup_prefix_race(migrated_postgresql_url: str) -> dict[str, object]:
     old_prefix = f"OLD{suffix.upper()}"
     new_prefix = f"NEW{suffix.upper()}"
     with Session(setup_engine) as session:
+        # The domain-only actor must exist before this test starts holding a brand
+        # lock. Lazy first-use actor insertion would make the second request wait
+        # on actor creation before reaching the brand lock being measured here.
+        if session.get(InternalUser, UUID(int=1)) is None:
+            session.add(InternalUser(id=UUID(int=1), display_name="Synthetic domain actor",
+                email="domain-actor@example.invalid", role="ADMIN", is_active=True))
         company = Company(name=f"Prefix race {suffix}")
         session.add(company)
         session.flush()
@@ -2706,7 +2712,7 @@ def test_postgresql_publication_history_rejects_mutation_cross_material_proof_an
         with pytest.raises(DBAPIError, match="Publication provenance exists"):
             command.downgrade(Config("alembic.ini"), "20260917_0014")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0019"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0020"
 
 
 def test_postgresql_publication_upgrade_from_0014_preserves_prior_records_and_empty_downgrade():
@@ -2860,7 +2866,7 @@ def test_postgresql_packaging_decisions_require_immutable_contiguous_same_materi
         with pytest.raises(DBAPIError, match="Packaging policy provenance exists"):
             command.downgrade(Config("alembic.ini"), "20260917_0015")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0019"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0020"
 
 
 def test_postgresql_packaging_upgrade_from_0015_preserves_prior_records_and_empty_downgrade():
@@ -2998,7 +3004,7 @@ def test_postgresql_packaging_provenance_is_append_only_and_ownership_is_preserv
         with pytest.raises(DBAPIError, match="Packaging execution provenance exists"):
             command.downgrade(Config("alembic.ini"), "20260918_0016")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0019"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0020"
 
 
 def test_postgresql_packaging_inputs_and_dispatch_cannot_commit_without_ownership_progress(review_pg_case):
@@ -3527,7 +3533,7 @@ def test_postgresql_staging_history_and_released_ownership_are_preserved(review_
         with pytest.raises(DBAPIError, match="Staging reservation provenance exists"):
             command.downgrade(Config("alembic.ini"), "20260918_0017")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0019"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0020"
 
 
 def _clone_staging_values(case, saved):
@@ -3827,7 +3833,7 @@ def test_postgresql_staging_journal_is_append_only_and_populated_downgrade_refus
         with pytest.raises(DBAPIError, match="Staging dispatch provenance exists"):
             command.downgrade(Config("alembic.ini"), "20260918_0018")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0019"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0020"
 
 
 def test_postgresql_staging_dispatch_commit_serializes_against_competing_dispatch(staging_history_pg):
@@ -4176,3 +4182,154 @@ def test_postgresql_notion_comparison_rechecks_concurrent_changes_without_holdin
         assert len(server.requests) == 2
         stored = admin.get(path).json()
         assert stored["name"] != "Synthetic česká company" and stored["website"] is None
+
+
+def _pg_company_event(case, *, field="name", value="Audited synthetic name"):
+    from app.company_history import append_company_change, company_snapshot
+    with case.database.session() as session:
+        identifier = session.get(Project, case.material.project_id).company_id
+        company = session.scalar(select(Company).where(Company.id == identifier).with_for_update())
+        before = company_snapshot(company); setattr(company, field, value)
+        event = append_company_change(session, company, case.users[0].id, before)
+        session.commit(); return event
+
+
+@pytest.mark.parametrize("operation", ["update", "delete", "truncate"])
+def test_postgresql_company_history_cannot_be_changed_or_removed(review_pg_case, operation):
+    case = review_pg_case; event = _pg_company_event(case)
+    statements = {"update": "UPDATE company_change_events SET reason='Rewrite' WHERE id=:id",
+        "delete": "DELETE FROM company_change_events WHERE id=:id", "truncate": "TRUNCATE company_change_events"}
+    with pytest.raises(DBAPIError), case.database.engine.begin() as connection:
+        connection.execute(text(statements[operation]), {"id": event.id})
+    with case.database.engine.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM company_change_events WHERE id=:id"), {"id": event.id}) == 1
+
+
+@pytest.mark.parametrize("change", ["skip-version", "wrong-after", "extra-before", "wrong-company", "false-creation", "raw-source", "unbound-key", "bad-hash"])
+def test_postgresql_company_history_rejects_invalid_evidence(review_pg_case, change):
+    from app.db.models import CompanyChangeEvent
+    from app.material_review import canonical_hash
+    case = review_pg_case; previous = _pg_company_event(case)
+    values = {column.key: getattr(previous, column.key) for column in CompanyChangeEvent.__table__.columns if column.key not in {"id", "created_at"}}
+    values.update(version=2, before_snapshot=previous.before_snapshot.copy(), after_snapshot=previous.after_snapshot.copy())
+    if change == "skip-version": values["version"] = 3
+    elif change == "wrong-after": values["after_snapshot"]["name"] = "Not the stored company"
+    elif change == "extra-before": values["before_snapshot"]["raw"] = "Unmapped data"
+    elif change == "wrong-company": values["before_snapshot"]["id"] = str(uuid4())
+    elif change == "false-creation": values["action"] = "CREATED"; values["before_snapshot"] = {}
+    elif change == "raw-source": values["source"] = {"raw": "Unmapped data"}
+    elif change == "unbound-key": values["request_key"] = uuid4()
+    values["before_hash"] = canonical_hash(values["before_snapshot"])
+    values["after_hash"] = "INVALID" if change == "bad-hash" else canonical_hash(values["after_snapshot"])
+    with pytest.raises(DBAPIError), case.database.session() as session:
+        session.add(CompanyChangeEvent(**values)); session.commit()
+
+
+def test_postgresql_concurrent_company_changes_keep_order_and_exact_before_values(review_pg_case):
+    from app.db.models import CompanyChangeEvent
+    case = review_pg_case; barrier = Barrier(2)
+    def changing(field, value):
+        barrier.wait(10); return _pg_company_event(case, field=field, value=value)
+    with ThreadPoolExecutor(2) as pool:
+        calls = [pool.submit(changing, "legal_name", "Legal synthetic company"), pool.submit(changing, "country", "CZ")]
+        changes = sorted([call.result(timeout=15) for call in calls], key=lambda item: item.version)
+    assert [change.version for change in changes] == [1, 2]
+    assert changes[0].after_snapshot == changes[1].before_snapshot
+    with case.database.session() as session:
+        company = session.get(Company, changes[0].company_id)
+        assert company.country == "CZ" and company.legal_name == "Legal synthetic company"
+        assert len(list(session.scalars(select(CompanyChangeEvent).where(CompanyChangeEvent.company_id == company.id)))) == 2
+
+
+def test_postgresql_company_0020_preserves_0019_data_and_refuses_history_loss():
+    from app.company_history import append_company_change, company_snapshot
+    from app.db.models import CompanyChangeEvent
+    with isolated_postgresql_database() as database_url, pytest.MonkeyPatch.context() as patch:
+        patch.setenv("DATABASE_URL", database_url); get_settings.cache_clear()
+        config = Config("alembic.ini"); command.upgrade(config, "20260918_0019")
+        database = Database(database_url)
+        try:
+            with database.session() as session:
+                actor = InternalUser(display_name="Synthetic history actor", email=f"{uuid4().hex}@example.invalid", role="ADMIN")
+                company = Company(name="Existing company", notion_page_id=str(uuid4()))
+                session.add_all([actor, company]); session.commit(); frozen = company_snapshot(company)
+            command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
+            with database.session() as session:
+                assert company_snapshot(session.get(Company, company.id)) == frozen
+                assert not list(session.scalars(select(CompanyChangeEvent)))
+            command.downgrade(config, "20260918_0019")
+            assert not inspect(database.engine).has_table("company_change_events")
+            command.upgrade(config, "head")
+            with database.session() as session:
+                stored = session.scalar(select(Company).where(Company.id == company.id).with_for_update())
+                before = company_snapshot(stored); stored.country = "CZ"
+                event = append_company_change(session, stored, actor.id, before); session.commit()
+                assert event.version == 1 and event.action == "UPDATED"
+            with pytest.raises(DBAPIError, match="Company history exists"):
+                command.downgrade(config, "20260918_0019")
+            with database.engine.connect() as connection:
+                assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20260918_0020"
+                assert connection.scalar(text("SELECT count(*) FROM company_change_events")) == 1
+        finally: database.dispose(); get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("change", [None, "extra", "active", "unchanged", "page", "hash", "timestamp", "missing"])
+def test_postgresql_company_adoption_evidence_is_bound_to_selected_fields_and_page(review_pg_case, change):
+    from app.company_history import append_company_change, company_snapshot
+    case = review_pg_case; linked = str(uuid4())
+    with case.database.session() as session:
+        company = session.get(Project, case.material.project_id).company
+        company.notion_page_id = linked; session.commit(); identifier = company.id
+    source = dict(page_id=linked, data_source_id=str(uuid4()), database_id=str(uuid4()),
+        last_edited_time="2026-09-18T12:00:00Z", mapping_sha256="a" * 64, observation_sha256="b" * 64,
+        selected_fields=["country"])
+    if change == "extra": source["raw"] = "Unmapped property"
+    if change == "active": source["selected_fields"] = ["is_active"]
+    if change == "unchanged": source["selected_fields"] = ["name"]
+    if change == "page": source["page_id"] = str(uuid4())
+    if change == "hash": source["mapping_sha256"] = "not-a-hash"
+    if change == "timestamp": source["last_edited_time"] = "2026-99-18T12:00:00Z"
+    if change == "missing": source.pop("database_id")
+    def record():
+        with case.database.session() as session:
+            company = session.scalar(select(Company).where(Company.id == identifier).with_for_update())
+            before = company_snapshot(company); company.country = "CZ"
+            result = append_company_change(session, company, case.users[0].id, before, action="NOTION_ADOPTED",
+                reason="Adopt reviewed country", source=source, request_key=uuid4(), request_hash="c" * 64)
+            session.commit(); return result
+    if change is None: assert record().source == source
+    else:
+        with pytest.raises(DBAPIError): record()
+        with case.database.session() as session: assert session.get(Company, identifier).country is None
+
+
+def test_postgresql_company_api_concurrent_edits_are_audited_in_commit_order(review_pg_case):
+    case = review_pg_case; barrier = Barrier(2)
+    with case.database.session() as session: identifier = session.get(Project, case.material.project_id).company_id
+    path = f"/api/companies/{identifier}"
+    with case.client_for() as first, case.client_for(3) as second:
+        def update(client, values): barrier.wait(10); return client.patch(path, json=values)
+        with ThreadPoolExecutor(2) as pool:
+            futures = [pool.submit(update, first, {"country": "CZ"}), pool.submit(update, second, {"legal_name": "Concurrent legal name"})]
+            assert [future.result(timeout=15).status_code for future in futures] == [200, 200]
+        history = first.get(path + "/history").json()["items"]
+        assert [item["version"] for item in history] == [2, 1]
+        assert history[0]["before"] == history[1]["after"]
+        assert history[0]["after"]["country"] == "CZ" and history[0]["after"]["legal_name"] == "Concurrent legal name"
+        assert {item["actor_id"] for item in history} == {str(case.users[0].id), str(case.users[3].id)}
+
+
+def test_postgresql_company_create_collision_has_one_record_and_one_audit_event(review_pg_case):
+    from app.db.models import CompanyChangeEvent
+    case = review_pg_case; barrier = Barrier(2); linked = str(uuid4())
+    with case.client_for() as first, case.client_for(3) as second:
+        def create(client):
+            barrier.wait(10); return client.post("/api/companies", json={"name": "Concurrent company", "notion_page_id": linked})
+        with ThreadPoolExecutor(2) as pool:
+            futures = [pool.submit(create, first), pool.submit(create, second)]
+            responses = [future.result(timeout=15) for future in futures]
+        assert sorted(response.status_code for response in responses) == [201, 409]
+    with case.database.session() as session:
+        company = session.scalar(select(Company).where(Company.notion_page_id == linked))
+        events = list(session.scalars(select(CompanyChangeEvent).where(CompanyChangeEvent.company_id == company.id)))
+        assert len(events) == 1 and events[0].version == 1 and events[0].action == "CREATED"

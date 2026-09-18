@@ -7,6 +7,7 @@ import { ErrorState, LoadingState } from "../components/PageState";
 import { Icon } from "../components/Icon";
 import { StatusBadge } from "../components/StatusBadge";
 import { NotionCompanyPanel } from "../components/NotionCompanyPanel";
+import { CompanyHistoryPanel } from "../components/CompanyHistoryPanel";
 
 export function CompanyDetailPage({
   id,
@@ -158,6 +159,7 @@ export function CompanyDetailPage({
         </article>
       </div>
       <NotionCompanyPanel company={company} />
+      <CompanyHistoryPanel company={company} />
       <article className="panel panel--wide">
         <div className="panel-title">
           <div>

@@ -831,6 +831,35 @@ class BrandCollection(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
 
 
+class CompanyChangeEvent(Base):
+    __tablename__ = "company_change_events"
+    __table_args__ = (
+        UniqueConstraint("company_id", "version", name="uq_company_change_events_version"),
+        UniqueConstraint("actor_id", "request_key", name="uq_company_change_events_request"),
+        CheckConstraint("version BETWEEN 1 AND 2147483647", name="ck_company_change_events_version"),
+        CheckConstraint("action IN ('CREATED', 'UPDATED', 'NOTION_ADOPTED')", name="ck_company_change_events_action"),
+        CheckConstraint("(request_key IS NULL) = (request_hash IS NULL)", name="ck_company_change_events_request"),
+        CheckConstraint("length(reason) <= 2000 AND (action != 'NOTION_ADOPTED' OR (length(reason) >= 1 AND request_key IS NOT NULL))", name="ck_company_change_events_reason"),
+        _review_hash_constraint("before_hash", "ck_company_change_events_before_hash"),
+        _review_hash_constraint("after_hash", "ck_company_change_events_after_hash"),
+        _review_hash_constraint("request_hash", "ck_company_change_events_request_hash"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("companies.id", ondelete="RESTRICT"), nullable=False, index=True)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    before_snapshot: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
+    after_snapshot: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
+    before_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    after_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
+    request_key: Mapped[UUID | None] = mapped_column(Uuid)
+    request_hash: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class CatalogAuditEvent(Base):
     __tablename__ = "catalog_audit_events"
     __table_args__ = (
@@ -1491,6 +1520,6 @@ for _catalog_type in (OnlineCategory, BrandCollection):
     event.listen(_catalog_type, "before_delete", _reject_review_history_mutation)
 
 
-for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow, MaterialAiDraft, PublicationBatch, PublicationBatchItem, MaterialPackagingPolicy, MaterialPackagingExecution, MaterialPackagingDispatch, MaterialPackagingObservation, PublicationStagingJob, PublicationStagingItem, PublicationStagingClose, PublicationStagingDispatch, PublicationStagingTransfer, PublicationStagingObservation, PublicationStagingResult):
+for _review_history_type in (CompanyChangeEvent, MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow, MaterialAiDraft, PublicationBatch, PublicationBatchItem, MaterialPackagingPolicy, MaterialPackagingExecution, MaterialPackagingDispatch, MaterialPackagingObservation, PublicationStagingJob, PublicationStagingItem, PublicationStagingClose, PublicationStagingDispatch, PublicationStagingTransfer, PublicationStagingObservation, PublicationStagingResult):
     event.listen(_review_history_type, "before_update", _reject_review_history_mutation)
     event.listen(_review_history_type, "before_delete", _reject_review_history_mutation)

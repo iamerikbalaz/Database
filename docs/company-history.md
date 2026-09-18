@@ -32,10 +32,10 @@ this route, including production leads who retain their existing local edit role
   deletion, a restore command or automatic Notion synchronization.
 - Snapshots include only company descriptive fields, saved Notion page ID and the
   existing active flag. They contain no session, credential or raw external body.
-- The schema reserves `NOTION_ADOPTED` for the separate reviewed-adoption command.
+- The schema records `NOTION_ADOPTED` for the separate reviewed-adoption command.
   Its evidence must bind the company's explicit page and only selected changed
-  descriptive fields. That command remains pending; the current comparison only
-  reads and never applies values.
+  descriptive fields. See `notion-adoption.md` for explicit selection, atomic local
+  adoption and recovery. The comparison route itself only reads and applies nothing.
 - Existing company CRUD request bodies/response shapes remain compatible. Audit
   history does not add replay protection to legacy create requests; idempotent
   legacy CRUD remains a separate backlog item.

@@ -1,6 +1,6 @@
 import { NavigationLink } from "../components/NavigationLink";
 import { useResource } from "../api/useResource";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { CompanyDetail } from "../types";
 import { ErrorState, LoadingState } from "../components/PageState";
@@ -8,6 +8,8 @@ import { Icon } from "../components/Icon";
 import { StatusBadge } from "../components/StatusBadge";
 import { NotionCompanyPanel } from "../components/NotionCompanyPanel";
 import { CompanyHistoryPanel } from "../components/CompanyHistoryPanel";
+import type { CompanyChange } from "../api/companyHistoryClient";
+import { useSession } from "../auth/context";
 
 export function CompanyDetailPage({
   id,
@@ -18,6 +20,7 @@ export function CompanyDetailPage({
   client: ApiClient;
   navigate: (path: string) => void;
 }) {
+  const [adopted, setAdopted] = useState<CompanyChange | null>(null), auth = useSession();
   const request = useCallback(() => client.getCompany(id), [client, id]);
   const {
     data: company,
@@ -158,7 +161,10 @@ export function CompanyDetailPage({
           )}
         </article>
       </div>
-      <NotionCompanyPanel company={company} />
+      {adopted?.companyId === company.id && adopted.actorId === auth?.session.user.id && <p role="status">
+        Saved company change {adopted.version}. The profile has been refreshed; company change history retains the values adopted at that time.
+      </p>}
+      <NotionCompanyPanel company={company} navigate={navigate} onApplied={(event) => { setAdopted(event); load(); }} />
       <CompanyHistoryPanel company={company} />
       <article className="panel panel--wide">
         <div className="panel-title">

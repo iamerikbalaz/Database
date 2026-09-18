@@ -12,7 +12,7 @@ function snapshot(input: unknown, companyId: string) {
   return { id: companyId, name: string(value.name), legal_name: nullable(value.legal_name), country: nullable(value.country),
     address: nullable(value.address), website: nullable(value.website), vat_id: nullable(value.vat_id), notion_page_id: nullable(value.notion_page_id), is_active: boolean(value.is_active) };
 }
-function event(input: unknown, companyId: string) {
+export function companyChange(input: unknown, companyId: string) {
   const value = record(input), before = record(value.before);
   if (uuid(value.company_id) !== companyId || !["CREATED", "UPDATED", "NOTION_ADOPTED"].includes(string(value.action))
       || typeof value.version !== "number" || !Number.isSafeInteger(value.version) || value.version < 1 || value.version > 2147483647) throw new Error("Invalid company history event");
@@ -27,11 +27,11 @@ function event(input: unknown, companyId: string) {
   return { id: uuid(value.id), companyId, actorId: uuid(value.actor_id), version: value.version, action: value.action as "CREATED" | "UPDATED" | "NOTION_ADOPTED",
     before: previous, after: current, changed, beforeHash: digest(value.before_sha256), afterHash: digest(value.after_sha256), reason: string(value.reason), createdAt };
 }
-export type CompanyChange = ReturnType<typeof event>;
+export type CompanyChange = ReturnType<typeof companyChange>;
 export function companyHistoryPage(input: unknown, companyId: string, after: string | null = null) {
   const value = record(input); companyId = uuid(companyId);
   if (uuid(value.company_id) !== companyId || !Array.isArray(value.items) || value.items.length > 20) throw new Error("Invalid company history page");
-  const items = value.items.map((item) => event(item, companyId)), nextCursor = value.next_cursor === null ? null : uuid(value.next_cursor);
+  const items = value.items.map((item) => companyChange(item, companyId)), nextCursor = value.next_cursor === null ? null : uuid(value.next_cursor);
   if (new Set(items.map((item) => item.id)).size !== items.length || items.some((item, index) => item.id === after || index > 0 && items[index - 1].version !== item.version + 1)
       || nextCursor && (items.length !== 20 || nextCursor !== items.at(-1)?.id || nextCursor === after)) throw new Error("Invalid company history ordering");
   return { items, nextCursor };

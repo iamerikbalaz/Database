@@ -2,6 +2,46 @@
 
 ## Latest checkpoint (2026-09-18)
 
+Company history is committed/pushed as `27b1e468ac8d846e944a259ff8480a411fb1944b`.
+Migrations through 0020 are now immutable. Reviewed local Notion adoption,
+actor/key-bound exact replay and read-only recovery are committed as `c84c85a`.
+The field selection/reason/confirmation UI is implemented and verified, including
+exact retry and read-only recovery. Main was reverified unchanged at `88a1f99`.
+No real Notion write/read or production
+migration occurred. Details and boundaries: `docs/notion-adoption.md`.
+
+Adoption verification: initial **104 affected API/preview/history tests passed,
+100.91s**; extended adoption/access checks **73 passed, 83.43s** (two dependency
+warnings each). Actual PostgreSQL: **314 passed, 376.19s**, auth **27/27**, no skips,
+four dependency/schema warnings. Project `reawote-test-aed8b4c8babb44229c73977fdc049e6a`,
+manifest `748de992f8cdf0042aca729a902f4b1117d1c0c24f6c989a1c5f922870cd963b`.
+Owned containers/network removed; own volume/image retained. Includes ten new
+concurrent adoption cases against independent readers and real application APIs.
+Full Linux backend: **1823 passed, 1035.38s**, no skips, two dependency warnings,
+in nonroot/no-network immutable image
+`reawote-notion-adoption-backend-0b80e39dd1c54080b3a1607bf96f7be0:test`, image ID
+`7d281e202877b296e7f349dd321819bf028dd3780fa2665295385b1ce1446a2f`.
+Its owned container was automatically removed; its image remains.
+
+Frontend: **68 focused tests passed**, lint/build passed after correcting a default
+UUID parameter's inferred TypeScript type. Full frontend: **662 passed, 21.56s**,
+lint/build passed. The later E2E typecheck exposed missing Vite ambient types while
+checking the newly shared adoption request type; its configuration now includes
+those browser types. A subsequent UI-only check also validates every mapped
+pre-change value in adoption responses. All **53 affected client/component tests
+passed**, 3.41s, including two new regressions; lint/build and E2E TypeScript passed.
+E2E `c25476f1-2c0c-4f25-95af-c18d9658e53c`: **18 fresh + 18 retained passed**,
+1.3m/44.7s. This verifies actual disabled adoption rejection, real persisted company
+history, and explicitly intercepted synthetic UI adoption/recovery with an unchanged
+real company. Desktop and 390px adoption screenshots were visually inspected with
+no overflow. Own cleanup/protected-resource checks passed; own volumes and synthetic
+artifacts retained. Keep browser synthetic success separate from real enabled-Notion
+integration verification, which remains unperformed.
+The next bounded sequence is in `docs/resource-audit-plan.md`: ordinary resource
+history, then explicit reversible material archive with no source/cloud deletion.
+
+## Verified company history checkpoint
+
 Notion comparison backend/UI are pushed in `6f46312` and `878bc46`. Work continues on
 company audit history in the working tree: additive migration 0020, immutable event
 model, exact whitelisted before/after snapshots, atomic company create/edit audit,

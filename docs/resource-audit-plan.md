@@ -1,0 +1,52 @@
+# Remaining resource history and material lifecycle
+
+## Next small slice: ordinary resource changes
+
+Company creation/edit/adoption now has ordered immutable evidence. The remaining
+ordinary brand, project, internal-user and material create/PATCH routes still need
+equivalent before/after history. Existing specialized material review, identity,
+content, import, AI and publication histories remain authoritative for those
+operations; do not relabel partial coverage as a complete system log.
+
+Add a new migration after immutable 0020 for append-only resource change events.
+Use explicit target foreign keys, an actor foreign key, a per-target version,
+whitelisted before/after snapshots and their digests. Each event must reference
+exactly one target of its declared kind. Preserve target/actor references and reject
+history UPDATE/DELETE/TRUNCATE. Do not invent events for existing rows. Destructive
+downgrade must refuse when evidence exists.
+
+Integrate each ordinary write with its event in the same transaction, under the
+existing access/domain lock order. Ignore genuine no-ops. Never snapshot password
+hashes, session tokens, credentials, worker bodies or arbitrary relationship graphs.
+Use explicit ADMIN-only paged reads and a reusable history UI. Add one resource at
+a time with role, rollback, uniqueness and actual PostgreSQL concurrency coverage.
+Credential provisioning/reset and account self-service actions need separate safe
+event metadata; do not claim their coverage from an ordinary user PATCH event.
+
+## Following slice: reversible material archive
+
+The handoff names soft-delete/restore without defining cascade or ownership rules.
+Choose the conservative first scope: explicit ADMIN-only archive and restore of
+individual PBR database records. Preserve every row, technical identity, number,
+source folder, immutable history, package and cloud reference. No filesystem or
+external deletion is implied. Companies/brands/projects are separate later scopes;
+their existing active flag is not a hidden cascade-delete command.
+
+An archive command needs a current local/version binding, reason, acknowledgment
+and an actor-scoped idempotency key. Reject published materials and active or
+unresolved identity/packaging/staging operations. Archive and restore invalidate
+current decisions; restoring does not reinstate old approvals or assert that NAS
+files still exist. Require a new source/technical/content review before publication.
+
+Archived records must be excluded from ordinary lists and rejected by new domain,
+worker and service-credential operations. ADMIN gets explicit bounded archive
+listing/history/restore. Historical publication/export and accepted-package evidence
+must remain readable under their existing permissions. Audit all access paths,
+including resumed jobs, batch validation, preview downloads, service credentials,
+catalog invalidation and explicit replay, before enabling the feature.
+
+Verification must race archive against edits, source IO, reservations and account
+revocation on real PostgreSQL. Check fresh/prior migration and rollback guards,
+identity/number preservation, immutable historical downloads and fresh/retained
+browser behavior. Production migrations, source cleanup and cloud deletion remain
+outside this development run's authorization.

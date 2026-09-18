@@ -40,13 +40,15 @@ Aktuální funkce a skutečně provedené testy shrnuje
 - [Ověřené stahování historických balíčků](docs/packaging-downloads.md).
 - [Rezervace dávky pro GCS a ochrana materiálů](docs/gcs-upload-jobs.md).
 - [Auditní historie změn firem](docs/company-history.md).
+- [Řízené převzetí údajů firmy z Notion](docs/notion-adoption.md).
 
 Ukládání CSV, lokální ZIP packaging a rezervace interní GCS dávky jsou implementované.
 Řízené uploady a read-only obnova mají backend a ovládání na stránce Publication
 ([postup](docs/gcs-staging-controls.md)); ověřené běhy uvádí průběžný checkpoint.
 Notion má konfigurovatelné čtení výslovně propojené firmy a porovnání pro ADMIN
 ([konfigurace a ovládání](docs/notion-reader-plan.md)); ve výchozím stavu je vypnuté.
-Převzetí změn s auditní historií, synchronizace a potvrzení online importu zbývají.
+Převzetí vybraných údajů ukládá místní změnu a auditní historii atomicky.
+Automatická synchronizace a potvrzení online importu zbývají.
 GCS transport má offline kontraktové testy; živé GCS ani Notion nebyly ověřeny.
 Kontroly souborů pracují přes nakonfigurovaný worker; změny identity jsou ve
 výchozí konfiguraci vypnuté a vyžadují nastavení podle provozního kontraktu.

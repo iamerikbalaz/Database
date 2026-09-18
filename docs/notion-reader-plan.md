@@ -102,8 +102,9 @@ are rendered as text, including websites; the panel does not follow property lin
 
 Each new read clears the previous result. Closing the panel, changing the company,
 local record timestamp or signed-in actor discards pending UI results. Failures show
-fixed guidance and never trigger automatic retries. No apply/save control exists in
-this slice; durable audit and conflict-checked adoption remain separate work.
+fixed guidance and never trigger automatic retries. The separate reviewed adoption
+controls are documented in `notion-adoption.md`; they preserve uncertain commands
+and record atomic local changes in immutable company history.
 Browser verification checks the real disabled API and retained company link, then
 an explicitly intercepted synthetic comparison UI. That second phase is a frontend
 contract test, not live Notion or enabled-deployment integration verification.
@@ -122,4 +123,5 @@ contract test, not live Notion or enabled-deployment integration verification.
 - [Request limits](https://developers.notion.com/reference/request-limits): honor
   `Retry-After` for 429/529; no fixed assumed account request budget.
 
-Production mapping, live verification and synchronization remain unfinished.
+Production mapping, live verification and an agreed automatic synchronization
+policy remain unfinished. Manual reviewed local adoption is implemented separately.

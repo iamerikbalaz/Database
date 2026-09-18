@@ -1,5 +1,12 @@
 # Authentication and Material Done browser E2E
 
+Notion company coverage uses a dedicated synthetic company. The real deployment
+stays explicitly disabled: its comparison API returns 503 without remote IO, and
+the linked page ID survives restart. A separate phase in that browser scenario
+intercepts only integration status/comparison responses to exercise the responsive
+comparison display. It asserts the persisted company is unchanged. These synthetic
+UI responses do not verify a live Notion account or an enabled deployment.
+
 Playwright test ověřuje skutečný řetězec Vite frontend → FastAPI backend →
 PostgreSQL → worker. Mock API se nepoužívá. Test přes skutečné API založí firmu,
 publikované značky, projekt, procesora a osm materiálů a v Chromium provede:

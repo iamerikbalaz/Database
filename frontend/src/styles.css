@@ -1113,4 +1113,12 @@ a.button {
 .folder-discovery-list li { display: flex; justify-content: space-between; align-items: center; gap: 1rem; border-bottom: 1px solid #dce2dc; padding-block: .75rem; }
 .folder-discovery-list li > span { overflow-wrap: anywhere; min-width: 0; }
 .folder-discovery-list .button-row { flex-shrink: 0; }
+.notion-comparison { margin-top: 1rem; }
+.notion-values { list-style: none; padding: 0; }
+.notion-values > li { border-top: 1px solid var(--border); padding-block: .75rem; }
+.notion-values h4 { display: flex; align-items: center; gap: .75rem; margin-block: .5rem; }
+.notion-values dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.notion-values dt { font-size: .85rem; color: var(--muted); }
+.notion-values dd { margin: .4rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .notion-values dl { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 600px) { .folder-discovery-list li { align-items: flex-start; flex-direction: column; } }

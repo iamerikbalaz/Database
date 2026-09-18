@@ -1,7 +1,9 @@
 # GCS staging transport (not a complete publication feature)
 
 `backend/app/gcs_client.py` implements the real HTTPS JSON API transport. It is
-disabled by default and is not exposed by an application route yet. Tests use an
+disabled by default. Explicit job execution and read-only reconciliation now use
+the adapter through the [staging runtime](gcs-upload-jobs.md) and
+[Publication controls](gcs-staging-controls.md). Tests use an
 in-memory HTTP transport with synthetic data; no live bucket or credential was used.
 There is no fake production success path.
 

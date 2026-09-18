@@ -2,7 +2,7 @@
 
 ## Latest checkpoint (2026-09-18)
 
-Notion comparison is implemented in the working tree: disabled-by-default reader,
+Notion comparison backend is committed as `6f46312`: disabled-by-default reader,
 explicit source/property bindings, bounded HTTPS reads and ADMIN-only comparison
 API. It never applies values, searches for pages or writes to Notion. Company details
 now have lazy comparison controls with fixed error guidance, plain-text values and
@@ -18,8 +18,12 @@ Project `reawote-test-f58dcea5f1c0434bb9f93c3779a7d975`, manifest digest
 `6a10c5f29b2c6070bb1881c43d03e984f32191d5b7bf78dea305b2c2cf5ec03f`.
 Includes concurrent company/link/account changes, the process read slot, and checks
 for transactions held across IO. Owned containers/network were removed; own volume
-and image retained. Full Linux backend verification is still running in isolated
-nonroot/no-network image `reawote-notion-backend-e20bc85a266a429a81c194329bf49b56:test`.
+and image retained. Full isolated Linux backend: **1752 passed, 967.90s**, no skips,
+two dependency warnings, nonroot/no-network image
+`reawote-notion-backend-e20bc85a266a429a81c194329bf49b56:test`, manifest digest
+`728da96c0a77a674e01f5b3eea552dd0ddc052cb4508ad089002fcc5f7e5fd69`.
+Its container was automatically removed. Default Compose settings were separately
+checked: Notion disabled, empty mapping. Main was freshly reverified at `88a1f99`.
 UI focused tests: **53 passed**; initial lint rejected a control-character regexp,
 replaced with explicit character-code checks. Final lint/build and E2E TypeScript
 passed. Full frontend: **604 passed, 19.69s**. Isolated E2E

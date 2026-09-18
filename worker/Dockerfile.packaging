@@ -1,5 +1,5 @@
-# Explicit opt-in runtime for verified packaging; not used by the HTTP worker yet.
-FROM python:3.13-slim-trixie
+# Explicit opt-in service. The ordinary worker image remains unchanged.
+FROM python:3.13-slim-trixie AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -12,8 +12,17 @@ RUN apt-get update \
 WORKDIR /app
 COPY pyproject.toml ./
 COPY app ./app
-COPY tests ./tests
 COPY app/packaging-policy.xml /etc/ImageMagick-7/policy.xml
+RUN pip install --no-cache-dir "."
+
+# Private container networking only; no host port is published by this image.
+# Configure one instance per set of private roots, with a read-only source mount.
+USER 65532:65532
+CMD ["python", "-m", "uvicorn", "app.packaging_api:app", "--host", "0.0.0.0", "--port", "8081", "--workers", "1", "--no-access-log", "--no-proxy-headers", "--limit-concurrency", "8", "--timeout-keep-alive", "5"]
+
+FROM runtime AS test
+USER root
+COPY tests ./tests
 RUN pip install --no-cache-dir ".[dev]"
 
 # A read-only root, no network, dropped capabilities and bounded private writable

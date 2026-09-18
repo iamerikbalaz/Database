@@ -80,9 +80,27 @@ work requires an explicit retry, and completed results recover with NAS offline.
 The complete required-runtime worker run
 `reawote-packaging-1e69c0b534a94f54ab7c542ec2874ede` passed **627 tests in 279.97s**,
 no skips, with the two existing dependency deprecations. Owned cleanup passed;
-only its test image is retained. This execution slice is ready for commit.
-The next slice is the opt-in private packaging service, followed by database
-ownership and application jobs; these are not covered by that completed run.
+only its test image is retained. This execution slice is committed and pushed as
+`e1d108e`.
+
+The opt-in private packaging service (`docs/packaging-service.md`) is implemented
+separately from the ordinary worker. Its first 29 API cases passed in 27.55s,
+including actual execution and lost-response recovery, strict service-token/body
+gates and concurrency. Dockerfile.packaging now has a runtime target and a default
+test target. The runtime-only image
+`reawote-packaging-service-01a0a64d-20260918:runtime` passed actual Uvicorn/HTTP
+smoke: synthetic rectangular conversion, retained proof verification, restart and
+exact replay with NAS offline. It ran without network, ports or database; only
+the synthetic smoke script was mounted read-only. The 11 offline runner safety
+cases also passed. Complete worker regression
+`reawote-packaging-73b27a2d799c40659379f478b8d489b6` passed **656 tests in 306.37s**,
+no skips, with the two existing dependency deprecations. Owned cleanup passed.
+The production-image smoke also exported a synthetic request/report/result for
+independent backend contract tests; no credentials or source metadata are included.
+An initial extraction from an already-stopped tmpfs failed; direct export to the
+owned fixture succeeded in a subsequent passing smoke. These API/image changes
+are ready for commit. Backend contract/client work is in progress and not yet
+verified. Database ownership, application jobs and artifact download remain next.
 
 Next: guarded worker execution/recovery followed by durable database jobs/attempts
 with current approval/source checks and operator UI (`docs/packaging-execution-plan.md`). GCS/Notion,

@@ -135,11 +135,15 @@ class StagedInputs:
     _fd: int
     _entries: tuple[tuple[str, int, str], ...]
     _live: list[bool]
+    _workspace_root: Path
+    _storage_fd: int
 
     @contextmanager
-    def open_input(self, path: str):
+    def open_input(self, path: str, *, max_seconds: float = 120):
         """Yield one read-only descriptor; reject arbitrary or replaced inputs."""
         _check(self._live[0], "PACKAGING_STAGE_CLOSED")
+        _check(type(max_seconds) in {int, float} and 0 < max_seconds <= 120)
+        deadline = time.monotonic() + max_seconds
         expected = next((entry for entry in self._entries if entry[0] == path), None)
         _check(expected is not None, "PACKAGING_INPUT_NOT_PLANNED")
         parts = tuple(path.split("/"))
@@ -151,7 +155,7 @@ class StagedInputs:
                 before = os.fstat(fd)
                 _check(stat.S_ISREG(before.st_mode) and before.st_nlink == 1 and stat.S_IMODE(before.st_mode) == 0o400
                     and before.st_uid == os.geteuid() and before.st_size == expected[1], "PACKAGING_STAGED_INPUT_CHANGED")
-                _check(_read_digest(fd, expected[1], time.monotonic() + 120) == expected[2], "PACKAGING_STAGED_INPUT_CHANGED")
+                _check(_read_digest(fd, expected[1], deadline) == expected[2], "PACKAGING_STAGED_INPUT_CHANGED")
                 os.lseek(fd, 0, os.SEEK_SET)
             except OSError:
                 raise PackagingStageError("PACKAGING_STAGED_INPUT_CHANGED") from None
@@ -203,7 +207,7 @@ def stage_packaging_inputs(materials_root: Path, parts: tuple[str, ...], report:
                     fresh()
                     _check(_identity(os.stat(name, dir_fd=storage, follow_symlinks=False)) == owned)
                     live = [True]
-                    try: yield StagedInputs(operation_id, plan, inputs, tuple((path, entries[path]["size"], entries[path]["sha256"]) for path in sorted(required)), live)
+                    try: yield StagedInputs(operation_id, plan, inputs, tuple((path, entries[path]["size"], entries[path]["sha256"]) for path in sorted(required)), live, workspace_root, storage)
                     finally: live[0] = False
             finally:
                 os.close(workspace)

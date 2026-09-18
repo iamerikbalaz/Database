@@ -209,3 +209,10 @@ def test_stage_has_explicit_byte_and_time_budgets(source, limits):
     with pytest.raises(PackagingStageError):
         with stage(source, **limits): pass
     assert list(source[1].iterdir()) == []
+
+
+def test_consumer_can_tighten_input_hashing_to_its_remaining_deadline(source, monkeypatch):
+    with stage(source) as staged:
+        clock = iter((0, 2)); monkeypatch.setattr(packaging_stage.time, "monotonic", lambda: next(clock))
+        with pytest.raises(PackagingStageError, match="TIME_LIMIT"):
+            with staged.open_input("metadata.txt", max_seconds=1): pass

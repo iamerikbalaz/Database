@@ -15,32 +15,22 @@ passed. Backend/migration 0015 are committed and pushed as `dfe66c5`; migrations
 through 0015 are now immutable. The tested UI is committed as `7337ac0` and the
 pure packaging planner as `dec964e`; all three commits are pushed to the owned
 branch. `origin/main` was rechecked on 2026-09-18 and remains `88a1f99`.
-A subsequent pure packaging planner passed 31 tests on Windows and Linux.
-Private staging now copies approved inputs through anchored read-only descriptors,
-checks fresh inventory and copied bytes, freezes copies and cleans only its own
-workspace. The updated complete Linux worker suite passed 414 tests (32.52s);
-after a final fixed-code error adjustment, all 62 planner/staging cases passed
-(including two new cases). No skips; the full run reports two dependency
-deprecation warnings. Details and process-crash recovery limits are in
-`docs/packaging-staging.md`; staging is committed/pushed as `4656754`.
-Actual bounded ImageMagick conversion is now implemented in an opt-in runtime:
-complete worker suite `reawote-packaging-76112782f8c049c3823dea7371808a58` passed
-456 tests (62.02s, no skips, two dependency deprecations). After final concurrency
-and input-bit-depth checks, all 41 conversion tests passed (31.42s, no skips or
-warnings); 11 offline runner isolation tests passed. See
-`docs/packaging-conversion.md` for commands, tested package/policy versions and
-limits. The initial conversion run failed 12 cases because a one-image policy
-also blocked ImageMagick's internal working images and some policy test assertions
-assumed a specific diagnostic. The corrected bounded policy and independent
-single-frame decoder passed actual conversions and forbidden-input tests.
-Conversion is committed/pushed as `1e86f63`. The streaming ZIP writer now verifies
-exact layout, CRC, hashes, timestamps, metadata bytes and bounded reads/writes.
-All 35 new ZIP tests plus 62 planner/staging cases passed (97 total, 0.86s,
-no skips/warnings); a deliberately corrupted deflate stream exposed a raw zlib
-exception in the first run, now mapped to a fixed code. See `docs/packaging-zip.md`.
-Resolution assembly, durable packaging jobs and upload execution remain unfinished.
-Continue with assembly and artifact lifetime/cleanup, then job recovery; older
-entries below are history.
+Subsequent local packaging now completes approved input staging, actual bounded
+ImageMagick conversion, all planned resolutions, web manifest and verified ZIPs.
+The final complete worker suite in
+`reawote-packaging-e962d1e639424f4a88f3b24431408e7f` passed **516 tests in 127.99s**,
+with no skips and two existing dependency deprecations. It includes 31 planner,
+32 staging, 41 conversion, 35 ZIP and 23 complete assembly cases. The offline
+packaging runner isolation suite also passed all 11 cases. The build ran as
+UID 65532 without network, host mounts, databases or ports, with bounded tmpfs;
+owned cleanup succeeded. Only its own test image is retained.
+Staging `4656754`, conversion `1e86f63` and ZIP writer `5fb97a0` are pushed;
+the tested complete assembly is the current slice. See `docs/packaging-assembly.md`
+and its related component documents for commands, limits and verification scope.
+Durable artifact retention/job recovery, first-policy persistence, GCS/Notion,
+online-import confirmation and the remaining catalog/history/operations work are
+unfinished. Continue with durable packaging storage and recovery; older entries
+below are history. No packaging HTTP endpoint, live upload or deployment exists.
 
 - User authorized implementation, new migrations, isolated test resources,
   commits, own remote branches and a draft PR on 2026-09-15.

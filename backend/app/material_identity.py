@@ -3,6 +3,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select, text
 
 from app.db.models import MaterialFileOperation, MaterialPackagingExecution, MaterialPackagingState, PACKAGING_ACTIVE_STATUSES
+from app.db.models import PublicationStagingItem, PublicationStagingOwner
 from app.material_review import material_context
 
 ACTIVE_STATUSES = ("RUNNING", "RECOVERY_REQUIRED")
@@ -30,6 +31,13 @@ def require_folder_idle(session, folder, *, packaging_execution_id=None):
         a, b = folder.casefold(), path.casefold()
         if a == b or a.startswith(b + "/") or b.startswith(a + "/"):
             raise HTTPException(409, {"code": "MATERIAL_OPERATION_ACTIVE", "message": "This source tree belongs to an active packaging execution."})
+    staging_paths = session.scalars(select(PublicationStagingItem.folder_path).join(PublicationStagingOwner,
+        (PublicationStagingOwner.job_id == PublicationStagingItem.job_id)
+        & (PublicationStagingOwner.material_id == PublicationStagingItem.material_id)).where(PublicationStagingOwner.active.is_(True)))
+    for path in staging_paths:
+        a, b = folder.casefold(), path.casefold()
+        if a == b or a.startswith(b + "/") or b.startswith(a + "/"):
+            raise HTTPException(409, {"code": "MATERIAL_OPERATION_ACTIVE", "message": "This source tree belongs to an active staging reservation."})
 
 
 def identity_context(material):
@@ -37,6 +45,9 @@ def identity_context(material):
 
 
 def require_material_idle(session, material_id, *, packaging_execution_id=None):
+    if session.scalar(select(PublicationStagingOwner.job_id).where(
+            PublicationStagingOwner.material_id == material_id, PublicationStagingOwner.active.is_(True)).limit(1)):
+        raise HTTPException(409, {"code": "MATERIAL_OPERATION_ACTIVE", "message": "Close or complete the active staging job before changing this material."})
     if session.scalar(select(MaterialFileOperation.id).where(
             MaterialFileOperation.material_id == material_id,
             MaterialFileOperation.status.in_(ACTIVE_STATUSES)).limit(1)):
@@ -52,6 +63,11 @@ def require_material_idle(session, material_id, *, packaging_execution_id=None):
 
 
 def require_brand_idle(session, brand_id):
+    if session.scalar(select(PublicationStagingOwner.job_id).join(PublicationStagingItem,
+            (PublicationStagingOwner.job_id == PublicationStagingItem.job_id)
+            & (PublicationStagingOwner.material_id == PublicationStagingItem.material_id)).where(
+            PublicationStagingItem.brand_id == brand_id, PublicationStagingOwner.active.is_(True)).limit(1)):
+        raise HTTPException(409, {"code": "BRAND_OPERATION_ACTIVE", "message": "Close or complete active staging jobs before editing this brand."})
     if session.scalar(select(MaterialFileOperation.id).where(
             or_(MaterialFileOperation.source_brand_id == brand_id, MaterialFileOperation.target_brand_id == brand_id),
             MaterialFileOperation.status.in_(ACTIVE_STATUSES)).limit(1)):

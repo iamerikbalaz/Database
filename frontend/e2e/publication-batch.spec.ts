@@ -119,6 +119,32 @@ test("approved CSV batch, exact retry and frozen download survive retained resta
     await acknowledge("Close the unsent synthetic reservation");
     await packaging.getByRole("button", { name: "Close packaging job", exact: true }).click();
     await expect(packaging.getByRole("heading", { name: "Closed", exact: true })).toBeVisible();
+    // Review and reserve the real retained package without any cloud connection.
+    const ready = await (await page.request.get(path + "/packaging-executions/" + jobs.items[0].id)).json();
+    const batch = await (await page.request.get("/api/publication-batches/" + ready.batch_id)).json();
+    const selection = { job_id: crypto.randomUUID(), expected_snapshot_hash: batch.snapshot_hash,
+      expected_csv_sha256: batch.csv_sha256, packages: [{ material_id: fixture.id, execution_id: ready.id,
+        expected_observation_id: ready.last_observation_id, expected_proof_sha256: ready.proof_sha256 }] };
+    const stagingPreview = await page.request.post("/api/publication-batches/" + batch.id + "/staging-preview", { headers, data: selection });
+    expect(stagingPreview.status()).toBe(200);
+    const plan = await stagingPreview.json();
+    expect(plan.transfer_enabled).toBe(false); expect(plan.importer_compatible).toBe(false);
+    expect(plan.bucket_name).toBe("synthetic-reawote-staging"); expect(plan.object_count).toBeGreaterThan(2);
+    const reservation = { ...selection, batch_id: batch.id, idempotency_key: crypto.randomUUID(),
+      expected_plan_sha256: plan.plan_sha256, reason: "Reserve synthetic staging without cloud IO" };
+    const staged = await page.request.post("/api/publication-staging-jobs", { headers, data: reservation });
+    expect(staged.status()).toBe(201); const reserved = await staged.json();
+    expect(reserved.status).toBe("RESERVED"); expect(reserved.plan_sha256).toBe(plan.plan_sha256);
+    const replayed = await page.request.post("/api/publication-staging-jobs", { headers, data: reservation });
+    expect(replayed.status()).toBe(201); expect(await replayed.json()).toEqual(reserved);
+    expect((await page.request.patch(path, { headers, data: { material_name: "Blocked during staging" } })).status()).toBe(409);
+    const closure = { idempotency_key: crypto.randomUUID(), expected_plan_sha256: plan.plan_sha256,
+      reason: "Close synthetic staging before dispatch" };
+    const stagingPath = "/api/publication-staging-jobs/" + reserved.id;
+    const closed = await page.request.post(stagingPath + "/close", { headers, data: closure });
+    expect(closed.status()).toBe(200); const closedJob = await closed.json(); expect(closedJob.status).toBe("CLOSED");
+    const closeReplay = await page.request.post(stagingPath + "/close", { headers, data: closure });
+    expect(closeReplay.status()).toBe(200); expect(await closeReplay.json()).toEqual(closedJob);
     // Current content changes after preparation; the already saved artifact must not.
     const current = await (await page.request.get(path + "/content")).json();
     expect((await page.request.post(path + "/content", { headers, data: { idempotency_key: crypto.randomUUID(), expected_revision: current.revision,
@@ -130,6 +156,14 @@ test("approved CSV batch, exact retry and frozen download survive retained resta
   expect(packagingHistory.items.map((item: { status: string }) => item.status).sort()).toEqual(["PACKAGED", "REJECTED"]);
   expect(packagingHistory.items.find((item: { status: string }) => item.status === "PACKAGED").proof_sha256).toMatch(/^[a-f0-9]{64}$/);
   const summary = history.items[0];
+  const stagingHistory = await (await page.request.get("/api/publication-staging-jobs")).json();
+  expect(stagingHistory.items).toHaveLength(1);
+  const staging = await (await page.request.get("/api/publication-staging-jobs/" + stagingHistory.items[0].id)).json();
+  expect(staging.status).toBe("CLOSED"); expect(staging.batch_id).toBe(summary.id);
+  expect(staging.importer_compatible).toBe(false); expect(staging.materials).toHaveLength(1);
+  expect(staging.materials[0].packaging_proof_sha256).toBe(
+    packagingHistory.items.find((item: { status: string }) => item.status === "PACKAGED").proof_sha256);
+  expect(staging.close.reason).toBe("Close synthetic staging before dispatch");
   await page.getByRole("button", { name: "Load latest batches", exact: true }).click();
   await page.getByRole("button", { name: `Open batch ${summary.id}`, exact: true }).click();
   const saved = page.getByRole("group", { name: "Saved CSV batch", exact: true });

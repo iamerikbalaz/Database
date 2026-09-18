@@ -62,10 +62,39 @@ waited for preview locks and invalidated the next preview. Fresh/prior schema ch
 also passed; there is no new migration. Owned cleanup completed; only its exact
 `reawote-test-4fd7fae12cc946b5867b7ab99b9511a5_postgres_data` volume and test images remain.
 
-Next: durable reservation/ownership for staging jobs, then dispatch/recovery and
-manual-import workflow (`docs/gcs-upload-jobs.md`). No durable upload reservation,
-upload API, actual importer mapping or GCS UI is implemented yet. The older checkpoints below record historical test counts
-and intermediate limitations; this section is the current download checkpoint.
+Durable staging reservations, paginated history and atomic unsent closure are now
+implemented with additive migration 0018 (`docs/gcs-upload-jobs.md`). Each job freezes
+the reviewed complete plan and accepted package observations. Current ADMIN/LEADERSHIP
+authorization and CSRF are enforced. Exact concurrent retries share one durable job;
+owners exclude material/brand/folder edits and other application operations. Direct
+PostgreSQL claims on the same material are protected in both directions. Deferred
+constraints reject partial reservation/release, immutable provenance rejects mutation,
+and populated downgrade refuses data loss. Closing releases owners without cloud IO.
+
+Final reservation verification for 0018: **19 reservation API tests** (52.89s), **51 Alembic/metadata
+tests** (25.01s), and **224 real PostgreSQL tests** (222.16s), auth gate **27/27**, no skips,
+three existing warnings. PostgreSQL project `reawote-test-f3ea832532904c9eb3065ffd13733bde`
+completed owned cleanup; its exact `..._postgres_data` volume remains. Fresh/prior
+upgrade, empty downgrade/re-upgrade, Alembic parity, append-only guards, deferred
+constraints and direct identity/packaging races passed. The final SQLite-test-only
+guard was verified after that PostgreSQL image; it leaves PostgreSQL behavior unchanged.
+The full Linux backend passed **1534 tests in 700.70s**, no skips, two existing
+dependency warnings; image `reawote-staging-reservation-364cc99017c14efb979985523bfbcb08:test`,
+manifest digest `f26faf32e4bd7da5741691da23cb3d406cddadc027a9912afac40eaa8c02819c`.
+It ran as read-only UID 65532 without network, host mounts, ports or a database, with
+bounded tmpfs and automatic container removal. The image remains.
+E2E `f2e11caf-c82d-4487-abe6-7dbc5044b1f0` passed **17 fresh (1.2m) + 17 retained (42.5s)**
+scenarios: actual accepted package preview, exact reservation replay, active edit
+rejection, exact closure replay and frozen staging history after edits/restart. E2E
+pins a synthetic destination with GCS disabled and no token; no live GCS operation
+was tested. Owned cleanup and protected-resource checks passed; explicitly owned
+test volumes and successful UI artifacts remain. Product UI was unchanged.
+Frontend lint and E2E TypeScript checks passed; product frontend code is unchanged.
+
+Next: durable dispatch/recovery, then the manual-import workflow. No upload API,
+actual importer mapping or GCS UI is implemented yet. Existing migrations through
+0017 remain immutable; 0018 is the new reservation migration. The older checkpoints
+below record historical test counts and intermediate limitations.
 
 ## Workspace and authority
 

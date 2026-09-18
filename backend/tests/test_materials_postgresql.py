@@ -906,7 +906,7 @@ def test_postgresql_import_audit_rejects_direct_sql_mutation_and_destructive_dow
             command.downgrade(Config("alembic.ini"), "20260916_0011")
         assert client.get("/api/material-imports/" + str(batch_id)).json() == response.json()
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0017"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0018"
 
 
 def test_postgresql_import_upgrade_from_0011_and_empty_downgrade_preserve_prior_records():
@@ -1012,7 +1012,7 @@ def test_postgresql_ai_and_source_provenance_cannot_be_erased_or_rewritten(revie
         with pytest.raises(DBAPIError): command.downgrade(Config("alembic.ini"), "20260917_0012")
         assert client.get(case.path + "/content-drafts").json()["items"][0]["id"] == draft["id"]
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0017"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0018"
 
 
 def test_postgresql_ai_upgrade_from_0012_preserves_records_and_empty_downgrade():
@@ -1201,7 +1201,7 @@ def test_postgresql_ai_credential_scope_and_revocation_are_permanent(review_pg_c
                 connection.execute(text(statement), {"id": credential_id})
         with pytest.raises(DBAPIError): command.downgrade(Config("alembic.ini"), "20260917_0013")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0017"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0018"
 
 
 def test_postgresql_ai_service_upgrade_from_0013_preserves_prior_records():
@@ -1307,7 +1307,7 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
             current_revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            assert current_revision == "20260918_0017"
+            assert current_revision == "20260918_0018"
     finally:
         engine.dispose()
 
@@ -1350,7 +1350,7 @@ def test_postgresql_auth_upgrade_from_previous_head_preserves_users_without_cred
                 ).scalar_one() == 0
                 assert connection.execute(
                     text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "20260918_0017"
+                ).scalar_one() == "20260918_0018"
         finally:
             engine.dispose()
             if previous_database_url is None:
@@ -2702,7 +2702,7 @@ def test_postgresql_publication_history_rejects_mutation_cross_material_proof_an
         with pytest.raises(DBAPIError, match="Publication provenance exists"):
             command.downgrade(Config("alembic.ini"), "20260917_0014")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0017"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0018"
 
 
 def test_postgresql_publication_upgrade_from_0014_preserves_prior_records_and_empty_downgrade():
@@ -2856,7 +2856,7 @@ def test_postgresql_packaging_decisions_require_immutable_contiguous_same_materi
         with pytest.raises(DBAPIError, match="Packaging policy provenance exists"):
             command.downgrade(Config("alembic.ini"), "20260917_0015")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0017"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0018"
 
 
 def test_postgresql_packaging_upgrade_from_0015_preserves_prior_records_and_empty_downgrade():
@@ -2994,7 +2994,7 @@ def test_postgresql_packaging_provenance_is_append_only_and_ownership_is_preserv
         with pytest.raises(DBAPIError, match="Packaging execution provenance exists"):
             command.downgrade(Config("alembic.ini"), "20260918_0016")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0017"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0018"
 
 
 def test_postgresql_packaging_inputs_and_dispatch_cannot_commit_without_ownership_progress(review_pg_case):
@@ -3444,3 +3444,176 @@ def test_postgresql_staging_preview_holds_current_inputs_until_concurrent_edit_c
         assert reader.post(batch_path + "/staging-preview", json=payload).status_code == 409
         assert reader.get(item.path + "/artifacts").status_code == 200
     assert len(item.worker.commands) == 1 and len(item.inventory.calls) == 2
+
+
+def _pg_staging_case(case):
+    from test_packaging_reservations import close_body
+    item = _pg_dispatch_case(case)
+    with case.client_for() as client:
+        packaged = client.post(item.path + "/run", json=close_body()).json()
+        assert packaged["status"] == "PACKAGED"
+        batch_path = "/api/publication-batches/" + packaged["batch_id"]
+        batch = client.get(batch_path).json()
+        preview_body = {"job_id": str(uuid4()), "expected_snapshot_hash": batch["snapshot_hash"],
+            "expected_csv_sha256": batch["csv_sha256"], "packages": [{"material_id": str(case.material.id),
+                "execution_id": packaged["id"], "expected_observation_id": packaged["last_observation_id"],
+                "expected_proof_sha256": packaged["proof_sha256"]}]}
+        preview = client.post(batch_path + "/staging-preview", json=preview_body)
+        assert preview.status_code == 200, preview.json()
+    body = {**preview_body, "batch_id": batch["id"], "expected_plan_sha256": preview.json()["plan_sha256"],
+        "idempotency_key": str(uuid4()), "reason": "Synthetic PG staging reservation"}
+    return item, body
+
+
+@pytest.mark.parametrize("same_key", [True, False])
+def test_postgresql_staging_reservation_replay_and_exclusive_active_material(review_pg_case, same_key):
+    from app.db.models import PublicationStagingOwner
+    from test_staging_reservations import PATH, close_payload
+    case = review_pg_case; item, body = _pg_staging_case(case)
+    barrier = Barrier(2)
+    with case.client_for() as first, case.client_for() as second:
+        def create(client, payload):
+            barrier.wait(timeout=10)
+            return client.post(PATH, json=payload)
+        other = dict(body) if same_key else {**body, "idempotency_key": str(uuid4())}
+        with ThreadPoolExecutor(2) as pool:
+            pending = [pool.submit(create, first, body), pool.submit(create, second, other)]
+            results = [future.result(timeout=30) for future in pending]
+        assert sorted(response.status_code for response in results) == ([201, 201] if same_key else [201, 409])
+        if same_key: assert results[0].json() == results[1].json()
+        saved = next(response.json() for response in results if response.status_code == 201)
+        closure = close_payload(saved)
+        barrier = Barrier(2)
+        def close(client):
+            barrier.wait(timeout=10)
+            return client.post(PATH + "/" + saved["id"] + "/close", json=closure)
+        with ThreadPoolExecutor(2) as pool:
+            pending = [pool.submit(close, client) for client in (first, second)]
+            closed = [future.result(timeout=30) for future in pending]
+        assert all(response.status_code == 200 for response in closed)
+        assert closed[0].json() == closed[1].json() and closed[0].json()["status"] == "CLOSED"
+        assert first.patch(case.path, json={"material_name": "Changed after staging close"}).status_code == 200
+        assert first.get(item.path + "/artifacts").status_code == 200
+    with case.database.session() as session:
+        owners = list(session.scalars(select(PublicationStagingOwner).where(PublicationStagingOwner.material_id == case.material.id)))
+        assert len(owners) == 1 and not owners[0].active
+
+
+def test_postgresql_staging_history_and_released_ownership_are_preserved(review_pg_case):
+    from test_staging_reservations import PATH, close_payload
+    case = review_pg_case; _, body = _pg_staging_case(case)
+    with case.client_for() as client:
+        response = client.post(PATH, json=body)
+        assert response.status_code == 201, response.json()
+        saved = response.json()
+        assert client.post(PATH + "/" + saved["id"] + "/close", json=close_payload(saved)).status_code == 200
+    for table in ("publication_staging_jobs", "publication_staging_items", "publication_staging_closes"):
+        for sql in (f"UPDATE {table} SET job_id=job_id" if table != "publication_staging_jobs" else f"UPDATE {table} SET id=id",
+                    f"DELETE FROM {table}", f"TRUNCATE {table} CASCADE"):
+            with case.database.engine.begin() as connection:
+                with pytest.raises(DBAPIError, match="append-only"): connection.execute(text(sql))
+    for sql in ("DELETE FROM publication_staging_owners", "TRUNCATE publication_staging_owners"):
+        with case.database.engine.begin() as connection:
+            with pytest.raises(DBAPIError, match="append-only"): connection.execute(text(sql))
+    with case.database.engine.begin() as connection:
+        with pytest.raises(DBAPIError, match="immutable"):
+            connection.execute(text("UPDATE publication_staging_owners SET active=true,close_id=NULL WHERE job_id=:id"), {"id": saved["id"]})
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("DATABASE_URL", case.database.engine.url.render_as_string(hide_password=False)); get_settings.cache_clear()
+        with pytest.raises(DBAPIError, match="Staging reservation provenance exists"):
+            command.downgrade(Config("alembic.ini"), "20260918_0017")
+    with case.database.engine.connect() as connection:
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0018"
+
+
+def _clone_staging_values(case, saved):
+    from app.db.models import PublicationStagingJob, PublicationStagingItem
+    from app.material_review import canonical_hash
+    with case.database.session() as session:
+        original = session.get(PublicationStagingJob, UUID(saved["id"]))
+        job = {column.name: getattr(original, column.name) for column in PublicationStagingJob.__table__.columns if column.name != "created_at"}
+        original_item = session.get(PublicationStagingItem, (original.id, case.material.id))
+        item = {column.name: getattr(original_item, column.name) for column in PublicationStagingItem.__table__.columns}
+    identifier = uuid4()
+    plan = json.loads(json.dumps(job["plan"]))
+    plan["body"]["job_id"] = str(identifier); plan["sha256"] = canonical_hash(plan["body"])
+    job.update(id=identifier, request_key=uuid4(), request_hash="e" * 64, plan=plan, plan_sha256=plan["sha256"])
+    item["job_id"] = identifier
+    return job, item
+
+
+@pytest.mark.parametrize("omit", ["items", "owners", "release"])
+def test_postgresql_staging_cannot_commit_partial_reservation_or_closure(review_pg_case, omit):
+    from app.db.models import PublicationStagingJob, PublicationStagingItem, PublicationStagingClose
+    from test_staging_reservations import PATH
+    case = review_pg_case; _, body = _pg_staging_case(case)
+    with case.client_for() as client:
+        saved = client.post(PATH, json=body).json()
+    job, item = _clone_staging_values(case, saved)
+    with case.database.session() as session:
+        if omit == "release":
+            session.add(PublicationStagingClose(job_id=UUID(saved["id"]), actor_id=case.users[0].id,
+                issuer_session_id=uuid4(), request_key=uuid4(), request_hash="d" * 64, reason="Incomplete close"))
+        else:
+            session.add(PublicationStagingJob(**job)); session.flush()
+            if omit == "owners": session.add(PublicationStagingItem(**item))
+        with pytest.raises(DBAPIError, match="complete consistent durable ownership"):
+            session.commit()
+
+
+@pytest.mark.parametrize("operation", ["identity", "packaging"])
+def test_postgresql_staging_ownership_excludes_direct_competing_claims_in_both_directions(review_pg_case, operation):
+    from app.db.models import MaterialPackagingExecution, PublicationStagingJob, PublicationStagingItem, PublicationStagingOwner
+    from test_packaging_ownership import execution_values, reserve
+    from test_staging_reservations import PATH, close_payload
+    case = review_pg_case; package, body = _pg_staging_case(case)
+    with case.client_for() as client:
+        saved = client.post(PATH, json=body).json()
+        assert client.post(PATH + "/" + saved["id"] + "/close", json=close_payload(saved)).status_code == 200
+    job, item = _clone_staging_values(case, saved)
+    with case.database.session() as session:
+        execution = session.get(MaterialPackagingExecution, package.id)
+        competing = execution_values(session, execution.batch_id, case.material.id, execution.policy_id, case.users[0].id)
+    barrier = Barrier(2)
+    def claim(staging):
+        with case.database.session() as session:
+            barrier.wait(timeout=10)
+            try:
+                if staging:
+                    session.add(PublicationStagingJob(**job)); session.flush()
+                    session.add(PublicationStagingItem(**item)); session.flush()
+                    session.add(PublicationStagingOwner(job_id=job["id"], material_id=case.material.id, active=True))
+                elif operation == "identity": session.add(_packaging_identity_fixture(case))
+                else: reserve(session, competing)
+                session.commit()
+                return "claimed"
+            except DBAPIError as error:
+                assert "active staging reservation" in str(error.orig) or "another operation" in str(error.orig)
+                return "blocked"
+    with ThreadPoolExecutor(2) as pool:
+        futures = [pool.submit(claim, value) for value in (True, False)]
+        assert sorted(future.result(timeout=30) for future in futures) == ["blocked", "claimed"]
+
+
+def test_postgresql_staging_upgrade_from_0017_preserves_prior_data_and_empty_downgrade():
+    with isolated_postgresql_database() as database_url:
+        previous = os.environ.get("DATABASE_URL"); os.environ["DATABASE_URL"] = database_url; get_settings.cache_clear()
+        engine = create_engine(database_url)
+        try:
+            config = Config("alembic.ini"); command.upgrade(config, "20260918_0017")
+            identifier = uuid4()
+            with engine.begin() as connection:
+                connection.execute(text("INSERT INTO companies (id,name) VALUES (:id,'Prior staging fixture')"), {"id": identifier})
+            command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
+            for suffix in ("jobs", "items", "owners", "closes"):
+                assert inspect(engine).has_table("publication_staging_" + suffix)
+            with engine.connect() as connection:
+                assert connection.execute(text("SELECT name FROM companies WHERE id=:id"), {"id": identifier}).scalar_one() == "Prior staging fixture"
+            command.downgrade(config, "20260918_0017")
+            assert not inspect(engine).has_table("publication_staging_jobs")
+            command.upgrade(config, "head"); command.check(config)
+        finally:
+            engine.dispose()
+            if previous is None: os.environ.pop("DATABASE_URL", None)
+            else: os.environ["DATABASE_URL"] = previous
+            get_settings.cache_clear()

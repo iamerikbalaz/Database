@@ -1117,6 +1117,109 @@ def _protect_packaging_state_identity(_, __, item):
 event.listen(MaterialPackagingState, "before_delete", _reject_review_history_mutation)
 
 
+class PublicationStagingJob(Base):
+    """Immutable internal staging reservation; cloud dispatch is a later phase."""
+    __tablename__ = "publication_staging_jobs"
+    __table_args__ = (
+        UniqueConstraint("id", "batch_id", name="uq_staging_jobs_batch"),
+        UniqueConstraint("actor_id", "request_key", name="uq_staging_jobs_request"),
+        CheckConstraint("material_count BETWEEN 1 AND 100", name="ck_staging_jobs_count"),
+        CheckConstraint("length(reason) BETWEEN 1 AND 2000", name="ck_staging_jobs_reason"),
+        CheckConstraint("length(bucket_name) BETWEEN 3 AND 63", name="ck_staging_jobs_bucket"),
+        CheckConstraint("length(staging_prefix) BETWEEN 1 AND 128", name="ck_staging_jobs_prefix"),
+        *(_review_hash_constraint(field, "ck_staging_jobs_" + field)
+          for field in ("request_hash", "plan_sha256")),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    batch_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("publication_batches.id", ondelete="RESTRICT"), index=True)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    issuer_session_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_key: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    material_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    bucket_name: Mapped[str] = mapped_column(String(63), nullable=False)
+    staging_prefix: Mapped[str] = mapped_column(String(128), nullable=False)
+    plan_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    plan: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+
+class PublicationStagingItem(Base):
+    __tablename__ = "publication_staging_items"
+    __table_args__ = (
+        ForeignKeyConstraint(["job_id", "batch_id"], ["publication_staging_jobs.id", "publication_staging_jobs.batch_id"],
+            name="fk_staging_items_job", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["batch_id", "material_id"], ["publication_batch_items.batch_id", "publication_batch_items.material_id"],
+            name="fk_staging_items_batch", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["material_id", "execution_id"], ["material_packaging_executions.material_id", "material_packaging_executions.id"],
+            name="fk_staging_items_execution", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["execution_id", "observation_id"], ["material_packaging_observations.execution_id", "material_packaging_observations.id"],
+            name="fk_staging_items_observation", ondelete="RESTRICT"),
+        CheckConstraint("length(folder_path) BETWEEN 1 AND 2048", name="ck_staging_items_folder"),
+        *(_review_hash_constraint(field, "ck_staging_items_" + field)
+          for field in ("input_hash", "worker_request_hash", "packaging_proof_sha256")),
+    )
+    job_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    material_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    batch_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    execution_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    observation_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    brand_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("published_brands.id", ondelete="RESTRICT"), index=True)
+    folder_path: Mapped[str] = mapped_column(String(2048), nullable=False)
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    worker_request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    packaging_proof_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class PublicationStagingClose(Base):
+    __tablename__ = "publication_staging_closes"
+    __table_args__ = (
+        UniqueConstraint("job_id", name="uq_staging_closes_job"),
+        UniqueConstraint("job_id", "id", name="uq_staging_closes_binding"),
+        UniqueConstraint("actor_id", "request_key", name="uq_staging_closes_request"),
+        CheckConstraint("length(reason) BETWEEN 1 AND 2000", name="ck_staging_closes_reason"),
+        _review_hash_constraint("request_hash", "ck_staging_closes_request_hash"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    job_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("publication_staging_jobs.id", ondelete="RESTRICT"))
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    issuer_session_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_key: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PublicationStagingOwner(TimestampMixin, Base):
+    __tablename__ = "publication_staging_owners"
+    __table_args__ = (
+        ForeignKeyConstraint(["job_id", "material_id"], ["publication_staging_items.job_id", "publication_staging_items.material_id"],
+            name="fk_staging_owners_item", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["job_id", "close_id"], ["publication_staging_closes.job_id", "publication_staging_closes.id"],
+            name="fk_staging_owners_close", ondelete="RESTRICT"),
+        CheckConstraint("(active AND close_id IS NULL) OR (NOT active AND close_id IS NOT NULL)", name="ck_staging_owners_state"),
+        Index("uq_staging_owners_active", "material_id", unique=True,
+            postgresql_where=text("active"), sqlite_where=text("active")),
+    )
+    job_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    material_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    close_id: Mapped[UUID | None] = mapped_column(Uuid)
+
+
+@event.listens_for(PublicationStagingOwner, "before_update")
+def _protect_staging_owner(_, __, item):
+    state = sa_inspect(item)
+    if (any(state.attrs[field].history.has_changes() for field in ("job_id", "material_id", "created_at"))
+            or False in state.attrs.active.history.deleted
+            or (item.active is False and not state.attrs.active.history.has_changes())):
+        raise ImmutableAuditSnapshotError("Staging ownership identity and released state are immutable.")
+
+
+event.listen(PublicationStagingOwner, "before_delete", _reject_review_history_mutation)
+
+
 class MaterialImportBatch(Base):
     __tablename__ = "material_import_batches"
     __table_args__ = (
@@ -1242,6 +1345,6 @@ for _catalog_type in (OnlineCategory, BrandCollection):
     event.listen(_catalog_type, "before_delete", _reject_review_history_mutation)
 
 
-for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow, MaterialAiDraft, PublicationBatch, PublicationBatchItem, MaterialPackagingPolicy, MaterialPackagingExecution, MaterialPackagingDispatch, MaterialPackagingObservation):
+for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow, MaterialAiDraft, PublicationBatch, PublicationBatchItem, MaterialPackagingPolicy, MaterialPackagingExecution, MaterialPackagingDispatch, MaterialPackagingObservation, PublicationStagingJob, PublicationStagingItem, PublicationStagingClose):
     event.listen(_review_history_type, "before_update", _reject_review_history_mutation)
     event.listen(_review_history_type, "before_delete", _reject_review_history_mutation)

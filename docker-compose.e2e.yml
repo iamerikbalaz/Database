@@ -23,6 +23,10 @@ services:
       PACKAGING_ENABLED: true
       PACKAGING_BASE_URL: http://packaging:8081
       PACKAGING_SERVICE_TOKEN: ${E2E_PACKAGING_TOKEN:?E2E runner must provide a separate ephemeral packaging credential}
+      GCS_ENABLED: false
+      GCS_ACCESS_TOKEN: ""
+      GCS_BUCKET_NAME: synthetic-reawote-staging
+      GCS_STAGING_PREFIX: isolated/contracts
     networks:
       - default
       - packaging_private

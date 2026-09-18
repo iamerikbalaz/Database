@@ -1,27 +1,51 @@
-# Next implementation: durable staging jobs
+# Durable staging reservations and remaining execution design
 
-This is the execution design following the implemented GCS transport and staging
-preview. It is not a report of an implemented upload API. No production writes are
-authorized or performed. Existing migrations through 0017 remain immutable.
+Migration 0018 and the reservation/history/unsent-close API are implemented following
+the GCS transport and staging preview. Actual upload dispatch is not yet implemented.
+No production writes are authorized or performed. Existing migrations through 0017
+remain immutable; apply 0018 only to an approved environment.
 
 ## Reservation and ownership
 
-Add a migration for immutable upload input records and per-material ownership. A
-reservation must rerun `prepare_staging`, compare the exact reviewed plan hash and
-freeze the entire plan, batch, actor/session, target and packaging-observation IDs.
-Use actor-scoped idempotency: exact replay returns the original reservation even
-after later edits; a changed request under the same key fails. One active upload may
-own each material. Acquire all material locks in stable order before folder/brand
-locks. Ownership must exclude identity operations, packaging and overlapping source
-trees in both directions, including direct database inserts. Active brand/material
-edits must respect the same owner. Never reactivate a terminal packaging execution.
+The immutable job and item records freeze the entire plan, batch, actor/session,
+target and accepted packaging-observation IDs. Reservation reruns `prepare_staging`
+and compares the reviewed plan hash. Actor-scoped idempotency serializes simultaneous
+retries: the same request returns the original job's current history even after
+closure or later material edits; a changed request under the same key fails.
+All material locks are acquired in UUID order before folder/brand locks.
 
-Reserve/close an unsent job first, in one independently testable slice. A committed
-job must have complete matching material owners, enforced with deferred database
-constraints. Immutable inputs and audit records reject update/delete/truncate.
-Populated downgrade must refuse provenance loss. Use a forward migration for fixes.
+One active staging owner is allowed per material. PostgreSQL triggers serialize
+direct claims against identity and packaging operations for the same material in
+both directions. Application gates additionally protect brand edits and overlapping
+source trees. These application checks are not a general database restriction on
+arbitrary direct SQL edits to materials, brands or other materials' folder paths.
+Historical accepted package downloads remain available during the reservation.
 
-## Dispatch and observations
+Deferred PostgreSQL constraints require complete matching items and owners at commit
+and complete owner release with the exact immutable closure record. Job/item/closure
+facts reject update/delete/truncate. Owners cannot be deleted, reassigned or
+reactivated after release. A populated downgrade refuses provenance loss; use a
+forward migration. Empty downgrade to 0017 and re-upgrade are tested. Non-PostgreSQL
+mutations fail closed, except explicitly configured SQLite unit tests.
+
+ADMIN and LEADERSHIP can use these session-authenticated routes; mutations require
+CSRF and current authorization:
+
+- `POST /api/publication-staging-jobs`: the full staging-preview selection plus
+  `batch_id`, `idempotency_key`, `expected_plan_sha256` and a reason. Returns 201.
+- `GET /api/publication-staging-jobs`: paginated history (20 by default, at most 50).
+- `GET /api/publication-staging-jobs/{job_id}`: frozen counts, target and material
+  bindings, plan hash and current reservation/closure history.
+- `POST /api/publication-staging-jobs/{job_id}/close`: exact plan hash, request key
+  and reason. Atomically records closure and releases every owner. Exact replay is
+  safe; a distinct second closure request fails.
+
+This slice creates no upload, download stream, NAS operation or publication change.
+The only states are RESERVED and CLOSED. Closure is explicitly **before dispatch**;
+the next migration must extend the closure guard before adding any cloud dispatch.
+The E2E configuration pins a synthetic bucket/prefix, GCS disabled and an empty token.
+
+## Next: dispatch and observations
 
 Commit an immutable ordered dispatch before cloud IO. Hold a dedicated PostgreSQL
 session advisory lease outside database transactions; verify both session identity
@@ -73,7 +97,9 @@ The existing retained artifact history must not be casually deleted or rewritten
 This gap is not closed by the transport or preview. Credential refresh/ADC, isolated
 live verification, throughput and storage/readback cost also remain unverified.
 
-Required next checks: fresh/prior migration and Alembic parity, append-only and
-downgrade guards, real PostgreSQL cross-operation races, interrupted IO and lease
-loss, account revocation and changed source, exact replay, frozen history and
-retained-data browser scenarios. Use owned synthetic infrastructure only.
+Reservation checks include fresh/prior migration and Alembic parity, append-only and
+downgrade guards, real PostgreSQL cross-operation races, simultaneous exact retries,
+partial-commit rejection, current approvals and role/CSRF enforcement. Execution
+still needs interrupted IO/lease loss, account revocation and changed source while
+uploading, late-result handling, exact recovery and frozen receipt history. Use
+owned synthetic infrastructure only.

@@ -12,6 +12,7 @@ from app.auth.access import AccessDependency, ADMIN, CATALOG_MANAGERS, MATERIAL_
 from app.auth.service import database_now, lock_user_credential, revoke_all_user_sessions
 from app.company_history import append_company_change, company_snapshot
 from app.resource_history import append_resource_change, resource_snapshot
+from app.resource_commands import CommandInput, CommandKey, ResourceWrite, authorize_receipt, command_for_actor, receipt_view
 from app.material_identity import identity_context, require_brand_idle, require_material_idle
 
 from app.db.models import (
@@ -138,19 +139,23 @@ def _apply_update(item: ModelT, values: dict[str, Any]) -> None:
         setattr(item, field_name, value)
 
 
-def _commit_company(session, company, actor_id, before, *, action="UPDATED"):
+def _commit_company(session, company, actor_id, before, *, action="UPDATED", command=None):
     try:
         append_company_change(session, company, actor_id, before, action=action)
-        return _commit(session, company)
+        response = command.record(session, company) if command else None
+        saved = _commit(session, company)
+        return response if response is not None else saved
     except IntegrityError:
         session.rollback()
         raise HTTPException(409, "A record with one of the unique values already exists.") from None
 
 
-def _commit_resource(session, item, actor_id, before, *, action="UPDATED"):
+def _commit_resource(session, item, actor_id, before, *, action="UPDATED", command=None):
     try:
         append_resource_change(session, item, actor_id, before, action=action)
-        return _commit(session, item)
+        response = command.record(session, item) if command else None
+        saved = _commit(session, item)
+        return response if response is not None else saved
     except IntegrityError:
         session.rollback()
         raise HTTPException(409, "A record with one of the unique values already exists.") from None
@@ -158,6 +163,15 @@ def _commit_resource(session, item, actor_id, before, *, action="UPDATED"):
 
 def build_resources_router(database: SessionDatabase) -> APIRouter:
     router = APIRouter(prefix="/api")
+
+    @router.get("/resource-commands/{request_key}", tags=["resource commands"])
+    def recover_resource_command(request_key: UUID, access: AccessDependency):
+        with database.session() as session:
+            access.check(session)
+            receipt = command_for_actor(session, access.user.id, request_key)
+            if receipt is None: raise HTTPException(404, {"code": "RESOURCE_COMMAND_NOT_FOUND"})
+            authorize_receipt(session, access, receipt)
+            return receipt_view(receipt)
 
     @router.get("/companies", response_model=list[CompanyRead], tags=["companies"])
     def list_companies(filters: Annotated[CompanyListFilters, Query()], access: AccessDependency) -> list[Company]:
@@ -176,9 +190,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         status_code=status.HTTP_201_CREATED,
         tags=["companies"],
     )
-    def create_company(payload: CompanyCreate, access: AccessDependency) -> Company:
+    def create_company(payload: CompanyCreate, access: AccessDependency, submitted: CommandInput, request_key: CommandKey = None) -> Company:
         with database.session() as session:
             actor = access.check(session, CATALOG_MANAGERS)
+            command = ResourceWrite(access, "COMPANY", "CREATED", payload, request_key, raw_payload=submitted)
+            if (replayed := command.replay(session)) is not None: return replayed
             if payload.notion_page_id is not None:
                 _ensure_unique(
                     session,
@@ -189,7 +205,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 )
             company = Company(**_values(payload))
             session.add(company)
-            return _commit_company(session, company, actor.id, {}, action="CREATED")
+            return _commit_company(session, company, actor.id, {}, action="CREATED", command=command)
 
     @router.get("/companies/{company_id}", response_model=CompanyRead, tags=["companies"])
     def get_company(company_id: UUID, access: AccessDependency) -> Company:
@@ -198,9 +214,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             return _get_or_404(session, Company, company_id, "Company")
 
     @router.patch("/companies/{company_id}", response_model=CompanyRead, tags=["companies"])
-    def update_company(company_id: UUID, payload: CompanyUpdate, access: AccessDependency) -> Company:
+    def update_company(company_id: UUID, payload: CompanyUpdate, access: AccessDependency, submitted: CommandInput, request_key: CommandKey = None) -> Company:
         with database.session() as session:
             actor = access.check(session, CATALOG_MANAGERS)
+            command = ResourceWrite(access, "COMPANY", "UPDATED", payload, request_key, company_id, raw_payload=submitted)
+            if (replayed := command.replay(session)) is not None: return replayed
             company = session.scalar(select(Company).where(Company.id == company_id).with_for_update())
             if company is None: raise HTTPException(404, "Company not found.")
             before = company_snapshot(company)
@@ -215,7 +233,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                     company.id,
                 )
             _apply_update(company, values)
-            return _commit_company(session, company, actor.id, before)
+            return _commit_company(session, company, actor.id, before, command=command)
 
     @router.get("/brands", response_model=list[PublishedBrandRead], tags=["brands"])
     def list_brands(
@@ -247,9 +265,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         status_code=status.HTTP_201_CREATED,
         tags=["brands"],
     )
-    def create_brand(payload: PublishedBrandCreate, access: AccessDependency) -> PublishedBrand:
+    def create_brand(payload: PublishedBrandCreate, access: AccessDependency, submitted: CommandInput, request_key: CommandKey = None) -> PublishedBrand:
         with database.session() as session:
             actor = access.check(session, CATALOG_MANAGERS)
+            command = ResourceWrite(access, "BRAND", "CREATED", payload, request_key, raw_payload=submitted)
+            if (replayed := command.replay(session)) is not None: return replayed
             _require_company(session, payload.company_id)
             _ensure_unique(
                 session,
@@ -267,7 +287,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             )
             brand = PublishedBrand(**_values(payload))
             session.add(brand)
-            return _commit_resource(session, brand, actor.id, {}, action="CREATED")
+            return _commit_resource(session, brand, actor.id, {}, action="CREATED", command=command)
 
     @router.get("/brands/{brand_id}", response_model=PublishedBrandRead, tags=["brands"])
     def get_brand(brand_id: UUID, access: AccessDependency) -> PublishedBrand:
@@ -276,11 +296,13 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             return _get_or_404(session, PublishedBrand, brand_id, "Published brand")
 
     @router.patch("/brands/{brand_id}", response_model=PublishedBrandRead, tags=["brands"])
-    def update_brand(brand_id: UUID, payload: PublishedBrandUpdate, access: AccessDependency) -> PublishedBrand:
+    def update_brand(brand_id: UUID, payload: PublishedBrandUpdate, access: AccessDependency, submitted: CommandInput, request_key: CommandKey = None) -> PublishedBrand:
         with database.session() as session:
             # Brand changes affect many materials. Use the same exclusive gate
             # as catalog retirement before locking the brand and its materials.
             actor = access.check(session, CATALOG_MANAGERS, exclusive=True)
+            command = ResourceWrite(access, "BRAND", "UPDATED", payload, request_key, brand_id, raw_payload=submitted)
+            if (replayed := command.replay(session)) is not None: return replayed
             values = _values(payload, exclude_unset=True)
             brand = session.scalar(select(PublishedBrand).where(PublishedBrand.id == brand_id).with_for_update())
             if brand is None:
@@ -319,7 +341,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                         .order_by(PBRMaterial.id).with_for_update()):
                     invalidate_review(session, material, actor.id, "BRAND_FIELDS_CHANGED")
             _apply_update(brand, values)
-            return _commit_resource(session, brand, actor.id, before)
+            return _commit_resource(session, brand, actor.id, before, command=command)
 
     @router.get("/projects", response_model=list[ProjectRead], tags=["projects"])
     def list_projects(filters: Annotated[ProjectListFilters, Query()], access: AccessDependency) -> list[Project]:
@@ -345,9 +367,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         status_code=status.HTTP_201_CREATED,
         tags=["projects"],
     )
-    def create_project(payload: ProjectCreate, access: AccessDependency) -> Project:
+    def create_project(payload: ProjectCreate, access: AccessDependency, submitted: CommandInput, request_key: CommandKey = None) -> Project:
         with database.session() as session:
             actor = access.check(session, CATALOG_MANAGERS)
+            command = ResourceWrite(access, "PROJECT", "CREATED", payload, request_key, raw_payload=submitted)
+            if (replayed := command.replay(session)) is not None: return replayed
             _require_company(session, payload.company_id)
             _ensure_unique(
                 session,
@@ -358,7 +382,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             )
             project = Project(**_values(payload))
             session.add(project)
-            return _commit_resource(session, project, actor.id, {}, action="CREATED")
+            return _commit_resource(session, project, actor.id, {}, action="CREATED", command=command)
 
     @router.get("/projects/{project_id}", response_model=ProjectRead, tags=["projects"])
     def get_project(project_id: UUID, access: AccessDependency) -> Project:
@@ -367,9 +391,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             return _get_or_404(session, Project, project_id, "Project")
 
     @router.patch("/projects/{project_id}", response_model=ProjectRead, tags=["projects"])
-    def update_project(project_id: UUID, payload: ProjectUpdate, access: AccessDependency) -> Project:
+    def update_project(project_id: UUID, payload: ProjectUpdate, access: AccessDependency, submitted: CommandInput, request_key: CommandKey = None) -> Project:
         with database.session() as session:
             actor = access.check(session, CATALOG_MANAGERS)
+            command = ResourceWrite(access, "PROJECT", "UPDATED", payload, request_key, project_id, raw_payload=submitted)
+            if (replayed := command.replay(session)) is not None: return replayed
             project = session.scalar(select(Project).where(Project.id == project_id).with_for_update())
             if project is None: raise HTTPException(404, "Project not found.")
             before = resource_snapshot(project)
@@ -386,7 +412,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                     project.id,
                 )
             _apply_update(project, values)
-            return _commit_resource(session, project, actor.id, before)
+            return _commit_resource(session, project, actor.id, before, command=command)
 
     @router.get(
         "/internal-users",
@@ -421,9 +447,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         status_code=status.HTTP_201_CREATED,
         tags=["internal-users"],
     )
-    def create_internal_user(payload: InternalUserCreate, access: AccessDependency) -> InternalUser:
+    def create_internal_user(payload: InternalUserCreate, access: AccessDependency, submitted: CommandInput, request_key: CommandKey = None) -> InternalUser:
         with database.session() as session:
             actor = access.check(session, ADMIN, exclusive=True)
+            command = ResourceWrite(access, "USER", "CREATED", payload, request_key, raw_payload=submitted)
+            if (replayed := command.replay(session)) is not None: return replayed
             _ensure_unique(
                 session,
                 InternalUser,
@@ -433,7 +461,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             )
             user = InternalUser(**_values(payload))
             session.add(user)
-            return _commit_resource(session, user, actor.id, {}, action="CREATED")
+            return _commit_resource(session, user, actor.id, {}, action="CREATED", command=command)
 
     @router.get(
         "/internal-users/{user_id}",
@@ -452,9 +480,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         response_model=InternalUserRead,
         tags=["internal-users"],
     )
-    def update_internal_user(user_id: UUID, payload: InternalUserUpdate, access: AccessDependency) -> InternalUser:
+    def update_internal_user(user_id: UUID, payload: InternalUserUpdate, access: AccessDependency, submitted: CommandInput, request_key: CommandKey = None) -> InternalUser:
         with database.session() as session:
             actor = access.check(session, ADMIN, exclusive=True)
+            command = ResourceWrite(access, "USER", "UPDATED", payload, request_key, user_id, raw_payload=submitted)
+            if (replayed := command.replay(session)) is not None: return replayed
             lock_user_credential(session, user_id)
             user = session.scalar(select(InternalUser).where(InternalUser.id == user_id).with_for_update())
             if user is None: raise HTTPException(404, "Internal user not found.")
@@ -478,7 +508,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                     user.id,
                 )
             _apply_update(user, values)
-            return _commit_resource(session, user, actor.id, before)
+            return _commit_resource(session, user, actor.id, before, command=command)
 
     @router.get("/materials", response_model=list[PBRMaterialRead], tags=["materials"])
     def list_materials(
@@ -521,9 +551,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         status_code=status.HTTP_201_CREATED,
         tags=["materials"],
     )
-    def create_material(payload: PBRMaterialCreate, access: AccessDependency) -> PBRMaterial:
+    def create_material(payload: PBRMaterialCreate, access: AccessDependency, submitted: CommandInput, request_key: CommandKey = None) -> PBRMaterial:
         with database.session() as session:
             actor = access.check(session, CATALOG_MANAGERS)
+            command = ResourceWrite(access, "MATERIAL", "CREATED", payload, request_key, raw_payload=submitted)
+            if (replayed := command.replay(session)) is not None: return replayed
             _get_or_404(session, Project, payload.project_id, "Project")
             _require_active_internal_user(session, payload.assigned_processor_id)
             brand = session.scalar(
@@ -565,7 +597,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             session.flush()
             session.add(MaterialNumberReservation(brand_id=brand.id, sequence_number=sequence_number,
                 material_id=material.id, actor_id=access.user.id if session.get(InternalUser, access.user.id) else None))
-            return _commit_resource(session, material, actor.id, {}, action="CREATED")
+            return _commit_resource(session, material, actor.id, {}, action="CREATED", command=command)
 
     @router.get("/materials/{material_id}", response_model=PBRMaterialRead, tags=["materials"])
     def get_material(material_id: UUID, access: AccessDependency) -> PBRMaterial:
@@ -617,9 +649,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         response_model=PBRMaterialRead,
         tags=["materials"],
     )
-    def update_material(material_id: UUID, payload: PBRMaterialUpdate, access: AccessDependency) -> PBRMaterial:
+    def update_material(material_id: UUID, payload: PBRMaterialUpdate, access: AccessDependency, submitted: CommandInput, request_key: CommandKey = None) -> PBRMaterial:
         with database.session() as session:
             actor = access.check(session, MATERIAL_EDITORS)
+            command = ResourceWrite(access, "MATERIAL", "UPDATED", payload, request_key, material_id, raw_payload=submitted)
+            if (replayed := command.replay(session)) is not None: return replayed
             material = session.scalar(
                 select(PBRMaterial)
                 .where(PBRMaterial.id == material_id)
@@ -681,6 +715,6 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                     actor_id=access.user.id if session.get(InternalUser, access.user.id) else None,
                     old_context=old_identity, new_context=identity_context(material),
                     reason="Category changed before linking a source folder."))
-            return _commit_resource(session, material, actor.id, before)
+            return _commit_resource(session, material, actor.id, before, command=command)
 
     return router

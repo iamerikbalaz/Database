@@ -907,6 +907,40 @@ class MaterialLifecycleState(Base):
     changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class ResourceCommand(Base):
+    __tablename__ = "resource_commands"
+    __table_args__ = (
+        UniqueConstraint("actor_id", "request_key", name="uq_resource_commands_actor_key"),
+        CheckConstraint("request_key != '00000000-0000-0000-0000-000000000000'", name="ck_resource_commands_key"),
+        CheckConstraint("action IN ('CREATED','UPDATED')", name="ck_resource_commands_action"),
+        CheckConstraint("(CASE WHEN company_id IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN brand_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN project_id IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN user_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN material_id IS NOT NULL THEN 1 ELSE 0 END) = 1 AND "
+            "((kind='COMPANY' AND company_id IS NOT NULL) OR (kind='BRAND' AND brand_id IS NOT NULL) OR "
+            "(kind='PROJECT' AND project_id IS NOT NULL) OR (kind='USER' AND user_id IS NOT NULL) OR "
+            "(kind='MATERIAL' AND material_id IS NOT NULL))", name="ck_resource_commands_target"),
+        CheckConstraint("(kind='USER' AND privilege='ADMIN') OR (kind IN ('COMPANY','BRAND','PROJECT') AND privilege='CATALOG') OR "
+            "(kind='MATERIAL' AND (privilege='CATALOG' OR (action='UPDATED' AND privilege='MATERIAL_NAME')))", name="ck_resource_commands_privilege"),
+        _review_hash_constraint("request_hash", "ck_resource_commands_request_hash"),
+        _review_hash_constraint("response_hash", "ck_resource_commands_response_hash"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"), nullable=False)
+    request_key: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    privilege: Mapped[str] = mapped_column(String(16), nullable=False)
+    company_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("companies.id", ondelete="RESTRICT"))
+    brand_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("published_brands.id", ondelete="RESTRICT"))
+    project_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("projects.id", ondelete="RESTRICT"))
+    user_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    material_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"))
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    response_snapshot: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
+    response_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class AccountSecurityEvent(Base):
     __tablename__ = "account_security_events"
     __table_args__ = (
@@ -1629,5 +1663,7 @@ event.listen(ResourceChangeEvent, "before_update", _reject_review_history_mutati
 event.listen(ResourceChangeEvent, "before_delete", _reject_review_history_mutation)
 event.listen(AccountSecurityEvent, "before_update", _reject_review_history_mutation)
 event.listen(AccountSecurityEvent, "before_delete", _reject_review_history_mutation)
+event.listen(ResourceCommand, "before_update", _reject_review_history_mutation)
+event.listen(ResourceCommand, "before_delete", _reject_review_history_mutation)
 event.listen(MaterialLifecycleEvent, "before_update", _reject_review_history_mutation)
 event.listen(MaterialLifecycleEvent, "before_delete", _reject_review_history_mutation)

@@ -150,7 +150,8 @@ def create_app(
         allow_origins=app_settings.parsed_cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH"],
-        allow_headers=["Accept", "Content-Type", "X-CSRF-Token"],
+        allow_headers=["Accept", "Content-Type", "X-CSRF-Token", "Idempotency-Key"],
+        expose_headers=["Idempotency-Replayed"],
     )
 
     @application.get("/", tags=["system"])

@@ -45,6 +45,132 @@ def _current_head():
     return ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
 
 
+@pytest.mark.parametrize("kind,segment", [("COMPANY", "companies"), ("BRAND", "brands"), ("PROJECT", "projects"), ("USER", "internal-users"), ("MATERIAL", "materials")])
+@pytest.mark.parametrize("review_pg_case", ["isolated-history"], indirect=True)
+def test_postgresql_resource_command_response_matches_record_and_replays(review_pg_case, kind, segment):
+    from test_resource_commands import creation_payload, send
+    case = review_pg_case; key = uuid4(); edit_key = uuid4()
+    if kind == "MATERIAL":
+        with case.database.session() as session:
+            # This fixture inserts material 1 directly, without the allocator.
+            session.get(PublishedBrand, case.material.published_brand_id).next_sequence_number = 2
+            session.commit()
+    payload = creation_payload(case.database, case.material, kind)
+    field = "display_name" if kind == "USER" else "material_name" if kind == "MATERIAL" else "name"
+    with case.client_for() as client:
+        first = send(client, "POST", "/api/" + segment, payload, key)
+        assert first.status_code == 201
+        assert send(client, "POST", "/api/" + segment, payload, key).json() == first.json()
+        path = f"/api/{segment}/{first.json()['id']}"
+        changed = send(client, "PATCH", path, {field: "Reviewed change"}, edit_key)
+        assert changed.status_code == 200
+        assert client.patch(path, json={field: "Later change"}).status_code == 200
+        replay = send(client, "PATCH", path, {field: "Reviewed change"}, edit_key)
+        assert replay.status_code == 200 and replay.json() == changed.json()
+        assert client.get(path).json()[field] == "Later change"
+        assert client.get(f"/api/resource-commands/{key}").json()["response"] == first.json()
+
+
+@pytest.mark.parametrize("conflicting", [False, True])
+@pytest.mark.parametrize("review_pg_case", ["isolated-history"], indirect=True)
+def test_postgresql_resource_command_serializes_separate_sessions_without_duplicate_allocation(review_pg_case, conflicting):
+    from sqlalchemy import func
+    from app.db.models import MaterialNumberReservation, ResourceCommand
+    from test_resource_commands import creation_payload, send
+    case = review_pg_case; key = uuid4(); barrier = Barrier(2)
+    payload = creation_payload(case.database, case.material, "MATERIAL")
+    with case.database.session() as session:
+        # Align the synthetic counter with the directly inserted fixture material.
+        session.get(PublishedBrand, case.material.published_brand_id).next_sequence_number = 2
+        session.commit()
+        start = session.get(PublishedBrand, case.material.published_brand_id).next_sequence_number
+    with case.client_for() as first, case.client_for() as second:
+        def create(client, name):
+            barrier.wait(timeout=10)
+            return send(client, "POST", "/api/materials", {**payload, "material_name": name}, key)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            one = pool.submit(create, first, "Synthetic first")
+            two = pool.submit(create, second, "Synthetic second" if conflicting else "Synthetic first")
+            results = [one.result(timeout=20), two.result(timeout=20)]
+        assert sorted(item.status_code for item in results) == ([201, 409] if conflicting else [201, 201])
+        if not conflicting: assert results[0].json() == results[1].json()
+    with case.database.session() as session:
+        receipt = session.scalar(select(ResourceCommand).where(ResourceCommand.actor_id == case.users[0].id, ResourceCommand.request_key == key))
+        assert receipt is not None
+        assert session.get(PublishedBrand, case.material.published_brand_id).next_sequence_number == start + 1
+        assert session.scalar(select(func.count()).select_from(MaterialNumberReservation).where(MaterialNumberReservation.material_id == receipt.material_id)) == 1
+
+
+@pytest.mark.parametrize("statement", ["UPDATE resource_commands SET response_hash=repeat('a',64) WHERE id=:id", "DELETE FROM resource_commands WHERE id=:id", "TRUNCATE resource_commands CASCADE"])
+@pytest.mark.parametrize("review_pg_case", ["isolated-history"], indirect=True)
+def test_postgresql_resource_command_success_receipts_are_immutable(review_pg_case, statement):
+    from app.db.models import ResourceCommand
+    from test_resource_commands import send
+    case = review_pg_case; key = uuid4()
+    with case.client_for() as client:
+        assert send(client, "POST", "/api/companies", {"name": "Synthetic receipt"}, key).status_code == 201
+    with case.database.session() as session:
+        receipt = session.scalar(select(ResourceCommand).where(ResourceCommand.actor_id == case.users[0].id, ResourceCommand.request_key == key))
+        identifier = receipt.id
+    with pytest.raises(DBAPIError):
+        with case.database.engine.begin() as connection: connection.execute(text(statement), {"id": identifier})
+
+
+@pytest.mark.parametrize("change", ["extra_field", "missing_field", "wrong_value", "wrong_time", "wrong_id", "wrong_kind", "wrong_privilege", "two_targets", "zero_key", "invalid_hash"])
+@pytest.mark.parametrize("review_pg_case", ["isolated-history"], indirect=True)
+def test_postgresql_resource_command_rejects_unbound_or_nonwhitelisted_response(review_pg_case, change):
+    from copy import deepcopy
+    from app.db.models import ResourceCommand
+    from test_resource_commands import send
+    case = review_pg_case; key = uuid4()
+    with case.client_for() as client:
+        assert send(client, "POST", "/api/companies", {"name": "Synthetic receipt"}, key).status_code == 201
+    with case.database.session() as session:
+        receipt = session.scalar(select(ResourceCommand).where(ResourceCommand.actor_id == case.users[0].id, ResourceCommand.request_key == key))
+        values = {column.key: deepcopy(getattr(receipt, column.key)) for column in ResourceCommand.__table__.columns}
+    values.update(id=uuid4(), request_key=uuid4())
+    snapshot = values["response_snapshot"]
+    if change == "extra_field": snapshot["unexpected"] = "Synthetic unapproved field"
+    elif change == "missing_field": del snapshot["name"]
+    elif change == "wrong_value": snapshot["name"] = "Different saved value"
+    elif change == "wrong_time": snapshot["updated_at"] = "2000-01-01T00:00:00Z"
+    elif change == "wrong_id": snapshot["id"] = str(uuid4())
+    elif change == "wrong_kind": values["kind"] = "MATERIAL"
+    elif change == "wrong_privilege": values["privilege"] = "MATERIAL_NAME"
+    elif change == "two_targets": values["material_id"] = case.material.id
+    elif change == "zero_key": values["request_key"] = UUID(int=0)
+    elif change == "invalid_hash": values["request_hash"] = "invalid"
+    with pytest.raises(DBAPIError):
+        with case.database.engine.begin() as connection: connection.execute(ResourceCommand.__table__.insert().values(**values))
+
+
+def test_postgresql_resource_command_upgrade_preserves_0023_and_refuses_receipt_loss():
+    from app.db.models import ResourceCommand
+    from test_resource_commands import send
+    with isolated_postgresql_database() as url, pytest.MonkeyPatch.context() as patch:
+        patch.setenv("DATABASE_URL", url); get_settings.cache_clear()
+        config = Config("alembic.ini"); command.upgrade(config, "20260918_0023")
+        fixture = _review_pg_case(url); case = next(fixture)
+        try:
+            original = (case.material.id, case.material.sequence_number, case.material.technical_identity)
+            command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
+            with case.database.session() as session:
+                assert not list(session.scalars(select(ResourceCommand)))
+                current = session.get(PBRMaterial, case.material.id)
+                assert (current.id, current.sequence_number, current.technical_identity) == original
+            command.downgrade(config, "20260918_0023")
+            assert not inspect(case.database.engine).has_table("resource_commands")
+            command.upgrade(config, "head")
+            with case.client_for() as client:
+                assert send(client, "POST", "/api/companies", {"name": "Synthetic receipt"}, uuid4()).status_code == 201
+            with pytest.raises(DBAPIError, match="Resource command receipts exist"):
+                command.downgrade(config, "20260918_0023")
+            with case.database.engine.connect() as connection:
+                assert connection.scalar(text("SELECT version_num FROM alembic_version")) == _current_head()
+                assert connection.scalar(text("SELECT count(*) FROM resource_commands")) == 1
+        finally: fixture.close(); get_settings.cache_clear()
+
+
 @pytest.mark.parametrize("route", ["audit", "identity-operations", "identity-history", "content-history", "content-approvals"])
 def test_postgresql_legacy_history_cursor_windows(review_pg_case, route):
     from test_history_pagination import seed_history, items

@@ -3617,3 +3617,37 @@ def test_postgresql_staging_upgrade_from_0017_preserves_prior_data_and_empty_dow
             if previous is None: os.environ.pop("DATABASE_URL", None)
             else: os.environ["DATABASE_URL"] = previous
             get_settings.cache_clear()
+
+
+def test_postgresql_reserved_staging_recheck_holds_ownership_until_transaction_finishes(review_pg_case):
+    from fastapi import HTTPException
+    from app.publication_staging import reserved_staging
+    from test_reserved_staging_inputs import access_for
+    from test_staging_reservations import PATH, close_payload
+    case = review_pg_case; _, body = _pg_staging_case(case)
+    entered = Event(); release = Event()
+    with case.client_for() as client, case.client_for(3) as closer:
+        response = client.post(PATH, json=body)
+        assert response.status_code == 201, response.json()
+        saved = response.json()
+        def recheck():
+            with case.database.session() as session:
+                prepared = reserved_staging(session, UUID(saved["id"]), access_for(session, saved["id"]), case.app.state.settings)
+                entered.set()
+                if not release.wait(15): raise TimeoutError("Reserved staging recheck was not released")
+                assert prepared.plan.sha256 == saved["plan_sha256"]
+            return prepared
+        with ThreadPoolExecutor(2) as pool:
+            reading = pool.submit(recheck)
+            try:
+                assert entered.wait(15)
+                closing = pool.submit(closer.post, PATH + "/" + saved["id"] + "/close", json=close_payload(saved))
+                with pytest.raises(TimeoutError): closing.result(timeout=.15)
+            finally: release.set()
+            assert reading.result(timeout=20).plan.sha256 == saved["plan_sha256"]
+            closed = closing.result(timeout=20)
+            assert closed.status_code == 200 and closed.json()["status"] == "CLOSED", closed.json()
+        with case.database.session() as session:
+            with pytest.raises(HTTPException) as blocked:
+                reserved_staging(session, UUID(saved["id"]), access_for(session, saved["id"]), case.app.state.settings)
+            assert blocked.value.status_code == 409 and blocked.value.detail["code"] == "GCS_STAGING_ALREADY_CLOSED"

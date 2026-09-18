@@ -118,6 +118,20 @@ It covers independent sessions, actual child-process death, killed DB sessions,
 unexpected unlock, cleanup on exceptions and namespace separation for the same UUID.
 Owned cleanup completed; its exact `..._postgres_data` volume and image remain.
 The GCS lease is a verified primitive; no upload route uses it yet.
+It is committed as `a20fa5b`.
+
+Active reservation revalidation now reconstructs the exact plan, CSV and accepted
+package inputs under current authorization and domain locks. Only the exact active
+job receives the internal ownership exemption; public previews and packaging
+requests cannot borrow it by supplying its UUID. Closed/reassigned ownership,
+revoked sessions, changed approvals/materials and a changed destination fail closed.
+No live source, cloud access or publication transition occurs in this helper.
+Affected Windows checks passed **93 tests (202.76s)**. Fresh PostgreSQL passed
+**234 tests (232.22s)**, auth **27/27**, no skips, four existing warnings, including
+an actual concurrent closure that waits for the input-validation transaction.
+Project `reawote-test-e88eb72404cd43b98ae5f4b081ded066`, backend image manifest
+`6f7488a22da142196383f97d2c257b9552f665d9657f94f599647a4258da524d`.
+Owned cleanup completed and only its exact `..._postgres_data` volume/image remain.
 
 Next: durable dispatch/recovery, then the manual-import workflow. No upload API,
 actual importer mapping or GCS UI is implemented yet. Existing migrations through

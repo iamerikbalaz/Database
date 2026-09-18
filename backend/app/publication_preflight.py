@@ -37,9 +37,9 @@ class PreparedPublication:
     rows: tuple[PublicationCsvRow, ...]
 
 
-def _candidate(session, material, *, packaging_execution_id=None):
+def _candidate(session, material, *, packaging_execution_id=None, staging_job_id=None):
     errors = []
-    try: require_material_idle(session, material.id, packaging_execution_id=packaging_execution_id)
+    try: require_material_idle(session, material.id, packaging_execution_id=packaging_execution_id, staging_job_id=staging_job_id)
     except HTTPException as error:
         if error.status_code != 409: raise
         errors.append("MATERIAL_OPERATION_ACTIVE")

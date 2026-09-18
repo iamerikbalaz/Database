@@ -47,10 +47,12 @@ The E2E configuration pins a synthetic bucket/prefix, GCS disabled and an empty 
 
 ## Next: dispatch and observations
 
-Commit an immutable ordered dispatch before cloud IO. Hold a dedicated PostgreSQL
-session advisory lease outside database transactions; verify both session identity
-and lock ownership before each consequential write and before accepting a result.
-Use a GCS-specific lock namespace. A stale process can leave remote observations,
+The GCS-specific dedicated-session lease is implemented in
+`backend/app/staging_dispatch_lease.py`; its shared mechanics and tests are described
+in `docs/packaging-dispatch-lease.md`. It is not yet connected to an upload route.
+Commit an immutable ordered dispatch before cloud IO, and hold this lease outside
+database transactions. Verify both session identity and lock ownership before each
+consequential write and before accepting a result. A stale process can leave remote observations,
 but it cannot replace newer database progress. Release the physical advisory session
 instead of returning its lock to the pool. Keep SQLite simulation explicit to tests.
 
@@ -64,6 +66,31 @@ the CSV comes from the frozen immutable batch. Streams remain bounded end to end
 Recheck the live source, current account/session and approved input context before
 dispatch and before acceptance. No transaction spans network IO. Revalidate returned
 receipts against the frozen plan even when the transport is injected in tests.
+
+`reserved_staging` rebuilds the active job from immutable database records and returns
+the exact recompiled plan, frozen CSV bytes and validated package inputs. It checks
+current authorization, approvals, policy and destination while holding the usual
+domain locks. Its internal ownership exemption is limited to the exact active job;
+ordinary previews and packaging requests cannot borrow that exemption by supplying
+its UUID. Closed, missing or reassigned ownership fails. This read-only helper does
+not acquire the dispatch lease or inspect live source files; the runner must do both
+and must finish the transaction before network IO.
+
+The next additive schema should keep five concerns separate: ordered dispatch intent,
+per-object transfer intent, immutable per-object observations, immutable dispatch
+results, and guarded current progress. An object intent commits before opening its
+source or making any cloud request. Record the completion marker as an additional
+object intent/observation, with exact coverage of every planned receipt. A late fact
+may be retained even after lease loss; only the current nonclosed dispatch with fresh
+authorization and input checks may advance progress to STAGED_VERIFIED.
+
+Initial recovery is deliberately read-only. A partially uploaded or uncertain job
+does not silently replay writes; an explicit replacement uses a fresh job namespace.
+Each network operation and the complete runner need bounded deadlines. Preserve the
+full uncertain history if cancellation, lost ownership or an unavailable source
+prevents acceptance. Closing a dispatched job must acknowledge possible late remote
+side effects and use the same session lease; it cannot retain the current unsent-only
+audit wording or imply that all cloud work has been cancelled.
 
 ## Recovery, closure and finalization
 

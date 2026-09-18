@@ -16,7 +16,7 @@ def lock_folder_catalog(session):
         session.execute(text("SELECT pg_advisory_xact_lock(737824903)"))
 
 
-def require_folder_idle(session, folder, *, packaging_execution_id=None):
+def require_folder_idle(session, folder, *, packaging_execution_id=None, staging_job_id=None):
     for operation in session.scalars(select(MaterialFileOperation).where(MaterialFileOperation.status.in_(ACTIVE_STATUSES))):
         for context in (operation.source_context, operation.target_context):
             a, b = folder.casefold(), context["folder_path"].casefold()
@@ -31,10 +31,12 @@ def require_folder_idle(session, folder, *, packaging_execution_id=None):
         a, b = folder.casefold(), path.casefold()
         if a == b or a.startswith(b + "/") or b.startswith(a + "/"):
             raise HTTPException(409, {"code": "MATERIAL_OPERATION_ACTIVE", "message": "This source tree belongs to an active packaging execution."})
-    staging_paths = session.scalars(select(PublicationStagingItem.folder_path).join(PublicationStagingOwner,
+    staging_query = select(PublicationStagingItem.folder_path).join(PublicationStagingOwner,
         (PublicationStagingOwner.job_id == PublicationStagingItem.job_id)
-        & (PublicationStagingOwner.material_id == PublicationStagingItem.material_id)).where(PublicationStagingOwner.active.is_(True)))
-    for path in staging_paths:
+        & (PublicationStagingOwner.material_id == PublicationStagingItem.material_id)).where(PublicationStagingOwner.active.is_(True))
+    if staging_job_id is not None:
+        staging_query = staging_query.where(PublicationStagingItem.job_id != staging_job_id)
+    for path in session.scalars(staging_query):
         a, b = folder.casefold(), path.casefold()
         if a == b or a.startswith(b + "/") or b.startswith(a + "/"):
             raise HTTPException(409, {"code": "MATERIAL_OPERATION_ACTIVE", "message": "This source tree belongs to an active staging reservation."})
@@ -44,9 +46,12 @@ def identity_context(material):
     return {**material_context(material), "sequence_number": material.sequence_number}
 
 
-def require_material_idle(session, material_id, *, packaging_execution_id=None):
-    if session.scalar(select(PublicationStagingOwner.job_id).where(
-            PublicationStagingOwner.material_id == material_id, PublicationStagingOwner.active.is_(True)).limit(1)):
+def require_material_idle(session, material_id, *, packaging_execution_id=None, staging_job_id=None):
+    owner = session.scalar(select(PublicationStagingOwner.job_id).where(
+        PublicationStagingOwner.material_id == material_id, PublicationStagingOwner.active.is_(True)).limit(1))
+    if staging_job_id is not None and owner != staging_job_id:
+        raise HTTPException(409, {"code": "GCS_STAGING_OWNERSHIP_CHANGED"})
+    if owner is not None and owner != staging_job_id:
         raise HTTPException(409, {"code": "MATERIAL_OPERATION_ACTIVE", "message": "Close or complete the active staging job before changing this material."})
     if session.scalar(select(MaterialFileOperation.id).where(
             MaterialFileOperation.material_id == material_id,

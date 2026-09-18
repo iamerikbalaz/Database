@@ -51,13 +51,13 @@ def frozen_report(session, snapshot):
     return {**check.report, "inventory": inventory.source_inventory}
 
 
-def approved_inputs(session, material_id, payload, access, *, packaging_execution_id=None):
+def approved_inputs(session, material_id, payload, access, *, packaging_execution_id=None, staging_job_id=None):
     """Caller holds the account gate; keep material → folder → brand lock order."""
     material = _material(session, material_id, access, lock=True)
-    require_material_idle(session, material_id, packaging_execution_id=packaging_execution_id)
+    require_material_idle(session, material_id, packaging_execution_id=packaging_execution_id, staging_job_id=staging_job_id)
     lock_folder_catalog(session)
     if not material.folder_path: conflict("PACKAGING_FOLDER_REQUIRED")
-    require_folder_idle(session, material.folder_path, packaging_execution_id=packaging_execution_id)
+    require_folder_idle(session, material.folder_path, packaging_execution_id=packaging_execution_id, staging_job_id=staging_job_id)
     item = session.get(PublicationBatchItem, (payload.batch_id, material_id))
     if item is None: raise HTTPException(404, "Publication batch item not found.")
     if item.snapshot_hash != payload.expected_snapshot_hash:
@@ -65,7 +65,7 @@ def approved_inputs(session, material_id, payload, access, *, packaging_executio
     policy = current_policy(session, material_id)
     if policy is None: conflict("PACKAGING_POLICY_NOT_SELECTED")
     if policy.id != payload.expected_policy_id: conflict("PACKAGING_POLICY_CHANGED")
-    snapshot, _ = _candidate(session, material, packaging_execution_id=packaging_execution_id)
+    snapshot, _ = _candidate(session, material, packaging_execution_id=packaging_execution_id, staging_job_id=staging_job_id)
     if snapshot["errors"] or snapshot != item.snapshot or canonical_hash(snapshot) != item.snapshot_hash:
         conflict("PACKAGING_APPROVAL_CONTEXT_CHANGED")
     report = frozen_report(session, snapshot)
@@ -99,10 +99,10 @@ def execution(session, material_id, execution_id):
     return value
 
 
-def current_inputs(session, item, access):
+def current_inputs(session, item, access, *, staging_job_id=None):
     selection = SimpleNamespace(batch_id=item.batch_id, expected_snapshot_hash=item.input_hash, expected_policy_id=item.policy_id)
     material, batch, policy, report, approval_hash = approved_inputs(session, item.material_id, selection, access,
-        packaging_execution_id=item.id)
+        packaging_execution_id=item.id, staging_job_id=staging_job_id)
     prepared = PreparedPackaging.model_validate(item.worker_request)
     validate_prepared(prepared, preparation(item.id, material, batch, policy, report, approval_hash))
     if prepared.request_hash != item.worker_request_hash: conflict("PACKAGING_APPROVAL_CONTEXT_CHANGED")

@@ -130,25 +130,31 @@ class PreparedPackages:
     _fd: int
     _files: tuple[_File, ...]
     _live: list[bool]
+    _workspace_root: Path
+    _materials_root: Path
 
     @property
     def proof_sha256(self):
-        return _digest({"operation_id": str(self.operation_id), "plan_sha256": self.plan.sha256,
+        return _digest(self.proof_document())
+
+    def proof_document(self):
+        return {"operation_id": str(self.operation_id), "plan_sha256": self.plan.sha256,
             "storage_timezone": self.storage_timezone, "manifest_sha256": self.manifest_sha256,
-            "maps": [asdict(item) for item in self.maps], "archives": [asdict(item) for item in self.archives]})
+            "maps": [asdict(item) for item in self.maps], "archives": [asdict(item) for item in self.archives]}
 
     @contextmanager
-    def _open_named(self, name):
+    def _open_named(self, name, max_seconds=120):
         _check(self._live[0], "PACKAGING_ARTIFACTS_CLOSED")
+        _check(type(max_seconds) in {int, float} and 0 < max_seconds <= 120)
         item = next((item for item in self._files if item.name == name), None)
         _check(item is not None, "PACKAGING_ARTIFACT_NOT_FOUND")
-        with _open(self._fd, item, time.monotonic() + 120) as fd: yield fd
+        with _open(self._fd, item, time.monotonic() + max_seconds) as fd: yield fd
 
-    def open_archive(self, filename):
+    def open_archive(self, filename, *, max_seconds=120):
         _check(any(item.filename == filename for item in self.archives), "PACKAGING_ARTIFACT_NOT_FOUND")
-        return self._open_named(filename)
+        return self._open_named(filename, max_seconds)
 
-    def open_manifest(self): return self._open_named("metadata.json")
+    def open_manifest(self, *, max_seconds=120): return self._open_named("metadata.json", max_seconds)
 
 
 def _assemble(staged, fd, path, storage_timezone, budget):
@@ -250,7 +256,7 @@ def _assemble_packages(staged, *, workspace_root, storage_timezone, max_seconds,
                 result = _assemble(staged, fd, workspace_root / name, storage_timezone, budget)
                 _check(_identity(os.stat(name, dir_fd=root, follow_symlinks=False)) == owned, "PACKAGING_ARTIFACT_CHANGED")
                 os.fsync(fd); live = [True]
-                try: yield PreparedPackages(staged.operation_id, staged.plan, storage_timezone, *result[:3], fd, result[3], live)
+                try: yield PreparedPackages(staged.operation_id, staged.plan, storage_timezone, *result[:3], fd, result[3], live, workspace_root, staged._materials_root)
                 finally: live[0] = False
             finally:
                 os.close(fd)

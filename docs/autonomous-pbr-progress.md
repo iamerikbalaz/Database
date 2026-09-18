@@ -25,12 +25,23 @@ packaging runner isolation suite also passed all 11 cases. The build ran as
 UID 65532 without network, host mounts, databases or ports, with bounded tmpfs;
 owned cleanup succeeded. Only its own test image is retained.
 Staging `4656754`, conversion `1e86f63` and ZIP writer `5fb97a0` are pushed;
-the tested complete assembly is the current slice. See `docs/packaging-assembly.md`
+complete assembly is committed and pushed as `fc5358b`. See `docs/packaging-assembly.md`
 and its related component documents for commands, limits and verification scope.
-Durable artifact retention/job recovery, first-policy persistence, GCS/Notion,
-online-import confirmation and the remaining catalog/history/operations work are
-unfinished. Continue with durable packaging storage and recovery; older entries
-below are history. No packaging HTTP endpoint, live upload or deployment exists.
+Durable local retention is implemented and verified. `docs/packaging-retention.md`
+describes exact replay, guarded atomic completion, restart recovery and artifact
+readers. Its initial 36 tests had six JSON container type failures (fixed); a later
+source-name assertion was corrected. The final complete worker run
+`reawote-packaging-5a97dd5f84c04a4b820c0c1280ad08a0` passed **562 tests in 207.71s**,
+including all 46 retention cases, with no skips and the same two dependency
+deprecations. The offline runner safety suite also passed all 11 cases again.
+Owned cleanup succeeded; only the test image remains. No packaging HTTP endpoint,
+live upload or deployment exists.
+
+Next: persist the first historical ZIP policy and audited overrides, then durable
+database jobs/attempts with current approval/source checks, worker execution and
+operator UI. GCS/Notion, online-import confirmation and the remaining catalog,
+history and operations work are unfinished. Older entries below are history;
+this checkpoint takes precedence over their former pending states.
 
 - User authorized implementation, new migrations, isolated test resources,
   commits, own remote branches and a draft PR on 2026-09-15.

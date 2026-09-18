@@ -137,6 +137,7 @@ class StagedInputs:
     _live: list[bool]
     _workspace_root: Path
     _storage_fd: int
+    _materials_root: Path
 
     @contextmanager
     def open_input(self, path: str, *, max_seconds: float = 120):
@@ -207,7 +208,7 @@ def stage_packaging_inputs(materials_root: Path, parts: tuple[str, ...], report:
                     fresh()
                     _check(_identity(os.stat(name, dir_fd=storage, follow_symlinks=False)) == owned)
                     live = [True]
-                    try: yield StagedInputs(operation_id, plan, inputs, tuple((path, entries[path]["size"], entries[path]["sha256"]) for path in sorted(required)), live, workspace_root, storage)
+                    try: yield StagedInputs(operation_id, plan, inputs, tuple((path, entries[path]["size"], entries[path]["sha256"]) for path in sorted(required)), live, workspace_root, storage, materials_root)
                     finally: live[0] = False
             finally:
                 os.close(workspace)

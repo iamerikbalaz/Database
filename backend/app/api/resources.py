@@ -485,7 +485,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         filters: Annotated[PBRMaterialListFilters, Query()], access: AccessDependency) -> list[PBRMaterial]:
         with database.session() as session:
             access.check(session)
-            statement = select(PBRMaterial)
+            statement = select(PBRMaterial).where(~PBRMaterial.lifecycle_state.has(is_archived=True))
             if access.user.role == "PROCESSOR":
                 statement = statement.where(PBRMaterial.assigned_processor_id == access.user.id)
             for field_name in (

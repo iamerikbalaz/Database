@@ -47,6 +47,7 @@ from app.api.company_history import build_company_history_router
 from app.api.notion_adoption import build_notion_adoption_router
 from app.api.resource_history import build_resource_history_router
 from app.api.account_security import build_account_security_history_router
+from app.api.material_archives import build_material_archives_router
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -115,6 +116,7 @@ def create_app(
     application.include_router(build_company_history_router(app_database))
     application.include_router(build_resource_history_router(app_database))
     application.include_router(build_account_security_history_router(app_database))
+    application.include_router(build_material_archives_router(app_database))
     application.include_router(build_folder_discovery_router(app_database,
         discovery_client or WorkerDiscoveryClient(app_settings.worker_base_url)))
     application.include_router(build_content_approvals_router(app_database))

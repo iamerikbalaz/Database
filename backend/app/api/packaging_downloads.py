@@ -42,7 +42,7 @@ class DownloadContext:
 
 def accepted(session, material_id, execution_id, access):
     access.check(session, PUBLICATION_APPROVERS)
-    _material(session, material_id, access)
+    _material(session, material_id, access, historical=True)
     item = execution(session, material_id, execution_id)
     state = session.get(MaterialPackagingState, item.id)
     if state is None or state.status != "PACKAGED": raise HTTPException(409, {"code": "PACKAGING_DOWNLOAD_NOT_ACCEPTED"})
@@ -72,7 +72,7 @@ class AuthorizedArtifactResponse(Response):
     def authorize(self):
         with self.database.session() as session:
             self.access.check(session, PUBLICATION_APPROVERS)
-            _material(session, self.material_id, self.access)
+            _material(session, self.material_id, self.access, historical=True)
             execution(session, self.material_id, self.context.execution_id)
             state = session.get(MaterialPackagingState, self.context.execution_id)
             if state is None or state.status != "PACKAGED" or state.last_observation_id != self.context.observation_id:

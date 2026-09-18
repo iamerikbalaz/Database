@@ -38,6 +38,7 @@ class PreparedPublication:
 
 
 def _candidate(session, material, *, packaging_execution_id=None, staging_job_id=None):
+    if material.is_archived: raise HTTPException(409, {"code": "MATERIAL_ARCHIVED"})
     errors = []
     try: require_material_idle(session, material.id, packaging_execution_id=packaging_execution_id, staging_job_id=staging_job_id)
     except HTTPException as error:

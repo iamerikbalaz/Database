@@ -92,7 +92,8 @@ def build_packaging_jobs_router(database, worker, settings, inventory_client):
     def history(material_id: UUID, access: AccessDependency, after: UUID | None = None,
         limit: Annotated[int, Query(ge=1, le=50)] = 20):
         with database.session() as session:
-            access.check(session, PUBLICATION_APPROVERS); _material(session, material_id, access)
+            access.check(session, PUBLICATION_APPROVERS)
+            material = _material(session, material_id, access, historical=True)
             query = select(MaterialPackagingExecution).where(MaterialPackagingExecution.material_id == material_id)
             if after:
                 cursor = execution(session, material_id, after)
@@ -100,20 +101,20 @@ def build_packaging_jobs_router(database, worker, settings, inventory_client):
                 query = query.where(or_(MaterialPackagingExecution.created_at < stamp,
                     and_(MaterialPackagingExecution.created_at == stamp, MaterialPackagingExecution.id < cursor.id)))
             rows = list(session.scalars(query.order_by(MaterialPackagingExecution.created_at.desc(), MaterialPackagingExecution.id.desc()).limit(limit + 1)))
-            return {"enabled": settings.packaging_enabled, "items": [summary(session, row) for row in rows[:limit]],
+            return {"enabled": settings.packaging_enabled, "archived": material.is_archived, "items": [summary(session, row) for row in rows[:limit]],
                 "next_cursor": str(rows[limit - 1].id) if len(rows) > limit else None}
 
     @router.get("/{execution_id}")
     def detail(material_id: UUID, execution_id: UUID, access: AccessDependency):
         with database.session() as session:
-            access.check(session, PUBLICATION_APPROVERS); _material(session, material_id, access)
+            access.check(session, PUBLICATION_APPROVERS); _material(session, material_id, access, historical=True)
             return view(session, execution(session, material_id, execution_id))
 
     @router.get("/{execution_id}/dispatches")
     def dispatch_history(material_id: UUID, execution_id: UUID, access: AccessDependency,
         after: Annotated[int, Query(ge=0)] = 0, limit: Annotated[int, Query(ge=1, le=50)] = 20):
         with database.session() as session:
-            access.check(session, PUBLICATION_APPROVERS); _material(session, material_id, access)
+            access.check(session, PUBLICATION_APPROVERS); _material(session, material_id, access, historical=True)
             execution(session, material_id, execution_id)
             rows = list(session.scalars(select(MaterialPackagingDispatch).where(
                 MaterialPackagingDispatch.execution_id == execution_id, MaterialPackagingDispatch.ordinal > after)

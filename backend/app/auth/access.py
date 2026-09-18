@@ -48,6 +48,13 @@ class ApplicationAccess:
         return user
 
     def require_material(self, material: PBRMaterial) -> None:
+        self.require_historical_material(material)
+        if material.is_archived:
+            raise HTTPException(404, "PBR material not found.")
+
+    def require_historical_material(self, material: PBRMaterial) -> None:
+        # Only immutable accepted-artifact reads use this narrower visibility check.
+        # Current work must always use require_material, including for ADMIN.
         if self.user.role == "PROCESSOR" and material.assigned_processor_id != self.user.id:
             # Do not disclose the existence of another processor's material.
             raise HTTPException(404, "PBR material not found.")

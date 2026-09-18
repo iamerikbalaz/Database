@@ -26,12 +26,16 @@ class ReopenRequest(ReviewMutation):
     reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
 
 
-def _material(session, material_id, access, *, lock=False, mutating=False):
+def _material(session, material_id, access, *, lock=False, mutating=False, historical=False):
     statement = select(PBRMaterial).where(PBRMaterial.id == material_id)
     if lock: statement = statement.with_for_update()
     material = session.scalar(statement)
     if material is None: raise HTTPException(404, "PBR material not found.")
-    access.require_material(material)
+    if historical:
+        if mutating: raise ValueError("Historical reads cannot authorize mutations")
+        access.require_historical_material(material)
+    else:
+        access.require_material(material)
     if mutating: require_material_idle(session, material_id)
     return material
 

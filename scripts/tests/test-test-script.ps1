@@ -52,6 +52,7 @@ try {
             $gate = @($mutations | Where-Object { $_ -match 'RUN_POSTGRES_TESTS=1.*--require-auth-postgresql.*test_auth_postgresql.py.*test_materials_postgresql.py' })
             if ($gate.Count -ne 1) { throw 'Mandatory PostgreSQL gate missing.' }
             if (-not $gate[0].Contains('test_packaging_dispatch_lease_postgresql.py')) { throw 'Dispatch PostgreSQL tests missing.' }
+            if (-not $gate[0].Contains('test_material_lifecycle_postgresql.py')) { throw 'Lifecycle PostgreSQL tests missing.' }
             if ($mode.StartsWith('pg-only')) {
                 if (@($mutations | Where-Object { $_ -match ' backend pytest --ignore| worker pytest| frontend npm' }).Count) {
                     throw 'PostgreSQL-only run entered an unrelated phase.'

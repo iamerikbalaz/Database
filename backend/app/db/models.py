@@ -545,6 +545,13 @@ class PBRMaterial(TimestampMixin, Base):
         passive_deletes=True,
         order_by="PBRMaterialMetadataSnapshot.sequence_number",
     )
+    lifecycle_state: Mapped["MaterialLifecycleState | None"] = relationship(
+        uselist=False, passive_deletes="all",
+    )
+
+    @property
+    def is_archived(self) -> bool:
+        return self.lifecycle_state is not None and self.lifecycle_state.is_archived
 
 
 class PBRMaterialMetadataSnapshot(MaterialMetadataFieldsMixin, Base):
@@ -858,6 +865,46 @@ class CompanyChangeEvent(Base):
     request_key: Mapped[UUID | None] = mapped_column(Uuid)
     request_hash: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class MaterialLifecycleEvent(Base):
+    __tablename__ = "material_lifecycle_events"
+    __table_args__ = (
+        UniqueConstraint("material_id", "version", name="uq_material_lifecycle_events_version"),
+        UniqueConstraint("actor_id", "request_key", name="uq_material_lifecycle_events_request"),
+        CheckConstraint("version BETWEEN 1 AND 2147483647", name="ck_material_lifecycle_events_version"),
+        CheckConstraint("(action = 'ARCHIVE' AND version % 2 = 1) OR (action = 'RESTORE' AND version % 2 = 0)", name="ck_material_lifecycle_events_action"),
+        CheckConstraint("request_key != '00000000-0000-0000-0000-000000000000'", name="ck_material_lifecycle_events_key"),
+        CheckConstraint("length(trim(reason)) BETWEEN 1 AND 2000", name="ck_material_lifecycle_events_reason"),
+        CheckConstraint("review_generation > 0", name="ck_material_lifecycle_events_generation"),
+        _review_hash_constraint("input_hash", "ck_material_lifecycle_events_input_hash"),
+        _review_hash_constraint("request_hash", "ck_material_lifecycle_events_request_hash"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), nullable=False)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    request_key: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(String(2000), nullable=False)
+    review_generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class MaterialLifecycleState(Base):
+    __tablename__ = "material_lifecycle_states"
+    __table_args__ = (
+        ForeignKeyConstraint(["material_id", "version"], ["material_lifecycle_events.material_id", "material_lifecycle_events.version"],
+            name="fk_material_lifecycle_states_event", ondelete="RESTRICT", deferrable=True, initially="DEFERRED"),
+        CheckConstraint("version BETWEEN 1 AND 2147483647", name="ck_material_lifecycle_states_version"),
+        CheckConstraint("(is_archived AND version % 2 = 1) OR (NOT is_archived AND version % 2 = 0)", name="ck_material_lifecycle_states_action"),
+    )
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class AccountSecurityEvent(Base):
@@ -1582,3 +1629,5 @@ event.listen(ResourceChangeEvent, "before_update", _reject_review_history_mutati
 event.listen(ResourceChangeEvent, "before_delete", _reject_review_history_mutation)
 event.listen(AccountSecurityEvent, "before_update", _reject_review_history_mutation)
 event.listen(AccountSecurityEvent, "before_delete", _reject_review_history_mutation)
+event.listen(MaterialLifecycleEvent, "before_update", _reject_review_history_mutation)
+event.listen(MaterialLifecycleEvent, "before_delete", _reject_review_history_mutation)

@@ -115,7 +115,7 @@ def test_disabled_service_stops_before_prepare_but_keeps_history_readable(reserv
     with item.case.client("ADMIN") as client:
         result = client.post(item.path, json=item.payload)
         assert result.status_code == 503 and result.json()["detail"]["code"] == "PACKAGING_SERVICE_DISABLED"
-        assert client.get(item.path).json() == {"enabled": False, "items": [], "next_cursor": None}
+        assert client.get(item.path).json() == {"enabled": False, "archived": False, "items": [], "next_cursor": None}
     assert not item.worker.calls and count(item, MaterialPackagingExecution) == 0
 
 

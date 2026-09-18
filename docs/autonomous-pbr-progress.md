@@ -1,149 +1,99 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-18)
+## Latest checkpoint (2026-09-18, material lifecycle verification)
 
-Latest pushed tip: `44df61ba2fee825e20af368b88102e744f0723cc`. Account security
-history is complete in the branch. Main was rechecked unchanged at `88a1f99`.
+Latest pushed tip before the archive commits: `b57e14e5c33abb7afe55ed540c38c04f320f227a`. Account security
+history and the database exception boundary are committed and pushed. Remote main
+was last verified unchanged at `88a1f99d748d2a0edbb1fce509e13d18bfc03908`.
+Earlier test runs and resolved failures are preserved in the historical checkpoints.
 
-Two following slices are uncommitted. The database exception boundary has passed
-38 local checks and 258 affected Linux tests. Its first PostgreSQL run passed 369
-tests with one new logging assertion failure (auth 27/27, no skips, 438.05s).
-Alembic disabled the existing application logger; its configuration now retains
-loggers and hides bound parameters. Corrected PostgreSQL run: owned project
-`reawote-test-c66e079d51d54f2f88de5c2ec773c4fc`, **370 passed, 444.15s**, auth
-**27/27**, no skips, five dependency/schema warnings. Image manifest
-`291ccf6c1fbf7512a5b891533844ad3c3383414288ca24544cb93e1b1cd9cf32`.
-Owned containers/network were removed; own volume/image retained.
-The image also contains the initial uncommitted 0023 archive schema/guards; the
-archive API is not wired into the application. See the exception-boundary guide.
+Material lifecycle backend is committed as `e9964c5136a26c39e5d18f5284a25764951d3711`.
+Its UI/docs follow in the next commit; use `git log -1` for the current branch tip.
+Lifecycle 0023 is implemented and wired: ADMIN preview,
+archive/restore, exact command recovery, bounded listing/history, current-work
+denial and narrow historical packaging/download reads. Its UI supports explicit
+confirmation and uncertain-result recovery; restored identity/number/assignment
+are preserved while metadata/review readiness is reset. Any prior storage dispatch
+blocks archive, including abandoned jobs; an unsent closed reservation is allowed.
+See `docs/material-archive-contract.md` for behavior and rollback restrictions.
 
-Material archive work is in progress: new state/event tables in additive 0023,
-ADMIN preview/command/recovery/history/list implementation (currently only attached
-by dedicated tests), default archive denial for ordinary work and narrow accepted
-artifact read exceptions. **26 initial archive tests passed, 28.31s**, two dependency
-warnings. **51 schema/metadata tests passed, 27.53s**, two warnings. Expanded source
-IO race/recovery/history/access regression: **108 passed, 126.47s**, two warnings. Actual
-PostgreSQL lifecycle races/immutability/preservation, UI and browser tests remain
-unfinished. Do not enable or claim this feature complete from these initial tests.
-Committed migrations through 0022 are immutable; uncommitted 0023 can still change.
+Verification collected so far:
 
-Account security backend commit: `8c8eec0c579db99e5aa39c431a2cf6f4be164181`.
-Its verified UI/docs follow in the next commit; use `git log -1` for the latest tip.
-Previously pushed checkpoint: `352d75f6b76e5e4de1144c9d456c210cd216177c`.
-Account security history is implemented and verified: new additive
-0022, explicit successful-action/actor metadata without credential values, atomic
-bootstrap/admin/host/self-service recording and ADMIN paged API. Initial local
-auth/access regression: **138 passed, one fixture setup error, 63.46s**, two warnings.
-The error was sandbox access to the shared system pytest temp directory, before
-the CLI test ran. Using a fresh GUID directory inside the owned worktree fixed it;
-new history + complete CLI + schema/metadata suites passed **71 tests, 39.94s**,
-no skips, two dependency warnings. Extended history suite (including three added
-host/bootstrap rollback cases): **17 passed, 12.86s**, two dependency warnings.
-Actual PostgreSQL verification passed **369 tests, 468.47s**, auth **27/27**, no
-skips, four dependency/schema warnings, in owned project
-`reawote-test-49ac3b2485714c59adfa755377555a8a`, including 14 new immutability,
-invalid provenance, concurrent reset/self-service and prior-schema upgrade cases.
-Image ID `9b94640e9d7a1ebaf0341428057507d34115c9b2e92b3ee4727e52152ef2757f`.
-Owned test containers/network were removed; own volume/image retained.
-UI is implemented: **41 focused tests passed, 2.77s**, lint/build passed.
-Its initial component assertion matched both expanded and collapsed events (40
-passed, one failed); the selector is now scoped to the explicitly opened event.
-Full frontend: **798 passed, 27.98s**, E2E TypeScript passed. Browser assertions
-cover admin provision/reset and self-service history, including retained reads;
-the capability runner `df13cefd-7b5b-439c-a319-b187dae1c80d` passed **19 fresh +
-19 retained scenarios**, 1.5m/50.8s. Actual account provisioning/reset and self-service
-events remain readable after restart, including disabled profiles. Desktop and
-390px security-history screenshots were visually inspected without overflow.
-Owned cleanup and protected-state checks passed; owned volumes/artifacts remain. See
-`docs/account-security-history.md` for the contract and verification boundaries.
-Full Linux regression passed **1875 tests, 1144.76s**, no skips, two dependency
-warnings, in owned image
-`reawote-account-security-backend-47bb3883962e42e1b8d182214f1ec687:test`, ID
-`28e5c4dabac37288479e5ef5964666ab06b6792ab6be25fc233ed408c10c4a9e`,
-nonroot/read-only/no network/host mounts. Its owned container was automatically
-removed. Migrations through committed 0021 are unchanged. The new ledger is ready
-for review; it has not been deployed or run against a production database.
-An independent synthetic probe also confirmed bound parameters appear in default
-database exceptions. The hardening step is now verified above and recorded in
-`docs/database-error-redaction-plan.md`; no real secret or database was involved.
+- Initial local archive tests: 26 passed, 28.31s; schema/metadata: 51 passed, 27.53s.
+  Expanded access/history/source-IO regression: 108 passed, 126.47s.
+- Initial PostgreSQL lifecycle suite: 386 passed, 467.74s, auth 27/27, no skips,
+  six dependency/schema warnings. Owned project
+  `reawote-test-bcf6fda830a9412eae5fad5147a2e516`, image manifest
+  `e3c8bb65ac7a8d78b73c275aaa8911f000e4017d3e06fcd9e3e9cb527cda462d`.
+  Containers/network removed; own volume/image retained. This predates final router
+  wiring, packaging-history exception and the prior-storage-dispatch guard.
+- Updated local archive suite: 33 passed, 55.22s; extra 22-record pagination case:
+  1 passed, 33 deselected, 6.03s. Each had two dependency warnings.
+- Frontend: 844 passed, 23.65s. After archived packaging/storage-control tests:
+  50 focused passed, 4.53s; lint/build and E2E TypeScript passed. The later
+  per-actor pending-packet retention correction passed 14 focused tests, 3.11s,
+  followed by lint/build (2.26s).
+- Actual browser run `74fff25f-c95d-414e-8855-0da48ed9c730`: 20 fresh + 20 retained
+  passed; retained 54.8s. Includes committed archive with lost response, read-only
+  recovery, restore, exact retry after a second lost response, preserved identity
+  and restart history. Desktop and 390px screenshots visually inspected without
+  overflow. Owned cleanup/protected-resource checks passed. Synthetic artifacts and
+  owned volumes retained. This predates the explanatory external-state message and
+  the later per-actor pending-packet correction.
+- Final browser attempt `90272184-51cf-4bc0-806e-9ff73f6d8255`: 19 passed, one
+  failed, 1.5m; retained pass was not run. The unrelated metadata-dimensions
+  scenario observed Chromium `ERR_NO_BUFFER_SPACE` on GET `/api/brands`. Archive
+  itself passed. Cleanup removed own containers/networks; diagnostics and own
+  volumes retained. A later read-only host socket snapshot showed 747 TIME_WAIT,
+  30 established connections, against a 16384-port dynamic range; it does not prove
+  the root cause at failure time. The assertion was kept unchanged. Full rerun
+  `17161905-c2b2-461a-8b3c-2ddf7ce8ec21` passed **20 fresh + 20 retained**,
+  1.4m/52.7s. New mobile screenshot visually inspected without overflow; desktop
+  layout was already inspected on the earlier successful run. Owned cleanup and
+  protected-resource checks passed; own volumes and artifacts retained.
+- Full Linux backend: **1920 passed, 1215.16s**, no skips, two dependency warnings,
+  image `reawote-material-lifecycle-backend-055edda3b47446acbf9f3238484b0de8:test`, ID
+  `92a24e6a13829b2dd712cd29f579b0f1630234fc24ab6e4b58025eb2540cc771`.
+  Nonroot/read-only/no network/host mounts; predates prior-storage-dispatch guard.
+  Owned container automatically removed.
+- Updated PostgreSQL: **389 passed, 491.37s**, auth 27/27, no skips, four warnings.
+  Owned project `reawote-test-f0e7c9d741fe4024aaa31b11a89de730`, manifest
+  `1ec4dbece0f11cef80942c5187c3a84ca4a61eb7e9e2aec6eb10034808efe6a4`.
+  Includes prior dispatch rejection in API and PostgreSQL, including an API-bypass
+  test. Owned containers/network removed; own volume/image retained.
 
-Resource history backend is committed as `584ec48c43ee1d7813dc6c099cc7d0de256c33e8`.
-Its UI and documentation are fully verified below; use `git log -1` for the latest
-branch tip rather than a historical checkpoint's commit.
-Ordinary brand/project/user/material history is committed in the backend: additive
-0021, immutable snapshots, atomic create/PATCH audit, and ADMIN paged reads.
-Local affected resource/access tests: **66 passed, 40.02s**; history/schema/metadata:
-**86 passed, 53.38s**, two dependency warnings each, no skips. Actual PostgreSQL
-verification passed **355 tests, 427.57s**, auth **27/27**, no skips, six dependency/
-schema warnings, in owned project `reawote-test-9f23ed7c16f74c2bbba892718ea99331`.
-Image ID `ae678e3095ab7ba6b60e50f32bb06e77810e5e3a87244298ab59045e49a98738`.
-Owned containers were confirmed removed; own volume/image retained. Shared historical
-downgrade fixtures now use their own isolated database where later audit evidence
-would otherwise mask the older guard they intend to test. UI is implemented;
-**101 focused tests passed, 2.97s**, lint/build and E2E TypeScript passed. Full
-frontend: **761 passed, 22.77s**. Full Linux backend: **1858 passed, 1129.48s**,
-no skips, two dependency warnings. Linux image
-`reawote-resource-audit-backend-836e92fb37794d3b99ad32890915bc2b:test`, ID
-`dcd848ec5a92ceac01db534e4fa809c9cc726ac8dfbe872b6ec69086a0c69a13`, nonroot,
-read-only, no network/host mounts. Real fresh/retained browser verification for all
-four resource histories ran as `017b598a-8e99-4615-99b9-0b0d2136125b`:
-**18 passed, one failed, 1.5m** on the fresh pass; retained pass was not run.
-The new long synthetic brand identifier exposed real mobile overflow in the
-existing detail facts/name layout. Its screenshot/DOM were inspected. Detail grid
-values and headings now wrap long words within their available width; the test
-keeps the long values and full no-overflow assertion. Full browser rerun
-`d8705d8f-8f54-414f-a535-7e1ed24e9fc1`: **19 fresh + 19 retained passed**,
-1.4m/48.8s. CSS build and E2E TypeScript checks also passed. All four mobile history
-screenshots and the desktop project history were visually inspected: legible values,
-clear before/after layout, no horizontal overflow. Own cleanup and protected-state
-checks passed; owned volumes and synthetic artifacts retained. The Linux container
-also completed and was automatically removed; its immutable image remains.
-Owned cleanup/protected-resource checks passed; diagnostics were retained.
-The capability runner's protected-state snapshot was read and confirmed to cover
-only original/demo/default-E2E resources, excluding the independent no-network Linux
-regression container. Neither runner targets the other's resources.
-See `docs/resource-history.md`.
-The next small security-history gap is mapped in `docs/account-security-history-plan.md`.
-Migrations through 0021 are now immutable. Resource history is ready for review;
-account security history is verified above; material archive remains unimplemented.
+- Expanded PostgreSQL run: **391 passed, one failed, 517.68s**, auth 27/27,
+  no skips, five warnings. Owned project
+  `reawote-test-39a364bbc8af49b49c673eda18640f7f`, manifest
+  `bd88de38410dbdff5606e6b237740e4ad89bcda7939a56bacaaef7c35264a2d1`. Covers both orderings of
+  archive vs packaging reservation and account revocation during archive commit.
+  The new archive-first test passed its HTTP/race assertions, then incorrectly
+  counted packaging records for other fixtures in the shared test database. Its
+  final ownership assertion now scopes to the tested material.
+  Owned containers/network removed; own volume/image retained.
+- Corrected focused PostgreSQL run: **49 passed, 55.35s**, auth 27/27 plus all 22
+  lifecycle cases, no skips, two warnings. Owned project
+  `reawote-test-bfa6ad1f1f7b4d4d990a48bef92afffe`, image manifest
+  `3501f02a6417303665615ed38c7b9361a0fe4a05b59d9c8f6bc5b5ef24dd3282`.
+  A temporary copy of the standard runner selected auth+lifecycle only, preserving
+  all isolation checks and the mandatory auth gate; the copy was removed afterward.
+  Owned containers/network removed; own volume/image retained. This image also
+  contains initial, uncommitted ADC work, disabled in these tests.
 
-Company history is committed/pushed as `27b1e468ac8d846e944a259ff8480a411fb1944b`.
-Migrations through 0020 are now immutable. Reviewed local Notion adoption,
-actor/key-bound exact replay and read-only recovery are committed as `c84c85a`.
-The field selection/reason/confirmation UI is implemented and verified, including
-exact retry and read-only recovery. Main was reverified unchanged at `88a1f99`.
-No real Notion write/read or production
-migration occurred. Details and boundaries: `docs/notion-adoption.md`.
+Next uncommitted slice: request-level GCS credential renewal and an opt-in ADC
+provider. Configuration and provider are wired; local verification passed
+**134 tests, 3.52s**, including the installed Google Auth 2.58.0 SDK with a synthetic
+ADC file and Google metadata responses. Affected transport/batch/runtime regression
+also passed **179 tests, 114.96s**, two warnings, before the added ADC cases.
+Linux verification is running in session 22111; no real credential/account was used.
+Initial transport
+tests passed 110 with one new expected-request-count assertion failure: the final
+PUT already returns metadata, so the actual protocol correctly has two later GETs,
+not three. The corrected assertion preserves exact write counts. See
+`gcs-credentials-plan.md` and the uncommitted implementation guide.
 
-Adoption verification: initial **104 affected API/preview/history tests passed,
-100.91s**; extended adoption/access checks **73 passed, 83.43s** (two dependency
-warnings each). Actual PostgreSQL: **314 passed, 376.19s**, auth **27/27**, no skips,
-four dependency/schema warnings. Project `reawote-test-aed8b4c8babb44229c73977fdc049e6a`,
-manifest `748de992f8cdf0042aca729a902f4b1117d1c0c24f6c989a1c5f922870cd963b`.
-Owned containers/network removed; own volume/image retained. Includes ten new
-concurrent adoption cases against independent readers and real application APIs.
-Full Linux backend: **1823 passed, 1035.38s**, no skips, two dependency warnings,
-in nonroot/no-network immutable image
-`reawote-notion-adoption-backend-0b80e39dd1c54080b3a1607bf96f7be0:test`, image ID
-`7d281e202877b296e7f349dd321819bf028dd3780fa2665295385b1ce1446a2f`.
-Its owned container was automatically removed; its image remains.
-
-Frontend: **68 focused tests passed**, lint/build passed after correcting a default
-UUID parameter's inferred TypeScript type. Full frontend: **662 passed, 21.56s**,
-lint/build passed. The later E2E typecheck exposed missing Vite ambient types while
-checking the newly shared adoption request type; its configuration now includes
-those browser types. A subsequent UI-only check also validates every mapped
-pre-change value in adoption responses. All **53 affected client/component tests
-passed**, 3.41s, including two new regressions; lint/build and E2E TypeScript passed.
-E2E `c25476f1-2c0c-4f25-95af-c18d9658e53c`: **18 fresh + 18 retained passed**,
-1.3m/44.7s. This verifies actual disabled adoption rejection, real persisted company
-history, and explicitly intercepted synthetic UI adoption/recovery with an unchanged
-real company. Desktop and 390px adoption screenshots were visually inspected with
-no overflow. Own cleanup/protected-resource checks passed; own volumes and synthetic
-artifacts retained. Keep browser synthetic success separate from real enabled-Notion
-integration verification, which remains unperformed.
-The next bounded sequence is in `docs/resource-audit-plan.md`: ordinary resource
-history, then explicit reversible material archive with no source/cloud deletion.
+Committed migrations through 0023 are immutable; append a new migration for later changes.
+No original/demo/restore database, NAS or real external target has been modified.
 
 ## Scope and implementation status
 
@@ -172,6 +122,8 @@ Implemented and tested within the documented contracts:
   request-bound recovery, immutable company history and UI.
 - Ordinary brand/project/user/material audit history and successful account security
   history, with immutable PostgreSQL ledgers, atomic writes and ADMIN paged UI.
+- ADMIN material archive/restore with preserved identities/evidence, current-work
+  exclusion, exact recovery and explicit protection against unresolved external state.
 
 These are bounded implementations, not a claim of production-ready PBR completion.
 Detailed contracts live in the linked README feature guides. Previous test results,
@@ -180,8 +132,8 @@ loss in [historical checkpoints](autonomous-pbr-history.md).
 
 ## Remaining work and real blockers
 
-1. Implement conservative material archive/restore with full authorization and
-   asynchronous-operation coverage: [plan and integration map](resource-audit-plan.md).
+1. Finish the current renewable GCS credential verification and commit its bounded
+   implementation. Live account/target verification remains separately blocked.
 2. Complete remaining history pagination/legacy CRUD replay decisions, artifact
    cleanup lifecycle and operational/final review documentation.
 3. Verify the actual online importer contract, golden material outputs, manual
@@ -201,7 +153,7 @@ was found. The owned remote branch is the review artifact in the meantime.
 Read the latest checkpoint first, inspect this worktree's branch/HEAD/status and
 compare remote main with the known base. Preserve the user's original checkout and
 all unrelated work. Never use the deleted experimental authentication branch.
-All committed migrations through 0022 are immutable; append new migrations.
+All committed migrations through 0023 are immutable; append new migrations.
 
 - PostgreSQL: `./scripts/test.ps1 -PostgresqlOnly` from this worktree with the local
   Docker CLI on PATH. It creates a fresh owned namespace and mandatory auth gate;

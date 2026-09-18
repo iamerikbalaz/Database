@@ -10,6 +10,7 @@ export function restrictedDestination(path: string, role: Role | undefined): boo
       /^\/companies\/[^/]+\/brands\/new$/.test(path)) return !manages;
   if (/^\/materials\/[^/]+\/edit$/.test(path)) return role === "LEADERSHIP";
   if (path === "/settings/users" || path === "/imports") return role !== "ADMIN";
+  if (path === "/material-archives" || path.startsWith("/material-archives/")) return role !== "ADMIN";
   if (path === "/publication") return role !== "ADMIN" && role !== "LEADERSHIP";
   return false;
 }

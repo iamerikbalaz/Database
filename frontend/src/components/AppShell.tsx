@@ -7,6 +7,7 @@ const items = [
   ["Companies", "/companies", "companies"],
   ["Projects", "/projects", "projects"],
   ["Materials", "/materials", "materials"],
+  ["Archived materials", "/material-archives", "materials"],
   ["Compare", "/compare", "materials"],
   ["Catalog", "/catalog", "materials"],
   ["Imports", "/imports", "materials"],
@@ -53,6 +54,7 @@ export function AppShell({
       </a>
       <nav aria-label="Main navigation">
         {items.filter(([, href]) => (href !== "/imports" || account?.session.user.role === "ADMIN") &&
+          (href !== "/material-archives" || account?.session.user.role === "ADMIN") &&
           (href !== "/publication" || !account || ["ADMIN", "LEADERSHIP"].includes(account.session.user.role))).map(([label, href, icon]) => {
           const active =
             currentPath === href ||

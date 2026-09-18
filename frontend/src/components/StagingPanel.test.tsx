@@ -48,7 +48,7 @@ function server(initial: ReturnType<typeof stagingJobDto> | null = null, enabled
       else current = { ...stagingJobDto(), id: body.job_id, reason: body.reason };
       return json(current);
     }
-    if (path.includes("/packaging-executions")) return json({ enabled: true, items: [packagedDto()], next_cursor: null });
+    if (path.includes("/packaging-executions")) return json({ enabled: true, archived: false, items: [packagedDto()], next_cursor: null });
     if (path.endsWith("/transfers")) return json({ items: [stagingTransferDto()], next_cursor: null });
     if (path.endsWith("/dispatches")) return json({ items: [stagingDispatchDto()], next_cursor: null });
     if (path.endsWith("/publication-staging-jobs") || path.includes("?after=")) return json({ enabled, items: current ? [current] : [], next_cursor: null });
@@ -70,6 +70,24 @@ it("loads lazily, reviews exact packages and reserves without automatically uplo
     batch_id: batch().id, expected_snapshot_hash: batch().snapshotHash, expected_csv_sha256: batch().csvSha256, reason: "Reviewed synthetic staging",
     packages: [{ material_id: materialDto.id, execution_id: packageId, expected_observation_id: expect.any(String), expected_proof_sha256: proofHash }] }));
   expect(await screen.findByRole("button", { name: "Start storage upload" })).toBeDisabled();
+});
+
+it("clears a selected package when refreshed history says the material was archived", async () => {
+  const mocked = server(); const original = mocked.fetch.getMockImplementation()!; let archived = false;
+  mocked.fetch.mockImplementation(async (path, options) => path.includes("/packaging-executions")
+    ? json({ enabled: true, archived, items: [packagedDto()], next_cursor: null }) : original(path, options));
+  mount(); open();
+  fireEvent.click(await screen.findByRole("button", { name: `Load packages for ${materialDto.technical_identity}` }));
+  const selector = await screen.findByRole("combobox", { name: `Accepted package for ${materialDto.technical_identity}` });
+  fireEvent.change(selector, { target: { value: packageId } });
+  expect(screen.getByRole("button", { name: "Review storage upload" })).toBeEnabled();
+  archived = true;
+  fireEvent.click(screen.getByRole("button", { name: `Load packages for ${materialDto.technical_identity}` }));
+  await screen.findByText(/This material is archived. It cannot be selected/);
+  expect(selector).toBeDisabled(); expect(selector).toHaveValue("");
+  expect(screen.getByRole("button", { name: "Review storage upload" })).toBeDisabled();
+  expect(mocked.fetch.mock.calls.some(([path]) => path.endsWith("/staging-preview"))).toBe(false);
+  expect(mocked.writes).toHaveLength(0);
 });
 it("retains an uncertain reservation across batch changes, collapse and in-app remount", async () => {
   const mocked = server(); const original = mocked.fetch.getMockImplementation()!; let lost = false;
@@ -181,7 +199,7 @@ it("rejects a bad successful response as uncertain and recovers its exact comman
 });
 it("rejects packages for a different batch and does not auto-walk history", async () => {
   const mocked = server(); const original = mocked.fetch.getMockImplementation()!;
-  mocked.fetch.mockImplementation((path, options) => path.includes("/packaging-executions") ? Promise.resolve(json({ enabled: true, items: [{ ...packagedDto(), batch_id: stagingId }], next_cursor: packageId })) : original(path, options));
+  mocked.fetch.mockImplementation((path, options) => path.includes("/packaging-executions") ? Promise.resolve(json({ enabled: true, archived: false, items: [{ ...packagedDto(), batch_id: stagingId }], next_cursor: packageId })) : original(path, options));
   mount(); open(); fireEvent.click(await screen.findByRole("button", { name: `Load packages for ${materialDto.technical_identity}` }));
   await screen.findByText(/No accepted package for this batch/);
   expect(screen.getByRole("button", { name: "Review storage upload" })).toBeDisabled();

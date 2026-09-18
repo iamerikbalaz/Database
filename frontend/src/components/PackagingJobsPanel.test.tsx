@@ -50,7 +50,7 @@ function server(initial: ReturnType<typeof job> | null = null, enabled = true) {
       return json(current);
     }
     if (path.endsWith("/packaging-policy")) return json({ current: policy });
-    if (path.endsWith("/packaging-executions")) return json({ enabled, items: current ? [current] : [], next_cursor: null });
+    if (path.endsWith("/packaging-executions")) return json({ enabled, archived: false, items: current ? [current] : [], next_cursor: null });
     return json(current);
   });
   vi.stubGlobal("fetch", fetch); return { fetch, writes, set: (value: ReturnType<typeof job>) => { current = value; } };
@@ -73,6 +73,22 @@ it("loads lazily, reserves approved inputs and requires a separate explicit star
   expect(screen.queryByRole("button", { name: "Retry packaging" })).not.toBeInTheDocument();
 });
 
+it("keeps archived packaging history readable despite the unavailable current policy", async () => {
+  const mocked = server(job("PACKAGED")); const original = mocked.fetch.getMockImplementation()!;
+  mocked.fetch.mockImplementation(async (path, options) => {
+    if (path.endsWith("/packaging-policy")) return json({ detail: { code: "MATERIAL_NOT_FOUND" } }, 404);
+    if (path.endsWith("/packaging-executions")) return json({ enabled: true, archived: true, items: [job("PACKAGED")], next_cursor: null });
+    return original(path, options);
+  });
+  mount(); open();
+  await screen.findByText(/This material is archived. Saved packaging history/);
+  fireEvent.click(await screen.findByRole("button", { name: /Open Packaged/ }));
+  await screen.findByRole("heading", { name: "Packaged" });
+  expect(screen.queryByRole("button", { name: "Reserve packaging job" })).not.toBeInTheDocument();
+  expect(screen.queryByText("Saved ZIP policy could not be loaded.")).not.toBeInTheDocument();
+  expect(mocked.writes).toHaveLength(0);
+});
+
 it("recovers the exact lost reservation request after collapsing the panel", async () => {
   const bodies: string[] = []; let current: ReturnType<typeof job> | null = null;
   vi.stubGlobal("fetch", vi.fn(async (path: string, options?: RequestInit) => {
@@ -81,7 +97,7 @@ it("recovers the exact lost reservation request after collapsing the panel", asy
       if (bodies.length === 1) throw new TypeError("Synthetic response loss");
       return json(current);
     }
-    return json(path.endsWith("/packaging-policy") ? { current: policy } : { enabled: true, items: current ? [current] : [], next_cursor: null });
+    return json(path.endsWith("/packaging-policy") ? { current: policy } : { enabled: true, archived: false, items: current ? [current] : [], next_cursor: null });
   }));
   mount(); const details = open(); await screen.findByRole("button", { name: "Reserve packaging job" }); confirm();
   fireEvent.click(screen.getByRole("button", { name: "Reserve packaging job" }));

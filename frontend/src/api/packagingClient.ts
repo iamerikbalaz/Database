@@ -78,7 +78,7 @@ export const packagingClient = {
     if (!Array.isArray(page.items) || page.items.length > 20) throw new Error("Invalid packaging history");
     const items = page.items.map((item) => packagingJobFromDto(item, materialId)), nextCursor = nullableId(page.next_cursor);
     if (new Set(items.map((item) => item.id)).size !== items.length || (nextCursor && (items.at(-1)?.id !== nextCursor || nextCursor === after))) throw new Error("Invalid packaging cursor");
-    return { enabled: boolean(page.enabled), items, nextCursor };
+    return { enabled: boolean(page.enabled), archived: boolean(page.archived), items, nextCursor };
   },
   async detail(materialId: string, id: string) { return bound(await request(`${path(materialId)}/${uuid(id)}`), materialId, id); },
   async reserve(materialId: string, body: PackagingReservation) {

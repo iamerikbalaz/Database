@@ -19,6 +19,7 @@ import { CatalogPage } from "./pages/CatalogPage";
 import { ComparePage } from "./pages/ComparePage";
 import { ImportsPage } from "./pages/ImportsPage";
 import { PublicationPage } from "./pages/PublicationPage";
+import { MaterialArchivesPage } from "./pages/MaterialArchivesPage";
 
 interface AppProps {
   client?: ApiClient;
@@ -67,6 +68,7 @@ function App({ client = apiClient, initialPath }: AppProps) {
   const brandMatch = path.match(/^\/brands\/([^/]+)$/);
   const projectEdit = path.match(/^\/projects\/([^/]+)\/edit$/);
   const materialMatch = path.match(/^\/materials\/([^/]+)(\/edit)?$/);
+  const archiveMatch = path.match(/^\/material-archives\/([^/]+)$/);
   let page;
   if (restrictedDestination(path, role))
     page = <section><h1>Access restricted</h1><p>Your role does not allow this operation.</p></section>;
@@ -87,6 +89,13 @@ function App({ client = apiClient, initialPath }: AppProps) {
     page = <ImportsPage client={client} navigate={navigate} />;
   else if (path === "/publication")
     page = <PublicationPage client={client} navigate={navigate} />;
+  else if (path === "/material-archives")
+    page = <MaterialArchivesPage navigate={navigate} />;
+  else if (archiveMatch) {
+    const id = decodeURIComponent(archiveMatch[1]);
+    page = isMaterialId(id) ? <MaterialArchivesPage key={id} id={id} navigate={navigate} />
+      : <section><h1>Invalid material ID</h1><p role="alert">The material URL must contain a valid UUID.</p></section>;
+  }
   else if (path === "/materials")
     page = <MaterialsPage client={client} navigate={navigate} />;
   else if (path === "/materials/new")

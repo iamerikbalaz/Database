@@ -97,21 +97,22 @@ function PackagingWork({ materialId, batch, onChanged }: Props) {
     if (mounted.current) setCommands({ ...page, items: more ? [...(commands?.items ?? []), ...page.items] : page.items });
   });
   const page = older ?? history.data, enabled = history.data?.enabled === true;
-  const owned = history.data?.items.some(active), frozen = busy || uncertain || readBusy;
-  const canReserve = !!batch && !owned && enabled && !!policy.data;
-  const canAct = !!job && active(job);
+  const owned = history.data?.items.some(active), frozen = busy || uncertain || readBusy, archived = history.data?.archived === true;
+  const canReserve = !!batch && !owned && !archived && enabled && !!policy.data;
+  const canAct = !archived && !!job && active(job);
   const confirmed = !!reason.trim() && ack && !frozen;
   return <section aria-label="Packaging job controls">
     {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
     {uncertain && <button className="button button--primary" disabled={busy || readBusy} onClick={() => void send()}>Recover same packaging request</button>}
     {history.error ? <ErrorState message="Packaging jobs could not be loaded." retry={history.retry} /> : !history.data ? <LoadingState label="Loading packaging jobs…" /> : <>
       {!enabled && <p>Packaging service is disabled. History and closure of unsent reservations remain available.</p>}
+      {archived && <p>This material is archived. Saved packaging history and accepted files remain available.</p>}
       {batch && <p className="revision-hash">Selected CSV batch: {batch.id}</p>}
-      {batch && policy.error && <ErrorState message="Saved ZIP policy could not be loaded." retry={policy.retry} />}
-      {batch && policy.data && <p>Saved ZIP rule: {policyLabel(policy.data.policy)} · {policy.data.storageTimezone}.</p>}
-      {batch && !policy.data && !policy.error && <p>Save the first ZIP policy on the material detail before reserving a job.</p>}
+      {batch && !archived && policy.error && <ErrorState message="Saved ZIP policy could not be loaded." retry={policy.retry} />}
+      {batch && !archived && policy.data && <p>Saved ZIP rule: {policyLabel(policy.data.policy)} · {policy.data.storageTimezone}.</p>}
+      {batch && !archived && !policy.data && !policy.error && <p>Save the first ZIP policy on the material detail before reserving a job.</p>}
       {owned && <p>An active job owns this material. Open it below to finish or close it.</p>}
-      {!batch && <p>Create a new reservation from a material in a saved CSV batch on the Publication page.</p>}
+      {!batch && !archived && <p>Create a new reservation from a material in a saved CSV batch on the Publication page.</p>}
       <h3>Packaging history</h3>
       {!page?.items.length && <p>No packaging jobs.</p>}
       <ul>{page?.items.map((value) => <li key={value.id}><button className="button" disabled={frozen} onClick={() => void openJob(value.id)}>

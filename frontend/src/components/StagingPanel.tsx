@@ -24,19 +24,22 @@ function PackageChoice({ row, batchId, disabled, selected, onChange }: {
   const load = async (after: string | null = null) => {
     if (reading.current || disabled) return;
     reading.current = true; setBusy(true); setError(false);
-    try { const value = await packagingClient.history(row.materialId, after); if (mounted.current) setPage(value); }
+    try { const value = await packagingClient.history(row.materialId, after); if (mounted.current) {
+      setPage(value); if (value.archived) onChange(undefined);
+    } }
     catch { if (mounted.current) setError(true); }
     finally { reading.current = false; if (mounted.current) setBusy(false); }
   };
-  const options = page?.items.filter((job) => job.status === "PACKAGED" && job.batchId === batchId && job.inputHash === row.snapshotHash) ?? [];
+  const options = page?.archived ? [] : page?.items.filter((job) => job.status === "PACKAGED" && job.batchId === batchId && job.inputHash === row.snapshotHash) ?? [];
   const choose = (job?: PackagingJob) => onChange(job?.lastObservationId && job.proofSha256 ? {
     material_id: row.materialId, execution_id: job.id, expected_observation_id: job.lastObservationId, expected_proof_sha256: job.proofSha256,
   } : undefined);
   return <li className="staging-package"><strong>{row.row.identityName} · {row.row.name}</strong>
     <button className="button" disabled={disabled || busy} onClick={() => void load()}>Load packages for {row.row.identityName}</button>
     {error && <p role="alert">Packages could not be loaded. Retry this material.</p>}
+    {page?.archived && <p>This material is archived. It cannot be selected for a new storage upload.</p>}
     {page && <><label>Accepted package for {row.row.identityName}<select value={options.some((job) => job.id === selected?.execution_id) ? selected?.execution_id : ""}
-      disabled={disabled || busy} onChange={(event) => choose(options.find((job) => job.id === event.target.value))}>
+      disabled={disabled || busy || page.archived} onChange={(event) => choose(options.find((job) => job.id === event.target.value))}>
       <option value="">Choose a package</option>{options.map((job) => <option key={job.id} value={job.id}>{new Date(job.createdAt).toLocaleString()} · {job.id}</option>)}
     </select></label>{!options.length && <p>No accepted package for this batch on this history page.</p>}
       {page.nextCursor && <button className="button" disabled={disabled || busy} onClick={() => void load(page.nextCursor)}>Older packages for {row.row.identityName}</button>}</>}

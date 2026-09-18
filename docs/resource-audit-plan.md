@@ -1,5 +1,11 @@
 # Remaining resource history and material lifecycle
 
+Status: ordinary resource history was implemented in 0021, successful account
+security history in 0022, and individual material archive/restore in 0023 on the
+development branch. This document preserves the original integration map; current
+behavior and limitations are in `resource-history.md`, `account-security-history.md`
+and `material-archive-contract.md`. It is not a pending enablement checklist.
+
 ## Next small slice: ordinary resource changes
 
 Company creation/edit/adoption now has ordered immutable evidence. The remaining
@@ -76,4 +82,5 @@ from verified publication. The first archive implementation should accept only
 `NOT_PUBLISHED` with `is_published=false`, unless a later explicit contract resolves
 all external side effects. Reject an ambiguous/in-progress publication state even
 if its local published flag is false. Restore resets review readiness, not historical
-status or external cloud state. No archive code has been enabled by this plan.
+status or external cloud state. The implementation additionally blocks any prior
+storage dispatch, even after local abandonment; see the current archive contract.

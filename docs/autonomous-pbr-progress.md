@@ -68,7 +68,21 @@ death. Its first 15 Linux tests passed in 1.81s without skips, including real
 SIGKILL and ImageMagick exec inheritance. Complete required-runtime regression
 `reawote-packaging-ed9ec1644c764477ab3008bc7ff19e6c` passed **577 tests in 204.51s**,
 with no skips and the two existing dependency deprecations. Owned cleanup passed;
-only its test image is retained. The verified lease slice is ready for commit.
+only its test image is retained. The verified lease slice is committed and pushed
+as `5f43570`. Remote main was rechecked and remains `88a1f99`.
+
+Recoverable execution now connects staging, conversion, ZIPs and retention
+(`docs/packaging-execution.md`). Its first 38 isolated Linux cases passed; the
+subsequent 12 limits/corruption/ownership cases also passed (15.54s). Nine cases
+use real child-process termination, including copying, reservation gaps, retained
+rename and cleanup transitions. Unknown ownership is preserved; known incomplete
+work requires an explicit retry, and completed results recover with NAS offline.
+The complete required-runtime worker run
+`reawote-packaging-1e69c0b534a94f54ab7c542ec2874ede` passed **627 tests in 279.97s**,
+no skips, with the two existing dependency deprecations. Owned cleanup passed;
+only its test image is retained. This execution slice is ready for commit.
+The next slice is the opt-in private packaging service, followed by database
+ownership and application jobs; these are not covered by that completed run.
 
 Next: guarded worker execution/recovery followed by durable database jobs/attempts
 with current approval/source checks and operator UI (`docs/packaging-execution-plan.md`). GCS/Notion,

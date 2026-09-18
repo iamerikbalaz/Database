@@ -40,6 +40,8 @@ from app.api.publication_staging_jobs import build_staging_jobs_router
 from app.api.staging_history import build_staging_history_router
 from app.api.staging_execution import build_staging_execution_router
 from app.gcs_client import GcsClient
+from app.notion_reader import NotionReader
+from app.api.notion_preview import build_notion_preview_router
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -57,6 +59,7 @@ def create_app(
     discovery_client: DiscoveryClient | None = None,
     packaging_client: PackagingClient | None = None,
     gcs_client: GcsClient | None = None,
+    notion_reader: NotionReader | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     app_database = database or Database(app_settings.resolved_database_url)
@@ -108,6 +111,7 @@ def create_app(
     application.include_router(build_staging_execution_router(app_database, app_packaging_client,
         app_inventory_client, gcs_client or GcsClient.from_settings(app_settings), app_settings),
         prefix="/api/publication-staging-jobs", tags=["publication staging"])
+    application.include_router(build_notion_preview_router(app_database, notion_reader or NotionReader.from_settings(app_settings), app_settings))
     application.include_router(build_folder_discovery_router(app_database,
         discovery_client or WorkerDiscoveryClient(app_settings.worker_base_url)))
     application.include_router(build_content_approvals_router(app_database))

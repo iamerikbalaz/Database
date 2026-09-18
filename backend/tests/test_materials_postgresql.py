@@ -4123,3 +4123,56 @@ def test_postgresql_staging_old_response_cannot_replace_new_backend_reconciliati
         assert len(results) == 2
         old = next(result for result in results if str(result.dispatch_id) == first["last_dispatch_id"])
         assert old.outcome == "UNCERTAIN" and not old.lease_current and not old.inputs_current
+
+
+@pytest.mark.parametrize("change", [None, "company", "link", "role", "revoke"])
+def test_postgresql_notion_comparison_rechecks_concurrent_changes_without_holding_transaction(review_pg_case, change):
+    import anyio
+    from app.main import create_app as authenticated_app
+    from app.notion_reader import configuration_from_settings
+    from test_application_access import PASSWORD, ORIGIN
+    from test_notion_preview import enabled_settings
+    from test_notion_reader import Server, schema, page
+    case = review_pg_case; server = Server(); identifier = str(uuid4())
+    settings = enabled_settings(case.app.state.settings)
+    reader = server.client(configuration_from_settings(settings))
+    with case.database.session() as session:
+        company = session.get(Project, case.material.project_id).company
+        company.notion_page_id = identifier; session.commit(); company_id = company.id
+    case.app = authenticated_app(settings, case.database, notion_reader=reader)
+    def client_for(index=0):
+        client = TestClient(case.app, base_url=ORIGIN)
+        login = client.post("/api/auth/login", json={"email": case.users[index].email, "password": PASSWORD}, headers={"Origin": ORIGIN})
+        assert login.status_code == 200
+        client.headers.update({"Origin": ORIGIN, "X-CSRF-Token": login.json()["csrf_token"]})
+        return client
+    entered = Event(); release = Event()
+    async def hold(request):
+        if "/data_sources/" in str(request.url): return server.response(schema())
+        entered.set()
+        if not await anyio.to_thread.run_sync(release.wait, 15): raise TimeoutError("Synthetic Notion response was not released")
+        document = page(); document["id"] = identifier
+        return server.response(document)
+    server.hook = hold; path = f"/api/companies/{company_id}"
+    with client_for() as actor, client_for(3) as admin:
+        with ThreadPoolExecutor(1) as pool:
+            pending = pool.submit(actor.post, path + "/notion-preview", json={"expected_page_id": identifier})
+            try:
+                assert entered.wait(15)
+                with case.database.engine.connect() as connection:
+                    assert connection.scalar(text("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND state LIKE 'idle in transaction%'")) == 0
+                busy = admin.post(path + "/notion-preview", json={"expected_page_id": identifier})
+                assert busy.status_code == 503 and busy.json()["detail"]["code"] == "NOTION_BUSY"
+                if change == "company": response = admin.patch(path, json={"name": "New concurrent local name"})
+                elif change == "link": response = admin.patch(path, json={"notion_page_id": str(uuid4())})
+                elif change == "role": response = admin.patch(f"/api/internal-users/{case.users[0].id}", json={"role": "PROCESSOR"})
+                elif change == "revoke": response = admin.patch(f"/api/internal-users/{case.users[0].id}", json={"is_active": False})
+                if change is not None: assert response.status_code == 200
+            finally: release.set()
+            result = pending.result(timeout=20)
+            # Account edits atomically revoke sessions, including a role change.
+            assert result.status_code == (200 if change is None else 401 if change in {"role", "revoke"} else 409)
+            if change is not None: assert "Synthetic česká company" not in result.text
+        assert len(server.requests) == 2
+        stored = admin.get(path).json()
+        assert stored["name"] != "Synthetic česká company" and stored["website"] is None

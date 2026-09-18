@@ -2,8 +2,40 @@
 
 ## Latest checkpoint (2026-09-18)
 
-Backend staging runtime is pushed as `940bc14`. Storage controls on Publication
-are now verified and ready to commit. They select accepted packages for the exact
+Notion comparison is implemented in the working tree: disabled-by-default reader,
+explicit source/property bindings, bounded HTTPS reads and ADMIN-only comparison
+API. It never applies values, searches for pages or writes to Notion. Company details
+now have lazy comparison controls with fixed error guidance, plain-text values and
+stale-response exclusion. No production Notion schema/token has been supplied.
+See `docs/notion-reader-plan.md` for configuration, operator behavior and remaining
+adoption/audit work. No schema migration beyond 0019 is needed.
+
+Local reader/API/access/config verification: **185 passed, 53.06s**. After improving
+the forged-observation test fixture to exercise binding checks without serializer
+warnings, its **6 focused cases passed, 8.37s** (34 deselected). Actual PostgreSQL:
+**281 passed, 344.04s**, auth **27/27**, no skips, five dependency/schema warnings.
+Project `reawote-test-f58dcea5f1c0434bb9f93c3779a7d975`, manifest digest
+`6a10c5f29b2c6070bb1881c43d03e984f32191d5b7bf78dea305b2c2cf5ec03f`.
+Includes concurrent company/link/account changes, the process read slot, and checks
+for transactions held across IO. Owned containers/network were removed; own volume
+and image retained. Full Linux backend verification is still running in isolated
+nonroot/no-network image `reawote-notion-backend-e20bc85a266a429a81c194329bf49b56:test`.
+UI focused tests: **53 passed**; initial lint rejected a control-character regexp,
+replaced with explicit character-code checks. Final lint/build and E2E TypeScript
+passed. Full frontend: **604 passed, 19.69s**. Isolated E2E
+`5fcf384d-d8f4-41c0-8ebc-92a6be05dc2a`: **18 fresh + 18 retained passed**, 1.3m/44.1s.
+This verifies the real disabled Notion route and persistent explicit company link;
+the comparison display uses an explicitly intercepted synthetic response, not a live
+Notion account. Desktop and 390px screenshots were visually inspected: labels and
+long values wrap without horizontal overflow. Owned container/network cleanup and
+protected-resource checks passed; own data volumes/images and synthetic screenshots
+remain. No live external operation occurred. The next bounded work is recorded in
+`docs/company-audit-adoption-plan.md`.
+
+## Previous storage checkpoint
+
+Backend staging runtime is pushed as `940bc14`; verified Publication storage controls
+are pushed as `edb3b6a`. Main was reverified unchanged at `88a1f99`. They select accepted packages for the exact
 saved CSV, review/reserve the destination, explicitly upload or read-only reconcile,
 page through durable evidence and close unsent jobs or ADMIN-acknowledged dispatched
 jobs. Unknown requests keep the exact key/body across batch changes and in-app
@@ -24,12 +56,14 @@ owned volumes/images and synthetic UI artifacts were retained. An initial E2E
 preflight invoked npx from the wrong directory and stopped before Docker; the
 successful runner used the project's existing local TypeScript binary explicitly.
 
-Next: implement a disabled-by-default Notion reader with explicit property/source
-bindings and synthetic HTTP contracts, then remaining synchronization/audit,
+Next work at that checkpoint: a disabled-by-default Notion reader with explicit
+property/source bindings and synthetic HTTP contracts, then synchronization/audit,
 soft-delete/restore and artifact lifecycle work. Deployed importer/golden assets,
 live GCS/Notion tests and production operations remain unavailable/outside current
 authorization. Migrations through 0019 are immutable. Details for operators:
 `docs/gcs-staging-controls.md`; backend evidence follows below.
+
+## Earlier verification checkpoints
 
 Verified after pushed `79d3b96`: migration 0019 and its models add immutable
 staging dispatch/transfer intents, verified or uncertain storage observations,

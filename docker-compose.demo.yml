@@ -10,6 +10,10 @@ services:
   backend:
     environment:
       APP_ENV: demo
+      NOTION_ENABLED: "false"
+      NOTION_ACCESS_TOKEN: ""
+      NOTION_COMPANY_DATA_SOURCE_ID: ""
+      NOTION_COMPANY_PROPERTIES: "{}"
       AUTH_COOKIE_SECURE: "false"
       AUTH_ALLOW_INSECURE_COOKIE: "true"
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:15173,http://127.0.0.1:15173}

@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     gcs_staging_prefix: str = ""
     gcs_access_token: SecretStr | None = None
     gcs_timeout_seconds: float = Field(default=900, gt=0, le=3600)
+    notion_enabled: bool = False
+    notion_access_token: SecretStr | None = None
+    notion_company_data_source_id: str = ""
+    notion_company_properties: dict[str, str] = Field(default_factory=dict)
+    notion_timeout_seconds: float = Field(default=20, gt=0, le=60)
     source_mutations_enabled: bool = False
     worker_mutation_token: SecretStr | None = None
     auth_cookie_secure: bool = True
@@ -71,6 +76,15 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security_configuration(self) -> "Settings":
+        if self.notion_enabled:
+            from app.notion_reader import configuration_from_settings
+            try:
+                configuration_from_settings(self)
+                notion_token = self.notion_access_token.get_secret_value() if self.notion_access_token else ""
+                if not 32 <= len(notion_token) <= 8192 or not notion_token.isascii() or any(not 33 <= ord(c) <= 126 for c in notion_token):
+                    raise ValueError()
+            except Exception:
+                raise ValueError("Notion requires an explicit source/property mapping and separate credential") from None
         from app.gcs_contract import GcsConfiguration
         GcsConfiguration(enabled=self.gcs_enabled, bucket_name=self.gcs_bucket_name,
             staging_prefix=self.gcs_staging_prefix, timeout_seconds=self.gcs_timeout_seconds)

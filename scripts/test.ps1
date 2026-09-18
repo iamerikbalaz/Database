@@ -17,6 +17,7 @@ $testEnvironment = @{
     POSTGRES_DB = 'reawote_test'; POSTGRES_USER = 'reawote_test'
     POSTGRES_PASSWORD = [guid]::NewGuid().ToString('N')
     APP_ENV = 'test'; AUTH_COOKIE_SECURE = 'true'; AUTH_ALLOW_INSECURE_COOKIE = 'false'
+    NOTION_ENABLED = 'false'; NOTION_ACCESS_TOKEN = ''; NOTION_COMPANY_DATA_SOURCE_ID = ''; NOTION_COMPANY_PROPERTIES = '{}'
     BACKEND_PORT = '8000'; FRONTEND_PORT = '5173'; CORS_ORIGINS = 'http://localhost:5173'
 }
 $previousEnvironment = @{}

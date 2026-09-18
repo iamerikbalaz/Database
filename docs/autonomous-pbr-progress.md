@@ -208,7 +208,7 @@ The application action suite is complete. No committed migration was modified.
 The verified application action slice is committed and pushed as `da6d7ce`;
 remote main was rechecked and remains `88a1f99`.
 
-Packaging UI/client is implemented and currently uncommitted: lazy material/batch
+Packaging UI/client is implemented: lazy material/batch
 panels, separate reserve/start, exact recovery of a lost response, progress polling,
 role-specific retry/reconcile/closure and bounded action history. All **476 frontend
 tests (17.21s)** passed, including 19 new cases; lint/build and E2E TypeScript passed.
@@ -230,6 +230,23 @@ after it. All 16 packaging guard checks passed again.
 The final cleanup removed only owned containers/networks and preserved owned
 DB/source/journal/packaging volumes; protected resources were unchanged.
 No production Compose service or live deployment was added.
+The verified UI/E2E slice is committed and pushed as `54aed25`; the remote main
+was rechecked and remains `88a1f99`.
+
+Private proof-bound artifact downloads now pass actual production-image HTTP,
+offline-source recovery, two restarts and ordered closure checks in
+`reawote-packaging-service-8fe7891eb5674acab8d23f089aa3adbe:runtime`.
+The complete required-runtime Linux worker suite in
+`reawote-packaging-fcd011409d0241bf8df2ec289fb95468` passed **710 tests (379.66s)**,
+including 23 new download cases, with no skips and two existing dependency
+warnings. The initial focused download/retention run had 66 passes and three
+failures: request/plan conflicts were incorrectly mapped to 503, and ASGI 2.4
+disconnect exceptions were not suppressed. Both were corrected without weakening
+assertions; all cases passed in the final suite. Descriptor/operation/service
+leases close after cancellation, failed sends, timeout, corruption and replacement.
+Owned cleanup succeeded; only the test/runtime images remain. The tracked
+`scripts/test-packaging-service.ps1` reproduces the real HTTP smoke without fixture
+exports, DB access, host ports or source mounts (`docs/packaging-downloads.md`).
 
 Next: proof-bound artifact downloads. Durable jobs, current approval/source checks
 and operator UI are implemented (`docs/packaging-actions.md`). GCS/Notion,

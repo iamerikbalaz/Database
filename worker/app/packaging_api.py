@@ -173,6 +173,19 @@ class DispatchInput(ReconcileInput):
     report: dict | None = None
 
 
+class ArtifactInput(StrictModel):
+    operation_id: OperationId
+    request_hash: Sha
+    plan_hash: Sha
+    proof_sha256: Sha
+    path: Annotated[str, Field(min_length=1, max_length=4096)]
+    size: Annotated[int, Field(ge=0, le=16 * 1024**3)]
+    sha256: Sha
+
+    @property
+    def operation_uuid(self): return UUID(self.operation_id)
+
+
 def _report(value):
     try: TechnicalValidationResponse.model_validate_json(json.dumps(value, allow_nan=False), strict=True)
     except (ValidationError, TypeError, ValueError): raise HTTPException(422, {"code": "PACKAGING_REQUEST_INVALID"}) from None
@@ -257,6 +270,14 @@ def create_packaging_app(settings: PackagingServiceSettings | None = None):
     def reconcile(value: ReconcileInput):
         with available_slot():
             return _response(reconcile_packaging(value.value(), roots=settings.roots))
+
+    @application.post("/internal/packaging/artifact")
+    def artifact(value: ArtifactInput, request: Request):
+        from app.packaging_download import RetainedFileResponse
+        from app.packaging_plan import _relative
+        if not _relative(value.path) or "range" in request.headers:
+            raise HTTPException(422, {"code": "PACKAGING_REQUEST_INVALID"})
+        return RetainedFileResponse(slot=slot, selection=value, artifact_root=settings.roots.artifacts)
 
     return application
 

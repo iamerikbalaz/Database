@@ -358,9 +358,12 @@ def recover_packages(*, artifact_root: Path, operation_id: UUID, request_hash: s
 
 @contextmanager
 def open_retained_file(*, artifact_root: Path, operation_id: UUID, request_hash: str, plan_hash: str,
-    expected_proof_sha256: str, path: str, max_seconds: float = 120):
+    expected_proof_sha256: str, path: str, max_seconds: float = 120,
+    expected_size: int | None = None, expected_file_sha256: str | None = None):
     """Read one allowlisted retained artifact against an independently held proof."""
     _check(_hash(request_hash) and _hash(plan_hash) and _hash(expected_proof_sha256)); deadline = _Deadline(max_seconds)
+    if expected_size is not None or expected_file_sha256 is not None:
+        _check(type(expected_size) is int and 0 <= expected_size <= 16 * 1024**3 and _hash(expected_file_sha256))
     try:
         with _operation(artifact_root, operation_id, create=False) as (journal, _):
             value = journal.read(); _check(value is not None, "PACKAGING_STORE_UNKNOWN_OPERATION")
@@ -368,6 +371,8 @@ def open_retained_file(*, artifact_root: Path, operation_id: UUID, request_hash:
             _check(record["status"] == "READY" and record["proof_sha256"] == expected_proof_sha256, "PACKAGING_STORE_PROOF_MISMATCH")
             item = next((item for item in record["payload"]["files"] if item["path"] == path), None)
             _check(item is not None, "PACKAGING_STORE_FILE_NOT_FOUND")
+            if expected_size is not None:
+                _check(item["size"] == expected_size and item["sha256"] == expected_file_sha256, "PACKAGING_STORE_FILE_MISMATCH")
             with _directory(journal, "ready", record["directory_identity"]) as root:
                 parts = tuple(path.split("/"))
                 with _descendant(root, parts[:-1]) as parent:

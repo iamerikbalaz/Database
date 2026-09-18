@@ -68,6 +68,21 @@ def main(export_path=None, variant="single", ordered=False):
         except BaseException:
             stop(child)
             raise
+    def download_files():
+        # Real HTTP transport, including unicode PREVIEW names. Retention is
+        # historical: it is readable after restart/closure with NAS offline.
+        for item in completed["stored"]["payload"]["files"]:
+            body = {"operation_id": prepared["request"]["operation_id"], "request_hash": prepared["request_hash"],
+                "plan_hash": prepared["request"]["plan_hash"], "proof_sha256": completed["stored"]["proof_sha256"], **item}
+            request = urllib.request.Request(BASE + "/internal/packaging/artifact", data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json", "Authorization": "Bearer " + token})
+            digest = hashlib.sha256(); count = 0
+            with urllib.request.urlopen(request, timeout=120) as response:
+                assert response.status == 200 and response.headers["X-Packaging-Proof-Sha256"] == body["proof_sha256"]
+                assert response.headers["X-Packaging-File-Sha256"] == item["sha256"]
+                assert int(response.headers["Content-Length"]) == item["size"]
+                while block := response.read(65536): digest.update(block); count += len(block)
+            assert count == item["size"] and digest.hexdigest() == item["sha256"]
     def stop(child):
         child.terminate()
         try: child.wait(timeout=10)
@@ -89,6 +104,7 @@ def main(export_path=None, variant="single", ordered=False):
         assert _digest(completed["stored"]["payload"]) == completed["stored"]["proof_sha256"]
         assert not list(workspace.iterdir())
         assert {str(path.relative_to(folder)): hashlib.sha256(path.read_bytes()).hexdigest() for path in folder.rglob("*") if path.is_file()} == original
+        download_files()
         source.rename(source.with_name("offline-materials"))
     finally: stop(child)
     child = start()
@@ -105,6 +121,7 @@ def main(export_path=None, variant="single", ordered=False):
             assert status == 200 and recovered == completed
             status, replayed = call("/internal/packaging/execute", {**prepared, "report": report, "retry": True})
             assert status == 200 and replayed == completed and not list(workspace.iterdir())
+        download_files()
     finally: stop(child)
     if ordered:
         child = start()
@@ -120,12 +137,13 @@ def main(export_path=None, variant="single", ordered=False):
             status, rejected = call("/internal/packaging/execute", {**prepared, "report": report, "retry": True})
             assert status == 409 and rejected["detail"]["code"] == "PACKAGING_DISPATCH_REQUIRED"
             assert not list(workspace.iterdir())
+            download_files()
         finally: stop(child)
     if export_path is not None:
         Path(export_path).write_text(json.dumps({"report": report, "prepared": prepared, "result": completed,
             **({"recovered": recovered, "closed": closed} if ordered else {})},
             ensure_ascii=True, sort_keys=True, indent=2) + "\n")
-    print("Packaging production image smoke: actual HTTP, conversion, restart and offline replay passed." +
+    print("Packaging production image smoke: actual HTTP, conversion, restart, proof-bound downloads and offline replay passed." +
         (" Ordered recovery and permanent closure also passed after restart." if ordered else ""))
 
 

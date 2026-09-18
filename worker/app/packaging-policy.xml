@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<policymap>
+  <policy domain="resource" name="memory" value="512MiB"/>
+  <policy domain="resource" name="map" value="512MiB"/>
+  <policy domain="resource" name="disk" value="2GiB"/>
+  <policy domain="resource" name="thread" value="2"/>
+  <policy domain="resource" name="time" value="120"/>
+  <policy domain="resource" name="file" value="32"/>
+  <!-- ImageMagick counts internal working images here as well. The independent
+       pre/post decoder rejects every input/output with more than one frame. -->
+  <policy domain="resource" name="list-length" value="4"/>
+  <policy domain="resource" name="width" value="32768"/>
+  <policy domain="resource" name="height" value="32768"/>
+  <policy domain="resource" name="area" value="268435456"/>
+  <policy domain="delegate" rights="none" pattern="*"/>
+  <policy domain="filter" rights="none" pattern="*"/>
+  <policy domain="module" rights="none" pattern="*"/>
+  <policy domain="module" rights="read|write" pattern="{PNG,JPEG,TIFF,WEBP}"/>
+  <policy domain="coder" rights="none" pattern="*"/>
+  <policy domain="coder" rights="read|write" pattern="{PNG,JPEG,TIFF,WEBP}"/>
+  <policy domain="path" rights="none" pattern="*"/>
+  <policy domain="path" rights="read|write" pattern="fd:[0-9]*"/>
+  <policy domain="cache" name="synchronize" value="true"/>
+  <policy domain="system" name="max-memory-request" value="256MiB"/>
+</policymap>

@@ -31,11 +31,12 @@ replace that saved policy. Legacy timestamps are to apply only to staged outputs
 ## Next execution step
 
 Private isolated input staging is implemented and tested in
-[packaging-staging.md](packaging-staging.md). Continue with ImageMagick 7 Q16-HDRI with bounded processes,
-memory/time/disk and a deny-by-default coder/delegate policy. Generate into distinct
-exclusive paths, verify actual images, manifest and ZIP entry bytes/CRC/hashes,
+[packaging-staging.md](packaging-staging.md), and bounded ImageMagick 7 Q16-HDRI
+conversion in [packaging-conversion.md](packaging-conversion.md). Continue by
+assembling resolutions into distinct exclusive paths, verifying actual images,
+manifest and ZIP entry bytes/CRC/hashes,
 then return artifact proofs. Failure must not report success or alter source files.
-Actual conversion compatibility and ZIP verification remain to be implemented.
+ZIP verification and full artifact assembly remain to be implemented.
 
 Runtime design references (checked 2026-09-17): [ImageMagick security policy](https://imagemagick.org/security-policy/)
 describes policy ordering, delegate/coder restrictions and resource limits;

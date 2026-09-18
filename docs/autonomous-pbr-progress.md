@@ -22,9 +22,20 @@ workspace. The updated complete Linux worker suite passed 414 tests (32.52s);
 after a final fixed-code error adjustment, all 62 planner/staging cases passed
 (including two new cases). No skips; the full run reports two dependency
 deprecation warnings. Details and process-crash recovery limits are in
-`docs/packaging-staging.md`. No conversion, ZIP creation or upload execution
-exists yet. Continue with bounded ImageMagick conversion and artifact verification;
-older entries below are history.
+`docs/packaging-staging.md`; staging is committed/pushed as `4656754`.
+Actual bounded ImageMagick conversion is now implemented in an opt-in runtime:
+complete worker suite `reawote-packaging-76112782f8c049c3823dea7371808a58` passed
+456 tests (62.02s, no skips, two dependency deprecations). After final concurrency
+and input-bit-depth checks, all 41 conversion tests passed (31.42s, no skips or
+warnings); 11 offline runner isolation tests passed. See
+`docs/packaging-conversion.md` for commands, tested package/policy versions and
+limits. The initial conversion run failed 12 cases because a one-image policy
+also blocked ImageMagick's internal working images and some policy test assertions
+assumed a specific diagnostic. The corrected bounded policy and independent
+single-frame decoder passed actual conversions and forbidden-input tests.
+No ZIP creation, durable packaging job or upload execution exists yet. Continue
+with resolution assembly, real ZIP verification and job recovery; older entries
+below are history.
 
 - User authorized implementation, new migrations, isolated test resources,
   commits, own remote branches and a draft PR on 2026-09-15.

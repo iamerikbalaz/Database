@@ -1,0 +1,22 @@
+# Explicit opt-in runtime for verified packaging; not used by the HTTP worker yet.
+FROM python:3.13-slim-trixie
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends imagemagick-7.q16hdri \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY pyproject.toml ./
+COPY app ./app
+COPY tests ./tests
+COPY app/packaging-policy.xml /etc/ImageMagick-7/policy.xml
+RUN pip install --no-cache-dir ".[dev]"
+
+# A read-only root, no network, dropped capabilities and bounded private writable
+# storage are runtime requirements. This image does not start a publication job.
+USER 65532:65532
+CMD ["python", "-m", "pytest", "-p", "no:cacheprovider", "--basetemp", "/tmp/pytest"]

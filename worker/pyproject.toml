@@ -23,6 +23,9 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["app*"]
 
+[tool.setuptools.package-data]
+app = ["packaging-policy.xml"]
+
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]

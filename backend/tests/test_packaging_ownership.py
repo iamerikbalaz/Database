@@ -94,6 +94,11 @@ def test_active_owner_blocks_material_brand_and_overlapping_folder_mutations(pac
             with pytest.raises(HTTPException) as caught: operation(session, argument)
             assert caught.value.status_code == 409 and caught.value.detail["code"] == code
         require_material_idle(session, uuid4()); require_brand_idle(session, uuid4()); require_folder_idle(session, "unrelated")
+        # Only the internal caller's already-verified execution can be excluded.
+        require_material_idle(session, item.material.id, packaging_execution_id=item.execution_id)
+        require_folder_idle(session, folder, packaging_execution_id=item.execution_id)
+        with pytest.raises(HTTPException): require_material_idle(session, item.material.id, packaging_execution_id=uuid4())
+        with pytest.raises(HTTPException): require_folder_idle(session, folder, packaging_execution_id=uuid4())
     with item.case.client("ADMIN") as admin:
         assert admin.patch(item.path, json={"material_name": "Blocked change"}).status_code == 409
         assert run(admin, item.path).status_code == 409

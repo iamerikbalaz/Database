@@ -38,6 +38,7 @@ class PreparationStub:
 
     def execute(self, *args, **kwargs): pytest.fail("Reservation must never execute packaging")
     def reconcile(self, *args, **kwargs): pytest.fail("Unsent reservation must never reconcile filesystem work")
+    def dispatch(self, *args, **kwargs): raise PackagingClientError("PACKAGING_SERVICE_UNAVAILABLE")
 
 
 def wire(case, technical, worker, *, enabled=True):
@@ -214,16 +215,18 @@ def test_leadership_cannot_release_reserved_ownership(reservation_case):
     assert count(item, MaterialPackagingDispatch) == 0
 
 
-def test_an_existing_dispatch_cannot_be_closed_as_not_started(reservation_case):
+def test_an_existing_dispatch_cannot_be_closed_without_worker_confirmation(reservation_case):
     item = reservation_case; saved = reserve(item)
     with item.case.database.session() as session:
         record = session.get(MaterialPackagingExecution, UUID(saved["id"]))
         action = dispatch(session, record); session.commit()
     with item.case.client("ADMIN") as client:
         result = client.post(item.path + "/" + saved["id"] + "/close", json=close_body(expected_last_dispatch_id=str(action.id)))
-        assert result.status_code == 409 and result.json()["detail"]["code"] == "PACKAGING_RECONCILIATION_REQUIRED"
-        assert client.get(item.path + "/" + saved["id"]).json()["status"] == "RUNNING"
-    assert count(item, MaterialPackagingObservation) == 0
+        assert result.status_code == 200 and result.json()["status"] == "RECOVERY_REQUIRED"
+        assert client.get(item.path + "/" + saved["id"]).json()["status"] == "RECOVERY_REQUIRED"
+    with item.case.database.session() as session:
+        observed = session.scalar(select(MaterialPackagingObservation))
+        assert observed.outcome == "UNCERTAIN" and observed.worker_result is None
 
 
 def test_busy_dispatch_lease_prevents_closure_without_database_writes(reservation_case):

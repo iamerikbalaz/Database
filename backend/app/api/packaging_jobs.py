@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, func
 from sqlalchemy.exc import IntegrityError
 
 from app.api.material_approvals import PUBLICATION_APPROVERS
@@ -12,10 +12,12 @@ from app.api.material_review import _material
 from app.auth.access import ADMIN, AccessDependency
 from app.catalog import Reason
 from app.db.models import (MaterialAuditEvent, MaterialPackagingExecution, MaterialPackagingDispatch,
-    MaterialPackagingObservation, MaterialPackagingState)
+    MaterialPackagingObservation, MaterialPackagingState, PBRMaterial)
 from app.packaging_client import PackagingClientError
+from app.packaging_contract import PreparedPackaging, PackagingDispatch
 from app.packaging_dispatch_lease import PackagingLeaseError, packaging_dispatch_lease
-from app.packaging_jobs import approved_inputs, conflict, execution, preparation, replay, request_hash, summary, validate_prepared, view
+from app.packaging_jobs import (approved_inputs, conflict, execution, preparation, replay, request_hash, summary, validate_prepared, view,
+    current_inputs, fresh_source, frozen_report, dispatch_replay, require_progress, validate_dispatched, dispatch_view)
 from app.schemas import ApiSchema, Sha256
 
 
@@ -46,7 +48,7 @@ def _commit(session):
         conflict("PACKAGING_CONCURRENT_CONFLICT")
 
 
-def build_packaging_jobs_router(database, worker, settings):
+def build_packaging_jobs_router(database, worker, settings, inventory_client):
     router = APIRouter(prefix="/api/materials/{material_id}/packaging-executions", tags=["packaging executions"])
 
     @router.post("")
@@ -105,37 +107,141 @@ def build_packaging_jobs_router(database, worker, settings):
             access.check(session, PUBLICATION_APPROVERS); _material(session, material_id, access)
             return view(session, execution(session, material_id, execution_id))
 
-    @router.post("/{execution_id}/close")
-    def close(material_id: UUID, execution_id: UUID, payload: PackagingAction, access: AccessDependency):
-        digest = request_hash("PACKAGING_CLOSE_" + str(execution_id), material_id, payload)
+    @router.get("/{execution_id}/dispatches")
+    def dispatch_history(material_id: UUID, execution_id: UUID, access: AccessDependency,
+        after: Annotated[int, Query(ge=0)] = 0, limit: Annotated[int, Query(ge=1, le=50)] = 20):
         with database.session() as session:
-            access.check(session, ADMIN); execution(session, material_id, execution_id)
+            access.check(session, PUBLICATION_APPROVERS); _material(session, material_id, access)
+            execution(session, material_id, execution_id)
+            rows = list(session.scalars(select(MaterialPackagingDispatch).where(
+                MaterialPackagingDispatch.execution_id == execution_id, MaterialPackagingDispatch.ordinal > after)
+                .order_by(MaterialPackagingDispatch.ordinal).limit(limit + 1)))
+            return {"items": [dispatch_view(session, row) for row in rows[:limit]],
+                "next_cursor": rows[limit - 1].ordinal if len(rows) > limit else None}
+
+    def observe(item, action, command, prepared, report, access, lease, roles):
+        result = None; failure = None; source_current = False; source_failure = None
+        try:
+            lease.require_owned()
+            result = validate_dispatched(worker.dispatch(prepared, report, command), prepared, report, command)
+        except (PackagingClientError, PackagingLeaseError) as error:
+            failure = error.code
+        if result and result.status == "READY" and result.terminal == "OPEN":
+            try:
+                fresh_source(inventory_client, item); source_current = True
+            except HTTPException as error:
+                source_failure = error.detail["code"]
+        auth_error = None; acceptance_failure = source_failure
+        with database.session() as session:
+            # Persist factual worker progress even after the original account was
+            # revoked. Only a currently authorized account may accept PACKAGED.
+            try: access.check(session, roles)
+            except HTTPException as error: auth_error = error
+            session.scalar(select(PBRMaterial).where(PBRMaterial.id == item.material_id).with_for_update())
+            item = execution(session, item.material_id, item.id)
+            state = session.get(MaterialPackagingState, item.id)
+            inputs_current = False
+            if auth_error is None and source_current and state.last_dispatch_id == action.id:
+                try:
+                    current_inputs(session, item, access); inputs_current = True
+                except HTTPException:
+                    acceptance_failure = "PACKAGING_APPROVAL_CONTEXT_CHANGED"
+            lease_current = True
+            try: lease.require_owned()
+            except PackagingLeaseError as error:
+                lease_current = False; acceptance_failure = error.code
+            observed = MaterialPackagingObservation(execution_id=item.id, dispatch_id=action.id,
+                outcome=result.status if result else "UNCERTAIN", worker_result=result.model_dump(mode="json") if result else None,
+                failure_code=failure, proof_sha256=result.stored.proof_sha256 if result and result.stored else None,
+                inputs_current=inputs_current, actor_current=auth_error is None)
+            session.add(observed); session.flush()
+            # An old response may arrive after a lost lease and a newer command.
+            # Its immutable observation cannot replace that command's progress.
+            if state.last_dispatch_id == action.id:
+                status = "RECOVERY_REQUIRED"
+                if lease_current and result:
+                    if action.action == "CLOSE" and result.terminal == "CLOSED": status = "REJECTED"
+                    elif result.terminal == "OPEN":
+                        if result.status == "RETRY_REQUIRED": status = "RETRY_REQUIRED"
+                        elif inputs_current and auth_error is None: status = "PACKAGED"
+                state.status = status; state.last_observation_id = observed.id
+            _audit(session, item, action.actor_id, "PACKAGING_OBSERVED", {"dispatch_id": str(action.id),
+                "outcome": observed.outcome, "inputs_current": inputs_current, "actor_current": auth_error is None,
+                "acceptance_failure": acceptance_failure, "failure_code": failure})
+            _commit(session)
+            response = view(session, item)
+        if auth_error: raise auth_error
+        return response
+
+    def perform(material_id, execution_id, payload, access, action_name):
+        roles = ADMIN if action_name == "CLOSE" else PUBLICATION_APPROVERS
+        digest = request_hash("PACKAGING_" + action_name + "_" + str(execution_id), material_id, payload)
+        with database.session() as session:
+            actor = access.check(session, roles); item = execution(session, material_id, execution_id)
+            if dispatch_replay(session, item, actor.id, payload.idempotency_key, digest): return view(session, item)
         try:
             with packaging_dispatch_lease(database.engine, execution_id, allow_test_sqlite=settings.app_env == "test") as lease:
+                # New conversion reads current source bytes before recording a
+                # command. Recovery and closure must remain possible with NAS offline.
                 with database.session() as session:
-                    actor = access.check(session, ADMIN); _material(session, material_id, access, lock=True)
+                    actor = access.check(session, roles); _material(session, material_id, access, lock=True)
                     item = execution(session, material_id, execution_id)
-                    prior = session.scalar(select(MaterialPackagingDispatch).where(MaterialPackagingDispatch.actor_id == actor.id,
-                        MaterialPackagingDispatch.request_key == payload.idempotency_key))
-                    if prior:
-                        if prior.execution_id != execution_id or prior.request_hash != digest: conflict("PACKAGING_REQUEST_KEY_REUSED")
-                        return view(session, item)
-                    state = session.get(MaterialPackagingState, execution_id)
-                    if state.last_dispatch_id != payload.expected_last_dispatch_id: conflict("PACKAGING_PROGRESS_CHANGED")
-                    if state.status != "RESERVED" or state.last_dispatch_id is not None:
-                        conflict("PACKAGING_RECONCILIATION_REQUIRED")
-                    action = MaterialPackagingDispatch(execution_id=execution_id, ordinal=1, actor_id=actor.id,
-                        issuer_session_id=access.context.session.id, action="CLOSE", request_key=payload.idempotency_key,
+                    if dispatch_replay(session, item, actor.id, payload.idempotency_key, digest): return view(session, item)
+                    state = require_progress(session, item, payload, action_name)
+                    unsent_close = action_name == "CLOSE" and state.status == "RESERVED" and state.last_dispatch_id is None
+                    if not unsent_close and not settings.packaging_enabled:
+                        raise HTTPException(503, {"code": "PACKAGING_SERVICE_DISABLED"})
+                    if action_name in {"EXECUTE", "RETRY"}: current_inputs(session, item, access)
+                if action_name in {"EXECUTE", "RETRY"}: fresh_source(inventory_client, item)
+                with database.session() as session:
+                    actor = access.check(session, roles); _material(session, material_id, access, lock=True)
+                    item = execution(session, material_id, execution_id)
+                    if dispatch_replay(session, item, actor.id, payload.idempotency_key, digest): return view(session, item)
+                    state = require_progress(session, item, payload, action_name)
+                    if action_name in {"EXECUTE", "RETRY"}:
+                        prepared, report = current_inputs(session, item, access)
+                    elif not unsent_close:
+                        prepared = PreparedPackaging.model_validate(item.worker_request)
+                        report = frozen_report(session, item.input_snapshot)
+                    ordinal = (session.scalar(select(func.max(MaterialPackagingDispatch.ordinal)).where(
+                        MaterialPackagingDispatch.execution_id == execution_id)) or 0) + 1
+                    if ordinal > 2**31 - 1: conflict("PACKAGING_DISPATCH_LIMIT")
+                    action = MaterialPackagingDispatch(id=uuid4(), execution_id=execution_id, ordinal=ordinal, actor_id=actor.id,
+                        issuer_session_id=access.context.session.id, action=action_name, request_key=payload.idempotency_key,
                         request_hash=digest, reason=payload.reason)
                     session.add(action); session.flush()
-                    observed = MaterialPackagingObservation(execution_id=execution_id, dispatch_id=action.id, outcome="NOT_STARTED",
-                        worker_result=None, failure_code=None, proof_sha256=None, inputs_current=False, actor_current=False)
-                    session.add(observed); session.flush()
-                    state.status = "REJECTED"; state.last_dispatch_id = action.id; state.last_observation_id = observed.id
-                    _audit(session, item, actor.id, "PACKAGING_CLOSED", {"dispatch_id": str(action.id), "outcome": "NOT_STARTED", "reason": payload.reason})
+                    if unsent_close:
+                        observed = MaterialPackagingObservation(execution_id=execution_id, dispatch_id=action.id, outcome="NOT_STARTED",
+                            worker_result=None, failure_code=None, proof_sha256=None, inputs_current=False, actor_current=False)
+                        session.add(observed); session.flush()
+                        state.status = "REJECTED"; state.last_observation_id = observed.id
+                    else:
+                        state.status = "RUNNING"; state.last_observation_id = None
+                    state.last_dispatch_id = action.id
+                    _audit(session, item, actor.id, "PACKAGING_CLOSED" if unsent_close else "PACKAGING_DISPATCHED",
+                        {"dispatch_id": str(action.id), "action": action_name, "ordinal": ordinal,
+                            "outcome": "NOT_STARTED" if unsent_close else None, "reason": payload.reason})
                     lease.require_owned(); _commit(session)
-                    return view(session, item)
+                    if unsent_close: return view(session, item)
+                command = PackagingDispatch(id=str(action.id), ordinal=action.ordinal, action=action.action)
+                return observe(item, action, command, prepared, report, access, lease, roles)
         except PackagingLeaseError as error:
             raise HTTPException(409 if error.code == "PACKAGING_DISPATCH_BUSY" else 503, {"code": error.code}) from None
+
+    @router.post("/{execution_id}/run")
+    def run(material_id: UUID, execution_id: UUID, payload: PackagingAction, access: AccessDependency):
+        return perform(material_id, execution_id, payload, access, "EXECUTE")
+
+    @router.post("/{execution_id}/retry")
+    def retry(material_id: UUID, execution_id: UUID, payload: PackagingAction, access: AccessDependency):
+        return perform(material_id, execution_id, payload, access, "RETRY")
+
+    @router.post("/{execution_id}/reconcile")
+    def reconcile(material_id: UUID, execution_id: UUID, payload: PackagingAction, access: AccessDependency):
+        return perform(material_id, execution_id, payload, access, "RECONCILE")
+
+    @router.post("/{execution_id}/close")
+    def close(material_id: UUID, execution_id: UUID, payload: PackagingAction, access: AccessDependency):
+        return perform(material_id, execution_id, payload, access, "CLOSE")
 
     return router

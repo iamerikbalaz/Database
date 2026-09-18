@@ -186,6 +186,27 @@ Application run/retry/reconcile integration remains the next step;
 production publishing and external writes remain
 outside this run's authority.
 
+The verified ordered worker/client slice is committed and pushed as `c4b23b9`.
+Explicit application run/retry/reconcile and post-dispatch closure are now
+implemented but under verification (`docs/packaging-actions.md`). The first
+combined local API/ownership/publication/access suite passed all 100 cases.
+New fixture setup initially omitted source-warning acknowledgment, JSON enum
+parsing, timezone/policy rebinding and deterministic latest-observation lookup;
+these test-only issues were corrected without weakening production validation.
+Final local action/ownership checks passed **38 tests (66.11s)**, including the
+persistence bound, suppressed serializer payload warnings and lost-lease handling.
+Actual PostgreSQL project `reawote-test-6c48d5726a264ddba2c8e306d66731bd` passed
+**210 tests (182.01s, auth 27/27, no skips)**, including eight new concurrent
+dispatch/revocation/acceptance/stale-result/offline-closure cases. Owned cleanup
+succeeded; its exact database volume is retained. The final JSON persistence
+bound/serializer warning guard was added after that image build. Full final
+backend regression in `reawote-packaging-backend-fe048c33396f4bbd8b8dcc53861b9f82`
+passed **1319 tests (525.51s)** with no skips and the two existing dependency
+warnings, including those guards. It ran without network, database, ports or host
+data, as UID 65532 with a read-only root; its container was removed automatically.
+Application UI/client work is in progress; actual app/worker E2E and artifact
+downloads remain unfinished. No committed migration was modified.
+
 Next: durable database jobs/attempts
 with current approval/source checks and operator UI (`docs/packaging-execution-plan.md`). GCS/Notion,
 online-import confirmation and the remaining catalog, history and operations work

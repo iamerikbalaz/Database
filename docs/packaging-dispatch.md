@@ -64,5 +64,5 @@ by backend tests; earlier four immutable proof fixtures remain unchanged.
 An older worker cannot read version-2 journals. Preserve those journals and
 artifacts and roll forward; do not downgrade a worker which has accepted ordered
 commands. No database migration changes in this slice. Application run/retry/
-reconcile and post-dispatch closure still need current-account/source checks and
-durable dispatch/observation integration before the operator UI can enable them.
+reconcile and post-dispatch closure are now implemented in packaging-actions.md;
+their integration and operator UI have a separate verification boundary.

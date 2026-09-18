@@ -3,15 +3,16 @@
 Policy decisions are now durable (migration 0016); the planner/staging/conversion/
 ZIP/retention components work on actual synthetic Linux images. Recoverable worker
 execution and the opt-in private HTTP service are now implemented and verified
-(packaging-execution.md and packaging-service.md). The main application still cannot
-start a packaging job. The remaining database/UI integration closes that boundary
+(packaging-execution.md and packaging-service.md). Database reservation and explicit
+action APIs are implemented; packaging-actions.md tracks their verification boundary.
+The remaining actual application/worker and UI integration completes that boundary
 without changing published state or contacting GCS/Notion.
 
 ## Worker execution before exposing application jobs (implemented)
 
 The following worker requirements are implemented. The backend contract/client
 independently validates the wire request and retained proof; application job
-reservation and authorization remain the next step.
+reservation and authorization are implemented and documented separately.
 
 Create an execution journal separate from artifact retention. Freeze operation UUID,
 canonical request hash, approved inventory/report digests, explicit saved ZIP policy,

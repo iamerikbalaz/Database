@@ -27,14 +27,14 @@ current compact detail. Responses omit raw reports, source content, folder paths
 credentials and session identifiers; historical CSV remains independently readable.
 
 POST /{execution_id}/close with idempotency_key, expected_last_dispatch_id and a
-reason. This slice permits closure only from RESERVED with no prior dispatch.
+reason. Local unsent closure requires RESERVED with no prior dispatch.
 The backend takes its execution lease, records immutable CLOSE/NOT_STARTED facts,
 commits REJECTED and releases material ownership. Exact closure replay adds no
 second event. Processing may be disabled during this safe closure.
 
 An execution with any prior worker dispatch cannot be closed as NOT_STARTED.
-The application must first obtain a fenced known worker outcome in the later
-run/retry/reconcile integration. An unknown network outcome never proves failure.
+The explicit action API obtains a fenced known worker outcome as described in
+packaging-actions.md. An unknown network outcome never proves failure.
 
 ## Configuration and remaining work
 
@@ -43,8 +43,8 @@ PACKAGING_SERVICE_TOKEN, a private HTTP(S) PACKAGING_BASE_URL origin, and bounde
 PACKAGING_TIMEOUT_SECONDS (default 3630, maximum 3660). Compose passes these only
 to the backend; the private packaging runtime is configured separately as
 described in packaging-service.md. Enabling packaging does not enable NAS identity
-mutations. This slice provides reservation and safe unsent closure, not conversion
-dispatch, artifact downloads, publication, worker deployment or an operator UI.
+mutations. Explicit conversion/recovery actions are documented in packaging-actions.md.
+Artifact downloads, publication, worker deployment and operator UI remain separate work.
 
 Tests cover real authorization/CSRF, stale inputs and policy, preparation failure
 or response substitution, actual account changes, replay, ownership gates, safe

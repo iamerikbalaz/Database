@@ -3189,3 +3189,171 @@ def test_postgresql_concurrent_closure_cannot_release_or_record_twice(review_pg_
         observations = list(session.scalars(select(MaterialPackagingObservation).where(MaterialPackagingObservation.execution_id == identifier)))
         assert len(actions) == len(observations) == 1
         assert observations[0].outcome == "NOT_STARTED" and session.get(MaterialPackagingState, identifier).status == "REJECTED"
+
+
+def _pg_dispatch_case(case):
+    from test_packaging_actions import DispatchStub, FreshInventory
+    from test_packaging_policy import choose
+    from test_publication_preflight import prepare_candidate, preview
+    from test_publication_batches import PATH, creation
+    worker = DispatchStub(); inventory = FreshInventory(case.technical)
+    case.packaging.prepare = worker.prepare; case.packaging.dispatch = worker.dispatch
+    case.inventory.inventory = inventory.inventory
+    adapter = SimpleNamespace(database=case.database, materials=[case.material], client=lambda _: case.client_for())
+    prepare_candidate(adapter, case.technical, case.path, report=worker.template["report"])
+    with case.client_for() as client:
+        policy = choose(client, case.path)
+        batch = client.post(PATH, json=creation(preview(client, case.material.id))).json()
+        saved = client.post(case.path + "/packaging-executions", json={"idempotency_key": str(uuid4()), "batch_id": batch["id"],
+            "expected_snapshot_hash": batch["items"][0]["snapshot_hash"], "expected_policy_id": policy["id"], "reason": "PG dispatch fixture"})
+        assert saved.status_code == 201
+    return SimpleNamespace(worker=worker, inventory=inventory, saved=saved.json(), id=UUID(saved.json()["id"]),
+        path=case.path + "/packaging-executions/" + saved.json()["id"])
+
+
+@pytest.mark.parametrize("same_key", [True, False])
+def test_postgresql_inflight_dispatch_is_committed_replayable_and_has_no_long_transaction(review_pg_case, same_key):
+    from test_packaging_reservations import close_body
+    case = review_pg_case; item = _pg_dispatch_case(case); entered = Event(); release = Event()
+    def hold():
+        entered.set()
+        if not release.wait(15): raise TimeoutError("Dispatch test worker was not released")
+    item.worker.on_dispatch = hold; body = close_body()
+    with case.client_for() as actor, case.client_for() as replaying, case.client_for(3) as editor:
+        with ThreadPoolExecutor(1) as pool:
+            pending = pool.submit(actor.post, item.path + "/run", json=body)
+            try:
+                assert entered.wait(15)
+                assert editor.get(item.path).json()["status"] == "RUNNING"
+                second = replaying.post(item.path + "/run", json=body if same_key else close_body())
+                assert second.status_code == (200 if same_key else 409)
+                if same_key: assert second.json()["status"] == "RUNNING"
+                else: assert second.json()["detail"]["code"] == "PACKAGING_DISPATCH_BUSY"
+                assert editor.patch(case.path, json={"material_name": "Still owned"}).status_code == 409
+                with case.database.engine.connect() as connection:
+                    assert connection.scalar(text("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND state LIKE 'idle in transaction%'") ) == 0
+            finally: release.set()
+            result = pending.result(timeout=20)
+            assert result.status_code == 200 and result.json()["status"] == "PACKAGED", result.json()
+        assert actor.post(item.path + "/run", json=body).json() == result.json()
+    assert len(item.worker.commands) == 1
+
+
+@pytest.mark.parametrize("phase", ["source", "worker"])
+def test_postgresql_dispatch_rechecks_revocation_without_losing_factual_output(review_pg_case, phase):
+    from app.db.models import MaterialPackagingObservation, MaterialPackagingDispatch
+    from test_packaging_reservations import close_body
+    case = review_pg_case; item = _pg_dispatch_case(case); entered = Event(); release = Event()
+    def hold():
+        entered.set()
+        if not release.wait(15): raise TimeoutError("Revocation test was not released")
+    if phase == "source": item.inventory.callback = hold
+    else: item.worker.on_dispatch = hold
+    with case.client_for() as actor, case.client_for(3) as editor:
+        with ThreadPoolExecutor(1) as pool:
+            pending = pool.submit(actor.post, item.path + "/run", json=close_body())
+            try:
+                assert entered.wait(15)
+                assert editor.patch("/api/internal-users/" + str(case.users[0].id), json={"is_active": False}).status_code == 200
+            finally: release.set()
+            assert pending.result(timeout=20).status_code == 401
+        current = editor.get(item.path).json()
+        assert current["status"] == ("RESERVED" if phase == "source" else "RECOVERY_REQUIRED")
+        with case.database.session() as session:
+            observations = list(session.scalars(select(MaterialPackagingObservation).where(MaterialPackagingObservation.execution_id == item.id)))
+            actions = list(session.scalars(select(MaterialPackagingDispatch).where(MaterialPackagingDispatch.execution_id == item.id)))
+            assert len(observations) == len(actions) == (0 if phase == "source" else 1)
+            if observations: assert observations[0].outcome == "READY" and not observations[0].actor_current
+        if phase == "worker":
+            item.worker.on_dispatch = None
+            result = editor.post(item.path + "/reconcile", json=close_body(expected_last_dispatch_id=current["last_dispatch_id"]))
+            assert result.status_code == 200 and result.json()["status"] == "PACKAGED", result.json()
+
+
+@pytest.mark.parametrize("change", ["account", "material"])
+def test_postgresql_packaging_acceptance_serializes_with_later_changes(review_pg_case, monkeypatch, change):
+    from app.api import packaging_jobs
+    from test_packaging_reservations import close_body
+    case = review_pg_case; item = _pg_dispatch_case(case); entered = Event(); release = Event()
+    original = packaging_jobs.current_inputs; calls = 0
+    def hold(*args, **kwargs):
+        nonlocal calls
+        result = original(*args, **kwargs); calls += 1
+        if calls == 3:
+            entered.set()
+            if not release.wait(15): raise TimeoutError("Acceptance test was not released")
+        return result
+    monkeypatch.setattr(packaging_jobs, "current_inputs", hold)
+    with case.client_for() as actor, case.client_for(3) as editor:
+        with ThreadPoolExecutor(2) as pool:
+            pending = pool.submit(actor.post, item.path + "/run", json=close_body())
+            try:
+                assert entered.wait(15)
+                if change == "account":
+                    writing = pool.submit(editor.patch, "/api/internal-users/" + str(case.users[0].id), json={"is_active": False})
+                else: writing = pool.submit(editor.patch, case.path, json={"material_name": "Edited after acceptance"})
+                with pytest.raises(TimeoutError): writing.result(timeout=0.15)
+            finally: release.set()
+            result = pending.result(timeout=20)
+            assert result.status_code == 200 and result.json()["status"] == "PACKAGED", result.json()
+            assert writing.result(timeout=20).status_code == 200
+
+
+def test_postgresql_late_dispatch_result_cannot_replace_newer_accepted_progress(review_pg_case, monkeypatch):
+    from contextlib import contextmanager
+    from app.api import packaging_jobs
+    from app.db.models import MaterialPackagingObservation, MaterialPackagingState
+    from test_packaging_reservations import close_body
+    case = review_pg_case; item = _pg_dispatch_case(case); entered = Event(); release = Event(); leases = []
+    original = packaging_jobs.packaging_dispatch_lease
+    @contextmanager
+    def capture(*args, **kwargs):
+        with original(*args, **kwargs) as lease:
+            leases.append(lease); yield lease
+    monkeypatch.setattr(packaging_jobs, "packaging_dispatch_lease", capture)
+    def hold():
+        entered.set()
+        if not release.wait(15): raise TimeoutError("Late result test was not released")
+    item.worker.on_dispatch = hold
+    with case.client_for() as actor, case.client_for(3) as editor:
+        with ThreadPoolExecutor(1) as pool:
+            pending = pool.submit(actor.post, item.path + "/run", json=close_body())
+            try:
+                assert entered.wait(15)
+                with case.database.engine.connect() as connection:
+                    # Kill only the captured advisory session in this test's own DB.
+                    assert connection.scalar(text("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid=:pid AND datname=current_database()"),
+                        {"pid": leases[0]._pid}) is True
+                item.worker.on_dispatch = None
+                current = editor.get(item.path).json()
+                newer = editor.post(item.path + "/reconcile", json=close_body(expected_last_dispatch_id=current["last_dispatch_id"]))
+                assert newer.status_code == 200 and newer.json()["status"] == "PACKAGED", newer.json()
+            finally: release.set()
+            old = pending.result(timeout=20)
+            assert old.status_code == 200 and old.json() == newer.json()
+        with case.database.session() as session:
+            observed = list(session.scalars(select(MaterialPackagingObservation).where(MaterialPackagingObservation.execution_id == item.id)))
+            assert len(observed) == 2 and all(row.outcome == "READY" for row in observed)
+            state = session.get(MaterialPackagingState, item.id)
+            assert str(state.last_dispatch_id) == newer.json()["last_dispatch_id"]
+            assert str(state.last_observation_id) == newer.json()["last_observation_id"]
+
+
+def test_postgresql_uncertain_dispatch_recovers_and_closes_with_nas_offline(review_pg_case):
+    from app.packaging_client import PackagingClientError
+    from app.inventory_client import InventoryClientError
+    from app.db.models import MaterialPackagingObservation
+    from test_packaging_reservations import close_body
+    case = review_pg_case; item = _pg_dispatch_case(case)
+    with case.client_for() as client:
+        item.worker.dispatch_failure = PackagingClientError()
+        first = client.post(item.path + "/run", json=close_body())
+        assert first.status_code == 200 and first.json()["status"] == "RECOVERY_REQUIRED", first.json()
+        item.worker.dispatch_failure = None; item.worker.ready = False; item.inventory.failure = InventoryClientError()
+        known = client.post(item.path + "/reconcile", json=close_body(expected_last_dispatch_id=first.json()["last_dispatch_id"]))
+        assert known.status_code == 200 and known.json()["status"] == "RETRY_REQUIRED", known.json()
+        closed = client.post(item.path + "/close", json=close_body(expected_last_dispatch_id=known.json()["last_dispatch_id"]))
+        assert closed.status_code == 200 and closed.json()["status"] == "REJECTED", closed.json()
+        with case.database.session() as session:
+            observed = session.get(MaterialPackagingObservation, UUID(closed.json()["last_observation_id"]))
+            assert observed.outcome == "RETRY_REQUIRED" and observed.worker_result["terminal"] == "CLOSED"

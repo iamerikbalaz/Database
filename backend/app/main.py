@@ -92,7 +92,8 @@ def create_app(
     application.include_router(build_packaging_policy_router(app_database, app_settings))
     application.include_router(build_packaging_jobs_router(app_database,
         packaging_client or WorkerPackagingClient(app_settings.packaging_base_url, token=app_settings.packaging_service_token,
-            enabled=app_settings.packaging_enabled, timeout_seconds=app_settings.packaging_timeout_seconds), app_settings))
+            enabled=app_settings.packaging_enabled, timeout_seconds=app_settings.packaging_timeout_seconds), app_settings,
+        inventory_client or WorkerInventoryClient(app_settings.worker_base_url)))
     application.include_router(build_folder_discovery_router(app_database,
         discovery_client or WorkerDiscoveryClient(app_settings.worker_base_url)))
     application.include_router(build_content_approvals_router(app_database))

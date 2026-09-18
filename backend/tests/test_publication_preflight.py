@@ -18,15 +18,20 @@ from test_technical_client import technical_payload
 PATH = "/api/publication-batches/preview"
 
 
-def prepare_candidate(case, worker, path, *, empty=False):
+def prepare_candidate(case, worker, path, *, empty=False, report=None):
     material = next(item for item in case.materials if path.endswith(str(item.id)))
+    if report is not None:
+        report = json.loads(json.dumps(report).replace(report["inventory"]["folder_name"], material.technical_identity))
+        rehash(report["inventory"])
+    metadata_hash = next(entry["sha256"] for entry in report["inventory"]["entries"] if entry["path"] == "metadata.txt") if report else "d" * 64
     # Synthetic immutable source proof, never a production path/file. Actual
     # parser/inventory bytes and decoding are tested separately in retained E2E.
     with case.database.session() as session:
         session.get(PBRMaterial, material.id).workflow_status = "DONE"
         snapshot = PBRMaterialMetadataSnapshot(material_id=material.id, sequence_number=1,
-            status="VALID", source_filename="metadata.txt", source_sha256="d" * 64,
-            hex_color="#A1B2C3", width_cm=Decimal("12.5"), height_cm=Decimal("34"), master_resolution="4K")
+            status="VALID", source_filename="metadata.txt", source_sha256=metadata_hash,
+            hex_color="#A1B2C3", width_cm=Decimal("12.5"), height_cm=Decimal("34"),
+            master_resolution=report["inventory"]["master_resolution"] if report else "4K")
         session.add(snapshot); session.flush()
         current = session.get(PBRMaterialMetadata, material.id)
         current.current_snapshot_id = snapshot.id
@@ -34,6 +39,7 @@ def prepare_candidate(case, worker, path, *, empty=False):
             setattr(current, field, getattr(snapshot, field))
         session.commit()
     def validate(folder):
+        if report is not None: return TechnicalReport.model_validate_json(json.dumps(report))
         data = technical_payload(folder.rsplit("/", 1)[-1])
         data["inventory"]["entries"].append({"path": "metadata.txt", "kind": "file", "size": 1, "sha256": "d" * 64})
         data["inventory"]["total_bytes"] += 1
@@ -46,9 +52,10 @@ def prepare_candidate(case, worker, path, *, empty=False):
         assert admin.post(path + "/content", json=content_payload(category_ids=[category.json()["id"]], credits=10,
             description=None if empty else "Reviewed content", tags=[] if empty else ["stone"])).status_code == 200
         view = run(admin, path).json()
-        technical = admin.post(path + "/approvals", json=approval_payload(view))
+        acknowledgment = {"warnings_acknowledged": True, "note": "Reviewed synthetic source warnings"} if report and report["warnings"] else {}
+        technical = admin.post(path + "/approvals", json=approval_payload(view, **acknowledgment))
         assert technical.status_code == 200
-        assert admin.post(path + "/approvals", json=approval_payload(technical.json(), "PUBLICATION")).status_code == 200
+        assert admin.post(path + "/approvals", json=approval_payload(technical.json(), "PUBLICATION", **acknowledgment)).status_code == 200
         content = admin.get(path + "/content-review").json()
         assert admin.post(path + "/content/approve", json=content_approval(content,
             **({"warnings_acknowledged": True, "note": "Reviewed empty content"} if empty else {}))).status_code == 200

@@ -31,7 +31,7 @@ def main() -> int:
             user = session.scalar(select(InternalUser).where(InternalUser.email == normalize_email(arguments.email)))
             if user is None:
                 parser.error("Existing account not found.")
-            set_initial_access(session, user, PasswordService(settings), password)
+            set_initial_access(session, user, PasswordService(settings), password, source="HOST", actor_id=None)
             user_id = user.id
             session.commit()
         audit("host_access_recovery", user_id=user_id)

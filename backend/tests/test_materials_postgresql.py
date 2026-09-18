@@ -4588,3 +4588,113 @@ def test_postgresql_resource_history_0021_preserves_0020_records_and_refuses_his
                 assert connection.scalar(text("SELECT version_num FROM alembic_version")) == _current_head()
                 assert connection.scalar(text("SELECT count(*) FROM resource_change_events")) == 1
         finally: fixture.close(); get_settings.cache_clear()
+
+
+def _security_pg_event(case):
+    from app.account_security_history import append_security_event
+    with case.database.session() as session:
+        item = append_security_event(session, case.users[1].id, "SELF_PASSWORD_CHANGED", case.users[1].id)
+        session.commit(); return item
+
+
+@pytest.mark.parametrize("operation", ["update", "delete", "truncate"])
+def test_postgresql_account_security_history_cannot_be_rewritten(review_pg_case, operation):
+    case = review_pg_case; item = _security_pg_event(case)
+    statement = {"update": "UPDATE account_security_events SET version=2 WHERE id=:id",
+        "delete": "DELETE FROM account_security_events WHERE id=:id", "truncate": "TRUNCATE account_security_events"}[operation]
+    with pytest.raises(DBAPIError, match="append-only"), case.database.engine.begin() as connection:
+        connection.execute(text(statement), {"id": item.id})
+    with case.database.engine.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM account_security_events WHERE id=:id"), {"id": item.id}) == 1
+
+
+@pytest.mark.parametrize("change", ["actor-null", "actor-other", "unknown-action", "wrong-outcome", "wrong-time", "skip-version", "false-bootstrap", "target"])
+def test_postgresql_account_security_history_rejects_wrong_provenance(review_pg_case, change):
+    from datetime import timedelta
+    from app.db.models import AccountSecurityEvent
+    previous = _security_pg_event(review_pg_case)
+    values = {column.key: getattr(previous, column.key) for column in AccountSecurityEvent.__table__.columns if column.key not in {"id", "created_at"}}
+    values["version"] = 2
+    if change == "actor-null": values["actor_id"] = None
+    elif change == "actor-other": values["actor_id"] = review_pg_case.users[0].id
+    elif change == "unknown-action": values["action"] = "UNTRUSTED"
+    elif change == "wrong-outcome": values["requires_password_change"] = True
+    elif change == "wrong-time": values["credential_changed_at"] += timedelta(seconds=1)
+    elif change == "skip-version": values["version"] = 3
+    elif change == "false-bootstrap": values.update(action="FIRST_ADMIN_PROVISIONED", actor_id=None, requires_password_change=True)
+    elif change == "target": values["user_id"] = uuid4()
+    with pytest.raises(DBAPIError), review_pg_case.database.session() as session:
+        session.add(AccountSecurityEvent(**values)); session.commit()
+
+
+def test_postgresql_two_admin_resets_preserve_atomic_ordered_security_history(review_pg_case):
+    from app.db.models import UserCredential
+    from test_application_access import PASSWORD
+    from test_auth import NEW_PASSWORD
+    case = review_pg_case; target = case.users[1].id; barrier = Barrier(2)
+    choices = {str(case.users[0].id): NEW_PASSWORD, str(case.users[3].id): NEW_PASSWORD + " other"}
+    with case.client_for() as first, case.client_for(3) as second:
+        def reset(client, value):
+            barrier.wait(15)
+            return client.post(f"/api/auth/accounts/{target}/access", json={"current_password": PASSWORD, "new_password": value})
+        with ThreadPoolExecutor(2) as pool:
+            futures = [pool.submit(reset, first, choices[str(case.users[0].id)]), pool.submit(reset, second, choices[str(case.users[3].id)])]
+            assert [future.result(timeout=25).status_code for future in futures] == [200, 200]
+        items = first.get(f"/api/internal-users/{target}/security-history").json()["items"]
+        assert [item["version"] for item in items] == [2, 1]
+        assert {item["actor_id"] for item in items} == set(choices)
+        assert all(item["action"] == "ADMIN_ACCESS_RESET" and item["requires_password_change"] for item in items)
+        with case.database.session() as session:
+            credential = session.get(UserCredential, target)
+            assert PasswordService(case.app.state.settings).verify_password(credential.password_hash, choices[items[0]["actor_id"]])
+
+
+def test_postgresql_self_change_racing_admin_reset_records_only_committed_outcomes(review_pg_case):
+    from test_application_access import PASSWORD
+    from test_auth import NEW_PASSWORD
+    case = review_pg_case; target = case.users[1].id; barrier = Barrier(2)
+    with case.client_for() as admin, case.client_for(1) as owner:
+        def change(client, endpoint, value):
+            barrier.wait(15)
+            return client.post(endpoint, json={"current_password": PASSWORD, "new_password": value})
+        with ThreadPoolExecutor(2) as pool:
+            reset = pool.submit(change, admin, f"/api/auth/accounts/{target}/access", NEW_PASSWORD)
+            changed = pool.submit(change, owner, "/api/auth/change-password", NEW_PASSWORD + " self")
+            assert reset.result(timeout=25).status_code == 200
+            self_status = changed.result(timeout=25).status_code; assert self_status in {200, 401}
+        items = admin.get(f"/api/internal-users/{target}/security-history").json()["items"]
+        assert [item["action"] for item in items] == (["ADMIN_ACCESS_RESET", "SELF_PASSWORD_CHANGED"] if self_status == 200 else ["ADMIN_ACCESS_RESET"])
+        assert [item["version"] for item in items] == list(range(len(items), 0, -1))
+        assert items[0]["requires_password_change"] and items[0]["actor_id"] == str(case.users[0].id)
+        if self_status == 200: assert items[1]["actor_id"] == str(target) and not items[1]["requires_password_change"]
+
+
+def test_postgresql_account_security_0022_preserves_0021_and_refuses_erasing_events():
+    from app.db.models import AccountSecurityEvent, UserCredential
+    from test_application_access import PASSWORD
+    from test_auth import NEW_PASSWORD
+    with isolated_postgresql_database() as database_url, pytest.MonkeyPatch.context() as patch:
+        patch.setenv("DATABASE_URL", database_url); get_settings.cache_clear()
+        config = Config("alembic.ini"); command.upgrade(config, "20260918_0021")
+        fixture = _review_pg_case(database_url); case = next(fixture); target = case.users[1].id
+        try:
+            with case.database.session() as session:
+                credential = session.get(UserCredential, target)
+                previous_hash = credential.password_hash; previous_change = credential.password_changed_at
+            command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
+            with case.database.session() as session:
+                assert not list(session.scalars(select(AccountSecurityEvent)))
+                credential = session.get(UserCredential, target)
+                unchanged = (credential.password_hash == previous_hash and credential.password_changed_at == previous_change)
+                assert unchanged and not credential.must_change_password
+            command.downgrade(config, "20260918_0021")
+            assert not inspect(case.database.engine).has_table("account_security_events")
+            command.upgrade(config, "head")
+            with case.client_for() as admin:
+                assert admin.post(f"/api/auth/accounts/{target}/access", json={"current_password": PASSWORD, "new_password": NEW_PASSWORD}).status_code == 200
+            with pytest.raises(DBAPIError, match="Account security history exists"):
+                command.downgrade(config, "20260918_0021")
+            with case.database.engine.connect() as connection:
+                assert connection.scalar(text("SELECT version_num FROM alembic_version")) == _current_head()
+                assert connection.scalar(text("SELECT count(*) FROM account_security_events")) == 1
+        finally: fixture.close(); get_settings.cache_clear()

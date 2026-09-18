@@ -14,6 +14,7 @@ from app.auth.service import (
 from app.core.config import Settings
 from app.db.models import InternalUser, UserCredential
 from app.schemas import ApiSchema
+from app.account_security_history import append_security_event
 
 
 class AccessResetResponse(ApiSchema):
@@ -23,7 +24,8 @@ class AccessResetResponse(ApiSchema):
 
 
 def set_initial_access(session: Session, user: InternalUser, service: PasswordService,
-                       password: str) -> datetime:
+                       password: str, *, source: str, actor_id: UUID | None) -> datetime:
+    if source not in {"ADMIN", "HOST"}: raise ValueError("Invalid access source")
     if not user.is_active:
         raise HTTPException(409, "Activate the account before provisioning access.")
     try:
@@ -31,6 +33,7 @@ def set_initial_access(session: Session, user: InternalUser, service: PasswordSe
     except PasswordPolicyError as exc:
         raise HTTPException(422, str(exc)) from None
     credential = lock_user_credential(session, user.id)
+    was_provisioned = credential is not None
     now = database_now(session)
     if credential is None:
         credential = UserCredential(user_id=user.id)
@@ -44,6 +47,8 @@ def set_initial_access(session: Session, user: InternalUser, service: PasswordSe
     credential.password_changed_at = now
     credential.updated_at = now
     revoke_all_user_sessions(session, user.id, now)
+    action = "HOST_ACCESS_RECOVERED" if source == "HOST" else "ADMIN_ACCESS_RESET" if was_provisioned else "ADMIN_ACCESS_PROVISIONED"
+    append_security_event(session, user.id, action, actor_id)
     return now
 
 
@@ -64,7 +69,7 @@ def build_account_router(database, settings: Settings) -> APIRouter:
             user = session.get(InternalUser, user_id)
             if user is None:
                 raise HTTPException(404, "Internal user not found.")
-            changed_at = set_initial_access(session, user, service, payload.new_password)
+            changed_at = set_initial_access(session, user, service, payload.new_password, source="ADMIN", actor_id=actor.id)
             session.commit()
         audit("access_reset", user_id=user_id)
         return AccessResetResponse(user_id=user_id, changed_at=changed_at)

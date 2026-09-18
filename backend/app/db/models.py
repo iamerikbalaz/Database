@@ -860,6 +860,28 @@ class CompanyChangeEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class AccountSecurityEvent(Base):
+    __tablename__ = "account_security_events"
+    __table_args__ = (
+        UniqueConstraint("user_id", "version", name="uq_account_security_events_user_version"),
+        CheckConstraint("version BETWEEN 1 AND 2147483647", name="ck_account_security_events_version"),
+        CheckConstraint("(action IN ('FIRST_ADMIN_PROVISIONED','HOST_ACCESS_RECOVERED') AND actor_id IS NULL) OR "
+            "(action IN ('ADMIN_ACCESS_PROVISIONED','ADMIN_ACCESS_RESET') AND actor_id IS NOT NULL AND actor_id != user_id) OR "
+            "(action = 'SELF_PASSWORD_CHANGED' AND actor_id IS NOT NULL AND actor_id = user_id)", name="ck_account_security_events_actor"),
+        CheckConstraint("(action = 'SELF_PASSWORD_CHANGED' AND NOT requires_password_change) OR "
+            "(action IN ('FIRST_ADMIN_PROVISIONED','HOST_ACCESS_RECOVERED','ADMIN_ACCESS_PROVISIONED','ADMIN_ACCESS_RESET') AND requires_password_change)",
+            name="ck_account_security_events_outcome"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"), nullable=False)
+    actor_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    requires_password_change: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    credential_changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class ResourceChangeEvent(Base):
     __tablename__ = "resource_change_events"
     __table_args__ = (
@@ -1558,3 +1580,5 @@ for _review_history_type in (CompanyChangeEvent, MaterialInventory, MaterialAudi
 
 event.listen(ResourceChangeEvent, "before_update", _reject_review_history_mutation)
 event.listen(ResourceChangeEvent, "before_delete", _reject_review_history_mutation)
+event.listen(AccountSecurityEvent, "before_update", _reject_review_history_mutation)
+event.listen(AccountSecurityEvent, "before_delete", _reject_review_history_mutation)

@@ -18,6 +18,7 @@ from app.core.config import Settings, get_settings
 from app.db.models import InternalUser, InternalUserRole, UserCredential
 from app.db.session import Database
 from app.schemas import InternalUserCreate
+from app.account_security_history import append_security_event
 
 
 class AdminDatabase(Protocol):
@@ -79,6 +80,7 @@ def provision_first_admin(
                 must_change_password=True,
             )
         )
+        append_security_event(db_session, user.id, "FIRST_ADMIN_PROVISIONED")
         db_session.commit()
         return user.id
 

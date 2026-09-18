@@ -33,6 +33,7 @@ from app.auth.service import (
 )
 from app.core.config import Settings
 from app.db.models import AuthSession, InternalUser
+from app.account_security_history import append_security_event
 
 
 def _response(context: AuthContext, csrf_token: str | None = None) -> AuthSessionResponse:
@@ -178,6 +179,7 @@ def build_auth_router(database: SessionDatabase, settings: Settings) -> APIRoute
             now = max(database_now(db_session), _aware(credential.password_changed_at))
             change_credential_password(credential, password_service, normalized, now)
             revoke_all_user_sessions(db_session, context.user.id, now)
+            append_security_event(db_session, context.user.id, "SELF_PASSWORD_CHANGED", context.user.id)
             db_session.commit()
         delete_session_cookie(response, settings)
         audit("password_change", user_id=context.user.id)

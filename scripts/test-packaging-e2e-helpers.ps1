@@ -28,6 +28,27 @@ $runNetwork = @{ Name=$runProject+'_packaging_private'; Internal=$true; Labels=@
 Assert-E2ePackagingCompose (New-Configuration) $runSource $runVolume
 Assert-E2ePackagingRuntime (New-Runtime) $runNetwork $runProject $runSource $runVolume
 Write-Host 'PASS: exact isolated packaging compose and runtime accepted'
+if ([IO.Path]::DirectorySeparatorChar -eq '\') {
+    $desktopSource = '/run/desktop/mnt/host/' + $runSource.Substring(0, 1).ToLowerInvariant() + '/' + $runSource.Substring(3).Replace('\', '/')
+    $value = New-Runtime; $value.Mounts[0].Source = $desktopSource
+    Assert-E2ePackagingRuntime $value $runNetwork $runProject $runSource $runVolume
+    Write-Host 'PASS: exact local Desktop runtime drive mapping accepted'
+    foreach ($invalidSource in @(
+        $desktopSource + '-foreign',
+        $desktopSource + '/child',
+        $desktopSource + '/../materials',
+        $desktopSource.Replace('/run/desktop/mnt/host/', '/run/desktop/mnt/foreign/'),
+        $desktopSource.Replace('/run/desktop/mnt/host/', '/host_mnt/'),
+        $desktopSource.Replace('/host/', '/host/z/'),
+        (Split-Path -Leaf $runSource)
+    )) {
+        $value = New-Runtime; $value.Mounts[0].Source = $invalidSource
+        $rejected = $false
+        try { Assert-E2ePackagingRuntime $value $runNetwork $runProject $runSource $runVolume } catch { $rejected = $true }
+        if (-not $rejected) { throw 'Packaging runtime guard accepted a foreign, relative or ambiguous source path' }
+    }
+    Write-Host 'PASS: seven foreign, relative and ambiguous Desktop source variants rejected'
+}
 foreach ($kind in @('root','writable-source','wrong-source','foreign-volume','external-volume','driver-options','public-network','host-port','extra-mount')) {
     $value = New-Configuration
     switch ($kind) {

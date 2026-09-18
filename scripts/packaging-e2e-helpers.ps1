@@ -32,6 +32,24 @@ function Assert-E2ePackagingCompose {
     }
 }
 
+function Test-E2ePackagingRuntimeSource {
+    param([string] $Source, [string] $MaterialsRoot)
+    $expected = [IO.Path]::GetFullPath($MaterialsRoot)
+    $windowsPaths = [IO.Path]::DirectorySeparatorChar -eq '\'
+    $comparison = if ($windowsPaths) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    if ([IO.Path]::IsPathFullyQualified($Source) -and
+        [IO.Path]::GetFullPath($Source).Equals($expected, $comparison)) { return $true }
+    # The runner already requires the local Docker Desktop Linux endpoint and
+    # verifies this synthetic host root without reparse points. Desktop may expose
+    # its exact drive mapping in inspect; compare the full expected path instead
+    # of stripping arbitrary Linux prefixes or using suffix/containment matches.
+    if ($windowsPaths -and $expected -match '^[A-Za-z]:\\') {
+        $desktopPath = '/run/desktop/mnt/host/' + $expected.Substring(0, 1).ToLowerInvariant() + '/' + $expected.Substring(3).Replace('\', '/')
+        return $Source.Equals($desktopPath, [StringComparison]::OrdinalIgnoreCase)
+    }
+    return $false
+}
+
 function Assert-E2ePackagingRuntime {
     param($Container, $Network, [string] $ProjectName, [string] $MaterialsRoot, [string] $VolumeName)
     if ($Container.Config.Labels.'com.docker.compose.project' -cne $ProjectName -or
@@ -48,8 +66,7 @@ function Assert-E2ePackagingRuntime {
     if ($source.Count -ne 1 -or $source[0].Type -ne 'bind' -or $source[0].RW -ne $false) {
         throw 'Packaging runtime source is not one read-only bind.'
     }
-    if (
-        -not [IO.Path]::GetFullPath($source[0].Source).Equals($MaterialsRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    if (-not (Test-E2ePackagingRuntimeSource $source[0].Source $MaterialsRoot)) {
         throw "Packaging runtime source differs from the synthetic run root: '$($source[0].Source)' versus '$MaterialsRoot'."
     }
     if (@($Container.NetworkSettings.Networks.PSObject.Properties).Count -ne 1 -or

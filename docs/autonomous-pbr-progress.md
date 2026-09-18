@@ -37,11 +37,25 @@ deprecations. The offline runner safety suite also passed all 11 cases again.
 Owned cleanup succeeded; only the test image remains. No packaging HTTP endpoint,
 live upload or deployment exists.
 
-Next: persist the first historical ZIP policy and audited overrides, then durable
-database jobs/attempts with current approval/source checks, worker execution and
-operator UI. GCS/Notion, online-import confirmation and the remaining catalog,
-history and operations work are unfinished. Older entries below are history;
-this checkpoint takes precedence over their former pending states.
+Retention is committed and pushed as `8810c0a`; main remains `88a1f99`.
+The next uncommitted slice implements first-policy persistence and administrator
+preview/override with immutable migration 0016 (`docs/packaging-policy.md`). Full
+isolated project `reawote-test-c20f7bc006b6437da53ac19b39e78cab` passed **1126 backend,
+171 actual PostgreSQL (auth 27/27), 452 ordinary-worker and 436 existing frontend**
+tests, lint/build, fresh/prior migrations and Alembic checks. Its ordinary worker
+skipped 110 ImageMagick-dependent cases; all 110 were executed successfully in the
+required-runtime 562-test packaging run above. Only existing dependency warnings
+remain. Owned cleanup passed and its exact database volume is retained.
+The subsequent policy UI passed **457 frontend tests** including 21 new cases.
+Build, lint and E2E TypeScript passed after correcting test-only typing/lint issues;
+fresh/retained browser verification is running. No new schema is committed yet;
+committed migrations through 0015 stay immutable.
+
+Next: finish policy UI verification, then durable database jobs/attempts with
+current approval/source checks, worker execution and operator UI. GCS/Notion,
+online-import confirmation and the remaining catalog, history and operations work
+are unfinished. Older entries below are history; this checkpoint takes precedence
+over their former pending states.
 
 - User authorized implementation, new migrations, isolated test resources,
   commits, own remote branches and a draft PR on 2026-09-15.

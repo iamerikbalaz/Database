@@ -911,6 +911,36 @@ class MaterialContentApproval(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class MaterialPackagingPolicy(Base):
+    __tablename__ = "material_packaging_policies"
+    __table_args__ = (
+        UniqueConstraint("material_id", "id", name="uq_material_packaging_policies_material_id"),
+        UniqueConstraint("material_id", "revision", name="uq_material_packaging_policies_revision"),
+        ForeignKeyConstraint(["material_id", "previous_id"], ["material_packaging_policies.material_id", "material_packaging_policies.id"],
+            name="fk_material_packaging_policies_previous", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["material_id", "inventory_id"], ["material_inventories.material_id", "material_inventories.id"],
+            name="fk_material_packaging_policies_inventory", ondelete="RESTRICT"),
+        CheckConstraint("revision >= 1", name="ck_material_packaging_policies_revision"),
+        CheckConstraint("policy IN ('LEGACY_BEFORE_2026_03_04', 'CURRENT_ON_OR_AFTER_2026_03_04')", name="ck_material_packaging_policies_policy"),
+        CheckConstraint("(revision = 1 AND previous_id IS NULL AND inventory_id IS NOT NULL) OR (revision > 1 AND previous_id IS NOT NULL AND inventory_id IS NULL)", name="ck_material_packaging_policies_origin"),
+        CheckConstraint("length(reason) BETWEEN 1 AND 2000", name="ck_material_packaging_policies_reason"),
+        CheckConstraint("length(storage_timezone) BETWEEN 1 AND 100", name="ck_material_packaging_policies_timezone"),
+        _review_hash_constraint("evidence_hash", "ck_material_packaging_policies_evidence_hash"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"))
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    previous_id: Mapped[UUID | None] = mapped_column(Uuid)
+    inventory_id: Mapped[UUID | None] = mapped_column(Uuid)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    policy: Mapped[str] = mapped_column(String(64), nullable=False)
+    storage_timezone: Mapped[str] = mapped_column(String(100), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+    evidence_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class PublicationBatch(Base):
     __tablename__ = "publication_batches"
     __table_args__ = (
@@ -1092,6 +1122,6 @@ for _catalog_type in (OnlineCategory, BrandCollection):
     event.listen(_catalog_type, "before_delete", _reject_review_history_mutation)
 
 
-for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow, MaterialAiDraft, PublicationBatch, PublicationBatchItem):
+for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow, MaterialAiDraft, PublicationBatch, PublicationBatchItem, MaterialPackagingPolicy):
     event.listen(_review_history_type, "before_update", _reject_review_history_mutation)
     event.listen(_review_history_type, "before_delete", _reject_review_history_mutation)

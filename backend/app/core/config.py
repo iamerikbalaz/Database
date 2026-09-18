@@ -1,5 +1,6 @@
 from functools import lru_cache
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -18,6 +19,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
     worker_base_url: str = "http://localhost:8080"
     worker_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
+    zip_policy_timezone: str = Field(default="Europe/Prague", min_length=1, max_length=100)
     source_mutations_enabled: bool = False
     worker_mutation_token: SecretStr | None = None
     auth_cookie_secure: bool = True
@@ -60,6 +62,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security_configuration(self) -> "Settings":
+        try:
+            ZoneInfo(self.zip_policy_timezone)
+        except (ValueError, ZoneInfoNotFoundError):
+            raise ValueError("ZIP_POLICY_TIMEZONE must name an installed IANA timezone") from None
         if self.source_mutations_enabled:
             token = self.worker_mutation_token.get_secret_value() if self.worker_mutation_token else ""
             if len(token) < 32 or len(token) > 256 or not token.isascii() or any(not 33 <= ord(char) <= 126 for char in token):

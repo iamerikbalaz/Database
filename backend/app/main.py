@@ -32,6 +32,7 @@ from app.api.ai_content import build_ai_content_router
 from app.api.ai_service import build_ai_service_router
 from app.publication_preflight import build_publication_preview_router
 from app.api.publication_batches import build_publication_batches_router
+from app.api.packaging_policy import build_packaging_policy_router
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -85,6 +86,7 @@ def create_app(
     application.include_router(build_ai_service_router(app_database))
     application.include_router(build_publication_preview_router(app_database))
     application.include_router(build_publication_batches_router(app_database))
+    application.include_router(build_packaging_policy_router(app_database, app_settings))
     application.include_router(build_folder_discovery_router(app_database,
         discovery_client or WorkerDiscoveryClient(app_settings.worker_base_url)))
     application.include_router(build_content_approvals_router(app_database))

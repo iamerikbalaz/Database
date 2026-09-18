@@ -12,6 +12,8 @@ Conservative role decisions for the four existing roles (2026-09-15):
 | Change project/category/assignment | no | yes | no | yes |
 | Manage online categories and brand collections | no | yes | no | yes |
 | Edit publication drafts and catalog assignments | assigned only | all | no | all |
+| Save the first historical ZIP policy | no | no | yes | yes |
+| Preview/confirm a saved ZIP policy override | no | no | no | yes |
 | Read user directory | own profile | all | all | all |
 | Create/update user roles or provision/reset access | no | no | no | yes |
 

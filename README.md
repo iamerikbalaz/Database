@@ -35,8 +35,14 @@ Aktuální funkce a skutečně provedené testy shrnuje
 - [Kategorie, kolekce a verzovaný obsah](docs/catalog-content.md).
 - [Schválení uloženého obsahu](docs/content-approvals.md).
 - [Galerie a porovnání náhledů](docs/preview-gallery.md).
+- [Schválené publikační dávky a uložené CSV](docs/publication-batches.md).
+- [Spouštění, obnova a uzavření ZIP packagingu](docs/packaging-actions.md).
+- [Ověřené stahování historických balíčků](docs/packaging-downloads.md).
+- [Rezervace dávky pro GCS a ochrana materiálů](docs/gcs-upload-jobs.md).
 
-Publikační úlohy, ZIP packaging a živé integrace Notion/GCS jsou stále backlog.
+Ukládání CSV, lokální ZIP packaging a rezervace interní GCS dávky jsou implementované.
+Spouštění uploadů z aplikace, potvrzení online importu a Notion integrace zbývají.
+GCS transport má offline kontraktové testy; živé GCS ani Notion nebyly ověřeny.
 Kontroly souborů pracují přes nakonfigurovaný worker; změny identity jsou ve
 výchozí konfiguraci vypnuté a vyžadují nastavení podle provozního kontraktu.
 

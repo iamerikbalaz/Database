@@ -2,14 +2,22 @@
 
 The worker's durable journal and inherited Linux execution lease protect actual
 files. The backend additionally needs to serialize run/retry/reconcile/close for
-one execution while a request is in progress. This module supplies that primitive;
-application endpoints are a subsequent integration step.
+one execution while a request is in progress. Packaging endpoints use this primitive.
+The common mechanism is in `backend/app/dispatch_lease.py`; the packaging wrapper
+preserves its original lock namespace and public error codes.
 
 packaging_dispatch_lease checks out a dedicated PostgreSQL connection in DBAPI
 AUTOCOMMIT mode and claims a nonblocking session advisory lock. Its key is a
 domain-separated 64-bit hash of the execution UUID. A rare key collision only
 rejects unrelated work as busy. Distinct executions normally have distinct leases.
 The database connection carries no domain transaction while worker IO is running.
+
+`staging_dispatch_lease` supplies the same mechanism for an internal GCS job, with
+the distinct `reawote/staging-dispatch/v1/` namespace and `GCS_*` errors. Packaging
+retains `reawote/packaging-dispatch/v1/`. The same UUID can therefore hold independent
+locks in the two domains, while same-domain concurrent dispatch remains exclusive.
+The process-local SQLite test registry also separates these namespaces. No upload
+route is connected to the staging lease yet.
 
 require_owned verifies the original PostgreSQL PID and exact granted advisory lock
 in the current database. It refuses invalidated/closed connections before a
@@ -28,7 +36,8 @@ Only PostgreSQL is supported for deployment. An explicit allow_test_sqlite switc
 offers a per-engine, process-local counterpart for unit tests; it is not a
 cross-process SQLite locking claim. Tests cover competing independent PG engines,
 an idle connection without an open transaction, exception cleanup, external session
-termination, unexpected unlock and actual dispatch-process termination.
+termination, unexpected unlock and actual dispatch-process termination in both
+domains, plus cross-domain coexistence for the same UUID.
 
 Semantics follow the [PostgreSQL advisory-lock documentation](https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS),
 the [pg_locks key representation](https://www.postgresql.org/docs/current/view-pg-locks.html)

@@ -103,6 +103,21 @@ existing dependency warnings. Image `reawote-gcs-guard-b77b156c52f64845b5e8f061e
 manifest digest `66b14fcc650f4e1cb6394c6b393593a1d1298f91a5eccbefcb1b8eea1fd49893`;
 read-only UID 65532, no network, host mounts, ports or DB, bounded tmpfs, auto-removed
 container. This later image covers the guard changes after the 1534-test snapshot.
+The reservation and transport-guard commits (`8d86da5`, `02dc096`) are pushed.
+Remote main was rechecked and remains `88a1f99`.
+
+The dedicated-session dispatch lease is now shared by the existing packaging
+wrapper and a separate internal GCS namespace. Packaging keeps its exact original
+namespace/error codes. Both domains verify PostgreSQL PID/lock ownership, refuse
+silent reconnect, close the physical session on exit and keep SQLite test-only.
+Local lease plus packaging action/reservation tests passed **69 tests (99.07s)**.
+The fresh PostgreSQL suite passed **233 tests (231.46s)**, auth **27/27**, no skips,
+three existing warnings. Project `reawote-test-95dc11bcc0964393bb2e7780868374e1`,
+backend image manifest `b995f0c38660ed508fedee95a830bb410ede0e4cdd287d5b3c16f011200e3488`.
+It covers independent sessions, actual child-process death, killed DB sessions,
+unexpected unlock, cleanup on exceptions and namespace separation for the same UUID.
+Owned cleanup completed; its exact `..._postgres_data` volume and image remain.
+The GCS lease is a verified primitive; no upload route uses it yet.
 
 Next: durable dispatch/recovery, then the manual-import workflow. No upload API,
 actual importer mapping or GCS UI is implemented yet. Existing migrations through

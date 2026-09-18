@@ -16,6 +16,7 @@ from app.inventory_client import validate_relative_path
 from app.material_identity import ACTIVE_STATUSES, identity_context, require_material_idle, lock_folder_catalog, require_folder_idle
 from app.material_review import canonical_hash, invalidate_review
 from app.schemas import ApiSchema, CategoryCode, Sha256
+from app.history_pagination import HistoryLimit, history_window
 
 
 class IdentityPlanRequest(ApiSchema):
@@ -170,19 +171,19 @@ def build_material_identity_router(database, worker, *, mutations_enabled=False)
     router = APIRouter(prefix="/api/materials", tags=["material identity"])
 
     @router.get("/{material_id}/identity-operations")
-    def operations(material_id: UUID, access: AccessDependency):
+    def operations(material_id: UUID, access: AccessDependency, after: UUID | None = None, limit: HistoryLimit = 100):
         with database.session() as session:
             access.check(session); _material(session, material_id, access)
-            operations = session.scalars(select(MaterialFileOperation).where(MaterialFileOperation.material_id == material_id)
-                .order_by(MaterialFileOperation.created_at.desc(), MaterialFileOperation.id.desc()).limit(100))
+            operations = history_window(session, MaterialFileOperation,
+                conditions=(MaterialFileOperation.material_id == material_id,), after=after, limit=limit)
             return {"mutations_enabled": mutations_enabled, "operations": [_view(item) for item in operations]}
 
     @router.get("/{material_id}/identity-history")
-    def history(material_id: UUID, access: AccessDependency):
+    def history(material_id: UUID, access: AccessDependency, after: UUID | None = None, limit: HistoryLimit = 100):
         with database.session() as session:
             access.check(session); _material(session, material_id, access)
-            history = session.scalars(select(MaterialIdentityHistory).where(MaterialIdentityHistory.material_id == material_id)
-                .order_by(MaterialIdentityHistory.created_at.desc(), MaterialIdentityHistory.id.desc()).limit(100))
+            history = history_window(session, MaterialIdentityHistory,
+                conditions=(MaterialIdentityHistory.material_id == material_id,), after=after, limit=limit)
             return [{"id": item.id, "actor_id": item.actor_id, "operation_id": item.operation_id, "old_context": item.old_context,
                      "new_context": item.new_context, "reason": item.reason, "created_at": item.created_at} for item in history]
 

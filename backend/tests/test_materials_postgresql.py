@@ -45,6 +45,22 @@ def _current_head():
     return ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
 
 
+@pytest.mark.parametrize("route", ["audit", "identity-operations", "identity-history", "content-history", "content-approvals"])
+def test_postgresql_legacy_history_cursor_windows(review_pg_case, route):
+    from test_history_pagination import seed_history, items
+    case = review_pg_case
+    expected = seed_history(case.database, case.material, case.users[0], route)
+    with case.client_for() as client, case.client_for(2) as stranger:
+        url = case.path + "/" + route
+        first = items(client.get(url), route)
+        assert [row["id"] for row in first] == expected[:100]
+        rest = items(client.get(url, params={"after": first[-1]["id"], "limit": 2}), route)
+        last = items(client.get(url, params={"after": rest[-1]["id"]}), route)
+        assert [row["id"] for row in first + rest + last] == expected
+        assert items(client.get(url, params={"after": last[-1]["id"]}), route) == []
+        assert stranger.get(url, params={"after": first[-1]["id"]}).status_code == 404
+
+
 def test_postgresql_unhandled_driver_detail_is_contained_at_http_boundary(review_pg_case, caplog):
     from app.auth.access import AccessDependency, ADMIN
     case = review_pg_case

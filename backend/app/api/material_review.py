@@ -15,6 +15,7 @@ from app.inventory_client import InventoryClient, InventoryClientError
 from app.material_review import canonical_hash, invalidate_review, material_context, read_review
 from app.material_identity import require_material_idle
 from app.schemas import ApiSchema
+from app.history_pagination import HistoryLimit, history_window
 
 
 class ReviewMutation(ApiSchema):
@@ -99,12 +100,12 @@ def build_material_review_router(database, inventory_client: InventoryClient):
             return {"review": read_review(state), "inventory": inventory.source_inventory if inventory else None}
 
     @router.get("/{material_id}/audit")
-    def get_audit(material_id: UUID, access: AccessDependency):
+    def get_audit(material_id: UUID, access: AccessDependency, after: UUID | None = None, limit: HistoryLimit = 100):
         with database.session() as session:
             access.check(session)
             _material(session, material_id, access)
-            events = session.scalars(select(MaterialAuditEvent).where(MaterialAuditEvent.material_id == material_id)
-                                     .order_by(MaterialAuditEvent.created_at.desc(), MaterialAuditEvent.id.desc()).limit(100))
+            events = history_window(session, MaterialAuditEvent,
+                conditions=(MaterialAuditEvent.material_id == material_id,), after=after, limit=limit)
             return [{"id": item.id, "actor_id": item.actor_id, "event_type": item.event_type,
                      "generation": item.generation, "revision_hash": item.revision_hash, "created_at": item.created_at,
                      "details": item.result.get("audit", {})} for item in events]

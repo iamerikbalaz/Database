@@ -15,6 +15,7 @@ from app.material_identity import require_material_idle
 from app.publication_content import content_review, approval_view
 from app.schemas import ApiSchema
 from app.worker_client import Sha256
+from app.history_pagination import HistoryLimit, history_window
 
 
 class ContentApprovalRequest(ApiSchema):
@@ -36,12 +37,11 @@ def build_content_approvals_router(database):
             return content_review(session, material)
 
     @router.get("/{material_id}/content-approvals")
-    def history(material_id: UUID, access: AccessDependency):
+    def history(material_id: UUID, access: AccessDependency, after: UUID | None = None, limit: HistoryLimit = 100):
         with database.session() as session:
             access.check(session); _material(session, material_id, access)
-            return [{**approval_view(item), "snapshot": item.snapshot} for item in session.scalars(
-                select(MaterialContentApproval).where(MaterialContentApproval.material_id == material_id)
-                .order_by(MaterialContentApproval.created_at.desc(), MaterialContentApproval.id.desc()).limit(100))]
+            return [{**approval_view(item), "snapshot": item.snapshot} for item in history_window(session, MaterialContentApproval,
+                conditions=(MaterialContentApproval.material_id == material_id,), after=after, limit=limit)]
 
     @router.post("/{material_id}/content/approve")
     def approve(material_id: UUID, payload: ContentApprovalRequest, access: AccessDependency):

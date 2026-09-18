@@ -15,6 +15,7 @@ from app.material_identity import require_material_idle
 from app.material_review import canonical_hash, invalidate_review
 from app.publication_content import catalog_view, content_view
 from app.content_saves import save_material_content
+from app.history_pagination import HistoryLimit, history_window
 
 
 def _conflict(code):
@@ -110,12 +111,12 @@ def build_catalog_router(database):
         return change_catalog("COLLECTION", payload, access, item_id)
 
     @router.get("/catalog-audit")
-    def catalog_audit(access: AccessDependency):
+    def catalog_audit(access: AccessDependency, after: UUID | None = None, limit: HistoryLimit = 100):
         with database.session() as session:
             access.check(session, CATALOG_MANAGERS)
             return [{"id": item.id, "resource_id": item.resource_id, "resource_kind": item.resource_kind,
                 "actor_id": item.actor_id, "created_at": item.created_at, "details": item.result["audit"]}
-                for item in session.scalars(select(CatalogAuditEvent).order_by(CatalogAuditEvent.created_at.desc(), CatalogAuditEvent.id.desc()).limit(100))]
+                for item in history_window(session, CatalogAuditEvent, after=after, limit=limit)]
 
     @router.get("/materials/{material_id}/content")
     def get_content(material_id: UUID, access: AccessDependency):
@@ -124,13 +125,13 @@ def build_catalog_router(database):
             return content_view(session, _material(session, material_id, access, lock=True))
 
     @router.get("/materials/{material_id}/content-history")
-    def content_history(material_id: UUID, access: AccessDependency):
+    def content_history(material_id: UUID, access: AccessDependency, after: UUID | None = None, limit: HistoryLimit = 100):
         with database.session() as session:
             access.check(session); _material(session, material_id, access)
             return [{"id": item.id, "revision": item.revision, "actor_id": item.actor_id, "snapshot": item.snapshot,
                 "snapshot_hash": item.snapshot_hash, "reason": item.reason, "created_at": item.created_at}
-                for item in session.scalars(select(MaterialContentRevision).where(MaterialContentRevision.material_id == material_id)
-                    .order_by(MaterialContentRevision.revision.desc()).limit(100))]
+                for item in history_window(session, MaterialContentRevision,
+                    conditions=(MaterialContentRevision.material_id == material_id,), after=after, limit=limit, order="revision")]
 
     @router.post("/materials/{material_id}/content")
     def save_content(material_id: UUID, payload: ContentUpdate, access: AccessDependency):

@@ -33,9 +33,14 @@ limits. The initial conversion run failed 12 cases because a one-image policy
 also blocked ImageMagick's internal working images and some policy test assertions
 assumed a specific diagnostic. The corrected bounded policy and independent
 single-frame decoder passed actual conversions and forbidden-input tests.
-No ZIP creation, durable packaging job or upload execution exists yet. Continue
-with resolution assembly, real ZIP verification and job recovery; older entries
-below are history.
+Conversion is committed/pushed as `1e86f63`. The streaming ZIP writer now verifies
+exact layout, CRC, hashes, timestamps, metadata bytes and bounded reads/writes.
+All 35 new ZIP tests plus 62 planner/staging cases passed (97 total, 0.86s,
+no skips/warnings); a deliberately corrupted deflate stream exposed a raw zlib
+exception in the first run, now mapped to a fixed code. See `docs/packaging-zip.md`.
+Resolution assembly, durable packaging jobs and upload execution remain unfinished.
+Continue with assembly and artifact lifetime/cleanup, then job recovery; older
+entries below are history.
 
 - User authorized implementation, new migrations, isolated test resources,
   commits, own remote branches and a draft PR on 2026-09-15.

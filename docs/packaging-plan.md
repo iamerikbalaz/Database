@@ -36,7 +36,8 @@ conversion in [packaging-conversion.md](packaging-conversion.md). Continue by
 assembling resolutions into distinct exclusive paths, verifying actual images,
 manifest and ZIP entry bytes/CRC/hashes,
 then return artifact proofs. Failure must not report success or alter source files.
-ZIP verification and full artifact assembly remain to be implemented.
+ZIP writing/verification is now implemented in [packaging-zip.md](packaging-zip.md).
+Full artifact assembly remains to be implemented.
 
 Runtime design references (checked 2026-09-17): [ImageMagick security policy](https://imagemagick.org/security-policy/)
 describes policy ordering, delegate/coder restrictions and resource limits;

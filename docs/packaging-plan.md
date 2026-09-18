@@ -30,9 +30,8 @@ replace that saved policy. Legacy timestamps are to apply only to staged outputs
 
 ## Next execution step
 
-Create a private isolated staging directory, freshly verify current source bytes,
-copy using anchored descriptors and verify each copy against the plan. Freeze the
-input copy before conversion. Use ImageMagick 7 Q16-HDRI with bounded processes,
+Private isolated input staging is implemented and tested in
+[packaging-staging.md](packaging-staging.md). Continue with ImageMagick 7 Q16-HDRI with bounded processes,
 memory/time/disk and a deny-by-default coder/delegate policy. Generate into distinct
 exclusive paths, verify actual images, manifest and ZIP entry bytes/CRC/hashes,
 then return artifact proofs. Failure must not report success or alter source files.

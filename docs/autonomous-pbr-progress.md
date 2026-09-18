@@ -12,11 +12,19 @@ concurrency and downgrade guards. E2E `d4c69daa-90c2-4679-b750-c3601d47c8a1` pas
 recovery and frozen downloads after content edits. Saved-batch desktop and 390px
 screenshots were visually inspected; owned cleanup and protected-resource checks
 passed. Backend/migration 0015 are committed and pushed as `dfe66c5`; migrations
-through 0015 are now immutable. The tested UI is being committed next.
-A subsequent pure packaging planner passed 31 tests
-on Windows and 31 in a read-only Linux container without network/database; that
-planner is not in the full suite's earlier worker image. No packaging or upload
-execution exists yet. Continue from this checkpoint; older entries below are history.
+through 0015 are now immutable. The tested UI is committed as `7337ac0` and the
+pure packaging planner as `dec964e`; all three commits are pushed to the owned
+branch. `origin/main` was rechecked on 2026-09-18 and remains `88a1f99`.
+A subsequent pure packaging planner passed 31 tests on Windows and Linux.
+Private staging now copies approved inputs through anchored read-only descriptors,
+checks fresh inventory and copied bytes, freezes copies and cleans only its own
+workspace. The updated complete Linux worker suite passed 414 tests (32.52s);
+after a final fixed-code error adjustment, all 62 planner/staging cases passed
+(including two new cases). No skips; the full run reports two dependency
+deprecation warnings. Details and process-crash recovery limits are in
+`docs/packaging-staging.md`. No conversion, ZIP creation or upload execution
+exists yet. Continue with bounded ImageMagick conversion and artifact verification;
+older entries below are history.
 
 - User authorized implementation, new migrations, isolated test resources,
   commits, own remote branches and a draft PR on 2026-09-15.

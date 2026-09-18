@@ -2,7 +2,7 @@
 
 `worker/app/packaging_stage.py` implements a Linux-only context manager around
 short-lived, verified input copies. It is not an HTTP endpoint or a publication
-job. The caller must later hold a durable authorized material operation and
+job. Its application caller must hold a durable authorized material operation and
 recheck the current approvals before committing artifact results.
 
 The function rebuilds the approved plan, verifies the complete source inventory
@@ -25,9 +25,11 @@ and reported as `PACKAGING_STAGE_CLEANUP_REQUIRED`, never silently deleted.
 Consumer handles expire when the context closes.
 
 This is process-local staging, not durable recovery. A killed process or failure
-between directory reservation and opening can leave a private orphan. A future
-durable job/guarded orphan-cleanup flow must handle it. Conversion, ZIP creation,
-artifact persistence and upload are separate unfinished steps. The private UID
+between directory reservation and opening can leave a private orphan. The
+[execution journal](packaging-execution.md) now supplies guarded orphan recovery
+and ordinary failure cleanup around this context. Conversion, ZIP creation,
+retention, [job actions](packaging-actions.md) and [GCS staging](gcs-upload-jobs.md)
+are connected in separate layers. The private UID
 and runtime isolation remain required; this is not a sandbox against a hostile
 process with the same UID or host administrator privileges.
 

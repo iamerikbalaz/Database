@@ -207,9 +207,10 @@ The deployed importer layout and production golden artifacts remain unavailable.
 The derived-file cleanup rule still needs an explicit retained-artifact lifecycle.
 The [execution layer](packaging-execution.md) cleans owned temporary attempt
 workspaces on success and handled errors and recovers recorded crash orphans.
-Accepted and partially retained output still needs cleanup that preserves
-SOURCE/PREVIEW/master and production metadata, immutable evidence and currently
-served historical downloads. This gap is not closed by the transport or preview.
+Proven incomplete retained copies now have [guarded cleanup](packaging-retention.md).
+Accepted retained output still needs retirement that preserves SOURCE/PREVIEW/master
+and production metadata, immutable evidence and currently served historical
+downloads. This gap is not closed by the transport or preview.
 Credential refresh/ADC is now
 implemented with offline checks in [the credential guide](gcs-credentials.md).
 Isolated live credentials/target verification, throughput and storage/readback cost

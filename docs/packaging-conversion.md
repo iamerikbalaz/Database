@@ -1,9 +1,10 @@
 # Verified image conversion
 
 `worker/app/packaging_convert.py` converts one planned RESIZE operation between
-already-opened private descriptors. `Dockerfile.packaging` is an explicit test
-runtime; the ordinary HTTP worker does not install ImageMagick or expose a
-packaging endpoint yet. ZIP creation and durable publication jobs remain separate.
+already-opened private descriptors. `Dockerfile.packaging` provides separate opt-in
+[runtime and test targets](packaging-service.md). The ordinary worker image does
+not install ImageMagick. [Execution](packaging-execution.md) and [application jobs](packaging-actions.md)
+now connect conversion, ZIP creation, retention and explicit authorized commands.
 
 ## Input and output contract
 
@@ -13,7 +14,7 @@ read/write with mode 0600. The caller creates it exclusively and owns its cleanu
 The independent decoder checks the source digest, actual format, dimensions and
 bit depth before conversion. Arbitrary paths/options are never passed to the CLI.
 Lower resolutions must consume the generated effective master and its verified
-digest; the future package executor must enforce that linkage.
+digest; the [assembly layer](packaging-assembly.md) enforces that linkage.
 
 The command preserves the historical aspect-preserving `-resize NxN` behavior.
 16-bit inputs retain a stored depth of 16; lower depths are encoded at 8 bits.
@@ -47,7 +48,8 @@ root, dropped capabilities, no-new-privileges and bounded private storage. The
 policy and OS limits supplement that runtime isolation. They do not protect against
 a hostile administrator or another process with the same UID and writable access
 to the program/runtime. No source path, raw source content or CLI diagnostics are
-returned in errors. Process-crash orphan recovery remains a future job concern.
+returned in errors. [Execution recovery](packaging-execution.md) handles recorded
+process-crash orphans under the inherited lease; unknown ownership is preserved.
 
 Policy behavior follows the official [ImageMagick security policy documentation](https://imagemagick.org/security-policy/).
 The runtime uses Debian's [Q16-HDRI executable package](https://packages.debian.org/trixie/amd64/imagemagick-7.q16hdri/filelist).

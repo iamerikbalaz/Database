@@ -2,8 +2,9 @@
 
 The private worker is not trusted merely because it returns READY. The new
 packaging_contract and packaging_client modules independently bind the wire
-request, approved report and retained proof before a future database job may
-accept it. They are not yet wired to an application endpoint or job scheduler.
+request, approved report and retained proof before a database job may accept it.
+They are connected to the explicit [application actions](packaging-actions.md).
+There is no background scheduler or automatic execution retry.
 
 ## Request and response checks
 
@@ -71,7 +72,8 @@ semantic validation independently of the outer digest. Transport tests cover
 credential/configuration gates, private error handling, bounded reads, redirects,
 mutable nested model data and exactly one network attempt on timeout.
 
-Next: additive database migration for immutable execution inputs and attempt
-history, material-operation ownership shared with identity/catalog/content gates,
-actual account/approval revalidation, explicit retry/reconcile, downloads and UI.
-No application action should call this client before those ownership gates exist.
+The application now supplies immutable execution/attempt history, material-operation
+ownership shared with identity/catalog/content gates, account/approval revalidation,
+explicit retry/reconcile, downloads and UI; see [actions](packaging-actions.md).
+Those ownership gates remain mandatory for any additional client caller. Live
+storage/importer verification and accepted-artifact retirement remain separate.

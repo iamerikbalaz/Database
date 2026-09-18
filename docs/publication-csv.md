@@ -2,8 +2,8 @@
 
 `backend/app/publication_csv.py` converts validated frozen row snapshots to bytes.
 It has no database query, file/network operation or HTTP endpoint. It does not
-verify human decisions itself. The future authenticated batch service must first
-freeze matching approved inputs as described in `publication-plan.md`.
+verify human decisions itself. The [authenticated batch service](publication-batches.md)
+freezes matching approved inputs before invoking it.
 
 The serializer preserves the handoff's exact column order:
 
@@ -47,5 +47,7 @@ root and bounded temporary filesystem. The first collector used the previously
 installed package and could not find the new module; `python -m pytest` selected
 the mounted source and passed all 44 tests. No application behavior was changed
 for that runner correction. No migration or user export is
-part of this foundation. Online importer acceptance, immutable database batches,
-packaging and upload are still unfinished. No real material was exported.
+part of this foundation. Immutable database batches, local packaging and configurable
+storage staging are now connected in their respective layers; see the
+[current checkpoint](autonomous-pbr-progress.md). Live online importer acceptance
+remains unverified. No real material was exported during these checks.

@@ -2,8 +2,9 @@
 
 The opt-in runtime now exposes preparation, execution and recovery through a
 separate HTTP application. Ordinary worker routes/images and the default Compose
-stack remain unchanged. Database job ownership, current-account/approval gates,
-operator UI, downloads and integrations are still separate unfinished slices.
+stack remain unchanged. The backend now provides [job ownership and current-account/
+approval gates](packaging-actions.md), operator controls and [downloads](packaging-downloads.md).
+Configurable storage staging is documented in [GCS jobs](gcs-upload-jobs.md).
 Do not connect this service directly to browsers: its credential grants internal
 filesystem work and does not represent an application user's permission.
 

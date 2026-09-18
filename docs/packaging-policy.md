@@ -34,9 +34,9 @@ only when opened and keeps any unresolved request mounted when collapsed.
   rejection requires a fresh review; raw server diagnostics are not displayed.
 
 The source inventory's policy is still an observed fact. Current packaging code
-requires an explicit policy; the future database job coordinator must pass the
-saved policy and snapshot its decision ID, revision and timezone into the job.
-This slice creates no packaging job or upload.
+requires an explicit policy. The [job coordinator](packaging-reservations.md) passes
+the saved policy and snapshots its decision ID, revision and timezone into the job.
+Saving a policy alone creates no packaging job or upload.
 
 ## Configuration
 
@@ -93,5 +93,7 @@ and E2E TypeScript. Exact project/run identifiers are in autonomous-pbr-progress
 Migration 0016 is additive. Empty downgrade to 0015 is supported; any saved policy
 refuses downgrade to preserve provenance. Prefer a forward repair once populated.
 Existing committed migrations through 0015 are unchanged. No production migration
-or publication has been performed. Database execution/attempts, packaging ownership,
-GCS/Notion adapters and importer confirmation remain separate unfinished work.
+or publication has been performed. Database execution/attempts, packaging ownership
+and configurable GCS/Notion adapters are implemented in their separate contracts;
+see the [current checkpoint](autonomous-pbr-progress.md). Live integrations,
+importer verification/confirmation and accepted-artifact retirement remain pending.

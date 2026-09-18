@@ -2,12 +2,13 @@
 
 `backend/app/staging_sources.py` connects a server-revalidated reservation to the
 retained-artifact reader. It performs no cloud writes, live NAS reads, source
-mutation or publication transition. There is no application upload route yet.
+mutation or publication transition. The [application runner](gcs-upload-jobs.md)
+uses it for explicit guarded upload commands.
 
 Construct `StagingSources` from `reserved_staging` output and the configured private
-packaging client, with an async current-authorization/ownership guard. The future
-runner must acquire its staging lease, commit immutable per-object transfer intent,
-finish its database transaction and then open the source. The guard must also be
+packaging client, with an async current-authorization/ownership guard. The
+runner acquires its staging lease, commits immutable per-object transfer intent,
+finishes its database transaction and then opens the source. The guard must also be
 passed to `GcsClient.upload`; source access alone does not authorize cloud IO.
 
 Construction independently validates the entire staging plan, exact CSV bytes/hash,
@@ -34,5 +35,5 @@ fixed source errors, while consumer failures retain their original type.
 Offline tests cover exact CSV/file bytes, detached evidence, forged selections,
 truncation/corruption/oversize, failures while opening/reading, authorization changes,
 consumer failure and active cancellation. They use only synthetic contract fixtures.
-This source adapter is one boundary of the future runner; it does not itself record
+This source adapter is one boundary of the implemented runner; it does not itself record
 dispatch intent, accept storage receipts, upload a completion marker or publish.

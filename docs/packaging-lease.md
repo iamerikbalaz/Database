@@ -37,8 +37,9 @@ The four actual conversion subprocesses (runtime, input probe, conversion and
 result probe) all inherit the lease. Link/permission/replacement attacks, private
 directory validation, normal/error cleanup and context reset are covered.
 
-This is a prerequisite for execution-journal/workspace recovery. It does not yet
-provide a packaging HTTP endpoint, database job, orphan cleanup or live publication.
-The complete required-runtime worker regression passed 577 tests in 204.51 seconds,
-with no skips and two existing dependency deprecations. See autonomous-pbr-progress.md
-for the isolated run identifier and retained test image.
+This primitive is used by [execution recovery](packaging-execution.md), the
+[private HTTP service](packaging-service.md) and ordered application jobs. The lease
+alone grants no publication authorization. The original required-runtime regression
+passed 577 tests in 204.51 seconds, with no skips and two dependency deprecations.
+See [historical evidence](autonomous-pbr-history.md) and the
+[current checkpoint](autonomous-pbr-progress.md) for later verification.

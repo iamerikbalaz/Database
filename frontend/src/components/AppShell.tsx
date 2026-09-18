@@ -52,7 +52,8 @@ export function AppShell({
         <span>REAWOTE</span>
       </a>
       <nav aria-label="Main navigation">
-        {items.filter(([, href]) => href !== "/imports" || account?.session.user.role === "ADMIN").map(([label, href, icon]) => {
+        {items.filter(([, href]) => (href !== "/imports" || account?.session.user.role === "ADMIN") &&
+          (href !== "/publication" || !account || ["ADMIN", "LEADERSHIP"].includes(account.session.user.role))).map(([label, href, icon]) => {
           const active =
             currentPath === href ||
             (href === "/dashboard" && currentPath === "/") ||

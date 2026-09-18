@@ -18,6 +18,7 @@ import { ProjectsPage } from "./pages/ProjectsPage";
 import { CatalogPage } from "./pages/CatalogPage";
 import { ComparePage } from "./pages/ComparePage";
 import { ImportsPage } from "./pages/ImportsPage";
+import { PublicationPage } from "./pages/PublicationPage";
 
 interface AppProps {
   client?: ApiClient;
@@ -84,6 +85,8 @@ function App({ client = apiClient, initialPath }: AppProps) {
     page = <ComparePage client={client} navigate={navigate} />;
   else if (path === "/imports")
     page = <ImportsPage client={client} navigate={navigate} />;
+  else if (path === "/publication")
+    page = <PublicationPage client={client} navigate={navigate} />;
   else if (path === "/materials")
     page = <MaterialsPage client={client} navigate={navigate} />;
   else if (path === "/materials/new")
@@ -197,7 +200,6 @@ function App({ client = apiClient, initialPath }: AppProps) {
     );
   else {
     const labels: Record<string, string> = {
-      "/publication": "Publication",
       "/settings": "Settings",
     };
     page = labels[path] ? (

@@ -7,8 +7,13 @@ selection/history/download UI passed the complete isolated suite in project
 `reawote-test-2fd633be5ba54892a6638e9e4c2d9bf7`: 1100 backend, 163 actual PostgreSQL
 (auth gate 27/27), 354 Linux worker, 436 frontend, lint/build; no skips. Additive
 migration 0015 passed fresh/prior upgrade, Alembic current/heads/check, constraint,
-concurrency and downgrade guards. E2E for the new screen is now running separately.
-Changes are not committed yet. A subsequent pure packaging planner passed 31 tests
+concurrency and downgrade guards. E2E `d4c69daa-90c2-4679-b750-c3601d47c8a1` passed
+17 fresh scenarios (1.0m) and 17 retained scenarios (36.8s), including lost-response
+recovery and frozen downloads after content edits. Saved-batch desktop and 390px
+screenshots were visually inspected; owned cleanup and protected-resource checks
+passed. Backend/migration 0015 are committed and pushed as `dfe66c5`; migrations
+through 0015 are now immutable. The tested UI is being committed next.
+A subsequent pure packaging planner passed 31 tests
 on Windows and 31 in a read-only Linux container without network/database; that
 planner is not in the full suite's earlier worker image. No packaging or upload
 execution exists yet. Continue from this checkpoint; older entries below are history.

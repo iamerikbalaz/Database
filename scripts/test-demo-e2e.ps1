@@ -313,6 +313,7 @@ function New-E2eSeedManifestData {
     $approval = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Technical Approval'
     $identity = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Controlled Identity'
     $content = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Publication Content'
+    $publication = New-E2eMaterial $BackendUrl $project.id $brand.id $processor.id 'E2E Publication Batch'
     $identityBrand = Invoke-E2eJsonPost $BackendUrl '/api/brands' @{ company_id = $company.id; name = 'E2E Identity Target'; folder_prefix = 'E2E_NEXT'; brand_identifier = 'e2e-identity-target'; is_active = $true }
     Assert-RuntimeIdentityMounts
     $identityCode = @'
@@ -341,12 +342,15 @@ Path('/e2e-identity-journal/private').mkdir(mode=0o700)
     $mismatchPath = 'e2e-library/E2E_WRONG_FOLDER_G03'
     $reviewPath = "e2e-library/$($review.technical_identity)"
     $approvalPath = "e2e-library/$($approval.technical_identity)"
+    $publicationPath = "e2e-library/$($publication.technical_identity)"
     foreach ($relativePath in @($validPath, $missingPath, $mismatchPath, $dimensionsPath, $reviewPath)) {
         $directory = Join-Path $MaterialsRoot ($relativePath -replace '/', [IO.Path]::DirectorySeparatorChar)
         [void](New-E2eSafeDirectory -RepositoryRoot $RepositoryRoot -RunRoot $RunRoot -Path (Join-Path $directory '16K'))
     }
     $approvalDirectory = Join-Path $MaterialsRoot ($approvalPath -replace '/', [IO.Path]::DirectorySeparatorChar)
     [void](New-E2eSafeDirectory $RepositoryRoot $RunRoot (Join-Path $approvalDirectory '1K'))
+    $publicationDirectory = Join-Path $MaterialsRoot ($publicationPath -replace '/', [IO.Path]::DirectorySeparatorChar)
+    [void](New-E2eSafeDirectory $RepositoryRoot $RunRoot (Join-Path $publicationDirectory '1K'))
     $generator = Join-Path $PSScriptRoot 'generate-e2e-png.mjs'
     Assert-E2eNoReparsePath -Root $RepositoryRoot -Target $generator
     $encoded = (& node $generator) -join ''
@@ -354,7 +358,13 @@ Path('/e2e-identity-journal/private').mkdir(mode=0o700)
     $png = [Convert]::FromBase64String($encoded)
     foreach ($map in @('COL', 'NRM', 'ROUGH')) {
         Write-E2eSafeBytes $RepositoryRoot $RunRoot (Join-Path (Join-Path $approvalDirectory '1K') "$($approval.technical_identity)_${map}_1K.png") $png
+        Write-E2eSafeBytes $RepositoryRoot $RunRoot (Join-Path (Join-Path $publicationDirectory '1K') "$($publication.technical_identity)_${map}_1K.png") $png
     }
+    Write-E2eSafeTextFile $RepositoryRoot $RunRoot (Join-Path $publicationDirectory 'metadata.txt') (@{
+        FOLDER = $publication.technical_identity; PRODUCT_NAME = $publication.material_name; MANUFACTURER = 'E2E Published Brand'
+        CATEGORY = 'G03'; PRODUCT_NUMBER = ($publication.technical_identity -split '_')[-2]
+        COLOR = @{ hex = '#A1B2C3' }; TEXTURE_SIZE = @{ cm = @{ width = 12.5; height = 34 } }
+    } | ConvertTo-Json -Depth 10 -Compress)
     foreach ($variant in @('front', 'side')) {
         $previewEncoded = (& node $generator "preview-$variant") -join ''
         Assert-LastCommandSucceeded 'Generate synthetic gallery PNG'
@@ -379,6 +389,7 @@ Path('/e2e-identity-journal/private').mkdir(mode=0o700)
         companyId = [string]$company.id; brandId = [string]$brand.id; projectId = [string]$project.id
         identity = & $fixture $identity "e2e-identity/$($identity.technical_identity)"; identityBrandId = [string]$identityBrand.id
         content = & $fixture $content "e2e-library/$($content.technical_identity)"
+        publication = & $fixture $publication $publicationPath
         valid = & $fixture $valid $validPath; missing = & $fixture $missing $missingPath; mismatch = & $fixture $mismatch $mismatchPath; dimensions = & $fixture $dimensions $dimensionsPath; review = & $fixture $review $reviewPath; approval = & $fixture $approval $approvalPath
     }
 }

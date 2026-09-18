@@ -1,0 +1,87 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { expect, test } from "@playwright/test";
+import { runManifest } from "./run-manifest";
+import { retainedPass, signInThroughApi } from "./auth-helpers";
+
+test("approved CSV batch, exact retry and frozen download survive retained restart", async ({ page }) => {
+  await signInThroughApi(page);
+  const fixture = runManifest.state.publication, path = `/api/materials/${fixture.id}`;
+  const auth = await (await page.request.get("/api/auth/session")).json();
+  const headers = { Origin: runManifest.frontendUrl, "X-CSRF-Token": auth.csrf_token };
+  if (!retainedPass) {
+    expect((await page.request.post(path + "/folder-link", { headers, data: { folder_path: fixture.relativePath } })).status()).toBe(200);
+    expect((await page.request.post(path + "/mark-done", { headers })).status()).toBe(200);
+    const category = await page.request.post("/api/online-categories", { headers, data: { idempotency_key: crypto.randomUUID(), value: "E2E Export Stone" } });
+    expect(category.status()).toBe(201);
+    expect((await page.request.post(path + "/content", { headers, data: { idempotency_key: crypto.randomUUID(), expected_revision: 0,
+      description: "Synthetic approved export", credits: 12, tags: ["matte"], category_ids: [(await category.json()).id], collection_ids: [], reason: "Prepare synthetic export" } })).status()).toBe(200);
+    const review = await (await page.request.get(path + "/review")).json();
+    const check = await page.request.post(path + "/technical-review/run", { headers, data: { idempotency_key: crypto.randomUUID(), expected_generation: review.generation } });
+    expect(check.status()).toBe(200); let current = await check.json();
+    for (const kind of ["TECHNICAL", "PUBLICATION"]) {
+      const decision = await page.request.post(path + "/approvals", { headers, data: { idempotency_key: crypto.randomUUID(),
+        expected_generation: current.review.generation, expected_revision_hash: current.review.revision_hash, technical_check_id: current.validation.id,
+        kind, warnings_acknowledged: true, note: "Reviewed synthetic files and accepted missing optional previews/source" } });
+      expect(decision.status()).toBe(200); current = await decision.json();
+    }
+    const content = await (await page.request.get(path + "/content-review")).json();
+    expect((await page.request.post(path + "/content/approve", { headers, data: { idempotency_key: crypto.randomUUID(), expected_revision: content.content_revision,
+      expected_context_hash: content.context_hash, warnings_acknowledged: true, note: "Reviewed synthetic publication content" } })).status()).toBe(200);
+  }
+  await page.goto("/publication");
+  if (!retainedPass) {
+    await page.getByRole("searchbox", { name: "Search materials", exact: true }).fill(fixture.material_name);
+    await page.getByRole("button", { name: "Find materials", exact: true }).click();
+    await page.getByRole("checkbox", { name: `${fixture.material_name} ${fixture.technical_identity}`, exact: true }).check();
+    await page.getByRole("button", { name: "Review selected materials", exact: true }).click();
+    await expect(page.getByText("All selected materials passed the current approval checks.", { exact: true })).toBeVisible();
+    const previewPanel = page.getByRole("group", { name: "2. Review export values", exact: true });
+    await expect(previewPanel).toContainText("12.5x34 cm");
+    await previewPanel.screenshot({ path: test.info().outputPath("publication-preview.png") });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await previewPanel.screenshot({ path: test.info().outputPath("publication-preview-mobile.png") });
+    await page.getByLabel("Reason for preparing this batch").fill("Freeze synthetic approved CSV");
+    await page.getByRole("checkbox", { name: "I reviewed the selected materials and export values.", exact: true }).check();
+    let discarded = false; const sent: unknown[] = [];
+    await page.route("**/api/publication-batches", async (route) => {
+      if (route.request().method() !== "POST") { await route.continue(); return; }
+      sent.push(route.request().postDataJSON());
+      if (!discarded) { discarded = true; const committed = await route.fetch(); expect(committed.status()).toBe(201); await route.abort("failed"); }
+      else await route.continue();
+    });
+    await page.getByRole("button", { name: "Save CSV batch", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("The outcome is unknown");
+    await expect(page.getByLabel("Reason for preparing this batch")).toBeDisabled();
+    await page.getByRole("button", { name: "Retry same batch request", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText("CSV batch saved");
+    expect(sent).toHaveLength(2); expect(sent[0]).toEqual(sent[1]);
+    await page.unroute("**/api/publication-batches");
+    // Current content changes after preparation; the already saved artifact must not.
+    const current = await (await page.request.get(path + "/content")).json();
+    expect((await page.request.post(path + "/content", { headers, data: { idempotency_key: crypto.randomUUID(), expected_revision: current.revision,
+      description: "Later unapproved content", credits: 13, tags: ["changed"], category_ids: current.categories.map((item: { id: string }) => item.id), collection_ids: [], reason: "Verify immutable export after edit" } })).status()).toBe(200);
+  }
+  const history = await (await page.request.get("/api/publication-batches")).json(); expect(history.items).toHaveLength(1);
+  const summary = history.items[0];
+  await page.getByRole("button", { name: "Load latest batches", exact: true }).click();
+  await page.getByRole("button", { name: `Open batch ${summary.id}`, exact: true }).click();
+  const saved = page.getByRole("group", { name: "Saved CSV batch", exact: true });
+  await expect(saved).toContainText("This CSV is a historical snapshot");
+  await saved.getByText(`1. ${fixture.material_name} — ${fixture.technical_identity}`, { exact: true }).click();
+  await expect(saved).toContainText("Synthetic approved export"); await expect(saved).not.toContainText("Later unapproved content");
+  const downloaded = page.waitForEvent("download"); await saved.getByRole("button", { name: "Download saved CSV", exact: true }).click();
+  const download = await downloaded; expect(download.suggestedFilename()).toBe(`publication-${summary.id}.csv`);
+  const csv = await readFile((await download.path())!);
+  expect(createHash("sha256").update(csv).digest("hex")).toBe(summary.csv_sha256);
+  expect(csv.subarray(0, 3).equals(Buffer.from([239, 187, 191]))).toBe(true);
+  expect(csv.toString("utf8")).toContain(";12;12.5x34 cm;"); expect(csv.toString("utf8")).not.toContain("Later unapproved content");
+  const currentPreview = await page.request.post("/api/publication-batches/preview", { headers, data: { material_ids: [fixture.id] } });
+  expect(currentPreview.status()).toBe(200); expect((await currentPreview.json()).can_prepare).toBe(false);
+  expect((await (await page.request.get(path)).json()).is_published).toBe(false);
+  await saved.screenshot({ path: test.info().outputPath("publication-saved.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await saved.screenshot({ path: test.info().outputPath("publication-saved-mobile.png") });
+});

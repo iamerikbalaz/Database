@@ -43,6 +43,7 @@ from app.gcs_client import GcsClient
 from app.notion_reader import NotionReader
 from app.api.notion_preview import build_notion_preview_router
 from app.api.company_history import build_company_history_router
+from app.api.notion_adoption import build_notion_adoption_router
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -112,7 +113,9 @@ def create_app(
     application.include_router(build_staging_execution_router(app_database, app_packaging_client,
         app_inventory_client, gcs_client or GcsClient.from_settings(app_settings), app_settings),
         prefix="/api/publication-staging-jobs", tags=["publication staging"])
-    application.include_router(build_notion_preview_router(app_database, notion_reader or NotionReader.from_settings(app_settings), app_settings))
+    app_notion_reader = notion_reader or NotionReader.from_settings(app_settings)
+    application.include_router(build_notion_preview_router(app_database, app_notion_reader, app_settings))
+    application.include_router(build_notion_adoption_router(app_database, app_notion_reader, app_settings))
     application.include_router(build_company_history_router(app_database))
     application.include_router(build_folder_discovery_router(app_database,
         discovery_client or WorkerDiscoveryClient(app_settings.worker_base_url)))

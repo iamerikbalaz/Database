@@ -4333,3 +4333,135 @@ def test_postgresql_company_create_collision_has_one_record_and_one_audit_event(
         company = session.scalar(select(Company).where(Company.notion_page_id == linked))
         events = list(session.scalars(select(CompanyChangeEvent).where(CompanyChangeEvent.company_id == company.id)))
         assert len(events) == 1 and events[0].version == 1 and events[0].action == "CREATED"
+
+
+def _notion_adoption_pg(case):
+    from app.main import create_app as authenticated_app
+    from app.notion_reader import configuration_from_settings
+    from test_application_access import PASSWORD, ORIGIN
+    from test_notion_preview import enabled_settings
+    from test_notion_reader import Server, schema, page
+    settings = enabled_settings(case.app.state.settings); page_id = str(uuid4())
+    with case.database.session() as session:
+        company = session.get(Project, case.material.project_id).company
+        company.notion_page_id = page_id; company.country = "CZ"; session.commit(); identifier = company.id
+    document = page(); document["id"] = page_id
+    def server_app():
+        server = Server()
+        async def respond(request): return server.response(schema() if "/data_sources/" in str(request.url) else document)
+        server.hook = respond
+        reader = server.client(configuration_from_settings(settings))
+        return server, authenticated_app(settings, case.database, notion_reader=reader)
+    def client_for(app, index=0):
+        client = TestClient(app, base_url=ORIGIN)
+        login = client.post("/api/auth/login", json={"email": case.users[index].email, "password": PASSWORD}, headers={"Origin": ORIGIN})
+        assert login.status_code == 200
+        client.headers.update({"Origin": ORIGIN, "X-CSRF-Token": login.json()["csrf_token"]})
+        return client
+    path = f"/api/companies/{identifier}"
+    def command(client):
+        response = client.post(path + "/notion-preview", json={"expected_page_id": page_id})
+        assert response.status_code == 200
+        value = response.json()
+        return {"request_key": str(uuid4()), "expected_page_id": page_id, "expected_local_sha256": value["local_sha256"],
+            "expected_observation_sha256": value["source"]["observation_sha256"],
+            "selected_fields": ["country", "name"], "reason": "Reviewed synthetic concurrent values"}
+    return SimpleNamespace(settings=settings, identifier=identifier, path=path, document=document,
+        server_app=server_app, client_for=client_for, command=command)
+
+
+@pytest.mark.parametrize("change", [None, "company", "link", "role", "revoke", "read-failure"])
+def test_postgresql_notion_adoption_rechecks_concurrent_changes_without_io_transaction(review_pg_case, change):
+    import anyio
+    from app.db.models import CompanyChangeEvent
+    from test_notion_reader import schema
+    case = review_pg_case; item = _notion_adoption_pg(case); server, app = item.server_app()
+    entered = Event(); release = Event()
+    async def hold(request):
+        if "/data_sources/" in str(request.url): return server.response(schema())
+        entered.set()
+        if not await anyio.to_thread.run_sync(release.wait, 15): raise TimeoutError("Synthetic adoption read was not released")
+        return server.response(item.document, status=503 if change == "read-failure" else 200)
+    with item.client_for(app) as actor, item.client_for(app, 3) as admin:
+        body = item.command(actor); server.hook = hold
+        with ThreadPoolExecutor(1) as pool:
+            pending = pool.submit(actor.post, item.path + "/notion-adopt", json=body)
+            try:
+                assert entered.wait(15)
+                with case.database.engine.connect() as connection:
+                    assert connection.scalar(text("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND state LIKE 'idle in transaction%'")) == 0
+                if change == "company": response = admin.patch(item.path, json={"legal_name": "New concurrent legal name"})
+                elif change == "link": response = admin.patch(item.path, json={"notion_page_id": str(uuid4())})
+                elif change == "role": response = admin.patch(f"/api/internal-users/{case.users[0].id}", json={"role": "PROCESSOR"})
+                elif change == "revoke": response = admin.patch(f"/api/internal-users/{case.users[0].id}", json={"is_active": False})
+                if change not in {None, "read-failure"}: assert response.status_code == 200
+            finally: release.set()
+            result = pending.result(timeout=20)
+            assert result.status_code == (200 if change is None else 503 if change == "read-failure" else 401 if change in {"role", "revoke"} else 409)
+        stored = admin.get(item.path).json()
+        assert stored["country"] == (None if change is None else "CZ")
+    with case.database.session() as session:
+        records = list(session.scalars(select(CompanyChangeEvent).where(CompanyChangeEvent.company_id == item.identifier, CompanyChangeEvent.action == "NOTION_ADOPTED")))
+        assert len(records) == (1 if change is None else 0)
+
+
+@pytest.mark.parametrize("different_command", [False, True])
+def test_postgresql_notion_adoption_two_backends_serialize_replays_and_stale_comparisons(review_pg_case, different_command):
+    import anyio
+    from app.db.models import CompanyChangeEvent
+    from test_notion_reader import schema
+    case = review_pg_case; item = _notion_adoption_pg(case)
+    first_server, first_app = item.server_app(); second_server, second_app = item.server_app()
+    ready = Barrier(2)
+    def hook(server):
+        async def hold(request):
+            if "/data_sources/" in str(request.url): return server.response(schema())
+            await anyio.to_thread.run_sync(ready.wait, 15)
+            return server.response(item.document)
+        return hold
+    with item.client_for(first_app) as first, item.client_for(second_app, 3 if different_command else 0) as second:
+        body = item.command(first); other = dict(body)
+        if different_command: other["request_key"] = str(uuid4())
+        first_server.hook = hook(first_server); second_server.hook = hook(second_server)
+        with ThreadPoolExecutor(2) as pool:
+            pending = [pool.submit(first.post, item.path + "/notion-adopt", json=body),
+                pool.submit(second.post, item.path + "/notion-adopt", json=other)]
+            responses = [future.result(timeout=25) for future in pending]
+        assert sorted(response.status_code for response in responses) == ([200, 409] if different_command else [200, 200])
+        if not different_command: assert responses[0].json() == responses[1].json()
+        else: assert next(response for response in responses if response.status_code == 409).json()["detail"]["code"] == "NOTION_LOCAL_CHANGED"
+    with case.database.session() as session:
+        records = list(session.scalars(select(CompanyChangeEvent).where(CompanyChangeEvent.company_id == item.identifier)))
+        assert len(records) == 1 and records[0].action == "NOTION_ADOPTED"
+
+
+@pytest.mark.parametrize("failed_read", [False, True])
+def test_postgresql_notion_adoption_late_response_returns_committed_replay_before_any_stale_error(review_pg_case, failed_read):
+    import anyio
+    from app.main import create_app as authenticated_app
+    from test_notion_reader import schema
+    case = review_pg_case; item = _notion_adoption_pg(case)
+    server, app = item.server_app(); _, replacement = item.server_app(); entered = Event(); release = Event()
+    async def hold(request):
+        if "/data_sources/" in str(request.url): return server.response(schema())
+        entered.set()
+        if not await anyio.to_thread.run_sync(release.wait, 20): raise TimeoutError("Late synthetic read was not released")
+        return server.response(item.document, status=503 if failed_read else 200)
+    with item.client_for(app) as original, item.client_for(replacement) as retrying, item.client_for(replacement, 3) as admin:
+        body = item.command(original); server.hook = hold
+        with ThreadPoolExecutor(1) as pool:
+            pending = pool.submit(original.post, item.path + "/notion-adopt", json=body)
+            try:
+                assert entered.wait(15)
+                committed = retrying.post(item.path + "/notion-adopt", json=body)
+                assert committed.status_code == 200
+                assert admin.patch(item.path, json={"name": "Later independent local edit", "notion_page_id": None}).status_code == 200
+            finally: release.set()
+            late = pending.result(timeout=25)
+            assert late.status_code == 200 and late.json() == committed.json()
+        disabled = authenticated_app(item.settings.model_copy(update={"notion_enabled": False}), case.database)
+        with item.client_for(disabled) as after_restart:
+            replay = after_restart.post(item.path + "/notion-adopt", json=body)
+            assert replay.status_code == 200 and replay.json() == committed.json()
+            history = after_restart.get(item.path + "/history").json()["items"]
+            assert [entry["action"] for entry in history] == ["UPDATED", "NOTION_ADOPTED"]

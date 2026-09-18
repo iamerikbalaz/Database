@@ -71,9 +71,13 @@ deleting a retained result. Cleanup uses a detached record and does not rewrite
 completion evidence. Reconciliation establishes READY versus RETRY_REQUIRED and
 records cleanup. Process death still follows the crash recovery path below.
 
-This removes temporary attempt work after ordinary staging/conversion/retention
-errors; it does not expire accepted retained ZIPs or partially retained output.
-That separate lifecycle must preserve historical proof and fence downloads/uploads.
+After a handled retention failure, execution also verifies retained storage under
+its existing lock and cleans only proven incomplete copies, with a separate budget
+of at most 120 seconds. Complete output is recovered/preserved and the original
+error remains an uncertain execution outcome. Explicit reconciliation also clears
+proven partial retention before recording RETRY_REQUIRED. See
+[retention cleanup](packaging-retention.md). This does not expire accepted retained
+ZIPs; that lifecycle must preserve proof and fence downloads/uploads.
 
 ## Replay and recovery
 

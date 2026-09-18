@@ -116,11 +116,13 @@ def _record(value, operation_id, request_hash, plan_hash):
 
 
 @contextmanager
-def _operation(root, operation_id, *, create):
+def _operation(root, operation_id, *, create, expected_root_identity=None):
     _check(secure_filesystem_access_supported(), "PACKAGING_STORE_PLATFORM_UNSUPPORTED")
     _check(isinstance(root, Path) and isinstance(operation_id, UUID) and operation_id.version == 4)
     import fcntl
     with _private_root(root) as parent:
+        if expected_root_identity is not None:
+            _check(_identity(os.fstat(parent)) == expected_root_identity, "PACKAGING_STORE_CHANGED")
         name = str(operation_id); created = False
         if create:
             try: os.mkdir(name, 0o700, dir_fd=parent); os.fsync(parent); created = True
@@ -139,10 +141,23 @@ def _operation(root, operation_id, *, create):
                     and stat.S_IMODE(info.st_mode) == 0o600, "PACKAGING_STORE_UNSAFE")
                 try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError: raise PackagingStoreError("PACKAGING_STORE_BUSY") from None
-                yield FileJournal(fd), created
-                _check(_identity(os.stat(name, dir_fd=parent, follow_symlinks=False)) == _identity(before), "PACKAGING_STORE_CHANGED")
-                with _private_root(root) as current:
-                    _check(_identity(os.fstat(current)) == _identity(os.fstat(parent)), "PACKAGING_STORE_CHANGED")
+                lock_signature = _signature(info)
+                def verify():
+                    _check(_identity(os.stat(name, dir_fd=parent, follow_symlinks=False)) == _identity(before), "PACKAGING_STORE_CHANGED")
+                    with _private_root(root) as current:
+                        _check(_identity(os.fstat(current)) == _identity(os.fstat(parent)), "PACKAGING_STORE_CHANGED")
+                    current = os.fstat(fd)
+                    _check(current.st_uid == os.geteuid() and stat.S_IMODE(current.st_mode) == 0o700, "PACKAGING_STORE_UNSAFE")
+                    _check(_signature(os.fstat(lock)) == lock_signature
+                        and _signature(os.stat("operation.lock", dir_fd=fd, follow_symlinks=False)) == lock_signature,
+                        "PACKAGING_STORE_CHANGED")
+                    with os.scandir(fd) as children:
+                        for child in children:
+                            _check(child.name in {"operation.lock", "state.json", "state.pending", "incoming", "ready"},
+                                "PACKAGING_STORE_UNEXPECTED_FILE")
+                verify()
+                yield FileJournal(fd), created, verify
+                verify()
             finally: os.close(lock)
         finally: os.close(fd)
 
@@ -310,14 +325,15 @@ def retain_packages(bundle: PreparedPackages, *, artifact_root: Path, request_ha
         _check(len(json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()) + 8192 <= MAX_STATE_BYTES,
             "PACKAGING_STORE_PROOF_SIZE_LIMIT")
         deadline.check()
-        with _operation(artifact_root, bundle.operation_id, create=True) as (journal, created):
+        with _operation(artifact_root, bundle.operation_id, create=True) as (journal, created, verify):
             record = journal.read()
             if record is not None:
                 _record(record, bundle.operation_id, request_hash, bundle.plan.sha256)
                 if _finish(journal, record, deadline): return _result(record)
                 _check(record["attempt"] < 32, "PACKAGING_STORE_ATTEMPT_LIMIT")
                 if _exists(journal.fd, "incoming"):
-                    _remove_owned(journal.fd, "incoming", tuple(record["directory_identity"])); os.fsync(journal.fd)
+                    verify()
+                    _remove_owned(journal.fd, "incoming", tuple(record["directory_identity"]), verify=verify); os.fsync(journal.fd)
                 attempt = record["attempt"] + 1
                 history = [*record["attempt_history"], {"attempt": record["attempt"], "proof_sha256": record["proof_sha256"], "outcome": "INCOMPLETE"}]
             else:
@@ -325,7 +341,7 @@ def retain_packages(bundle: PreparedPackages, *, artifact_root: Path, request_ha
             record = {"version": 1, "kind": "PBR_PACKAGED_RESULT", "operation_id": str(bundle.operation_id),
                 "request_hash": request_hash, "plan_hash": bundle.plan.sha256, "status": "RESERVED", "attempt": attempt, "attempt_history": history,
                 "directory_identity": None, "proof_sha256": _digest(payload), "payload": payload}
-            journal.write(record)
+            verify(); journal.write(record)
             os.mkdir("incoming", 0o700, dir_fd=journal.fd); os.fsync(journal.fd)
             with _descendant(journal.fd, ("incoming",)) as directory:
                 record["directory_identity"] = list(_identity(os.fstat(directory))); record["status"] = "BUILDING"; journal.write(record)
@@ -334,7 +350,7 @@ def retain_packages(bundle: PreparedPackages, *, artifact_root: Path, request_ha
                     for item in payload["files"]:
                         with open_source(item["path"]) as source: _copy_file(directory, item, source, deadline)
                 _sync_directories(directory, payload["directories"])
-            _check(_finish(journal, record, deadline), "PACKAGING_STORE_INCOMPLETE")
+            verify(); _check(_finish(journal, record, deadline), "PACKAGING_STORE_INCOMPLETE")
             return _result(record)
     except PackagingStoreError: raise
     except (PackagingStageError, JournalError, OSError, ValueError, TypeError, KeyError, RecursionError, EOFError, zlib.error, zipfile.BadZipFile):
@@ -346,12 +362,49 @@ def recover_packages(*, artifact_root: Path, operation_id: UUID, request_hash: s
     """Reconcile complete retained bytes after restart, without reading NAS inputs."""
     _check(_hash(request_hash) and _hash(plan_hash)); deadline = _Deadline(max_seconds)
     try:
-        with _operation(artifact_root, operation_id, create=False) as (journal, _):
+        with _operation(artifact_root, operation_id, create=False) as (journal, _, verify):
             value = journal.read(); _check(value is not None, "PACKAGING_STORE_UNKNOWN_OPERATION")
             record = _record(value, operation_id, request_hash, plan_hash)
+            verify()
             _check(_finish(journal, record, deadline), "PACKAGING_STORE_INCOMPLETE")
             return _result(record)
     except PackagingStoreError: raise
+    except (PackagingStageError, JournalError, OSError, ValueError, TypeError, KeyError, RecursionError):
+        raise PackagingStoreError("PACKAGING_STORE_FAILED") from None
+
+
+def cleanup_incomplete_packages(*, artifact_root: Path, operation_id: UUID, request_hash: str,
+    plan_hash: str, expected_root_identity: tuple[int, int], max_seconds: float = 120) -> StoredPackages | None:
+    """Discard only proven incomplete retained copies; preserve complete output.
+
+    The caller holds execution ownership and supplies its already verified root
+    identity. Keep the retention journal/proof unchanged for a future explicit
+    regenerated attempt. Unknown/corrupt storage is preserved, including missing
+    READY output. An absent operation is a no-op, never a new reservation.
+    """
+    _check(_hash(request_hash) and _hash(plan_hash) and isinstance(expected_root_identity, tuple)
+        and len(expected_root_identity) == 2 and all(type(value) is int and value >= 0 for value in expected_root_identity)
+        and type(max_seconds) in {int, float} and 0 < max_seconds <= 120)
+    deadline = _Deadline(max_seconds)
+    try:
+        with _operation(artifact_root, operation_id, create=False,
+                expected_root_identity=expected_root_identity) as (journal, _, verify):
+            value = journal.read(); _check(value is not None, "PACKAGING_STORE_UNKNOWN_OPERATION")
+            record = _record(value, operation_id, request_hash, plan_hash)
+            verify()
+            if _finish(journal, record, deadline): return _result(record)
+            # _finish has checked identity, the exact allowed tree and every
+            # surviving complete file. RESERVED ownership gaps are refused there.
+            verify(); deadline.check()
+            if _exists(journal.fd, "incoming"):
+                def verify_cleanup(): deadline.check(); verify()
+                _remove_owned(journal.fd, "incoming", tuple(record["directory_identity"]), verify=verify_cleanup)
+                os.fsync(journal.fd)
+            verify()
+            return None
+    except PackagingStoreError as error:
+        if str(error) == "PACKAGING_STORE_NOT_FOUND": return None
+        raise
     except (PackagingStageError, JournalError, OSError, ValueError, TypeError, KeyError, RecursionError):
         raise PackagingStoreError("PACKAGING_STORE_FAILED") from None
 
@@ -365,7 +418,7 @@ def open_retained_file(*, artifact_root: Path, operation_id: UUID, request_hash:
     if expected_size is not None or expected_file_sha256 is not None:
         _check(type(expected_size) is int and 0 <= expected_size <= 16 * 1024**3 and _hash(expected_file_sha256))
     try:
-        with _operation(artifact_root, operation_id, create=False) as (journal, _):
+        with _operation(artifact_root, operation_id, create=False) as (journal, _, verify):
             value = journal.read(); _check(value is not None, "PACKAGING_STORE_UNKNOWN_OPERATION")
             record = _record(value, operation_id, request_hash, plan_hash)
             _check(record["status"] == "READY" and record["proof_sha256"] == expected_proof_sha256, "PACKAGING_STORE_PROOF_MISMATCH")

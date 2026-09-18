@@ -387,6 +387,33 @@ def test_failure_cleanup_preserves_ambiguous_work_and_protected_source(job, monk
     with pytest.raises(PackagingExecutionError, match="UNKNOWN_WORKSPACE_FILE|RECOVERY_REQUIRED"): recover(job)
 
 
+@pytest.mark.parametrize("unknown", [False, True])
+def test_retention_failure_cleans_temporary_work_and_only_proven_partial_retention(job, monkeypatch, unknown):
+    source = snapshot(job[0][2]); copy = packaging_store._copy_file
+    def failed(*args, **kwargs):
+        copy(*args, **kwargs)
+        if unknown:
+            incoming = job[1].artifacts / str(job[2].operation_id) / "incoming"
+            extra = incoming / "unknown"; extra.write_text("Keep"); extra.chmod(0o600)
+        raise OSError("synthetic private diagnostic")
+    with monkeypatch.context() as patch:
+        patch.setattr(packaging_store, "_copy_file", failed)
+        with pytest.raises(PackagingExecutionError, match="STORE_UNEXPECTED_FILE" if unknown else "STORE_FAILED"): run(job)
+    assert not list(job[1].workspace.iterdir()) and snapshot(job[0][2]) == source
+    assert state(job)["status"] == "WORKING"
+    operation = job[1].artifacts / str(job[2].operation_id)
+    proof = json.loads((operation / "state.json").read_text())["proof_sha256"]
+    if unknown:
+        assert (operation / "incoming" / "unknown").read_text() == "Keep"
+        with pytest.raises(PackagingExecutionError, match="UNEXPECTED_FILE"): recover(job)
+    else:
+        assert not (operation / "incoming").exists()
+        assert recover(job).status == "RETRY_REQUIRED"
+        result = run(job, retry=True)
+        assert result.status == "READY" and result.attempt == 2 and result.stored.attempt == 2
+        assert result.stored.attempt_history[0]["proof_sha256"] == proof
+
+
 def test_ready_missing_artifact_operation_never_becomes_retryable(job):
     run(job)
     operation = job[1].artifacts / str(job[2].operation_id)

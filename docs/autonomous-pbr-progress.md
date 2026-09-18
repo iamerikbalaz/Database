@@ -1,16 +1,47 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-19, temporary packaging failure cleanup)
+## Latest checkpoint (2026-09-19, incomplete retention cleanup)
 
 Owned worktree: `C:\Database\Database\tmp\autonomous-pbr-completion`.
 Branch: `codex/autonomous-pbr-completion`. Current pushed tip:
-`6c83a334c66943c9eda23ca86e7e10b5e69a5b9e` (account-profile recovery).
+`d9ffbcb6077f30d510fb96521831f97989e57057` (updated packaging/staging docs).
 API/migration 0024: `249b9e6e3a88495544b8eaaaf44c5ba50241972c`; Docker source
 mapping guard: `c3a0d1631f06e372284409da5fe003b472cd0b45`. Remote main last
 verified unchanged at `88a1f99d748d2a0edbb1fce509e13d18bfc03908` during that push.
 Shared controller extraction is committed as `9957a0ef8729f23175412ac2f295886c35d76bc2`.
-Both account-profile commits have been pushed. Main was verified unchanged during
-that push. This checkpoint accompanies the next verified worker change below.
+Account profiles (`6c83a33`), temporary error cleanup (`7565a1c`) and reconciled
+docs (`d9ffbcb`) have been pushed. Remote main remains unchanged at the stated base.
+
+### Incomplete retention cleanup
+
+The worker now verifies and removes only proven incomplete retained incoming copies
+after a handled retention failure or explicit reconciliation. It holds the retention
+lock, matches the execution-bound artifact root identity and rechecks operation,
+root and lock identity during removal. Complete/READY output is preserved/recovered;
+unknown, corrupt or ambiguously owned data refuse cleanup. The old journal/proof
+remains unchanged until a separately authorized regenerated attempt records history.
+Verification/removal uses a maximum 120-second additional cleanup budget.
+
+New cases cover partial and complete copies, fixed request/plan/root bindings, lock
+contention, replacement attacks, expired budgets and real process death during file
+removal. The complete required-runtime Linux suite finished **740 passed / 1 failed**,
+424.01s, no skips, two existing dependency warnings. Owned run
+`reawote-packaging-650806ebf0e043f7aaf914e9c939bc54`, immutable image
+`sha256:cfdef294a673f215932931e4806de448b7d358d1f0c401efea45646b556e2627`.
+The new execution test's unknown-file fixture used default public permissions and
+therefore hit the earlier UNSAFE guard instead of UNEXPECTED_FILE. It now creates
+that sentinel with 0600 permissions, preserving the exact expected rejection and
+all cleanup/source/history assertions. Application code is unchanged after that run.
+All affected cleanup/store/execution/dispatch/stage tests then **181 passed**,
+228.08s, no skips, in `reawote-retention-62ee3e055ce040aeac4839293f9075cd`, image
+`sha256:9a1861c9367355f4e5560ef1d34f71fe62fa7034f4d7b14e856ba214d27850c9`.
+
+The updated production-runtime HTTP/conversion/restart/proof-bound download/offline
+replay/ordered closure smoke passed in owned
+`reawote-packaging-service-42b736787ee3416ebde89190e20db264:runtime`.
+Owned containers were removed; images retained. No database migration, HTTP endpoint,
+production or external write is added. This checkpoint accompanies that verified
+cleanup commit; read the current branch tip for its hash.
 
 ### Packaging failure cleanup
 
@@ -128,12 +159,11 @@ The README links the individual feature/operations contracts.
 
 ## Next work and real blockers
 
-1. Remove proven incomplete retained copies under their existing lock and exact
-   ownership/proof guards. Preserve complete output, corrupt/unknown data and the
-   immutable attempt evidence. See [cleanup sequence](packaging-cleanup-plan.md).
-2. Finish accepted-artifact retirement and operational/final review docs.
-   Temporary attempt workspaces now clean on ordinary errors; accepted retained
-   ZIP removal still needs durable retirement, download/staging gates and UI.
+1. Implement accepted-artifact retirement with a durable worker tombstone, exact
+   replay and crash-safe byte removal. See [cleanup sequence](packaging-cleanup-plan.md).
+2. Add application retirement provenance, ownership/download/staging gates and UI,
+   then operational/final review docs. Temporary attempt workspaces and proven
+   incomplete retention now have guarded cleanup; accepted output remains preserved.
 3. Verify actual importer contract, golden material outputs, manual publication
    confirmation and realistic historical workbook/source compatibility. Production
    inputs/importer fixtures are unavailable; do not invent live verification.

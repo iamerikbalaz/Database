@@ -17,7 +17,8 @@ existing crash recovery path. See [execution](packaging-execution.md).
 
 ## 2. Incomplete retained copies
 
-Next, extend retention cleanup only for a proven incomplete incoming copy. Hold the
+Retention cleanup is implemented and verified for a proven incomplete incoming
+copy; see the current checkpoint. Hold the
 existing retention lock and verify the immutable request/plan, journal, recorded
 directory identity, allowed entries and surviving file contents before deletion.
 Reuse the existing bounded no-follow cleanup. Preserve the journal and proof hash;

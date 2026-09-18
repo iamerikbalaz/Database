@@ -101,10 +101,11 @@ def _copy(source_fd, input_fd, entry, deadline):
         finally: os.close(source)
 
 
-def _remove_owned(parent_fd, name, expected, *, depth=0, budget=None):
+def _remove_owned(parent_fd, name, expected, *, depth=0, budget=None, verify=None):
     """Descriptor-relative cleanup refuses a replaced workspace or mount point."""
     budget = budget if budget is not None else [50000]
     _check(depth <= 20, "PACKAGING_STAGE_CLEANUP_REQUIRED")
+    if verify is not None: verify()
     fd = os.open(name, _directory_flags(), dir_fd=parent_fd)
     try:
         _check(_identity(os.fstat(fd)) == expected, "PACKAGING_STAGE_CLEANUP_REQUIRED")
@@ -114,15 +115,17 @@ def _remove_owned(parent_fd, name, expected, *, depth=0, budget=None):
                 _check(len(names) < budget[0], "PACKAGING_STAGE_CLEANUP_REQUIRED")
                 names.append(item.name)
         for entry in names:
+            if verify is not None: verify()
             budget[0] -= 1; _check(budget[0] >= 0 and _safe_name(entry), "PACKAGING_STAGE_CLEANUP_REQUIRED")
             info = os.stat(entry, dir_fd=fd, follow_symlinks=False)
             if stat.S_ISDIR(info.st_mode):
                 _check(info.st_dev == expected[0], "PACKAGING_STAGE_CLEANUP_REQUIRED")
-                _remove_owned(fd, entry, _identity(info), depth=depth + 1, budget=budget)
+                _remove_owned(fd, entry, _identity(info), depth=depth + 1, budget=budget, verify=verify)
             else:
                 # unlink does not follow a symlink, including one inserted after
                 # a failed converter. It never deletes the referenced target.
                 os.unlink(entry, dir_fd=fd)
+        if verify is not None: verify()
         _check(_identity(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)) == expected, "PACKAGING_STAGE_CLEANUP_REQUIRED")
         os.rmdir(name, dir_fd=parent_fd)
     finally: os.close(fd)

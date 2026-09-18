@@ -23,6 +23,11 @@ upload or publication.
 - `recover_packages(artifact_root=..., operation_id=..., request_hash=...,
   plan_hash=...)` reconciles recorded output after a restart without reading NAS
   inputs. It never builds missing images or treats incomplete bytes as complete.
+- `cleanup_incomplete_packages(..., expected_root_identity=...)` is an internal
+  execution-owned cleanup step. It verifies retention under its existing lock,
+  returns a complete result if available, or removes only a proven incomplete
+  incoming copy. It preserves the original journal/proof and treats an absent
+  operation as a no-op. It is not an exposed general delete endpoint.
 - `open_retained_file(..., expected_proof_sha256=..., path=...)` reads an exact
   allowlisted file against a proof held independently by the caller. Files are
   opened read-only through no-follow descriptors and checked for bytes, size,
@@ -59,6 +64,21 @@ Unexpected entries, symlinks/hardlinks, directory replacements, full-size corrup
 files and ambiguous reservation gaps are preserved and refused. Recovery never
 overwrites those conditions to force success.
 
+Execution invokes incomplete-copy cleanup after a handled retention failure and
+during explicit reconciliation of incomplete work. Complete incoming output is
+recovered to READY, never discarded. The temporary attempt workspace is cleaned
+first on failure, so an unproven retained tree does not keep those temporary copies.
+The cleanup has a separate maximum 120-second verification/removal budget and the
+existing 50,000-entry/depth-20 walk limit. Refused or interrupted cleanup leaves
+the original BUILDING journal valid; another explicit recovery can inspect the
+remaining subset. Only a new authorized attempt regenerates output and records
+the old proof as INCOMPLETE history. Missing READY bytes remain an integrity error.
+
+The retention lock now verifies its own descriptor/path signature, operation/root
+identities and exact operation-directory entries. These location checks also run
+during incomplete-tree removal. The caller supplies the artifact root identity
+already bound by its execution journal; a replacement cannot be adopted for cleanup.
+
 Default retention limits are 600 seconds and 16 GiB of delivered files, with a
 32 MiB journal/proof bound. The underlying container/storage must also enforce its
 own quota. Locks are nonblocking. Downloads hold their operation lock while open;
@@ -92,8 +112,9 @@ current authorization/source/approval checks, operator controls and configurable
 [GCS staging](gcs-upload-jobs.md) are also implemented. A READY worker artifact
 still does not establish upload or publication.
 
-Accepted retained artifacts and partial retention have no expiry/deletion API yet.
-Derived-file cleanup after upload/failure needs an explicit lifecycle compatible
+Accepted retained artifacts have no expiry/deletion API yet. Partial retention has
+the guarded execution-owned cleanup above. Accepted-output cleanup after upload/
+failure still needs an explicit lifecycle compatible
 with immutable job evidence, historical downloads and active transfer locks.
 Sudden power-loss behavior on production NAS, multi-gigabyte throughput, actual
 importer compatibility and explicit online-import verification remain unverified

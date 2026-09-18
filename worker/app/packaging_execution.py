@@ -18,7 +18,7 @@ from app.packaging_convert import PackagingConversionError
 from app.packaging_lease import PackagingLeaseError, open_execution_lease
 from app.packaging_plan import PackagingPlanError, _digest, _hash, build_packaging_plan
 from app.packaging_stage import PackagingStageError, _identity, _private_root, _remove_owned, stage_packaging_inputs
-from app.packaging_store import PackagingStoreError, StoredPackages, recover_packages, retain_packages
+from app.packaging_store import PackagingStoreError, StoredPackages, cleanup_incomplete_packages, recover_packages, retain_packages
 from app.packaging_zip import PackagingZipError
 from app.preflight import ZipPolicy
 from app.secure_filesystem import _directory_flags, secure_filesystem_access_supported
@@ -287,6 +287,11 @@ def _recover(request, roots, handles, journal, record, verify, deadline):
     except PackagingStoreError as error:
         if str(error) not in {"PACKAGING_STORE_NOT_FOUND", "PACKAGING_STORE_INCOMPLETE"}: raise
         _check(record["status"] not in {"RETAINED", "READY"}, "PACKAGING_EXECUTION_RESULT_MISSING")
+        if str(error) == "PACKAGING_STORE_INCOMPLETE":
+            verify()
+            stored = cleanup_incomplete_packages(artifact_root=roots.artifacts, operation_id=request.operation_id,
+                request_hash=request.sha256, plan_hash=request.plan_hash,
+                expected_root_identity=_identity(os.fstat(handles["artifacts"])), max_seconds=deadline.remaining(120))
     if stored is not None:
         result = {"proof_sha256": stored.proof_sha256, "retention_attempt": stored.attempt}
         _check(record["result"] is None or record["result"] == result, "PACKAGING_EXECUTION_RESULT_CHANGED")
@@ -358,6 +363,7 @@ def _execute_locked(request, report, roots, handles, journal, record, created, v
     finally: os.close(fd)
     record["status"] = "WORKING"; verify(); journal.write(record)
     workspace = roots.workspace / item["workspace"]
+    retention_started = False
     try:
         with stage_packaging_inputs(roots.materials, request.parts, report, expected_source_revision_hash=request.source_revision_hash,
                 policy=request.policy, workspace_root=workspace, operation_id=request.operation_id,
@@ -366,6 +372,7 @@ def _execute_locked(request, report, roots, handles, journal, record, created, v
             with assemble_packages(inputs, workspace_root=workspace, storage_timezone=request.storage_timezone,
                     max_seconds=deadline.remaining(), max_bytes=request.limits.generated_bytes) as bundle:
                 verify()
+                retention_started = True
                 stored = retain_packages(bundle, artifact_root=roots.artifacts, request_hash=request.sha256,
                     max_seconds=deadline.remaining(), max_bytes=request.limits.retained_bytes)
                 record["result"] = {"proof_sha256": stored.proof_sha256, "retention_attempt": stored.attempt}
@@ -379,6 +386,15 @@ def _execute_locked(request, report, roots, handles, journal, record, created, v
         # reconciliation can determine READY versus RETRY_REQUIRED. Keep the
         # persisted and in-memory record unchanged until that result is known.
         _cleanup(request, handles, deepcopy(record), verify)
+        if retention_started:
+            verify()
+            # Separate bounded verification for error cleanup. This may recover
+            # complete retained output; it never deletes READY bytes or rewrites
+            # the execution outcome after an uncertain return.
+            cleanup_incomplete_packages(artifact_root=roots.artifacts, operation_id=request.operation_id,
+                request_hash=request.sha256, plan_hash=request.plan_hash,
+                expected_root_identity=_identity(os.fstat(handles["artifacts"])))
+            verify()
         raise
     _cleanup(request, handles, record, verify)
     record["status"] = "READY"; verify(); journal.write(record)

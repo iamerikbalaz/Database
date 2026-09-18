@@ -48,7 +48,8 @@ required-runtime 562-test packaging run above. Only existing dependency warnings
 remain. Owned cleanup passed and its exact database volume is retained.
 The subsequent policy UI passed **457 frontend tests** including 21 new cases.
 Build, lint and E2E TypeScript passed after correcting test-only typing/lint issues;
-server/migration 0016 are committed as `b93fd16` (not yet pushed). Migrations
+server/migration 0016 are committed as `b93fd16`. Policy UI is committed as
+`5e88f24`; both commits are pushed to the owned branch. Migrations
 through 0016 are now immutable. First E2E run `2a41e17e-185d-414b-8a3b-3361f59cda0e`
 passed 16 scenarios; publication/policy failed because the post-save callback
 remounted the whole detail and hid the success notice/expanded panel. The new
@@ -60,6 +61,14 @@ retry after a lost committed response, preserved CSV and history after restart.
 Desktop and 390px screenshots were visually inspected without overflow. The final
 457 frontend tests, lint/build and E2E TypeScript check also passed. Owned cleanup
 and protected-resource checks passed; only owned DB/source/journal volumes remain.
+
+Execution prerequisites are in progress: `docs/packaging-lease.md` describes a
+private lease retained by actual ImageMagick/probe descendants after supervisor
+death. Its first 15 Linux tests passed in 1.81s without skips, including real
+SIGKILL and ImageMagick exec inheritance. Complete required-runtime regression
+`reawote-packaging-ed9ec1644c764477ab3008bc7ff19e6c` passed **577 tests in 204.51s**,
+with no skips and the two existing dependency deprecations. Owned cleanup passed;
+only its test image is retained. The verified lease slice is ready for commit.
 
 Next: guarded worker execution/recovery followed by durable database jobs/attempts
 with current approval/source checks and operator UI (`docs/packaging-execution-plan.md`). GCS/Notion,

@@ -20,6 +20,7 @@ from app.packaging_plan import MapOperation, _fit
 from app.packaging_stage import PackagingStageError, _identity, _private_root, _remove_owned
 from app.secure_filesystem import _directory_flags, secure_filesystem_access_supported
 from app.technical_validation import probe_image
+from app.packaging_lease import inherited_lease_fds
 
 EXECUTABLE = "/usr/bin/magick-im7.q16hdri"
 POLICY = Path("/etc/ImageMagick-7/policy.xml")
@@ -63,6 +64,7 @@ def verify_runtime():
         with POLICY.open("rb") as stream: actual = stream.read(32769)
         _check(len(expected) <= 32768 and actual == expected, "PACKAGING_CONVERSION_POLICY_MISMATCH")
         result = subprocess.run([EXECUTABLE, "-version"], cwd="/", env=_environment(),
+            pass_fds=inherited_lease_fds(),
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5, check=False)
         _check(result.returncode == 0 and len(result.stdout) <= 4096, "PACKAGING_CONVERSION_RUNTIME_UNAVAILABLE")
         version = re.search(rb"Version: ImageMagick (7\.[0-9.]+(?:-[0-9]+)?) Q16-HDRI\b", result.stdout)
@@ -89,7 +91,7 @@ def _cache(root):
 
 
 def _run(args, descriptors, seconds):
-    process = subprocess.Popen(args, pass_fds=descriptors, cwd=Path(__file__).resolve().parent.parent,
+    process = subprocess.Popen(args, pass_fds=inherited_lease_fds(descriptors), cwd=Path(__file__).resolve().parent.parent,
         env=_environment(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL, start_new_session=True)
     try:

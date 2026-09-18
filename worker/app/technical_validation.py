@@ -22,8 +22,9 @@ VALIDATION_SLOT = BoundedSemaphore(1)
 
 
 def probe_image(fd: int, *, timeout: float = 35) -> dict:
+    from app.packaging_lease import inherited_lease_fds
     try:
-        result = subprocess.run([sys.executable, "-m", "app.image_probe", str(fd)], pass_fds=(fd,),
+        result = subprocess.run([sys.executable, "-m", "app.image_probe", str(fd)], pass_fds=inherited_lease_fds((fd,)),
             cwd=Path(__file__).resolve().parent.parent, env={"PATH": os.defpath, "PYTHONDONTWRITEBYTECODE": "1"},
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             timeout=max(.1, min(timeout, 35)), check=False)

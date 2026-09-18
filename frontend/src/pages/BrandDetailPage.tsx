@@ -4,6 +4,7 @@ import { useResource } from "../api/useResource";
 import { NavigationLink } from "../components/NavigationLink";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { StatusBadge } from "../components/StatusBadge";
+import { ResourceHistoryPanel } from "../components/ResourceHistoryPanel";
 
 export function BrandDetailPage({
   id,
@@ -86,6 +87,7 @@ export function BrandDetailPage({
           </div>
         </dl>
       </article>
+      <ResourceHistoryPanel kind="BRAND" id={brand.id} updatedAt={brand.updatedAt} />
     </section>
   );
 }

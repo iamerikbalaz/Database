@@ -6,6 +6,7 @@ import type { ProjectDetail } from "../types";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { Icon } from "../components/Icon";
 import { StatusBadge } from "../components/StatusBadge";
+import { ResourceHistoryPanel } from "../components/ResourceHistoryPanel";
 
 export function ProjectDetailPage({
   id,
@@ -95,6 +96,7 @@ export function ProjectDetailPage({
           </div>
         </dl>
       </article>
+      <ResourceHistoryPanel kind="PROJECT" id={item.id} updatedAt={item.updatedAt} />
     </section>
   );
 }

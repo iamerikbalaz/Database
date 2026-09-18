@@ -36,6 +36,7 @@ import { MaterialGallery } from "../components/MaterialGallery";
 import { FolderDiscovery } from "../components/FolderDiscovery";
 import { PackagingPolicyPanel } from "../components/PackagingPolicyPanel";
 import { PackagingJobsPanel } from "../components/PackagingJobsPanel";
+import { ResourceHistoryPanel } from "../components/ResourceHistoryPanel";
 
 function Value({ children }: { children: ReactNode }) {
   return children === null || children === undefined || children === "" ? (
@@ -639,6 +640,7 @@ function MaterialDetailContent({
     {role && <ContentApprovalPanel key={`content-approval-${material.id}`} materialId={material.id} refreshVersion={data.reviewRefreshVersion} onChanged={retryRelated} />}
     {role && <PackagingPolicyPanel key={`policy-${material.id}`} materialId={material.id} workflowStatus={material.workflowStatus} refreshVersion={data.reviewRefreshVersion} onChanged={() => void data.refreshAll(undefined, undefined)} />}
     <PackagingJobsPanel key={`packaging-${material.id}`} materialId={material.id} onChanged={() => void data.refreshAll(undefined, undefined)} />
+    <ResourceHistoryPanel kind="MATERIAL" id={material.id} updatedAt={material.updatedAt} />
     {role && <MaterialTechnicalPanel key={`technical-${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material} onChanged={() => data.refreshAll(undefined, undefined)} />}
     {role && <MaterialIdentityPanel key={`identity-${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material} client={client} onChanged={async () => { retryRelated(); return true; }} />}
     {role && <MaterialReviewPanel key={`${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material}

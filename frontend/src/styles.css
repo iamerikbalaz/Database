@@ -173,11 +173,14 @@ a {
   font-size: clamp(36px, 5vw, 54px);
   font-weight: 500;
   letter-spacing: -0.035em;
+  overflow-wrap: anywhere;
 }
+.page-heading > div { min-width: 0; max-width: 100%; }
 .page-heading p {
   margin: 0;
   color: var(--muted);
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 .eyebrow {
   color: #758474 !important;
@@ -465,7 +468,7 @@ td > span:not(.badge):not(.project-number) {
 }
 .info-list > div {
   display: grid;
-  grid-template-columns: 130px 1fr;
+  grid-template-columns: 130px minmax(0, 1fr);
   padding: 13px 0;
   border-top: 1px solid #edf0ec;
 }
@@ -477,6 +480,8 @@ td > span:not(.badge):not(.project-number) {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .info-list a {
   color: #2e6651;

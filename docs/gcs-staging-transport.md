@@ -88,7 +88,7 @@ reconciliation; the hook must never be described as atomic cloud/database fencin
 ## Failure and recovery
 
 Any failed or cancelled upload may have remote side effects. Persist that uncertainty
-in the future coordinator; **never treat an exception as proof of absence**. A lost
+in the durable coordinator; **never treat an exception as proof of absence**. A lost
 completion response is recovered with `reconcile(spec)`: it only reads the exact
 object, verifies its provenance, generation and all bytes, and checks that it is
 still current. It cannot continue a partial resumable session. A 404 is a read-time
@@ -103,10 +103,11 @@ later remote deletion or changes remain possible.
 
 ## Remaining integration work
 
-- Reservation ownership and a reviewed exact CSV/artifact plan are implemented in
-  `docs/gcs-upload-jobs.md` and `docs/gcs-batch-plan.md`. Dispatch orchestration,
-  live approval/session/lease guards, immutable receipts and acceptance remain.
-- Whole-batch execution and completion-marker upload, plus importer-layout validation.
+- Reservation ownership, reviewed CSV/artifact plans, dispatch orchestration,
+  current approval/session/lease guards, immutable receipts, whole-batch execution
+  and completion-marker upload are implemented in the [job runtime](gcs-upload-jobs.md)
+  and [controls](gcs-staging-controls.md). They have isolated contract coverage;
+  live storage and actual online importer compatibility remain unverified.
 - Real credential lifecycle, live isolated-target verification when separately
   authorized, and throughput/cost assessment for full readback.
 - Explicit manual CSV-import confirmation with online IDs/date/hash. A single object

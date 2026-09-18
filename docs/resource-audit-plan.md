@@ -50,3 +50,28 @@ revocation on real PostgreSQL. Check fresh/prior migration and rollback guards,
 identity/number preservation, immutable historical downloads and fresh/retained
 browser behavior. Production migrations, source cleanup and cloud deletion remain
 outside this development run's authorization.
+
+### Source-level integration map (reviewed before implementation)
+
+| Surface | Required archive behavior |
+| --- | --- |
+| `auth/access.py::require_material` and `api/material_review.py::_material` | Default denial for archived materials; explicit narrow exceptions for authorized historical reads. Do not make ADMIN a blanket bypass for new work. |
+| `api/resources.py` | Exclude archives in lists; guard ordinary detail/metadata/PATCH; keep identity and number uniqueness across archived rows. |
+| `api/material_operations.py` | Both pre-IO `_get_material_revision` and post-IO/final transaction must detect archive; no source findings returned from stale authorization. |
+| `api/material_identity.py::_finish` | Existing durable ownership must block archive while active/recovery-required. Finish an already authorized filesystem transaction consistently even if its actor is revoked. Do not interrupt recovery halfway. |
+| `material_identity.py::require_material_idle` | Reuse identity, packaging and staging ownership checks under the material row lock; do not equate a network timeout with a completed owner. |
+| `packaging_jobs.py` and `api/packaging_jobs.py` | Reject new reservation/dispatch/current-input acceptance on archives; preserve factual late worker observations and exact recovery semantics. |
+| `publication_preflight.py`, `publication_staging.py` | Reject archived selection/new staging even when historical package proof still exists. |
+| `staging_runtime.py` | Audit direct material locks and late outcomes; an in-flight owner must prevent archive. Preserve fact recording after credential revocation. |
+| `api/packaging_downloads.py` | Explicitly permit existing authorized accepted-proof downloads on archives, including its streaming reauthorization guard; never reinterpret current approvals as necessary for historical proof. |
+| `api/publication_batches.py`, staging history | Keep immutable old exports/progress readable under existing publication permissions. New execution still checks current archive state. |
+| `ai_service_access.py` | Shared human visibility/assignment checks must also reject new archived-material service operations. Never add an archive bypass to a credential. |
+| `api/catalog.py` and brand invalidations | Define how catalog edits invalidate archived material review without deleting proof or restoring it on unarchive. |
+| Ordinary resource history | ADMIN historical reads remain available; lifecycle actions have separate explicit events, not invented ordinary PATCH snapshots. |
+
+Product detail to preserve: publication states distinguish uploaded/import-pending
+from verified publication. The first archive implementation should accept only
+`NOT_PUBLISHED` with `is_published=false`, unless a later explicit contract resolves
+all external side effects. Reject an ambiguous/in-progress publication state even
+if its local published flag is false. Restore resets review readiness, not historical
+status or external cloud state. No archive code has been enabled by this plan.

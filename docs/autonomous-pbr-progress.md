@@ -91,9 +91,22 @@ was tested. Owned cleanup and protected-resource checks passed; explicitly owned
 test volumes and successful UI artifacts remain. Product UI was unchanged.
 Frontend lint and E2E TypeScript checks passed; product frontend code is unchanged.
 
+Reservations are committed as `8d86da5`; migration 0018 is now immutable. The next
+transport slice adds per-operation async authorization/ownership checkpoints before
+credential access, every HTTP request, bounded streaming progress and receipt return.
+Revocation after a remote write returns no accepted receipt and preserves uncertainty.
+The callback's private exception is reduced to `GCS_OPERATION_BLOCKED`; cancellation
+still releases resources. This is a transport hook, not an implemented upload runner.
+Targeted Windows GCS tests passed **149 tests (4.94s)**; the isolated Linux transport,
+guard, batch and configuration suite passed **220 tests (4.11s)**, no skips, two
+existing dependency warnings. Image `reawote-gcs-guard-b77b156c52f64845b5e8f061ef3ef265:test`,
+manifest digest `66b14fcc650f4e1cb6394c6b393593a1d1298f91a5eccbefcb1b8eea1fd49893`;
+read-only UID 65532, no network, host mounts, ports or DB, bounded tmpfs, auto-removed
+container. This later image covers the guard changes after the 1534-test snapshot.
+
 Next: durable dispatch/recovery, then the manual-import workflow. No upload API,
 actual importer mapping or GCS UI is implemented yet. Existing migrations through
-0017 remain immutable; 0018 is the new reservation migration. The older checkpoints
+0018 remain immutable. The older checkpoints
 below record historical test counts and intermediate limitations.
 
 ## Workspace and authority

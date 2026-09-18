@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from threading import BoundedSemaphore
 from typing import AsyncIterator, Awaitable, Callable
 from urllib.parse import parse_qsl, quote, urlsplit
@@ -23,6 +24,8 @@ ORIGIN = "https://storage.googleapis.com"
 UPLOAD_CHUNK_BYTES = 8 * 1024**2
 SOURCE_BLOCK_BYTES = 64 * 1024
 JSON_BYTES = 32 * 1024
+RECHECK_BYTES = 8 * 1024**2
+RECHECK_SECONDS = 1
 _private_io = ContextVar("gcs_private_io", default=False)
 
 
@@ -121,6 +124,33 @@ async def _source_blocks(source):
         raise GcsError("GCS_SOURCE_UNAVAILABLE") from None
 
 
+class _OperationGuard:
+    """Per-call authorization/lease gate supplied by the durable coordinator."""
+    def __init__(self, callback):
+        if callback is not None and not callable(callback):
+            raise GcsError("GCS_OPERATION_BLOCKED")
+        self.callback = callback
+        self.bytes = 0
+        self.checked_at = time.monotonic()
+
+    async def require(self):
+        if self.callback is not None:
+            try:
+                # Success must be explicit normal completion. False, coroutine
+                # objects returned by a broken callback, and other values fail.
+                if await self.callback() is not None:
+                    raise ValueError()
+            except Exception:
+                raise GcsError("GCS_OPERATION_BLOCKED") from None
+        self.bytes = 0
+        self.checked_at = time.monotonic()
+
+    async def progress(self, count):
+        self.bytes += count
+        if self.bytes >= RECHECK_BYTES or time.monotonic() - self.checked_at >= RECHECK_SECONDS:
+            await self.require()
+
+
 class GcsClient:
     def __init__(self, configuration: GcsConfiguration,
                  token_provider: Callable[[], Awaitable[SecretStr]]):
@@ -146,7 +176,7 @@ class GcsClient:
         return cls(configuration, token)
 
     @asynccontextmanager
-    async def _connection(self):
+    async def _connection(self, guard):
         if not self.configuration.enabled:
             raise GcsError("GCS_DISABLED")
         if not self._slot.acquire(blocking=False):
@@ -155,6 +185,7 @@ class GcsClient:
         client = None
         try:
             with anyio.fail_after(self.configuration.timeout_seconds):
+                await guard.require()
                 try:
                     token = await self._token_provider()
                     raw = token.get_secret_value()
@@ -162,6 +193,7 @@ class GcsClient:
                         raise ValueError()
                 except Exception:
                     raise GcsError("GCS_CREDENTIAL_UNAVAILABLE") from None
+                await guard.require()
                 client = httpx.AsyncClient(timeout=httpx.Timeout(60, connect=5),
                     trust_env=False, follow_redirects=False, http2=False,
                     limits=httpx.Limits(max_connections=1, max_keepalive_connections=1),
@@ -181,7 +213,8 @@ class GcsClient:
                 self._slot.release()
 
     @asynccontextmanager
-    async def _response(self, client, method, url, **kwargs):
+    async def _response(self, client, method, url, *, guard, **kwargs):
+        await guard.require()
         response = await client.send(client.build_request(method, url, **kwargs), stream=True)
         try:
             yield response
@@ -206,18 +239,19 @@ class GcsClient:
     def _object_url(self, spec):
         return f"{ORIGIN}/storage/v1/b/{self.configuration.bucket_name}/o/{quote(spec.object_name(self.configuration), safe='')}"
 
-    async def _metadata(self, client, spec, *, conditions=None):
+    async def _metadata(self, client, spec, *, guard, conditions=None):
         async with self._response(client, "GET", self._object_url(spec),
+                                  guard=guard,
                                   params={"projection": "noAcl", **(conditions or {})}) as response:
             _status(response, {200})
             return self._receipt(await _json(response), spec)
 
-    async def _readback(self, client, spec, receipt):
+    async def _readback(self, client, spec, receipt, guard):
         conditions = {"ifGenerationMatch": receipt.generation,
                       "ifMetagenerationMatch": receipt.metageneration}
         digest = hashlib.sha256()
         size = 0
-        async with self._response(client, "GET", self._object_url(spec), params={
+        async with self._response(client, "GET", self._object_url(spec), guard=guard, params={
                 "alt": "media", "generation": receipt.generation, **conditions}) as response:
             _status(response, {200})
             _headers(response)
@@ -226,26 +260,33 @@ class GcsClient:
                 size += len(block)
                 _check(size <= spec.size)
                 digest.update(block)
+                await guard.progress(len(block))
         _check(size == spec.size and digest.hexdigest() == spec.sha256)
         # No generation selector here: the *live* object must still be the
         # verified generation with the same metadata at completion.
-        latest = await self._metadata(client, spec, conditions=conditions)
+        latest = await self._metadata(client, spec, guard=guard, conditions=conditions)
         _check(latest == receipt)
+        await guard.require()
         return receipt
 
-    async def reconcile(self, selection: GcsObjectSpec) -> GcsObjectReceipt:
+    async def reconcile(self, selection: GcsObjectSpec, *,
+                        operation_guard: Callable[[], Awaitable[None]] | None = None) -> GcsObjectReceipt:
         """Read-only verification after an unknown outcome; never resumes writes."""
         spec = _selection(selection)
-        async with self._connection() as client:
-            receipt = await self._metadata(client, spec)
-            return await self._readback(client, spec, receipt)
+        guard = _OperationGuard(operation_guard)
+        async with self._connection(guard) as client:
+            receipt = await self._metadata(client, spec, guard=guard)
+            return await self._readback(client, spec, receipt, guard)
 
-    async def upload(self, selection: GcsObjectSpec, source: AsyncIterator[bytes]) -> GcsObjectReceipt:
+    async def upload(self, selection: GcsObjectSpec, source: AsyncIterator[bytes], *,
+                     operation_guard: Callable[[], Awaitable[None]] | None = None) -> GcsObjectReceipt:
         spec = _selection(selection)
-        async with self._connection() as client:
+        guard = _OperationGuard(operation_guard)
+        async with self._connection(guard) as client:
             name = spec.object_name(self.configuration)
             async with self._response(client, "POST",
                     f"{ORIGIN}/upload/storage/v1/b/{self.configuration.bucket_name}/o",
+                    guard=guard,
                     params={"uploadType": "resumable", "ifGenerationMatch": "0"},
                     headers={"X-Upload-Content-Length": str(spec.size),
                              "X-Upload-Content-Type": "application/octet-stream"},
@@ -267,20 +308,21 @@ class GcsClient:
                     raise GcsError("GCS_SOURCE_CHANGED")
                 digest.update(block)
                 buffer.extend(block)
+                await guard.progress(len(block))
                 # Keep the final block until source EOF and digest validation.
                 if len(buffer) >= UPLOAD_CHUNK_BYTES and sent + UPLOAD_CHUNK_BYTES < spec.size:
                     chunk = bytes(buffer[:UPLOAD_CHUNK_BYTES])
                     del buffer[:UPLOAD_CHUNK_BYTES]
-                    await self._chunk(client, session, chunk, sent, spec, final=False)
+                    await self._chunk(client, session, chunk, sent, spec, guard=guard, final=False)
                     sent += len(chunk)
             if size != spec.size or digest.hexdigest() != spec.sha256:
                 raise GcsError("GCS_SOURCE_CHANGED")
-            receipt = await self._chunk(client, session, bytes(buffer), sent, spec, final=True)
-            return await self._readback(client, spec, receipt)
+            receipt = await self._chunk(client, session, bytes(buffer), sent, spec, guard=guard, final=True)
+            return await self._readback(client, spec, receipt, guard)
 
-    async def _chunk(self, client, session, data, start, spec, *, final):
+    async def _chunk(self, client, session, data, start, spec, *, guard, final):
         end = start + len(data) - 1
-        async with self._response(client, "PUT", session.get_secret_value(), content=data,
+        async with self._response(client, "PUT", session.get_secret_value(), content=data, guard=guard,
                 headers={"Content-Type": "application/octet-stream",
                          "Content-Range": f"bytes {start}-{end}/{spec.size}"}) as response:
             _status(response, {200, 201} if final else {308})

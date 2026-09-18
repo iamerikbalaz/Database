@@ -78,5 +78,6 @@ class GcsError(Exception):
             "GCS_CREDENTIAL_UNAVAILABLE", "GCS_ACCESS_DENIED", "GCS_BUSY",
             "GCS_OBJECT_ABSENT", "GCS_OBJECT_CONFLICT", "GCS_SOURCE_CHANGED",
             "GCS_SOURCE_UNAVAILABLE", "GCS_VERIFICATION_FAILED", "GCS_OUTCOME_UNCERTAIN",
+            "GCS_OPERATION_BLOCKED",
         } else "GCS_OUTCOME_UNCERTAIN"
         super().__init__(self.code)

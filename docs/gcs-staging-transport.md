@@ -61,6 +61,28 @@ the session capability. Other operations retain their normal logging. Do not add
 request/response hooks, raw-body logs or credential-provider diagnostics that expose
 secrets. The adapter never returns session URLs, tokens or remote error payloads.
 
+## Authorization and ownership checkpoints
+
+Both `upload` and `reconcile` accept an operation-specific async `operation_guard`.
+It must return `None` only after verifying current authorization and dispatch
+ownership; any exception or other return value blocks the operation with the fixed
+`GCS_OPERATION_BLOCKED` code. The transport invokes it before/after credential
+acquisition, before every HTTP request, during source/readback streams after 8 MiB
+or one second of observed progress, and before returning a verified receipt. An
+already blocked operation makes no credential or network request. Cancellation
+still closes streams/connections and releases the adapter's one-operation slot.
+
+The guard belongs to one invocation; it does not persist on the client or leak into
+a later reconciliation. The low-level adapter allows omission for standalone
+transport use, but the future application runner must always supply its durable
+job/session/lease guard and recheck acceptance in its own database transaction.
+These hooks do not themselves implement that runner or a distributed lock.
+
+Revocation cannot retract bytes already sent or cancel a request already accepted
+remotely. A failure after the final upload can leave a complete remote object while
+returning no receipt. Such a result remains uncertain and requires recorded
+reconciliation; the hook must never be described as atomic cloud/database fencing.
+
 ## Failure and recovery
 
 Any failed or cancelled upload may have remote side effects. Persist that uncertainty
@@ -79,17 +101,20 @@ later remote deletion or changes remain possible.
 
 ## Remaining integration work
 
-- Durable batch/attempt ownership, current approval/session checks before and after
-  external IO, immutable receipts and concurrency fencing.
-- Exact CSV plus artifact mapping, whole-batch completion, importer-layout validation
-  and a completion marker that incomplete namespaces cannot impersonate.
+- Reservation ownership and a reviewed exact CSV/artifact plan are implemented in
+  `docs/gcs-upload-jobs.md` and `docs/gcs-batch-plan.md`. Dispatch orchestration,
+  live approval/session/lease guards, immutable receipts and acceptance remain.
+- Whole-batch execution and completion-marker upload, plus importer-layout validation.
 - Real credential lifecycle, live isolated-target verification when separately
   authorized, and throughput/cost assessment for full readback.
 - Explicit manual CSV-import confirmation with online IDs/date/hash. A single object
   receipt cannot set UPLOADED_WAITING_FOR_CSV_IMPORT or PUBLISHED.
 
-Run offline contracts with `python -m pytest tests/test_gcs_client.py tests/test_config.py`.
+Run offline contracts with `python -m pytest tests/test_gcs_client.py tests/test_gcs_operation_guard.py tests/test_gcs_batch.py tests/test_config.py`.
 The cases cover multi-chunk and exact-boundary transfers, final-source failures,
 lost completion and read-only recovery, corrupt/truncated/changed remote objects,
 conditional conflicts, secret-bearing response URLs, malformed proofs, token
 validation, bounded errors, timeouts, cancellation cleanup and logging isolation.
+Guard cases include revocation before credentials, after resumable initiation,
+between chunks, at source EOF, after remote completion, during readback and at final
+metadata validation, plus invalid callbacks and cancellation during authorization.

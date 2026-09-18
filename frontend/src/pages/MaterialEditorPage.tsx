@@ -17,8 +17,9 @@ function editable(v: Values): Required<MaterialPatchDto> {
 export function MaterialEditorPage({ id, client, navigate, onSaved }: {
   id?: string; client: ApiClient; navigate: (path: string) => void; onSaved: (path: string, message: string) => void;
 }) {
-  const canAssign = useSession()?.session.user.role !== "PROCESSOR";
+  const user = useSession()?.session.user, canAssign = user?.role !== "PROCESSOR", actor = user?.id;
   const load = useCallback(async () => {
+    void actor;
     const [material, projects, brands, users] = await Promise.all([
       id ? client.getMaterial(id) : Promise.resolve(undefined), client.getProjects(), client.getBrands(), client.getInternalUsers(true),
     ]);
@@ -42,17 +43,19 @@ export function MaterialEditorPage({ id, client, navigate, onSaved }: {
     ];
     const definition: FormDefinition = {
       title: id ? "Edit material" : "Add material", fields: canAssign ? fields : fields.filter((field) => field.name === "materialName"), initial, cancel: id ? "/materials/" + id : "/materials",
-      save: async (v) => {
+      command: { kind: "MATERIAL", action: id ? "UPDATED" : "CREATED", targetId: id ?? null, editorPath: id ? `/materials/${id}/edit` : "/materials/new",
+        payload: (v) => id ? changedFields(editable(v), editable(initial)) : { ...editable(v), published_brand_id: v.publishedBrandId } },
+      save: async (v, key) => {
         const input = editable(v);
         const saved = id
-          ? await client.updateMaterial(id, changedFields(input, editable(initial)))
-          : await client.createMaterial({ ...input, published_brand_id: v.publishedBrandId });
+          ? await client.updateMaterial(id, changedFields(input, editable(initial)), key)
+          : await client.createMaterial({ ...input, published_brand_id: v.publishedBrandId }, key);
         return { path: "/materials/" + saved.id, message: id ? "Material updated successfully." : "Material created successfully." };
       },
     };
     return { definition, material, brands, unavailableProcessor,
       missingChoices: !projects.length || (!id && !brands.length) || (!material && !active.length) };
-  }, [id, client, canAssign]);
+  }, [id, client, canAssign, actor]);
   const { data, error, cause, retry } = useResource(load);
   if (error) return <ErrorState message={materialLoadError(cause)} retry={retry} />;
   if (!data) return <LoadingState label="Loading material form…" />;

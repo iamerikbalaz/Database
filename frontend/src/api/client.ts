@@ -25,18 +25,19 @@ import {
   parsePublishedBrand,
   parseProject,
   parseList,
+  uuid,
 } from "./dto";
 export interface ApiClient extends MaterialApi {
   getCompanies(): Promise<Company[]>;
   getCompanyRecord(id: string): Promise<Company>;
   getBrand(id: string): Promise<PublishedBrand>;
   getProjectRecord(id: string): Promise<Project>;
-  createCompany(payload: CompanyCreateDto): Promise<Company>;
-  updateCompany(id: string, payload: CompanyPatchDto): Promise<Company>;
-  createBrand(payload: BrandCreateDto): Promise<PublishedBrand>;
-  updateBrand(id: string, payload: BrandPatchDto): Promise<PublishedBrand>;
-  createProject(payload: ProjectCreateDto): Promise<Project>;
-  updateProject(id: string, payload: ProjectPatchDto): Promise<Project>;
+  createCompany(payload: CompanyCreateDto, requestKey?: string): Promise<Company>;
+  updateCompany(id: string, payload: CompanyPatchDto, requestKey?: string): Promise<Company>;
+  createBrand(payload: BrandCreateDto, requestKey?: string): Promise<PublishedBrand>;
+  updateBrand(id: string, payload: BrandPatchDto, requestKey?: string): Promise<PublishedBrand>;
+  createProject(payload: ProjectCreateDto, requestKey?: string): Promise<Project>;
+  updateProject(id: string, payload: ProjectPatchDto, requestKey?: string): Promise<Project>;
   getCompany(id: string): Promise<CompanyDetail>;
   getBrands(): Promise<PublishedBrand[]>;
   getProjects(): Promise<Project[]>;
@@ -46,6 +47,7 @@ export async function request(
   path: string,
   method = "GET",
   payload?: object,
+  requestKey?: string,
 ): Promise<unknown> {
   const sentGeneration = sessionGeneration();
   const response = await fetch(apiUrl(path), {
@@ -56,6 +58,7 @@ export async function request(
     headers: {
       Accept: "application/json",
       ...authenticatedHeaders(method),
+      ...(requestKey === undefined ? {} : { "Idempotency-Key": uuid(requestKey) }),
       ...(payload === undefined ? {} : { "Content-Type": "application/json" }),
     },
   });
@@ -83,39 +86,39 @@ export const httpApiClient: ApiClient = {
       parseProject(await request("/projects/" + encodeURIComponent(id))),
     );
   },
-  async createCompany(payload) {
+  async createCompany(payload, requestKey) {
     return companyFromDto(
-      parseCompany(await request("/companies", "POST", payload)),
+      parseCompany(await request("/companies", "POST", payload, requestKey)),
     );
   },
-  async updateCompany(id, payload) {
+  async updateCompany(id, payload, requestKey) {
     return companyFromDto(
       parseCompany(
-        await request("/companies/" + encodeURIComponent(id), "PATCH", payload),
+        await request("/companies/" + encodeURIComponent(id), "PATCH", payload, requestKey),
       ),
     );
   },
-  async createBrand(payload) {
+  async createBrand(payload, requestKey) {
     return publishedBrandFromDto(
-      parsePublishedBrand(await request("/brands", "POST", payload)),
+      parsePublishedBrand(await request("/brands", "POST", payload, requestKey)),
     );
   },
-  async updateBrand(id, payload) {
+  async updateBrand(id, payload, requestKey) {
     return publishedBrandFromDto(
       parsePublishedBrand(
-        await request("/brands/" + encodeURIComponent(id), "PATCH", payload),
+        await request("/brands/" + encodeURIComponent(id), "PATCH", payload, requestKey),
       ),
     );
   },
-  async createProject(payload) {
+  async createProject(payload, requestKey) {
     return projectFromDto(
-      parseProject(await request("/projects", "POST", payload)),
+      parseProject(await request("/projects", "POST", payload, requestKey)),
     );
   },
-  async updateProject(id, payload) {
+  async updateProject(id, payload, requestKey) {
     return projectFromDto(
       parseProject(
-        await request("/projects/" + encodeURIComponent(id), "PATCH", payload),
+        await request("/projects/" + encodeURIComponent(id), "PATCH", payload, requestKey),
       ),
     );
   },

@@ -35,8 +35,8 @@ export interface MaterialFilters {
 export interface MaterialApi {
   getMaterials(filters?: MaterialFilters): Promise<Material[]>;
   getMaterial(id: string): Promise<Material>;
-  createMaterial(payload: MaterialCreateDto): Promise<Material>;
-  updateMaterial(id: string, payload: MaterialPatchDto): Promise<Material>;
+  createMaterial(payload: MaterialCreateDto, requestKey?: string): Promise<Material>;
+  updateMaterial(id: string, payload: MaterialPatchDto, requestKey?: string): Promise<Material>;
   getInternalUsers(activeOnly?: boolean): Promise<InternalUser[]>;
   getInternalUser(id: string): Promise<InternalUser>;
   preflightMaterialFolder(id: string, folderPath: string): Promise<MaterialFolderPreflight>;
@@ -45,7 +45,7 @@ export interface MaterialApi {
   getMaterialMetadata(id: string): Promise<MaterialMetadata>;
   getMaterialMetadataSnapshots(id: string): Promise<MaterialMetadataSnapshot[]>;
 }
-type Request = (path: string, method?: string, payload?: object) => Promise<unknown>;
+type Request = (path: string, method?: string, payload?: object, requestKey?: string) => Promise<unknown>;
 export function materialApi(request: Request): MaterialApi {
   return {
     async getMaterials(filters = {}) {
@@ -58,23 +58,23 @@ export function materialApi(request: Request): MaterialApi {
     async getMaterial(id) {
       return materialFromDto(parseMaterial(await request("/materials/" + uuid(id))));
     },
-    async createMaterial(p) {
+    async createMaterial(p, requestKey) {
       // Explicit allowlist also strips extra properties supplied at runtime.
       const payload: MaterialCreateDto = {
         project_id: p.project_id, published_brand_id: p.published_brand_id,
         material_name: p.material_name, main_category_code: p.main_category_code,
         assigned_processor_id: p.assigned_processor_id,
       };
-      return materialFromDto(parseMaterial(await request("/materials", "POST", payload)));
+      return materialFromDto(parseMaterial(await request("/materials", "POST", payload, requestKey)));
     },
-    async updateMaterial(id, p) {
+    async updateMaterial(id, p, requestKey) {
       const payload: MaterialPatchDto = {};
       if (p.project_id !== undefined) payload.project_id = p.project_id;
       if (p.material_name !== undefined) payload.material_name = p.material_name;
       if (p.main_category_code !== undefined) payload.main_category_code = p.main_category_code;
       if (p.assigned_processor_id !== undefined) payload.assigned_processor_id = p.assigned_processor_id;
       try {
-        return materialFromDto(parseMaterial(await request("/materials/" + uuid(id), "PATCH", payload)));
+        return materialFromDto(parseMaterial(await request("/materials/" + uuid(id), "PATCH", payload, requestKey)));
       } catch (error) {
         if (error instanceof ApiError && error.status === 409 && error.message.includes("main_category_code cannot be changed while folder_path is set")) {
           throw new ApiError(409, "This material is linked to a folder. Changing its category requires a future rename operation.",

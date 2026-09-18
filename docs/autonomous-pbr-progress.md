@@ -1,54 +1,70 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-18, history pagination)
+## Latest checkpoint (2026-09-19, ordinary command recovery)
 
 Owned worktree: `C:\Database\Database\tmp\autonomous-pbr-completion`.
 Branch: `codex/autonomous-pbr-completion`. Read `git log -1` for its current tip.
-History API is committed as `3eb2abf786d9d9a24c99eaf3448cfed94ed74bd3`; its
-verified UI and this checkpoint are ready for the following commit. Previous
-pushed tip was `0ff994c4491bc194da78f129ba332ef5b2e978f6` (GCS credentials).
+History API is committed as `3eb2abf786d9d9a24c99eaf3448cfed94ed74bd3` and UI as
+`8135c976b9ae6f5dc99bb2470a9922eaf4741e67`, both pushed. The Docker path guard fix
+is committed as `c3a0d1631f06e372284409da5fe003b472cd0b45`; ordinary command API and
+migration 0024 as `249b9e6e3a88495544b8eaaaf44c5ba50241972c`. This checkpoint
+accompanies the verified shared-form UI commit; read the branch tip for its hash.
 Remote main was last verified at `88a1f99d748d2a0edbb1fce509e13d18bfc03908`.
 
 ### Newly completed
 
-Six existing material/catalog history routes now accept bounded UUID cursors
-without changing their legacy JSON shapes. Timestamp ties are ordered by UUID;
-content history follows revision order. Current roles/assignment/archive checks
-precede cursor lookup. Unknown and cross-material cursors have the same response.
-Source, identity, content and content-approval panels offer Older/Latest controls;
-older pages never replace current operation, approval or editable draft state.
-Pending history reads are scoped to actor/target; account changes also retire the
-initial reads. See [history pagination](history-pagination.md).
+Ordinary create/PATCH receipts and shared-form recovery are implemented and tested.
+See [resource commands](resource-commands.md). All ten API
+routes support actor-bound exact replay; shared company/brand/project/material
+forms retain uncertain requests across navigation. The separate account-profile
+UI remains to be migrated, and legacy keyless calls keep their old semantics.
 
-Verification:
+Current evidence for this slice:
 
-- New local API cases: **17 passed**, 18.94s, two dependency warnings.
-- Full isolated PostgreSQL: **397 passed**, 512.34s, three warnings, no skips;
-  mandatory auth gate **27/27**. Owned project
-  `reawote-test-d59157bf761b4d969dd9a9f5f78739df`, immutable image ID
-  `80f5c53bb0a10bbe16997f4dcdaeb773c945448b967be9ad09f1459dafa6aa2b`.
-  Includes all five new PostgreSQL material cursor cases and existing schema,
-  upgrade/downgrade/concurrency tests. Containers/network removed; own volume retained.
-- Linux affected API/access/lifecycle regression in that image: **149 passed**,
-  148.97s, no skips, two warnings. Nonroot, read-only, no network/host mounts;
-  own container `reawote-history-linux-0ac84c36b3db4f998c1a88ff083993e1` auto-removed.
-  An initial invocation used an unavailable build-config hash and ran no tests;
-  the successful run used the inspected actual image ID above.
-- Full frontend: **867 passed**, 25.60s. Final account-scope/active-owner additions:
-  **64 focused passed**, 3.72s. Lint, TypeScript build, Vite build (2.00s) and
-  E2E TypeScript all passed. Initial two approval tests caught a removed history
-  setter still referenced after success; fixed, preserving the existing assertions.
-  Initial test-fixture TypeScript errors were also fixed before the final build.
-- Actual browser suite: **21 fresh + 21 retained passed**, 1.6m/55.2s, run
-  `678e7561-960a-4cac-b363-e1fd94646ae8`. The new scenario creates 103 content
-  revisions through the real API and reaches the oldest three after restart,
-  preserving current draft 103. Desktop/390px mobile screenshots inspected;
-  no horizontal overflow. Owned cleanup and protected-resource checks passed.
+- Local command/access regression: **38 passed**, 32.35s, two warnings.
+- Full frontend: **884 passed**, 26.92s. Final UUID case-normalization assertion:
+  **8 focused passed**, 32ms; final lint, build (2.41s) and E2E TypeScript passed.
+- Initial PostgreSQL run: **415 passed / 3 failed**, 548.77s. The new material
+  fixture directly inserted material 1 while leaving its brand counter at 1.
+  Correcting that synthetic fixture to 2 preserved the allocation assertions;
+  focused PostgreSQL/auth then passed **48 tests**, 62.32s, no skips (auth 27/27).
+  This earlier run predates raw-input digest binding. Full fresh PostgreSQL then
+  passed **418 tests**, 542.79s, no skips, three warnings, auth **27/27**, in
+  `reawote-test-31abd5dcd45a4111a90aafea5365578b`; inspected image
+  `b7f1a411d092c600adf0244195ab0b24bbdf900010ddd467a97156f2d6340386`.
+  Owned containers/network removed; own image/volume retained.
+- A malformed non-JSON request test caught an uncaught JSON decoding error in the
+  new dependency. It now returns bounded 422 without reflecting input; the final
+  local 38-case run above includes all three malformed-body cases. The PostgreSQL
+  PostgreSQL image predates only this validation-boundary correction.
+- Final-code Linux affected regression: **346 passed**, 226.93s, no skips, two
+  warnings. Owned nonroot/read-only/networkless container
+  `reawote-resource-linux-eef24853a05a40fd8366160586e76b10` auto-removed; image
+  `049ab3e27775ecce5ce6a356d41277f533e8b8772e6c1f1ea3d2a3223918c6a9` retained.
+- Actual browser suite passed **22 fresh + 22 retained**, 1.6m/55.7s, run
+  `4318c97f-2d91-4672-a12a-569960d9c22a`. The new case commits one material,
+  loses its response, retains the original form across navigation, reads its exact
+  receipt without another POST and replays it after restart without replacing a
+  later edit. Protected resources remained unchanged; owned cleanup passed.
+  Playwright's retained pass removed fresh-only pending-save screenshots, so the
+  test now stores those two PNGs in the same guarded run artifact root outside
+  Playwright's resettable output directory. E2E TypeScript passed; the follow-up
+  run `c979b17e-e07a-477f-9d5a-62f7135ddc2e` passed **22 fresh + 22 retained**,
+  1.6m/54.8s. Desktop and 390px mobile screenshots were inspected; no horizontal
+  overflow. Both runs passed owned cleanup and protected-resource comparisons.
+  Initial run `82ce7de3-56fe-43b3-abd4-ab1ebcebbff1` ran **no browser scenarios**:
+  the packaging source guard rejected Docker Desktop's inspected
+  `/run/desktop/mnt/host/c/...` mapping of its exact synthetic Windows root.
+  The guard now accepts that full, exact local-drive mapping without prefix
+  stripping/containment shortcuts; confinement, labels, volume and network checks
+  remain mandatory. Seven foreign/relative/ambiguous mappings are rejected.
+  Packaging isolation helpers and the full demo E2E helper safety suite passed.
+  An initial shell wrapper incorrectly checked stale LASTEXITCODE after a pure
+  PowerShell test; the corrected Stop-on-error invocation passed both suites.
 
-No migration/data rewrite for pagination. Migrations through **0023 are immutable**.
-Previous archive/restore, GCS, account-history and database-error-boundary evidence,
-including incomplete/failed intermediate runs and their corrections, is preserved
-in [historical checkpoints](autonomous-pbr-history.md).
+Migrations through **0024 are immutable**. Earlier history pagination, archive,
+GCS, account-history and database-error-boundary evidence, including intermediate
+failures and corrections, remains in [historical checkpoints](autonomous-pbr-history.md).
 
 ## Scope and implementation status
 
@@ -78,15 +94,17 @@ Implemented and tested within documented contracts:
 - ADMIN material archive/restore (`e9964c5`, `221c9c0`) with preserved identities,
   immutable evidence, current-work exclusion and uncertain-result recovery. Any
   prior external staging dispatch blocks lifecycle changes pending reconciliation.
+- Atomic ordinary-write receipts and lost-response recovery in the shared record
+  forms; current-role/target checks apply to replay and read recovery.
 
 These are bounded implementations, not a claim of production-ready completion.
 The README links the individual feature/operations contracts.
 
 ## Next work and real blockers
 
-1. Implement ordinary create/PATCH lost-response recovery. Concrete next slice:
-   [resource command plan](resource-command-plan.md). Legacy requests without keys
-   currently have no exact replay contract; form resubmission can duplicate writes.
+1. Extend the separate account-profile administration forms to the same
+   recovery contract ([bounded plan](account-profile-recovery-plan.md)). Legacy
+   requests without keys have no exact replay guarantee.
 2. Finish derived-artifact cleanup lifecycle and operational/final review docs.
    Temporary workspaces already have bounded ownership/journal-based cleanup;
    accepted retained ZIP expiry/removal needs a separate explicit contract.

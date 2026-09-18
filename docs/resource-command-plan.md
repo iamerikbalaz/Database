@@ -1,17 +1,17 @@
 # Ordinary record writes: recover a lost response
 
-## Observed gap and next bounded slice
+## Original gap and adopted contract
 
-The ordinary company/brand/project/user/material create and PATCH routes authorize
-and atomically audit their writes, but do not bind them to a retry key. The shared
-record form currently reports a lost response as a failed save and lets the user
+The ordinary company/brand/project/user/material create and PATCH routes authorized
+and atomically audited their writes, but did not bind them to a retry key. The shared
+record form reported a lost response as a failed save and let the user
 submit again. A repeated create can allocate a second material number or create a
 duplicate company. A repeated PATCH can overwrite a newer edit. This is a real
 gap against the handoff's mutation-key requirement, even though specialized
 workflow, content, lifecycle and publication commands already have their own
 recovery contracts.
 
-Implement this separately from history pagination:
+The implementation follows this contract separately from history pagination:
 
 1. Add an immutable, actor/key-unique success ledger in migration 0024. Retain a
    typed, whitelisted original response and its digest, request digest, operation
@@ -20,7 +20,7 @@ Implement this separately from history pagination:
    in the same transaction. Existing committed migrations remain unchanged.
 2. Accept an optional `Idempotency-Key` UUID header on the ten ordinary POST/PATCH
    routes, preserving current clients while enabling exact recovery. Missing keys
-   retain legacy behavior and must be documented explicitly. New application form
+   retain legacy behavior and must be documented explicitly. Migrated record form
    submissions always send a key. No server-generated key can replace a client's
    stable retry identity. A later API compatibility release can require the header
    once all callers have migrated; this slice must not claim keyless calls are safe
@@ -47,4 +47,6 @@ new frontend adopts the contract. Ordinary edits still use their existing field
 semantics; this does not introduce optimistic locking or resolve two intentional
 concurrent edits. Specialized APIs keep their established ledgers and payloads.
 
-No implementation or schema change for this slice has been made yet.
+Implementation and the explicit compatibility/rollback boundaries are documented
+in [resource commands](resource-commands.md). The separate account-profile UI is
+the next caller to migrate; account credential commands keep their own contract.

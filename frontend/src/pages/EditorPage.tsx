@@ -5,6 +5,7 @@ import { useResource } from "../api/useResource";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { NavigationLink } from "../components/NavigationLink";
 import { RecordForm, type FormDefinition } from "../forms/RecordForm";
+import { useSession } from "../auth/context";
 import {
   companyFields,
   brandFields,
@@ -33,7 +34,9 @@ export function EditorPage({
   navigate: (path: string) => void;
   onSaved: (path: string, message: string) => void;
 }) {
+  const actor = useSession()?.session.user.id;
   const load = useCallback(async (): Promise<FormDefinition> => {
+    void actor;
     if (kind === "company") {
       const company = id ? await client.getCompanyRecord(id) : undefined;
       const initial = companyValues(company);
@@ -42,14 +45,17 @@ export function EditorPage({
         fields: companyFields,
         initial,
         cancel: id ? "/companies/" + id : "/companies",
-        save: async (values) => {
+        command: { kind: "COMPANY", action: id ? "UPDATED" : "CREATED", targetId: id ?? null, editorPath: id ? `/companies/${id}/edit` : "/companies/new",
+          payload: (values) => id ? changedFields(companyRequest(values), companyRequest(initial)) : companyRequest(values) },
+        save: async (values, key) => {
           const input = companyRequest(values);
           const saved = id
             ? await client.updateCompany(
                 id,
                 changedFields(input, companyRequest(initial)),
+                key,
               )
-            : await client.createCompany(input);
+            : await client.createCompany(input, key);
           return {
             path: "/companies/" + saved.id,
             message: id
@@ -72,14 +78,17 @@ export function EditorPage({
         initial,
         fields: [ownerField(companies, !id), ...brandFields],
         cancel: id ? "/brands/" + id : "/companies/" + companyId,
-        save: async (values) => {
+        command: { kind: "BRAND", action: id ? "UPDATED" : "CREATED", targetId: id ?? null, editorPath: id ? `/brands/${id}/edit` : `/companies/${companyId}/brands/new`,
+          payload: (values) => id ? changedFields(brandRequest(values), brandRequest(initial)) : brandRequest(values) },
+        save: async (values, key) => {
           const input = brandRequest(values);
           const saved = id
             ? await client.updateBrand(
                 id,
                 changedFields(input, brandRequest(initial)),
+                key,
               )
-            : await client.createBrand(input);
+            : await client.createBrand(input, key);
           return {
             path: "/brands/" + saved.id,
             message: id
@@ -99,14 +108,17 @@ export function EditorPage({
       initial,
       fields: [ownerField(companies), ...projectFields],
       cancel: id ? "/projects/" + id : "/projects",
-      save: async (values) => {
+      command: { kind: "PROJECT", action: id ? "UPDATED" : "CREATED", targetId: id ?? null, editorPath: id ? `/projects/${id}/edit` : "/projects/new",
+        payload: (values) => id ? changedFields(projectRequest(values), projectRequest(initial)) : projectRequest(values) },
+      save: async (values, key) => {
         const input = projectRequest(values);
         const saved = id
           ? await client.updateProject(
               id,
               changedFields(input, projectRequest(initial)),
+              key,
             )
-          : await client.createProject(input);
+          : await client.createProject(input, key);
         return {
           path: "/projects/" + saved.id,
           message: id
@@ -115,7 +127,7 @@ export function EditorPage({
         };
       },
     };
-  }, [client, kind, id, companyId]);
+  }, [client, kind, id, companyId, actor]);
   const { data, error, retry } = useResource(load);
   if (error)
     return (

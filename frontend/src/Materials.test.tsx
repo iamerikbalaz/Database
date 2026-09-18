@@ -181,8 +181,9 @@ it("explains category conflict as a future rename and preserves input", async ()
 });
 it("maps 422 to labelled fields and focuses summary", async () => {
   let finish: (result: Response) => void = () => {};
-  backend({ write: () => new Promise((resolve) => { finish = resolve; }) });
+  const { writes } = backend({ write: () => new Promise((resolve) => { finish = resolve; }) });
   render(<App initialPath="/materials/new" />); await fillCreate(); submit();
+  await waitFor(() => expect(writes).toHaveLength(1));
   await act(async () => finish(response({ detail: [{ loc: ["body", "material_name"], msg: "Invalid material name" }] }, 422)));
   const summary = await screen.findByRole("alert");
   expect(summary).toHaveFocus();

@@ -73,8 +73,10 @@ Saved-batch desktop/390px screenshots were inspected; protected resources stayed
 unchanged and owned cleanup passed.
 
 Preparation validates the currently recorded approved inventory, without reading
-the NAS or claiming files are unchanged since that inventory. Future execution
-must freshly revalidate source bytes and current approvals before staging files,
-then bind package and upload results to this batch. Isolated packaging, job state,
-GCS transfer, importer confirmation and staged-file cleanup are separate remaining
-steps. CSV preparation alone must never set `is_published` or report an upload.
+the NAS or claiming files are unchanged since that inventory. The implemented
+[packaging actions](packaging-actions.md) freshly revalidate source bytes and current
+approvals before execution and acceptance, then bind the proof to this batch.
+[GCS staging jobs](gcs-upload-jobs.md) add reviewed plans, ownership, guarded transfer
+and immutable receipts. Live importer verification, online-import confirmation and
+the retained-artifact cleanup lifecycle remain separate work. CSV preparation
+alone must never set `is_published` or report an upload.

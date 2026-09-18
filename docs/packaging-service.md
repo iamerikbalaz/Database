@@ -91,8 +91,9 @@ Results contain version, operation_id, request_hash, status (READY or
 RETRY_REQUIRED), attempt and stored. A READY stored result includes plan_hash,
 proof_sha256, its retention attempt/history and the complete proof payload.
 The backend must validate those digests and bindings before accepting PACKAGED.
-No raw production metadata content or file bytes are returned. A later dedicated
-artifact endpoint must validate both proof and the exact allowed file.
+No raw production metadata content or file bytes are returned by these JSON routes.
+The implemented [artifact endpoint](packaging-downloads.md) separately validates
+both the independently held proof and the exact allowed file before streaming it.
 
 Unknown/replaced/corrupt storage remains an error requiring review; error responses
 do not imply a safe retry or failed disk write. Busy uses 503, absent operation 404,

@@ -1,10 +1,12 @@
-# Durable staging reservations and remaining execution design
+# Durable GCS staging jobs
 
 Migration 0018 and the reservation/history/unsent-close API are implemented following
-the GCS transport and staging preview. Migration 0019 adds the verified durable
-dispatch journal described below. Actual upload
-dispatch is not yet implemented. No production writes are authorized or performed.
-Existing migrations through 0019 remain immutable.
+the GCS transport and staging preview. Migration 0019 adds the durable dispatch
+journal described below. Upload orchestration, read-only reconciliation and operator
+controls are implemented and verified with isolated contracts. Live storage and
+online importer compatibility remain unverified. No production writes are authorized
+or performed. Existing migrations are immutable; see the current
+[schema/test checkpoint](autonomous-pbr-progress.md).
 
 ## Reservation and ownership
 
@@ -96,9 +98,9 @@ Once dispatch provenance exists, downgrade refuses rather than deleting it. Data
 guards reject direct update/delete/truncate of immutable facts and deletion of
 progress. ORM guards also protect immutable facts and closed state in unit tests.
 
-## Execution orchestration (verification in progress)
+## Execution orchestration
 
-The draft runner now connects `POST /{job_id}/run` and `POST /{job_id}/reconcile`
+The runner connects `POST /{job_id}/run` and `POST /{job_id}/reconcile`
 under `/api/publication-staging-jobs`. Both require current ADMIN/LEADERSHIP access,
 CSRF, `idempotency_key`, `expected_plan_sha256`, `expected_last_dispatch_id` (null
 before the first dispatch) and a reason. Exact actor-scoped replay returns current
@@ -129,7 +131,9 @@ inputs, ownership and the exact latest dispatch. A verified cloud result can the
 remain RECOVERY_REQUIRED. The audit records bounded failure/acceptance codes; no
 remote payload, credential or upload-session URL is retained. Synthetic application,
 full Linux backend and actual PostgreSQL concurrency tests passed (see the progress
-checkpoint). Live cloud verification and product UI testing remain incomplete.
+checkpoint). The [operator controls](gcs-staging-controls.md) also have component
+and real fresh/retained browser coverage with GCS disabled. Live cloud verification
+remains incomplete.
 
 The GCS-specific dedicated-session lease is implemented in
 `backend/app/staging_dispatch_lease.py`; its shared mechanics and tests are described
@@ -200,11 +204,13 @@ automatically from preparing CSV, packaging, storage receipts or marker creation
 ## Remaining product/operational gaps
 
 The deployed importer layout and production golden artifacts remain unavailable.
-The derived-file cleanup rule still needs an explicit lifecycle implementation:
-temporary attempt workspaces must be cleared while preserving SOURCE/PREVIEW/master
-and production metadata, immutable evidence and currently served historical downloads.
-The existing retained artifact history must not be casually deleted or rewritten.
-This gap is not closed by the transport or preview. Credential refresh/ADC is now
+The derived-file cleanup rule still needs an explicit retained-artifact lifecycle.
+The [execution layer](packaging-execution.md) cleans owned temporary attempt
+workspaces on success and handled errors and recovers recorded crash orphans.
+Accepted and partially retained output still needs cleanup that preserves
+SOURCE/PREVIEW/master and production metadata, immutable evidence and currently
+served historical downloads. This gap is not closed by the transport or preview.
+Credential refresh/ADC is now
 implemented with offline checks in [the credential guide](gcs-credentials.md).
 Isolated live credentials/target verification, throughput and storage/readback cost
 remain unverified.

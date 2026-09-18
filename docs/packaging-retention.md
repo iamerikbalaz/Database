@@ -10,7 +10,10 @@ The artifact root must already exist, be private to the worker UID and have no
 symlink ancestors. It must be disjoint from both the material root and staging
 root in both directions. Operations use UUIDv4 names, a private operation lock and
 the existing fsync/atomic `FileJournal`. Existing unknown directories are preserved
-and refused. No database job, HTTP endpoint, upload or publication is enabled here.
+and refused. This storage module is used by [execution](packaging-execution.md),
+the [private service](packaging-service.md), application [actions](packaging-actions.md)
+and [downloads](packaging-downloads.md). It does not independently authorize a job,
+upload or publication.
 
 ## API and integrity
 
@@ -71,20 +74,27 @@ between rename and READY, replay after restart, known incomplete rebuilds, unkno
 reservation gaps, root overlap, link/ownership attacks, physical write corruption,
 replaced directories, changed artifacts/journals, operation locking and bounded
 work. Run `scripts/test-packaging.ps1` for the complete required-runtime suite.
-The final isolated Linux run passed **562 tests**, including all 46 retention
+The original retention checkpoint passed **562 tests**, including all 46 retention
 cases, in 207.71 seconds, with no skips and two existing dependency deprecations.
 All 11 offline runner isolation checks also passed. See the checkpoint in
-`autonomous-pbr-progress.md` for the exact owned test project and prior suites.
+`autonomous-pbr-history.md` for the original owned test project; the current
+`autonomous-pbr-progress.md` records later complete-suite checks.
 
 Initial tests found tuple/list differences between newly returned and JSON-replayed
 proofs; normalization fixed all affected replay cases. A subsequent expected-name
 assertion was corrected to the source fixture's lowercase Czech letter; stored
 filenames were already preserved correctly.
 
-This does not recover ephemeral staging/assembly orphans left by a killed process;
-those need a guarded job-level cleanup policy. It does not prove sudden power-loss
-behavior on production NAS, multi-gigabyte throughput or live importer compatibility.
-Next: durable database jobs/attempts, first historical-policy persistence and
-audited overrides, current authorization/source/approval rechecks, restricted
-operator UI, GCS transfer and explicit importer confirmation. A READY worker
-artifact is not an uploaded or published material.
+The [execution layer](packaging-execution.md) now recovers recorded temporary
+staging/assembly orphans under its inherited lease and cleans ordinary failures.
+Durable database jobs/attempts, saved historical policy and audited overrides,
+current authorization/source/approval checks, operator controls and configurable
+[GCS staging](gcs-upload-jobs.md) are also implemented. A READY worker artifact
+still does not establish upload or publication.
+
+Accepted retained artifacts and partial retention have no expiry/deletion API yet.
+Derived-file cleanup after upload/failure needs an explicit lifecycle compatible
+with immutable job evidence, historical downloads and active transfer locks.
+Sudden power-loss behavior on production NAS, multi-gigabyte throughput, actual
+importer compatibility and explicit online-import verification remain unverified
+or unfinished. No live external publication has been performed.

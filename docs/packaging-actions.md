@@ -85,6 +85,9 @@ proof before and after restart; see packaging-downloads.md.
 Frontend unit tests use explicit mocks. Backend unit tests use synthetic rebound
 proof shapes; these alone do not establish ZIP creation.
 
-No migration is changed. Schema 0017 remains the current immutable head. Upload
-and online-import confirmation remain unfinished. No production deployment or
-publication-status change has occurred.
+These actions were introduced on immutable schema 0017; later additive migrations
+are listed in the current [checkpoint](autonomous-pbr-progress.md). Configurable
+[GCS staging](gcs-upload-jobs.md) and its [controls](gcs-staging-controls.md) are
+implemented with isolated contracts. Live storage/importer compatibility,
+online-import confirmation and retained-artifact cleanup remain unfinished or
+unverified. No production deployment or publication-status change has occurred.

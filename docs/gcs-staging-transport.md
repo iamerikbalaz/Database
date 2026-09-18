@@ -78,9 +78,9 @@ still closes streams/connections and releases the adapter's one-operation slot.
 
 The guard belongs to one invocation; it does not persist on the client or leak into
 a later reconciliation. The low-level adapter allows omission for standalone
-transport use, but the future application runner must always supply its durable
-job/session/lease guard and recheck acceptance in its own database transaction.
-These hooks do not themselves implement that runner or a distributed lock.
+transport use. The [application runner](gcs-upload-jobs.md) supplies its durable
+job/session/lease guard and rechecks acceptance in its own database transaction.
+These transport hooks do not themselves implement a distributed lock.
 
 Revocation cannot retract bytes already sent or cancel a request already accepted
 remotely. A failure after the final upload can leave a complete remote object while
@@ -110,8 +110,9 @@ later remote deletion or changes remain possible.
   and completion-marker upload are implemented in the [job runtime](gcs-upload-jobs.md)
   and [controls](gcs-staging-controls.md). They have isolated contract coverage;
   live storage and actual online importer compatibility remain unverified.
-- Real credential lifecycle, live isolated-target verification when separately
-  authorized, and throughput/cost assessment for full readback.
+- Opt-in renewable ADC credentials are implemented; see [credential setup and
+  tests](gcs-credentials.md). Live isolated-target verification when separately
+  authorized, and throughput/cost assessment for full readback, remain unverified.
 - Explicit manual CSV-import confirmation with online IDs/date/hash. A single object
   receipt cannot set UPLOADED_WAITING_FOR_CSV_IMPORT or PUBLISHED.
 

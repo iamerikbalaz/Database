@@ -2,18 +2,20 @@
 
 The Linux packaging_execution module connects approved-input staging, real
 ImageMagick conversion, all planned ZIPs and durable artifact retention. This is an
-internal building block. Application job reservation, account/approval checks,
-HTTP service configuration and operator controls are the next integration slices.
-It cannot publish a material or contact an external service.
+internal building block used by the opt-in [private service](packaging-service.md)
+and [application actions](packaging-actions.md). Job reservation, current-account/
+approval checks, ordered dispatch and operator controls are implemented by those
+layers. This module cannot publish a material or contact an external service.
 
 ## Frozen request and caller responsibility
 
 prepare_packaging_request validates the full reviewed report and canonical source
 inventory, independently supplied technical-report hash (report without inventory),
 whole material identity, explicit saved ZIP policy and storage timezone. The request
-also freezes an approval-context digest and byte/time limits. The future backend
-must derive that context from the batch, item, current approvals, material revision
-and saved policy decision. Supplying a matching hash is not authorization.
+also freezes an approval-context digest and byte/time limits. The backend derives
+that context from the batch, item, current approvals, material revision and saved
+policy decision; see [reservations](packaging-reservations.md). Supplying a matching
+hash is not authorization.
 
 The caller must hold durable material ownership and freshly authorize initial
 execution and every explicit retry. It must separately check source/approval
@@ -56,9 +58,22 @@ Transitions:
 
 Up to 32 attempts retain their workspace identities and cleanup status. Artifact
 retention has its own attempt/proof history; execution attempts before retention
-do not invent artifact proofs. A normal component failure can leave WORKING in the
-journal even when inner contexts have cleaned their own files. Reconciliation is
-required to establish what actually reached disk.
+do not invent artifact proofs. After a handled component failure, execution attempts
+the same guarded cleanup used by recovery, while still holding the execution lease.
+It only enters this cleanup after workspace ownership was durably recorded. The
+original bounded error is returned if cleanup succeeds; an ownership/cleanup failure
+is reported and ambiguous files are preserved.
+
+The execution journal deliberately keeps WORKING or RETAINED until explicit
+reconciliation, even when that workspace is already absent. An exception can occur
+after retained output reached disk, so it cannot establish RETRY_REQUIRED or justify
+deleting a retained result. Cleanup uses a detached record and does not rewrite
+completion evidence. Reconciliation establishes READY versus RETRY_REQUIRED and
+records cleanup. Process death still follows the crash recovery path below.
+
+This removes temporary attempt work after ordinary staging/conversion/retention
+errors; it does not expire accepted retained ZIPs or partially retained output.
+That separate lifecycle must preserve historical proof and fence downloads/uploads.
 
 ## Replay and recovery
 
@@ -85,7 +100,7 @@ there is no automatic delete-all/retry shortcut.
 ## Verification
 
 Tests run in the isolated opt-in Linux ImageMagick image with synthetic inputs,
-no network, no database/ports and read-only mounts of this worktree's app/tests.
+no network, no database/ports or host data mounts. The image includes a source snapshot.
 They exercise actual conversion, lease propagation, exact replay with NAS removed,
 source changes, conflicting requests, private/root ownership, concurrent lease
 contention from another process, proof corruption and guarded retry.
@@ -93,6 +108,8 @@ contention from another process, proof corruption and guarded retry.
 Real child processes deliberately exit between journal/ownership writes, during
 input copying/retention, after retained rename and before/after cleanup/completion.
 Unknown gaps remain preserved; known orphans recover and require an explicit retry.
-All 50 execution cases passed in the complete required-runtime worker suite:
-627 tests in 279.97 seconds, no skips, with two existing dependency deprecations.
-The isolated run identifier is recorded in autonomous-pbr-progress.md.
+Additional fault cases cover handled failures, byte limits, failure after durable
+retention, immutable dispatch fences and preserved unknown/replaced workspaces.
+Current complete-suite counts and immutable image identity are recorded in
+[the progress checkpoint](autonomous-pbr-progress.md); earlier run evidence is
+preserved in [historical checkpoints](autonomous-pbr-history.md).

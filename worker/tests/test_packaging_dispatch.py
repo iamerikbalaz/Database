@@ -88,6 +88,24 @@ def test_exact_failed_retry_only_recovers_and_does_not_retry_twice(job, monkeypa
     assert dispatch(job, command("RETRY", 4)).result.attempt == 3
 
 
+def test_handled_dispatch_failure_cleans_work_but_keeps_exact_command_fence(job, monkeypatch):
+    initial = command(); before = snapshot(job[0][2])
+    @contextmanager
+    def failed(*args, **kwargs):
+        raise execution.PackagingStageError("PACKAGING_SOURCE_CHANGED")
+        yield
+    with monkeypatch.context() as patch:
+        patch.setattr(execution, "stage_packaging_inputs", failed)
+        with pytest.raises(PackagingExecutionError, match="SOURCE_CHANGED"): dispatch(job, initial)
+    assert not list(job[1].workspace.iterdir()) and snapshot(job[0][2]) == before
+    assert state(job)["dispatch"] == {"command": initial.document(), "terminal": "OPEN"}
+    recovered = dispatch(job, initial)
+    assert recovered.result.status == "RETRY_REQUIRED" and recovered.result.attempt == 1
+    assert dispatch(job, initial) == recovered
+    completed = dispatch(job, command("RETRY", 2))
+    assert completed.result.status == "READY" and completed.result.attempt == 2
+
+
 @pytest.mark.parametrize("change", ["id", "action"])
 def test_same_ordinal_with_changed_command_is_rejected(job, change):
     original = command("RECONCILE", 2); dispatch(job, original)

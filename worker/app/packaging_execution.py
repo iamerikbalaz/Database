@@ -1,5 +1,6 @@
 """Recoverable local packaging execution; callers still own authorization and jobs."""
 from contextlib import contextmanager, ExitStack
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 import json
 import os
@@ -357,17 +358,28 @@ def _execute_locked(request, report, roots, handles, journal, record, created, v
     finally: os.close(fd)
     record["status"] = "WORKING"; verify(); journal.write(record)
     workspace = roots.workspace / item["workspace"]
-    with stage_packaging_inputs(roots.materials, request.parts, report, expected_source_revision_hash=request.source_revision_hash,
-            policy=request.policy, workspace_root=workspace, operation_id=request.operation_id,
-            max_seconds=deadline.remaining(600), max_bytes=request.limits.staged_bytes) as inputs:
-        verify()
-        with assemble_packages(inputs, workspace_root=workspace, storage_timezone=request.storage_timezone,
-                max_seconds=deadline.remaining(), max_bytes=request.limits.generated_bytes) as bundle:
+    try:
+        with stage_packaging_inputs(roots.materials, request.parts, report, expected_source_revision_hash=request.source_revision_hash,
+                policy=request.policy, workspace_root=workspace, operation_id=request.operation_id,
+                max_seconds=deadline.remaining(600), max_bytes=request.limits.staged_bytes) as inputs:
             verify()
-            stored = retain_packages(bundle, artifact_root=roots.artifacts, request_hash=request.sha256,
-                max_seconds=deadline.remaining(), max_bytes=request.limits.retained_bytes)
-            record["result"] = {"proof_sha256": stored.proof_sha256, "retention_attempt": stored.attempt}
-            record["status"] = "RETAINED"; verify(); journal.write(record)
+            with assemble_packages(inputs, workspace_root=workspace, storage_timezone=request.storage_timezone,
+                    max_seconds=deadline.remaining(), max_bytes=request.limits.generated_bytes) as bundle:
+                verify()
+                stored = retain_packages(bundle, artifact_root=roots.artifacts, request_hash=request.sha256,
+                    max_seconds=deadline.remaining(), max_bytes=request.limits.retained_bytes)
+                record["result"] = {"proof_sha256": stored.proof_sha256, "retention_attempt": stored.attempt}
+                record["status"] = "RETAINED"; verify(); journal.write(record)
+    except (PackagingExecutionError, PackagingLeaseError, PackagingStageError, PackagingAssemblyError,
+            PackagingConversionError, PackagingStoreError, PackagingZipError, JournalError,
+            OSError, ValueError, TypeError, KeyError, RecursionError):
+        # Ownership was durably recorded before this block. Clean only that
+        # workspace under the still-held lease, using the same recovery guards.
+        # Retention may already have committed despite an error; only explicit
+        # reconciliation can determine READY versus RETRY_REQUIRED. Keep the
+        # persisted and in-memory record unchanged until that result is known.
+        _cleanup(request, handles, deepcopy(record), verify)
+        raise
     _cleanup(request, handles, record, verify)
     record["status"] = "READY"; verify(); journal.write(record)
     return ExecutionResult(request.operation_id, request.sha256, "READY", len(record["attempts"]), stored)

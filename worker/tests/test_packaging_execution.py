@@ -125,6 +125,7 @@ def test_changed_source_is_refused_even_on_authorized_retry(job, monkeypatch):
     (job[0][2] / "SOURCE" / "original.sbs").write_bytes(b"New unapproved source")
     with pytest.raises(PackagingExecutionError, match="SOURCE_CHANGED"): run(job, retry=True)
     assert state(job)["status"] == "WORKING" and len(state(job)["attempts"]) == 2
+    assert list(job[1].workspace.iterdir()) == []
     assert not (job[1].artifacts / str(job[2].operation_id)).exists()
     assert recover(job).status == "RETRY_REQUIRED" and list(job[1].workspace.iterdir()) == []
 
@@ -300,12 +301,90 @@ raise SystemExit(2)
 
 @pytest.mark.parametrize("field", ["staged_bytes", "generated_bytes", "retained_bytes"])
 def test_byte_limits_fail_without_false_ready_and_allow_only_guarded_recovery(job, field):
+    before = snapshot(job[0][2])
     request = replace(job[2], limits=replace(job[2].limits, **{field: 1}))
     limited = job[0], job[1], request
     with pytest.raises(PackagingExecutionError, match="SIZE_LIMIT"): run(limited)
     assert state(limited)["status"] == "WORKING"
+    assert not list(job[1].workspace.iterdir()) and snapshot(job[0][2]) == before
     result = recover(limited)
     assert result.status == "RETRY_REQUIRED" and result.stored is None and not list(job[1].workspace.iterdir())
+
+
+@pytest.mark.parametrize("failure", [
+    execution.PackagingStageError("PACKAGING_SOURCE_CHANGED"),
+    execution.PackagingConversionError("PACKAGING_CONVERSION_TIME_LIMIT"),
+    PackagingExecutionError("PACKAGING_EXECUTION_TIME_LIMIT"),
+    OSError("synthetic private diagnostic"),
+])
+def test_handled_failure_cleans_owned_workspace_without_claiming_a_result(job, monkeypatch, failure):
+    before = snapshot(job[0][2]); recorded = []
+    @contextmanager
+    def failed(*args, **kwargs):
+        recorded.append(state(job))
+        assert recorded[0]["status"] == "WORKING"
+        raise failure
+        yield
+    with monkeypatch.context() as patch:
+        patch.setattr(execution, "stage_packaging_inputs", failed)
+        with pytest.raises(PackagingExecutionError, match="^PACKAGING_[A-Z_]+$"):
+            run(job)
+    assert not list(job[1].workspace.iterdir()) and not list(job[1].artifacts.iterdir())
+    assert state(job) == recorded[0] and not state(job)["attempts"][0]["cleaned"]
+    assert snapshot(job[0][2]) == before
+    # Only explicit reconciliation establishes incompleteness; replay cannot
+    # convert again. A new authorized attempt is still needed.
+    assert run(job).status == "RETRY_REQUIRED"
+    assert len(state(job)["attempts"]) == 1
+    assert run(job, retry=True).status == "READY" and len(state(job)["attempts"]) == 2
+
+
+@pytest.mark.parametrize("point", ["retained-return", "execution-journal"])
+def test_failure_after_retention_cleans_temporary_work_but_preserves_committed_output(job, monkeypatch, point):
+    before = snapshot(job[0][2]); saved = []
+    retain = execution.retain_packages; write = execution.FileJournal.write
+    def retaining(*args, **kwargs):
+        result = retain(*args, **kwargs); saved.append(result)
+        if point == "retained-return": raise OSError("synthetic private diagnostic")
+        return result
+    def writing(self, value):
+        write(self, value)
+        if value.get("kind") == "PBR_PACKAGING_EXECUTION" and value["status"] == "RETAINED":
+            raise OSError("synthetic private diagnostic")
+    with monkeypatch.context() as patch:
+        patch.setattr(execution, "retain_packages", retaining)
+        if point == "execution-journal": patch.setattr(execution.FileJournal, "write", writing)
+        with pytest.raises(PackagingExecutionError, match="^PACKAGING_ASSEMBLY_FAILED$"): run(job)
+    assert not list(job[1].workspace.iterdir()) and snapshot(job[0][2]) == before
+    assert state(job)["status"] == ("WORKING" if point == "retained-return" else "RETAINED")
+    retained_before = snapshot(job[1].artifacts)
+    job[1].materials.rename(job[1].materials.with_name("offline-materials"))
+    result = recover(job)
+    assert result.status == "READY" and result.attempt == 1 and result.stored == saved[0]
+    assert snapshot(job[1].artifacts) == retained_before and run(job, retry=True) == result
+
+
+@pytest.mark.parametrize("change", ["unknown-child", "replaced-root"])
+def test_failure_cleanup_preserves_ambiguous_work_and_protected_source(job, monkeypatch, change):
+    before = snapshot(job[0][2]); workspaces = []
+    @contextmanager
+    def failed(*args, **kwargs):
+        workspace = job[1].workspace / state(job)["attempts"][-1]["workspace"]
+        workspaces.append(workspace)
+        if change == "replaced-root":
+            workspace.rename(workspace.with_name("preserved-workspace"))
+            workspace.symlink_to(job[0][2], target_is_directory=True)
+        else: (workspace / "unknown").write_text("Keep")
+        raise execution.PackagingStageError("PACKAGING_SOURCE_CHANGED")
+        yield
+    with monkeypatch.context() as patch:
+        patch.setattr(execution, "stage_packaging_inputs", failed)
+        with pytest.raises(PackagingExecutionError, match="UNKNOWN_WORKSPACE_FILE|RECOVERY_REQUIRED"): run(job)
+    assert workspaces[0].exists() and snapshot(job[0][2]) == before
+    assert state(job)["status"] == "WORKING" and not state(job)["attempts"][0]["cleaned"]
+    if change == "unknown-child": assert (workspaces[0] / "unknown").read_text() == "Keep"
+    else: assert workspaces[0].is_symlink()
+    with pytest.raises(PackagingExecutionError, match="UNKNOWN_WORKSPACE_FILE|RECOVERY_REQUIRED"): recover(job)
 
 
 def test_ready_missing_artifact_operation_never_becomes_retryable(job):

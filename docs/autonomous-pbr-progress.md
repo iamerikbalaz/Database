@@ -1,16 +1,50 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-19, account-profile recovery)
+## Latest checkpoint (2026-09-19, temporary packaging failure cleanup)
 
 Owned worktree: `C:\Database\Database\tmp\autonomous-pbr-completion`.
 Branch: `codex/autonomous-pbr-completion`. Current pushed tip:
-`665390e9d8655469e4952235417e062b7ecf10c6` (ordinary shared-form recovery).
+`6c83a334c66943c9eda23ca86e7e10b5e69a5b9e` (account-profile recovery).
 API/migration 0024: `249b9e6e3a88495544b8eaaaf44c5ba50241972c`; Docker source
 mapping guard: `c3a0d1631f06e372284409da5fe003b472cd0b45`. Remote main last
 verified unchanged at `88a1f99d748d2a0edbb1fce509e13d18bfc03908` during that push.
 Shared controller extraction is committed as `9957a0ef8729f23175412ac2f295886c35d76bc2`.
-This checkpoint accompanies the verified account-profile UI commit; read the
-current branch tip for its hash.
+Both account-profile commits have been pushed. Main was verified unchanged during
+that push. This checkpoint accompanies the next verified worker change below.
+
+### Packaging failure cleanup
+
+Handled staging/conversion/retention errors now attempt guarded removal of the
+durably owned attempt workspace under the existing execution lease. Unknown files,
+changed roots and unrecorded ownership still refuse cleanup. Source/master/PREVIEW
+and retained output are outside this removal. The durable WORKING/RETAINED journal
+is preserved until explicit reconciliation determines whether output committed;
+an error does not invent a retryable or completed result.
+
+New Linux fault cases cover immediate cleanup, exhausted byte limits, committed
+retention followed by a lost return/journal error, exact ordered replay and preserved
+ambiguous workspaces. Verification:
+
+- Complete Linux required-runtime suite: **717 passed / 2 failed**, 387.31s,
+  no skips, two existing dependency warnings. Owned run
+  `reawote-packaging-a75c916c29ed42a094772f0bb05165de`, image
+  `sha256:1e42ac69b667506b9b3178660024bd44586f9a44872bb4ac1d32d87d722ceae7`.
+  Both failures were new test expectations for injected OS errors: the existing
+  assembly context maps them to `PACKAGING_ASSEMBLY_FAILED`, not the generic
+  execution code. Corrected the exact expected code; application code unchanged.
+- All affected execution/dispatch tests then **81 passed**, 112.23s, no skips.
+  Owned run `reawote-cleanup-d06a432472eb48a89569045fdaab264e`, image
+  `sha256:4c11c1b203dcd3c6fae0f4fb84455e446e395a6173383f6e0f0a25d3d3552600`.
+- Actual production-runtime HTTP/conversion/restart/proof-bound download/offline
+  replay and ordered closure smoke passed, owned runtime
+  `reawote-packaging-service-0c32b84a259947f5bfa1af58ac7445ae:runtime`.
+- All **11 offline runner-isolation checks passed**. Test containers removed by
+  ownership-checked runners; images retained. No database, migration or frontend
+  change in this slice. Tests used synthetic inputs and no network at runtime.
+
+Earlier packaging/GCS docs have also been reconciled with the implemented job,
+service, download, staging and credential layers. Live verification and retained
+artifact cleanup remain explicitly separate gaps.
 
 ### Newly completed
 
@@ -94,12 +128,12 @@ The README links the individual feature/operations contracts.
 
 ## Next work and real blockers
 
-1. Ensure guarded temporary-workspace cleanup after ordinary packaging errors;
-   currently some handled failures leave the owned attempt directory until explicit
-   reconciliation. Preserve crash/unknown-ownership recovery and retained proof.
-2. Finish derived-artifact cleanup lifecycle and operational/final review docs.
-   Temporary workspaces already have bounded ownership/journal-based cleanup;
-  accepted retained ZIP expiry/removal needs a separate explicit contract.
+1. Remove proven incomplete retained copies under their existing lock and exact
+   ownership/proof guards. Preserve complete output, corrupt/unknown data and the
+   immutable attempt evidence. See [cleanup sequence](packaging-cleanup-plan.md).
+2. Finish accepted-artifact retirement and operational/final review docs.
+   Temporary attempt workspaces now clean on ordinary errors; accepted retained
+   ZIP removal still needs durable retirement, download/staging gates and UI.
 3. Verify actual importer contract, golden material outputs, manual publication
    confirmation and realistic historical workbook/source compatibility. Production
    inputs/importer fixtures are unavailable; do not invent live verification.

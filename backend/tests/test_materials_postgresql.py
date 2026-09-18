@@ -47,6 +47,7 @@ def review_pg_case(migrated_postgresql_url):
     from test_material_approvals import TechnicalStub
     from test_material_identity import IdentityStub
     from test_previews import PreviewStub
+    from test_packaging_reservations import PreparationStub
     from test_application_access import PASSWORD, ORIGIN
 
     class SharedDatabase(Database):
@@ -73,15 +74,17 @@ def review_pg_case(migrated_postgresql_url):
     technical = TechnicalStub()
     identity = IdentityStub()
     previews = PreviewStub()
-    app = authenticated_app(settings.model_copy(update={"source_mutations_enabled": True}), database,
-                            inventory_client=inventory, technical_client=technical, identity_client=identity, preview_client=previews)
+    packaging = PreparationStub()
+    app = authenticated_app(settings.model_copy(update={"source_mutations_enabled": True, "packaging_enabled": True, "app_env": "test"}), database,
+                            inventory_client=inventory, technical_client=technical, identity_client=identity, preview_client=previews,
+                            packaging_client=packaging)
     def client_for(index=0):
         client = TestClient(app, base_url=ORIGIN)
         response = client.post("/api/auth/login", json={"email": users[index].email, "password": PASSWORD}, headers={"Origin": ORIGIN})
         assert response.status_code == 200
         client.headers.update({"Origin": ORIGIN, "X-CSRF-Token": response.json()["csrf_token"]})
         return client
-    yield SimpleNamespace(database=database, app=app, inventory=inventory, technical=technical, identity=identity, previews=previews, users=users, material=material,
+    yield SimpleNamespace(database=database, app=app, inventory=inventory, technical=technical, identity=identity, previews=previews, packaging=packaging, users=users, material=material,
                           path=f"/api/materials/{material.id}", client_for=client_for)
     database.engine.dispose()
 
@@ -3061,3 +3064,128 @@ def test_postgresql_packaging_execution_upgrade_from_0016_and_empty_downgrade():
             if previous is None: os.environ.pop("DATABASE_URL", None)
             else: os.environ["DATABASE_URL"] = previous
             get_settings.cache_clear()
+
+
+def _pg_reservation_payload(case):
+    values = _prepare_pg_packaging_execution(case)
+    return {"idempotency_key": str(uuid4()), "batch_id": str(values["batch_id"]),
+        "expected_snapshot_hash": values["input_hash"], "expected_policy_id": str(values["policy_id"]),
+        "reason": "Reviewed PostgreSQL reservation fixture"}
+
+
+@pytest.mark.parametrize("same_key", [True, False])
+def test_postgresql_reservation_concurrency_preserves_one_owner_and_exact_replay(review_pg_case, same_key):
+    from app.db.models import MaterialPackagingExecution, MaterialPackagingState
+    case = review_pg_case; body = _pg_reservation_payload(case); barrier = Barrier(2)
+    case.packaging.callback = lambda: barrier.wait(timeout=15)
+    with case.client_for() as first, case.client_for() as second:
+        other = body if same_key else {**body, "idempotency_key": str(uuid4())}
+        with ThreadPoolExecutor(2) as pool:
+            futures = [pool.submit(client.post, case.path + "/packaging-executions", json=payload)
+                for client, payload in ((first, body), (second, other))]
+            results = [future.result(timeout=25) for future in futures]
+        assert sorted(result.status_code for result in results) == ([201, 201] if same_key else [201, 409])
+        if same_key: assert results[0].json() == results[1].json()
+    assert len(case.packaging.calls) == 2
+    with case.database.session() as session:
+        records = list(session.scalars(select(MaterialPackagingExecution).where(MaterialPackagingExecution.material_id == case.material.id)))
+        assert len(records) == 1 and session.get(MaterialPackagingState, records[0].id).status == "RESERVED"
+
+
+@pytest.mark.parametrize("change,expected", [("material", 409), ("account", 401), ("policy", 409), ("technical", 409)])
+def test_postgresql_reservation_rechecks_after_actual_concurrent_preparation_change(review_pg_case, change, expected):
+    from app.db.models import MaterialPackagingExecution, MaterialPackagingPolicy
+    from app.packaging_policy import policy_view
+    from test_packaging_policy import override_body
+    from test_material_approvals import run
+    case = review_pg_case; body = _pg_reservation_payload(case); entered = Event(); release = Event()
+    def hold():
+        entered.set()
+        if not release.wait(15): raise TimeoutError("Reservation preparation test was not released")
+    case.packaging.callback = hold
+    with case.client_for() as actor, case.client_for(3) as editor:
+        with ThreadPoolExecutor(1) as pool:
+            pending = pool.submit(actor.post, case.path + "/packaging-executions", json=body)
+            try:
+                assert entered.wait(15)
+                if change == "material":
+                    assert editor.patch(case.path, json={"material_name": "Changed during preparation"}).status_code == 200
+                elif change == "account":
+                    assert editor.patch("/api/internal-users/" + str(case.users[0].id), json={"is_active": False}).status_code == 200
+                elif change == "technical":
+                    assert run(editor, case.path).status_code == 200
+                else:
+                    with case.database.session() as session:
+                        policy = policy_view(session.get(MaterialPackagingPolicy, UUID(body["expected_policy_id"])))
+                    assert editor.post(case.path + "/packaging-policy/override",
+                        json=override_body(editor, case.path, policy)).status_code == 200
+            finally: release.set()
+            response = pending.result(timeout=20)
+            assert response.status_code == expected
+    with case.database.session() as session:
+        assert session.scalar(select(MaterialPackagingExecution.id).where(MaterialPackagingExecution.material_id == case.material.id)) is None
+
+
+@pytest.mark.parametrize("change", ["material", "account"])
+def test_postgresql_final_reservation_commit_serializes_with_later_domain_change(review_pg_case, monkeypatch, change):
+    from app.api import packaging_jobs
+    case = review_pg_case; body = _pg_reservation_payload(case)
+    entered = Event(); release = Event(); original = packaging_jobs.approved_inputs; calls = 0
+    def hold(*args, **kwargs):
+        nonlocal calls
+        result = original(*args, **kwargs); calls += 1
+        if calls == 2:
+            entered.set()
+            if not release.wait(15): raise TimeoutError("Reservation commit test was not released")
+        return result
+    monkeypatch.setattr(packaging_jobs, "approved_inputs", hold)
+    with case.client_for() as actor, case.client_for(3) as editor:
+        with ThreadPoolExecutor(2) as pool:
+            pending = pool.submit(actor.post, case.path + "/packaging-executions", json=body)
+            try:
+                assert entered.wait(15)
+                if change == "material":
+                    writing = pool.submit(editor.patch, case.path, json={"material_name": "Blocked by new owner"})
+                else:
+                    writing = pool.submit(editor.patch, "/api/internal-users/" + str(case.users[0].id), json={"is_active": False})
+                with pytest.raises(TimeoutError): writing.result(timeout=0.15)
+            finally: release.set()
+            saved = pending.result(timeout=20)
+            assert saved.status_code == 201 and saved.json()["status"] == "RESERVED"
+            assert writing.result(timeout=20).status_code == (409 if change == "material" else 200)
+        if change == "account": assert actor.get(case.path + "/packaging-executions").status_code == 401
+        assert editor.get(case.path + "/packaging-executions/" + saved.json()["id"]).json()["status"] == "RESERVED"
+
+
+def test_postgresql_concurrent_closure_cannot_release_or_record_twice(review_pg_case, monkeypatch):
+    from app.api import packaging_jobs
+    from app.db.models import MaterialPackagingDispatch, MaterialPackagingObservation, MaterialPackagingState
+    from test_packaging_reservations import close_body
+    case = review_pg_case; body = _pg_reservation_payload(case); entered = Event(); release = Event()
+    original = packaging_jobs._audit
+    def hold(session, item, actor_id, event, details):
+        original(session, item, actor_id, event, details)
+        if event == "PACKAGING_CLOSED":
+            entered.set()
+            if not release.wait(15): raise TimeoutError("Closure test was not released")
+    with case.client_for() as first, case.client_for(3) as second:
+        saved = first.post(case.path + "/packaging-executions", json=body)
+        assert saved.status_code == 201
+        identifier = UUID(saved.json()["id"]); path = case.path + "/packaging-executions/" + str(identifier) + "/close"
+        closing = close_body()
+        monkeypatch.setattr(packaging_jobs, "_audit", hold)
+        with ThreadPoolExecutor(1) as pool:
+            pending = pool.submit(first.post, path, json=closing)
+            try:
+                assert entered.wait(15)
+                busy = second.post(path, json=close_body())
+                assert busy.status_code == 409 and busy.json()["detail"]["code"] == "PACKAGING_DISPATCH_BUSY"
+            finally: release.set()
+            result = pending.result(timeout=20)
+            assert result.status_code == 200 and result.json()["status"] == "REJECTED"
+        assert first.post(path, json=closing).json() == result.json()
+    with case.database.session() as session:
+        actions = list(session.scalars(select(MaterialPackagingDispatch).where(MaterialPackagingDispatch.execution_id == identifier)))
+        observations = list(session.scalars(select(MaterialPackagingObservation).where(MaterialPackagingObservation.execution_id == identifier)))
+        assert len(actions) == len(observations) == 1
+        assert observations[0].outcome == "NOT_STARTED" and session.get(MaterialPackagingState, identifier).status == "REJECTED"

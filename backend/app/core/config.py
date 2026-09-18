@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     worker_base_url: str = "http://localhost:8080"
     worker_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
     zip_policy_timezone: str = Field(default="Europe/Prague", min_length=1, max_length=100)
+    packaging_enabled: bool = False
+    packaging_base_url: str = "http://localhost:8081"
+    packaging_service_token: SecretStr | None = None
+    packaging_timeout_seconds: float = Field(default=3630, gt=0, le=3660)
     source_mutations_enabled: bool = False
     worker_mutation_token: SecretStr | None = None
     auth_cookie_secure: bool = True
@@ -62,6 +66,21 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security_configuration(self) -> "Settings":
+        try:
+            packaging_url = urlsplit(self.packaging_base_url)
+            packaging_port = packaging_url.port
+        except ValueError:
+            raise ValueError("PACKAGING_BASE_URL must be a private HTTP(S) origin") from None
+        if (packaging_url.scheme not in {"http", "https"} or not packaging_url.hostname
+                or packaging_url.username is not None or packaging_url.password is not None
+                or packaging_url.path not in {"", "/"} or packaging_url.query or packaging_url.fragment
+                or "\\" in self.packaging_base_url or any(char.isspace() or ord(char) < 32 for char in self.packaging_base_url)
+                or packaging_port is not None and not 1 <= packaging_port <= 65535):
+            raise ValueError("PACKAGING_BASE_URL must be a private HTTP(S) origin")
+        if self.packaging_enabled:
+            packaging_token = self.packaging_service_token.get_secret_value() if self.packaging_service_token else ""
+            if not 32 <= len(packaging_token) <= 256 or not packaging_token.isascii() or any(not 33 <= ord(char) <= 126 for char in packaging_token):
+                raise ValueError("Packaging requires a separate private service credential of 32–256 printable ASCII characters")
         try:
             ZoneInfo(self.zip_policy_timezone)
         except (ValueError, ZoneInfoNotFoundError):

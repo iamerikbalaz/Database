@@ -33,6 +33,8 @@ from app.api.ai_service import build_ai_service_router
 from app.publication_preflight import build_publication_preview_router
 from app.api.publication_batches import build_publication_batches_router
 from app.api.packaging_policy import build_packaging_policy_router
+from app.api.packaging_jobs import build_packaging_jobs_router
+from app.packaging_client import PackagingClient, WorkerPackagingClient
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -48,6 +50,7 @@ def create_app(
     identity_client: IdentityClient | None = None,
     preview_client: PreviewClient | None = None,
     discovery_client: DiscoveryClient | None = None,
+    packaging_client: PackagingClient | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     app_database = database or Database(app_settings.resolved_database_url)
@@ -87,6 +90,9 @@ def create_app(
     application.include_router(build_publication_preview_router(app_database))
     application.include_router(build_publication_batches_router(app_database))
     application.include_router(build_packaging_policy_router(app_database, app_settings))
+    application.include_router(build_packaging_jobs_router(app_database,
+        packaging_client or WorkerPackagingClient(app_settings.packaging_base_url, token=app_settings.packaging_service_token,
+            enabled=app_settings.packaging_enabled, timeout_seconds=app_settings.packaging_timeout_seconds), app_settings))
     application.include_router(build_folder_discovery_router(app_database,
         discovery_client or WorkerDiscoveryClient(app_settings.worker_base_url)))
     application.include_router(build_content_approvals_router(app_database))

@@ -145,6 +145,31 @@ The test runner now supports PostgreSQL-only work with the same isolation/auth
 gates; all ten offline runner safety cases passed. Owned cleanup passed and its
 database volume is retained. Reservation/API integration is now in progress and
 has not yet been verified or enabled.
+The verified lease/runner slice is committed and pushed as `ff4010b`.
+
+Reservation and unsent-closure API implementation is in progress
+(`docs/packaging-reservations.md`), disabled by default. Its first combined local
+API/configuration/access suite passed **113 tests (57.04s)** and the additional
+packaging configuration suite passed **29 (0.82s)**. Nine real PG API concurrency
+cases are added but not yet executed. Current work does not dispatch conversion,
+upload artifacts or publish materials; these are subsequent integration steps.
+The first full reservation run in `reawote-test-4793d5b2e1594329b004cf93427f6ddb`
+passed 1270 backend tests and failed two default-configuration tests (448.30s).
+Compose intentionally supplies empty credential environment variables; those two
+tests had assumed the environment was unset. They now explicitly clear only the
+settings whose defaults/independence they test. No application authorization check
+was changed. The runner correctly stopped before PG/later phases and cleaned its
+own resources. Corrected container configuration tests and the new PG cases remain
+to be run. Source/client code and the 1270 passing backend cases are unchanged.
+Follow-up verification now passed: **100 configuration tests (1.87s)** in the
+rebuilt isolated image with the same empty Compose credential variables and no
+network/database; and **202 actual PostgreSQL cases (169.30s, auth 27/27, no
+skips)** in `reawote-test-eeec858c7c5c4ffd9102bd9cc50f4459`, including all nine new
+API races. Owned cleanup succeeded; its exact database volume is retained.
+The first full run's two test-only environment assumptions are resolved. No
+frontend source changed; the preceding 457 frontend/lint/build result remains
+applicable. Ordered worker-command fencing is now being implemented separately;
+application conversion dispatch remains unavailable until that boundary is ready.
 
 Next: durable database jobs/attempts
 with current approval/source checks and operator UI (`docs/packaging-execution-plan.md`). GCS/Notion,

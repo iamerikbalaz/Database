@@ -62,6 +62,16 @@ checks; uncertainty never counts as failure or releases ownership. Closure after
 a prior dispatch requires a known fenced READY/RETRY_REQUIRED worker outcome.
 NOT_FOUND alone cannot prove cancellation of a previously sent HTTP request.
 
+Integration finding: a backend session lease and the worker's live-process lock
+do not fence a delayed retry=True HTTP request after a newer reconciliation or
+closure. Before exposing run/retry/reconcile, require worker-side durable ordered
+dispatch IDs/ordinals. A newer command must reject older arrivals; exact replay
+must reconcile without another attempt. CLOSE must persist a terminal intent
+before recovery, and permanently reject later conversion attempts. Reconciliation
+of an absent execution should create a known fenced incomplete journal without
+reading NAS, so a DB-committed but never-delivered command can be safely closed.
+The initial unsent-closure API is safe because it requires zero dispatch history.
+
 ## Application gates
 
 ADMIN/LEADERSHIP can reserve/run/retry/reconcile within the existing session/CSRF

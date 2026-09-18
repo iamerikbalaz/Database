@@ -59,7 +59,7 @@ class PublicationCsvRow(BaseModel):
     material_id: UUID
     revision_hash: Digest
     content_context_hash: Digest
-    identity_name: Name
+    identity_name: Annotated[str, StringConstraints(min_length=1, max_length=512), BeforeValidator(plain_name)]
     name: Name
     description: Annotated[str, StringConstraints(max_length=10000)] | None
     credits: Annotated[int, Field(strict=True, ge=0, le=2147483647)]

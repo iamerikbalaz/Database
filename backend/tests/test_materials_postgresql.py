@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from decimal import Decimal
 from threading import Barrier, Event
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -116,6 +117,44 @@ def test_postgresql_preview_reauthorizes_after_actual_concurrent_api_change(revi
             calls = len(case.previews.calls)
             assert reader.get(case.path + "/previews").status_code == 409
             assert len(case.previews.calls) == calls
+
+
+@pytest.mark.parametrize("change", ["material", "brand"])
+def test_postgresql_publication_preview_freezes_inputs_until_competing_edit_commits(review_pg_case, monkeypatch, change):
+    from app import publication_preflight
+    from test_publication_preflight import prepare_candidate, preview
+    case = review_pg_case
+    adapter = SimpleNamespace(database=case.database, materials=[case.material], client=lambda _: case.client_for())
+    prepare_candidate(adapter, case.technical, case.path)
+    entered = Event(); release = Event()
+    original = publication_preflight._candidate
+    calls = 0
+    def hold(session, material):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            if not release.wait(15): raise TimeoutError("Publication preview test was not released")
+        return original(session, material)
+    with case.client_for() as reader, case.client_for(3) as editor:
+        before = preview(reader, case.material.id)
+        assert before["can_prepare"] is True
+        monkeypatch.setattr(publication_preflight, "_candidate", hold)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            pending = pool.submit(preview, reader, case.material.id)
+            try:
+                assert entered.wait(15)
+                if change == "material":
+                    writing = pool.submit(editor.patch, case.path, json={"material_name": "Changed after frozen preview"})
+                else:
+                    writing = pool.submit(editor.patch, f"/api/brands/{case.material.published_brand_id}",
+                        json={"name": "Changed after frozen preview"})
+                with pytest.raises(TimeoutError): writing.result(timeout=0.15)
+            finally: release.set()
+            assert pending.result(timeout=25) == before
+            assert writing.result(timeout=25).status_code == 200
+        after = preview(reader, case.material.id)
+        assert after["can_prepare"] is False and after["preview_hash"] != before["preview_hash"]
 
 
 def _catalog_pg_category(client):
@@ -863,7 +902,7 @@ def test_postgresql_import_audit_rejects_direct_sql_mutation_and_destructive_dow
             command.downgrade(Config("alembic.ini"), "20260916_0011")
         assert client.get("/api/material-imports/" + str(batch_id)).json() == response.json()
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260917_0014"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260917_0015"
 
 
 def test_postgresql_import_upgrade_from_0011_and_empty_downgrade_preserve_prior_records():
@@ -969,7 +1008,7 @@ def test_postgresql_ai_and_source_provenance_cannot_be_erased_or_rewritten(revie
         with pytest.raises(DBAPIError): command.downgrade(Config("alembic.ini"), "20260917_0012")
         assert client.get(case.path + "/content-drafts").json()["items"][0]["id"] == draft["id"]
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260917_0014"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260917_0015"
 
 
 def test_postgresql_ai_upgrade_from_0012_preserves_records_and_empty_downgrade():
@@ -1158,7 +1197,7 @@ def test_postgresql_ai_credential_scope_and_revocation_are_permanent(review_pg_c
                 connection.execute(text(statement), {"id": credential_id})
         with pytest.raises(DBAPIError): command.downgrade(Config("alembic.ini"), "20260917_0013")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260917_0014"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260917_0015"
 
 
 def test_postgresql_ai_service_upgrade_from_0013_preserves_prior_records():
@@ -1264,7 +1303,7 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
             current_revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            assert current_revision == "20260917_0014"
+            assert current_revision == "20260917_0015"
     finally:
         engine.dispose()
 
@@ -1307,7 +1346,7 @@ def test_postgresql_auth_upgrade_from_previous_head_preserves_users_without_cred
                 ).scalar_one() == 0
                 assert connection.execute(
                     text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "20260917_0014"
+                ).scalar_one() == "20260917_0015"
         finally:
             engine.dispose()
             if previous_database_url is None:
@@ -2548,4 +2587,138 @@ def test_postgresql_metadata_fresh_upgrade_and_downgrade() -> None:
                 os.environ.pop("DATABASE_URL", None)
             else:
                 os.environ["DATABASE_URL"] = previous_database_url
+            get_settings.cache_clear()
+
+
+# Keep populated publication cases after older shared-schema downgrade guards.
+# Those guards must each reach the provenance table they are intended to verify.
+def _prepare_pg_publication(case):
+    from test_publication_preflight import prepare_candidate
+    adapter = SimpleNamespace(database=case.database, materials=[case.material], client=lambda _: case.client_for())
+    prepare_candidate(adapter, case.technical, case.path)
+
+
+@pytest.mark.parametrize("same_key", [True, False])
+def test_postgresql_publication_batch_creation_is_atomic_and_exactly_replayable(review_pg_case, same_key):
+    from app.db.models import PublicationBatchItem
+    from test_publication_preflight import preview
+    from test_publication_batches import PATH, creation
+    case = review_pg_case; _prepare_pg_publication(case); barrier = Barrier(2)
+    with case.client_for() as first, case.client_for() as second:
+        body = creation(preview(first, case.material.id))
+        other = body if same_key else {**body, "idempotency_key": str(uuid4())}
+        def create(client, payload):
+            barrier.wait(timeout=15)
+            return client.post(PATH, json=payload)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(create, client, payload) for client, payload in ((first, body), (second, other))]
+            results = [future.result(timeout=25) for future in futures]
+        assert [result.status_code for result in results] == [201, 201]
+        assert (results[0].json() == results[1].json()) is same_key
+        for result in results:
+            batch = result.json()
+            assert first.get(PATH + "/" + batch["id"] + "/csv").headers["x-content-sha256"] == batch["csv_sha256"]
+    with case.database.session() as session:
+        assert len(list(session.scalars(select(PublicationBatchItem).where(PublicationBatchItem.material_id == case.material.id)))) == (1 if same_key else 2)
+        assert len(list(session.scalars(select(MaterialAuditEvent).where(MaterialAuditEvent.material_id == case.material.id,
+            MaterialAuditEvent.event_type == "PUBLICATION_BATCH_PREPARED")))) == (1 if same_key else 2)
+
+
+@pytest.mark.parametrize("change", ["content", "brand"])
+def test_postgresql_publication_commit_preserves_snapshot_during_competing_edit(review_pg_case, monkeypatch, change):
+    from app import publication_preflight
+    from test_publication_preflight import preview
+    from test_publication_batches import PATH, creation
+    from test_catalog_content import content_payload
+    case = review_pg_case; _prepare_pg_publication(case)
+    entered = Event(); release = Event(); original = publication_preflight._candidate
+    calls = 0
+    def hold(session, material):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            if not release.wait(15): raise TimeoutError("Publication commit test was not released")
+        return original(session, material)
+    with case.client_for() as publisher, case.client_for(3) as editor:
+        view = preview(publisher, case.material.id); body = creation(view)
+        content = editor.get(case.path + "/content").json()
+        monkeypatch.setattr(publication_preflight, "_candidate", hold)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            pending = pool.submit(publisher.post, PATH, json=body)
+            try:
+                assert entered.wait(15)
+                if change == "content":
+                    writing = pool.submit(editor.post, case.path + "/content", json=content_payload(expected_revision=content["revision"],
+                        description="Changed after immutable batch", credits=10, category_ids=[item["id"] for item in content["categories"]]))
+                else:
+                    writing = pool.submit(editor.patch, f"/api/brands/{case.material.published_brand_id}",
+                        json={"name": "Changed after immutable batch"})
+                with pytest.raises(TimeoutError): writing.result(timeout=0.15)
+            finally: release.set()
+            result = pending.result(timeout=25)
+            assert result.status_code == 201
+            assert writing.result(timeout=25).status_code == 200
+        saved = result.json()
+        assert saved["items"][0]["row"] == view["items"][0]["row"]
+        assert publisher.post(PATH, json=body).json() == saved
+        assert publisher.post(PATH, json={**body, "idempotency_key": str(uuid4())}).status_code == 409
+        assert publisher.get(PATH + "/" + saved["id"]).json() == saved
+        assert preview(publisher, case.material.id)["can_prepare"] is False
+
+
+def test_postgresql_publication_history_rejects_mutation_cross_material_proof_and_downgrade(review_pg_case):
+    from test_publication_preflight import preview
+    from test_publication_batches import PATH, creation
+    case = review_pg_case; _prepare_pg_publication(case)
+    with case.client_for() as client:
+        response = client.post(PATH, json=creation(preview(client, case.material.id)))
+        assert response.status_code == 201
+        batch_id = UUID(response.json()["id"])
+    for table, column in (("publication_batches", "reason"), ("publication_batch_items", "snapshot_hash")):
+        for sql in (f"UPDATE {table} SET {column}={column}", f"DELETE FROM {table}", f"TRUNCATE {table} CASCADE"):
+            with case.database.engine.begin() as connection:
+                with pytest.raises(DBAPIError, match="append-only"):
+                    connection.execute(text(sql))
+    with case.database.session() as session:
+        other = PBRMaterial(project_id=case.material.project_id, published_brand_id=case.material.published_brand_id,
+            sequence_number=2, assigned_processor_id=case.material.assigned_processor_id, material_name="Other proof fixture",
+            main_category_code="G03", technical_identity=case.material.technical_identity + "_OTHER")
+        session.add(other); session.commit(); other_id = other.id
+    with case.database.engine.begin() as connection:
+        with pytest.raises(IntegrityError):
+            connection.execute(text("""INSERT INTO publication_batch_items
+                (batch_id, material_id, ordinal, generation, revision_hash, content_context_hash, snapshot_hash,
+                 technical_check_id, metadata_snapshot_id, technical_approval_id, publication_approval_id, snapshot)
+                SELECT batch_id, :other, 2, generation, revision_hash, content_context_hash, snapshot_hash,
+                 technical_check_id, metadata_snapshot_id, technical_approval_id, publication_approval_id, snapshot
+                FROM publication_batch_items WHERE batch_id=:batch"""), {"other": other_id, "batch": batch_id})
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("DATABASE_URL", case.database.engine.url.render_as_string(hide_password=False)); get_settings.cache_clear()
+        with pytest.raises(DBAPIError, match="Publication provenance exists"):
+            command.downgrade(Config("alembic.ini"), "20260917_0014")
+    with case.database.engine.connect() as connection:
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260917_0015"
+
+
+def test_postgresql_publication_upgrade_from_0014_preserves_prior_records_and_empty_downgrade():
+    with isolated_postgresql_database() as database_url:
+        previous = os.environ.get("DATABASE_URL"); os.environ["DATABASE_URL"] = database_url; get_settings.cache_clear()
+        engine = create_engine(database_url)
+        try:
+            config = Config("alembic.ini"); command.upgrade(config, "20260917_0014")
+            company_id = uuid4()
+            with engine.begin() as connection:
+                connection.execute(text("INSERT INTO companies (id, name) VALUES (:id, 'Prior publication fixture')"), {"id": company_id})
+            command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
+            assert inspect(engine).has_table("publication_batches") and inspect(engine).has_table("publication_batch_items")
+            with engine.connect() as connection:
+                assert connection.execute(text("SELECT name FROM companies WHERE id=:id"), {"id": company_id}).scalar_one() == "Prior publication fixture"
+            command.downgrade(config, "20260917_0014")
+            assert not inspect(engine).has_table("publication_batches") and inspect(engine).has_table("ai_service_credentials")
+            command.upgrade(config, "head"); command.check(config)
+        finally:
+            engine.dispose()
+            if previous is None: os.environ.pop("DATABASE_URL", None)
+            else: os.environ["DATABASE_URL"] = previous
             get_settings.cache_clear()

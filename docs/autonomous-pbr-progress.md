@@ -2,6 +2,17 @@
 
 ## Workspace and authority
 
+Current checkpoint (2026-09-18): publication preflight, immutable CSV batches and
+selection/history/download UI passed the complete isolated suite in project
+`reawote-test-2fd633be5ba54892a6638e9e4c2d9bf7`: 1100 backend, 163 actual PostgreSQL
+(auth gate 27/27), 354 Linux worker, 436 frontend, lint/build; no skips. Additive
+migration 0015 passed fresh/prior upgrade, Alembic current/heads/check, constraint,
+concurrency and downgrade guards. E2E for the new screen is now running separately.
+Changes are not committed yet. A subsequent pure packaging planner passed 31 tests
+on Windows and 31 in a read-only Linux container without network/database; that
+planner is not in the full suite's earlier worker image. No packaging or upload
+execution exists yet. Continue from this checkpoint; older entries below are history.
+
 - User authorized implementation, new migrations, isolated test resources,
   commits, own remote branches and a draft PR on 2026-09-15.
 - Integration branch: `codex/autonomous-pbr-completion`.
@@ -501,7 +512,50 @@ CSV serializer (`docs/publication-csv.md`) passed 44 Windows and 44 isolated Lin
 tests, without skips. Its Linux run used read-only mounts and no network/database;
 the first collection attempt selected the older installed package, corrected by
 using `python -m pytest`. It has no HTTP endpoint and performs no real export.
-Immutable database batches, approval gating, UI, packaging and upload remain pending.
+Generator `f4de8a1` and CSV foundation `3e370be` are committed/pushed. A later
+uncommitted read-only publication preflight adds `/api/publication-batches/preview`;
+see `docs/publication-preflight.md`. It validates the full set of current decisions
+and binds normalized metadata to the approved source inventory before declaring
+the database inputs ready. It also preserves 512-character technical identities.
+The initial focused run had 77 passes and nine failures: eight used a stale
+technical-check UUID in test setup; one exposed a missing safe-validation path.
+After those corrections, 86 passed. A final expiry regression and two actual
+PostgreSQL serialization cases were then added; the local suite passed 87 cases.
+Full preflight image `reawote-test-6d6ebf13be7c4ea791789c358034fa7e` passed 1087
+backend and 155 existing PostgreSQL tests, but its two new serialization fixtures
+failed on a missing `SimpleNamespace` import. That test import is now corrected;
+worker/frontend phases were not reached in this failed run. Owned cleanup passed.
+The later uncommitted batch API/migration 0015 passed 101 focused local cases
+(batch/preflight/CSV/access/head). It now stores exact CSV and approval-bound input
+snapshots, actor-scoped replay, permanent audit and protected history/downloads.
+Migration 0015 is still under verification and has not been committed. Migrations
+through 0014 remain immutable. Six additional actual PostgreSQL batch/concurrency/
+migration cases were added; the full final run is in progress. UI, packaging,
+execution and upload remain pending; no production migration or publication ran.
+
+Publication preparation now includes a role-gated selection/preview/history UI
+and bounded, digest-verified CSV downloads (`docs/publication-batches.md`). The
+37 focused frontend cases, build, lint and E2E TypeScript check pass. A real browser
+case with a deliberately lost committed response, exact retry, later content edit
+and retained historical download is added and awaits its isolated run. Earlier
+full projects `reawote-test-dda271f8364c44b9aeef21ccd93d8dd8` and
+`reawote-test-fc35cb5a618143d3b2d973b3f8977edd` each passed 1099 backend cases but
+failed the metadata migration-chain test: its head, then its complete revision
+list still named 0014. Both expectations are now updated and the two local chain
+tests pass. The later full project `reawote-test-54b4da6020d0479d9e978e41f040019f`
+contains both fixes and all 37 new UI tests; it is running. Previous failed runs
+did not reach PostgreSQL/worker/frontend and their own cleanup completed. Migration
+0015 remains uncommitted. Packaging/execution/upload and live importer verification
+are still pending.
+
+The 54b4da full run passed all 1100 backend tests and 161 PostgreSQL tests
+(mandatory auth 27/27). Two new brand-edit races addressed a nonexistent
+`/api/published-brands` route instead of the actual `/api/brands` route, so their
+expected lock wait was never reached. Both fixture URLs are now corrected; no
+locking behavior was weakened. The test image stopped before worker/frontend.
+Its owned cleanup passed and a complete rerun was started. The E2E setup likewise
+uses the existing `/content/approve` write route. E2E runner safety helpers and
+the direct-invocation guard pass; no unguarded fixture or production write occurred.
 
 Docker runs through the local Linux engine at desktop-linux. Startup initially
 failed on Windows error 1920 from stale zero-byte runtime socket reparse points.

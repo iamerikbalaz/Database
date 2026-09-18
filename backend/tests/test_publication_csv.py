@@ -113,3 +113,9 @@ def test_equal_decimal_values_keep_identical_snapshot_hashes():
     first = row(material_id=identifier, width_cm="1.00000")
     second = row(material_id=identifier, width_cm="1")
     assert render_publication_csv([first]) == render_publication_csv([second])
+
+
+def test_technical_identity_preserves_existing_512_character_database_contract():
+    identity = "A" * 512
+    assert parsed(render_publication_csv([row(identity_name=identity)]))[1][0] == identity
+    with pytest.raises(ValidationError): row(identity_name=identity + "A")

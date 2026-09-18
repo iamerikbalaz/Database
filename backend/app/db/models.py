@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     Index,
     JSON,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -910,6 +911,62 @@ class MaterialContentApproval(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class PublicationBatch(Base):
+    __tablename__ = "publication_batches"
+    __table_args__ = (
+        UniqueConstraint("actor_id", "request_key", name="uq_publication_batches_actor_request"),
+        CheckConstraint("row_count BETWEEN 1 AND 100", name="ck_publication_batches_row_count"),
+        CheckConstraint("length(reason) BETWEEN 1 AND 2000", name="ck_publication_batches_reason"),
+        CheckConstraint("length(csv_bytes) BETWEEN 3 AND 33554432", name="ck_publication_batches_csv_size"),
+        *(_review_hash_constraint(field, "ck_publication_batches_" + field) for field in ("request_hash", "snapshot_hash", "csv_sha256")),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    request_key: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    csv_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    csv_bytes: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    warnings_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    warnings: Mapped[list] = mapped_column(_JSON_DOCUMENT, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+
+class PublicationBatchItem(Base):
+    __tablename__ = "publication_batch_items"
+    __table_args__ = (
+        UniqueConstraint("batch_id", "ordinal", name="uq_publication_batch_items_ordinal"),
+        CheckConstraint("ordinal BETWEEN 1 AND 100", name="ck_publication_batch_items_ordinal"),
+        CheckConstraint("generation >= 0", name="ck_publication_batch_items_generation"),
+        *(_review_hash_constraint(field, "ck_publication_batch_items_" + field) for field in ("revision_hash", "content_context_hash", "snapshot_hash")),
+        ForeignKeyConstraint(["material_id", "technical_check_id", "generation", "revision_hash"],
+            ["material_technical_checks.material_id", "material_technical_checks.id", "material_technical_checks.generation", "material_technical_checks.revision_hash"],
+            name="fk_publication_batch_items_check", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["material_id", "metadata_snapshot_id"], ["pbr_material_metadata_snapshots.material_id", "pbr_material_metadata_snapshots.id"],
+            name="fk_publication_batch_items_metadata", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["material_id", "technical_approval_id"], ["material_approvals.material_id", "material_approvals.id"],
+            name="fk_publication_batch_items_technical", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["material_id", "publication_approval_id"], ["material_approvals.material_id", "material_approvals.id"],
+            name="fk_publication_batch_items_publication", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["material_id", "content_context_hash"], ["material_content_approvals.material_id", "material_content_approvals.context_hash"],
+            name="fk_publication_batch_items_content", ondelete="RESTRICT"),
+    )
+    batch_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("publication_batches.id", ondelete="RESTRICT"), primary_key=True)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), primary_key=True)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    revision_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_context_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    technical_check_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    metadata_snapshot_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    technical_approval_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    publication_approval_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    snapshot: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
+
+
 class MaterialImportBatch(Base):
     __tablename__ = "material_import_batches"
     __table_args__ = (
@@ -1035,6 +1092,6 @@ for _catalog_type in (OnlineCategory, BrandCollection):
     event.listen(_catalog_type, "before_delete", _reject_review_history_mutation)
 
 
-for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow, MaterialAiDraft):
+for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow, MaterialAiDraft, PublicationBatch, PublicationBatchItem):
     event.listen(_review_history_type, "before_update", _reject_review_history_mutation)
     event.listen(_review_history_type, "before_delete", _reject_review_history_mutation)

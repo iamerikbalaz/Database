@@ -175,7 +175,7 @@ async def safe_request_validation_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
     path = request.url.path
-    if (is_auth_api_path(path) or path.startswith(("/api/online-categories", "/api/collections", "/api/material-imports"))
+    if (is_auth_api_path(path) or path.startswith(("/api/online-categories", "/api/collections", "/api/material-imports", "/api/publication-batches"))
             or path.startswith("/api/ai/")
             or (path.startswith("/api/materials/") and ("/identity-" in path or "/content" in path or "/preview" in path or "/folder-discovery" in path or "/publishing-context" in path or "/ai-service-credentials" in path))):
         return _auth_validation_response(request, exc)

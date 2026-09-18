@@ -25,6 +25,8 @@ event metadata; do not claim their coverage from an ordinary user PATCH event.
 
 ## Following slice: reversible material archive
 
+The concrete command/read/state contract is in `docs/material-archive-contract.md`.
+
 The handoff names soft-delete/restore without defining cascade or ownership rules.
 Choose the conservative first scope: explicit ADMIN-only archive and restore of
 individual PBR database records. Preserve every row, technical identity, number,

@@ -41,6 +41,7 @@ Aktuální funkce a skutečně provedené testy shrnuje
 - [Rezervace dávky pro GCS a ochrana materiálů](docs/gcs-upload-jobs.md).
 - [Auditní historie změn firem](docs/company-history.md).
 - [Historie značek, projektů, profilů a materiálů](docs/resource-history.md).
+- [Historie úspěšných změn přístupu k účtům](docs/account-security-history.md).
 - [Řízené převzetí údajů firmy z Notion](docs/notion-adoption.md).
 
 Ukládání CSV, lokální ZIP packaging a rezervace interní GCS dávky jsou implementované.

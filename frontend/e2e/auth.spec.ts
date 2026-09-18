@@ -6,6 +6,13 @@ test("administrator creates, provisions, changes and disables an account through
   await signInThroughApi(page);
   await page.goto("/settings/users");
   await expect(page.getByRole("heading", { name: "Accounts", exact: true })).toBeVisible();
+  if (retainedPass) {
+    const profiles = await (await page.request.get("/api/internal-users")).json();
+    const first = profiles.find((item: { email: string }) => item.email === "account-ui-first@example.invalid");
+    expect(first).toBeTruthy();
+    const history = await (await page.request.get(`/api/internal-users/${first.id}/security-history`)).json();
+    expect(history.items.map((item: { action: string }) => item.action)).toEqual(["ADMIN_ACCESS_RESET", "ADMIN_ACCESS_PROVISIONED"]);
+  }
   const name = `Account UI ${retainedPass ? "retained" : "first"}`;
   const email = `account-ui-${retainedPass ? "retained" : "first"}@example.invalid`;
   const form = page.getByRole("form", { name: "Create account", exact: true });
@@ -49,6 +56,17 @@ test("administrator creates, provisions, changes and disables an account through
     await page.reload();
     await expect(row.getByLabel("Active", { exact: true })).not.toBeChecked();
     await expect(row.getByLabel("Role")).toHaveValue("PRODUCTION_LEAD");
+    const security = row.locator("..").locator("details").filter({ has: page.getByText("Account security history", { exact: true }) });
+    await security.locator(":scope > summary").click();
+    await security.getByText(/^Security change 2 · Access reset by an administrator/).click();
+    const resetEvent = security.locator("details").filter({ has: page.getByText(/^Security change 2 ·/) });
+    await expect(resetEvent.getByText(/Password change required after this action/)).toContainText("Yes");
+    await expect(security.getByText(/^Security change 1 · Temporary access issued by an administrator/)).toBeVisible();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await security.screenshot({ path: test.info().outputPath("account-security-desktop.png") });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await security.screenshot({ path: test.info().outputPath("account-security-mobile.png") });
   } finally { await recipientContext.close(); }
 });
 
@@ -98,4 +116,8 @@ test("forced password change, persisted login, role enforcement and logout use r
     await page.reload();
     await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
   } finally { await stale.dispose(); }
+  await signInThroughApi(page);
+  const history = await (await page.request.get(`/api/internal-users/${body.user.id}/security-history`)).json();
+  expect(history.items[0]).toMatchObject({ action: "SELF_PASSWORD_CHANGED", actor_id: body.user.id, requires_password_change: false });
+  expect(history.items.filter((item: { action: string }) => item.action === "SELF_PASSWORD_CHANGED")).toHaveLength(1);
 });

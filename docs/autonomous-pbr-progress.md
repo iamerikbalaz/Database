@@ -2,6 +2,46 @@
 
 ## Latest checkpoint (2026-09-18)
 
+Account security backend commit: `8c8eec0c579db99e5aa39c431a2cf6f4be164181`.
+Its verified UI/docs follow in the next commit; use `git log -1` for the latest tip.
+Previously pushed checkpoint: `352d75f6b76e5e4de1144c9d456c210cd216177c`.
+Account security history is implemented and verified: new additive
+0022, explicit successful-action/actor metadata without credential values, atomic
+bootstrap/admin/host/self-service recording and ADMIN paged API. Initial local
+auth/access regression: **138 passed, one fixture setup error, 63.46s**, two warnings.
+The error was sandbox access to the shared system pytest temp directory, before
+the CLI test ran. Using a fresh GUID directory inside the owned worktree fixed it;
+new history + complete CLI + schema/metadata suites passed **71 tests, 39.94s**,
+no skips, two dependency warnings. Extended history suite (including three added
+host/bootstrap rollback cases): **17 passed, 12.86s**, two dependency warnings.
+Actual PostgreSQL verification passed **369 tests, 468.47s**, auth **27/27**, no
+skips, four dependency/schema warnings, in owned project
+`reawote-test-49ac3b2485714c59adfa755377555a8a`, including 14 new immutability,
+invalid provenance, concurrent reset/self-service and prior-schema upgrade cases.
+Image ID `9b94640e9d7a1ebaf0341428057507d34115c9b2e92b3ee4727e52152ef2757f`.
+Owned test containers/network were removed; own volume/image retained.
+UI is implemented: **41 focused tests passed, 2.77s**, lint/build passed.
+Its initial component assertion matched both expanded and collapsed events (40
+passed, one failed); the selector is now scoped to the explicitly opened event.
+Full frontend: **798 passed, 27.98s**, E2E TypeScript passed. Browser assertions
+cover admin provision/reset and self-service history, including retained reads;
+the capability runner `df13cefd-7b5b-439c-a319-b187dae1c80d` passed **19 fresh +
+19 retained scenarios**, 1.5m/50.8s. Actual account provisioning/reset and self-service
+events remain readable after restart, including disabled profiles. Desktop and
+390px security-history screenshots were visually inspected without overflow.
+Owned cleanup and protected-state checks passed; owned volumes/artifacts remain. See
+`docs/account-security-history.md` for the contract and verification boundaries.
+Full Linux regression passed **1875 tests, 1144.76s**, no skips, two dependency
+warnings, in owned image
+`reawote-account-security-backend-47bb3883962e42e1b8d182214f1ec687:test`, ID
+`28e5c4dabac37288479e5ef5964666ab06b6792ab6be25fc233ed408c10c4a9e`,
+nonroot/read-only/no network/host mounts. Its owned container was automatically
+removed. Migrations through committed 0021 are unchanged. The new ledger is ready
+for review; it has not been deployed or run against a production database.
+An independent synthetic probe also confirmed bound parameters appear in default
+database exceptions. The next small hardening step is recorded in
+`docs/database-error-redaction-plan.md`; no real secret or database was involved.
+
 Resource history backend is committed as `584ec48c43ee1d7813dc6c099cc7d0de256c33e8`.
 Its UI and documentation are fully verified below; use `git log -1` for the latest
 branch tip rather than a historical checkpoint's commit.
@@ -40,7 +80,7 @@ regression container. Neither runner targets the other's resources.
 See `docs/resource-history.md`.
 The next small security-history gap is mapped in `docs/account-security-history-plan.md`.
 Migrations through 0021 are now immutable. Resource history is ready for review;
-account security history and material archive remain the next implementation slices.
+account security history is verified above; material archive remains unimplemented.
 
 Company history is committed/pushed as `27b1e468ac8d846e944a259ff8480a411fb1944b`.
 Migrations through 0020 are now immutable. Reviewed local Notion adoption,
@@ -105,6 +145,8 @@ Implemented and tested within the documented contracts:
   explicit start/recovery/abandon controls and UI.
 - Disabled-by-default Notion comparison and reviewed selective local adoption,
   request-bound recovery, immutable company history and UI.
+- Ordinary brand/project/user/material audit history and successful account security
+  history, with immutable PostgreSQL ledgers, atomic writes and ADMIN paged UI.
 
 These are bounded implementations, not a claim of production-ready PBR completion.
 Detailed contracts live in the linked README feature guides. Previous test results,
@@ -113,8 +155,8 @@ loss in [historical checkpoints](autonomous-pbr-history.md).
 
 ## Remaining work and real blockers
 
-1. Add transactional account security history: see
-   [the small next plan](account-security-history-plan.md).
+1. Close the confirmed database exception-output gap:
+   [bounded hardening plan](database-error-redaction-plan.md).
 2. Implement conservative material archive/restore with full authorization and
    asynchronous-operation coverage: [plan and integration map](resource-audit-plan.md).
 3. Complete remaining history pagination/legacy CRUD replay decisions, artifact
@@ -136,7 +178,7 @@ was found. The owned remote branch is the review artifact in the meantime.
 Read the latest checkpoint first, inspect this worktree's branch/HEAD/status and
 compare remote main with the known base. Preserve the user's original checkout and
 all unrelated work. Never use the deleted experimental authentication branch.
-All committed migrations through 0021 are immutable; append new migrations.
+All committed migrations through 0022 are immutable; append new migrations.
 
 - PostgreSQL: `./scripts/test.ps1 -PostgresqlOnly` from this worktree with the local
   Docker CLI on PATH. It creates a fresh owned namespace and mandatory auth gate;

@@ -7,6 +7,7 @@ import { ApiError } from "../api/errors";
 import { ErrorState, LoadingState } from "../components/PageState";
 import type { InternalUser } from "../api/materialDto";
 import { ResourceHistoryPanel } from "../components/ResourceHistoryPanel";
+import { AccountSecurityPanel } from "../components/AccountSecurityPanel";
 
 const roles: Role[] = ["PROCESSOR", "PRODUCTION_LEAD", "LEADERSHIP", "ADMIN"];
 function safeError(error: unknown) {
@@ -67,7 +68,7 @@ function AccountRow({ user, self, onReset, onSaved }: { user: InternalUser; self
     <button className="button" disabled={pending || self || (role === user.role && active === user.isActive)}>Save role and status</button>
     {!self && <button className="button" type="button" disabled={!user.isActive || pending} onClick={onReset}>Set or reset access</button>}
     {error && <p role="alert" className="field-error">{error}</p>}
-  </form><ResourceHistoryPanel kind="USER" id={user.id} updatedAt={user.updatedAt} /></div>;
+  </form><ResourceHistoryPanel kind="USER" id={user.id} updatedAt={user.updatedAt} /><AccountSecurityPanel user={user} /></div>;
 }
 function ResetAccess({ user, onClose, onSaved }: { user: InternalUser; onClose: () => void; onSaved: () => void }) {
   const [current, setCurrent] = useState(""); const [next, setNext] = useState(""); const [confirmation, setConfirmation] = useState("");

@@ -35,8 +35,8 @@ restore button or automatic write. Snapshot values render as text.
   reservation ledger remains authoritative for those allocations.
 - User snapshots contain only ID, display name, email, role and active flag.
   Passwords, hashes, tokens, sessions and arbitrary credential metadata are excluded.
-  Account access provisioning/reset and self-service password changes currently
-  have separate sanitized operational logging, not this immutable profile history.
+  Account provisioning/reset and self-service password changes have a separate
+  [security ledger](account-security-history.md), not this profile history.
 - Material snapshots cover the ordinary editable record. Specialized worker,
   workflow/review, identity, content, import, AI and publication operations retain
   their existing histories. A later ordinary event captures its actual starting

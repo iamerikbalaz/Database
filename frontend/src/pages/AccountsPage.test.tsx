@@ -12,7 +12,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 afterEach(() => { vi.unstubAllGlobals(); setSessionToken(null); });
 function mount() {
   setSessionToken(auth.csrf_token);
-  render(<SessionContext.Provider value={{ session: auth, pending: false, logout: vi.fn(), changePassword: vi.fn() }}><AccountsPage /></SessionContext.Provider>);
+  render(<SessionContext.Provider value={{ session: auth, pending: false, logout: vi.fn(), changePassword: vi.fn() }}><AccountsPage navigate={vi.fn()} /></SessionContext.Provider>);
 }
 function rows() { return [admin, processorDto]; }
 

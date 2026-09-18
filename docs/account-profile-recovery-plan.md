@@ -1,15 +1,16 @@
-# Next caller: account-profile save recovery
+# Account-profile save recovery: adopted plan
 
 The ordinary `internal-users` POST/PATCH routes already use the 0024 resource
-command contract. Their separate administration forms still send keyless writes.
-This is the next bounded UI slice after the shared record forms are verified.
+command contract. Their separate administration forms now adopt the same key and
+recovery behavior. Implementation is in place; see the latest checkpoint for
+verification status and [resource commands](resource-commands.md) for the contract.
 
 1. Reuse a small shared ordinary-command controller for packet preparation,
    digest/key binding, actor ownership, exact retry and explicit read recovery.
    Keep field validation and layout in the individual forms. Avoid two independent
    recovery state machines with subtly different authorization/error behavior.
 2. Identify a form by operation kind/action/target as well as its editor path:
-   several account rows share `/accounts`. A pending create must never appear as
+   several account rows share `/settings/users`. A pending create must never appear as
    a pending role update, and an update of one profile must never bind another.
 3. Share the existing per-actor pending registry. Another ordinary pending command
    prevents a new account-profile write, and vice versa. Provide an explicit way

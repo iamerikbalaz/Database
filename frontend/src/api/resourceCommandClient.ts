@@ -5,7 +5,7 @@ import { parseInternalUser, parseMaterial } from "./materialDto";
 export type CommandKind = "COMPANY" | "BRAND" | "PROJECT" | "USER" | "MATERIAL";
 export interface CommandScope { kind: CommandKind; action: "CREATED" | "UPDATED"; targetId: string | null; editorPath: string; }
 const schemas = { COMPANY: parseCompany, BRAND: parsePublishedBrand, PROJECT: parseProject, USER: parseInternalUser, MATERIAL: parseMaterial };
-const segments = { COMPANY: "companies", BRAND: "brands", PROJECT: "projects", USER: "accounts", MATERIAL: "materials" };
+const segments = { COMPANY: "companies", BRAND: "brands", PROJECT: "projects", USER: "settings/users", MATERIAL: "materials" };
 function digest(input: unknown) { const value = string(input); if (!/^[a-f0-9]{64}$/.test(value)) throw new Error("Invalid receipt digest"); return value; }
 
 function canonical(value: unknown): string {
@@ -32,7 +32,7 @@ export function resourceReceipt(input: unknown, scope: CommandScope, actorId: st
   const createdAt = string(value.created_at);
   if (!/T.*(?:Z|[+-]\d\d:\d\d)$/.test(createdAt) || !Number.isFinite(Date.parse(createdAt))) throw new Error("Invalid receipt time");
   return { id: uuid(value.id), resourceId, requestHash: digest(value.request_hash), responseHash: digest(value.response_hash), createdAt,
-    path: scope.kind === "USER" ? "/accounts" : `/${segments[scope.kind]}/${resourceId}`,
+    path: scope.kind === "USER" ? "/settings/users" : `/${segments[scope.kind]}/${resourceId}`,
     message: "Saved request recovered. Reload the record to see its current values." };
 }
 export const resourceCommandClient = {

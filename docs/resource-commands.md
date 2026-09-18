@@ -42,8 +42,8 @@ prevents concurrent account demotion/reset from racing an authorized write.
 
 ## Browser behavior
 
-The shared company/brand/project/material forms freeze the submitted values and
-key while a save is pending or uncertain. After a network failure they offer
+The company/brand/project/material forms and account-profile administration forms
+freeze the submitted values and key while a save is pending or uncertain. After a network failure they offer
 **Check saved result** (GET only) and **Retry exact save** (same input/key).
 Read recovery checks the expected actor, key, operation, target, request digest,
 response schema and target ID before opening the current record.
@@ -55,6 +55,16 @@ saved result when remounted. There is no automatic resubmission. A definite firs
 4xx rejection permits correction with a fresh key; a rejection after uncertainty
 does not erase the original packet.
 
+The profile screen identifies pending work by kind, action and target, so its
+create form and several account rows can share `/settings/users` without sharing
+one another's submitted values. A page-level link returns to the pending profile
+or other ordinary form. Saving/recovering a profile refreshes current account
+data; a historical response never replaces a later role/active-state edit.
+Initial account reads and delayed completions are scoped to the acting account.
+Creation still defaults to PROCESSOR, and self-demotion/disable remains blocked.
+Temporary-access forms are hidden while an ordinary save is unresolved; their
+secret values never enter the ordinary command controller.
+
 Pending data live only in page memory, never local/session storage. A browser
 unload warning remains active while any packet is retained, but users can still
 leave: full reload, browser close or crash can lose local recovery data. The
@@ -64,8 +74,8 @@ This is not durable offline queuing or multi-tab synchronization.
 ## Compatibility and scope
 
 The header is optional for legacy integrations. Keyless requests retain their
-previous semantics and are **not safe to retry automatically**. The account-profile
-administration UI still needs adoption of this contract. Password issuance/reset
+previous semantics and are **not safe to retry automatically**. All current ordinary
+record and account-profile forms send keys. Password issuance/reset
 uses its separate security workflow; passwords are never put in this ledger or
 pending ordinary-form packets. Specialized workflow/content/publication commands
 keep their own established recovery contracts.

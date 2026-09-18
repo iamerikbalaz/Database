@@ -1,70 +1,61 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-19, ordinary command recovery)
+## Latest checkpoint (2026-09-19, account-profile recovery)
 
 Owned worktree: `C:\Database\Database\tmp\autonomous-pbr-completion`.
-Branch: `codex/autonomous-pbr-completion`. Read `git log -1` for its current tip.
-History API is committed as `3eb2abf786d9d9a24c99eaf3448cfed94ed74bd3` and UI as
-`8135c976b9ae6f5dc99bb2470a9922eaf4741e67`, both pushed. The Docker path guard fix
-is committed as `c3a0d1631f06e372284409da5fe003b472cd0b45`; ordinary command API and
-migration 0024 as `249b9e6e3a88495544b8eaaaf44c5ba50241972c`. This checkpoint
-accompanies the verified shared-form UI commit; read the branch tip for its hash.
-Remote main was last verified at `88a1f99d748d2a0edbb1fce509e13d18bfc03908`.
+Branch: `codex/autonomous-pbr-completion`. Current pushed tip:
+`665390e9d8655469e4952235417e062b7ecf10c6` (ordinary shared-form recovery).
+API/migration 0024: `249b9e6e3a88495544b8eaaaf44c5ba50241972c`; Docker source
+mapping guard: `c3a0d1631f06e372284409da5fe003b472cd0b45`. Remote main last
+verified unchanged at `88a1f99d748d2a0edbb1fce509e13d18bfc03908` during that push.
+Shared controller extraction is committed as `9957a0ef8729f23175412ac2f295886c35d76bc2`.
+This checkpoint accompanies the verified account-profile UI commit; read the
+current branch tip for its hash.
 
 ### Newly completed
 
-Ordinary create/PATCH receipts and shared-form recovery are implemented and tested.
-See [resource commands](resource-commands.md). All ten API
-routes support actor-bound exact replay; shared company/brand/project/material
-forms retain uncertain requests across navigation. The separate account-profile
-UI remains to be migrated, and legacy keyless calls keep their old semantics.
+Account-profile creation and role/active updates now use the same ordinary
+command controller and in-memory registry as other record forms. Pending state
+is bound to kind/action/target, not only the shared page URL. It survives navigation,
+blocks another ordinary write for the same actor, and offers exact retry or GET
+recovery. Current account data are refreshed after success; later administrator
+edits are preserved. Account changes retire initial reads and late callbacks.
+The actual administration route is `/settings/users`; USER receipt navigation was
+corrected to it before adopting the previously unused USER client path.
 
-Current evidence for this slice:
+No backend or migration change. Password issuance/reset stays in its separate
+security workflow and no secret values enter these packets. Self-demotion/disable
+and the PROCESSOR creation default remain in place.
 
-- Local command/access regression: **38 passed**, 32.35s, two warnings.
-- Full frontend: **884 passed**, 26.92s. Final UUID case-normalization assertion:
-  **8 focused passed**, 32ms; final lint, build (2.41s) and E2E TypeScript passed.
-- Initial PostgreSQL run: **415 passed / 3 failed**, 548.77s. The new material
-  fixture directly inserted material 1 while leaving its brand counter at 1.
-  Correcting that synthetic fixture to 2 preserved the allocation assertions;
-  focused PostgreSQL/auth then passed **48 tests**, 62.32s, no skips (auth 27/27).
-  This earlier run predates raw-input digest binding. Full fresh PostgreSQL then
-  passed **418 tests**, 542.79s, no skips, three warnings, auth **27/27**, in
-  `reawote-test-31abd5dcd45a4111a90aafea5365578b`; inspected image
-  `b7f1a411d092c600adf0244195ab0b24bbdf900010ddd467a97156f2d6340386`.
-  Owned containers/network removed; own image/volume retained.
-- A malformed non-JSON request test caught an uncaught JSON decoding error in the
-  new dependency. It now returns bounded 422 without reflecting input; the final
-  local 38-case run above includes all three malformed-body cases. The PostgreSQL
-  PostgreSQL image predates only this validation-boundary correction.
-- Final-code Linux affected regression: **346 passed**, 226.93s, no skips, two
-  warnings. Owned nonroot/read-only/networkless container
-  `reawote-resource-linux-eef24853a05a40fd8366160586e76b10` auto-removed; image
-  `049ab3e27775ecce5ce6a356d41277f533e8b8772e6c1f1ea3d2a3223918c6a9` retained.
-- Actual browser suite passed **22 fresh + 22 retained**, 1.6m/55.7s, run
-  `4318c97f-2d91-4672-a12a-569960d9c22a`. The new case commits one material,
-  loses its response, retains the original form across navigation, reads its exact
-  receipt without another POST and replays it after restart without replacing a
-  later edit. Protected resources remained unchanged; owned cleanup passed.
-  Playwright's retained pass removed fresh-only pending-save screenshots, so the
-  test now stores those two PNGs in the same guarded run artifact root outside
-  Playwright's resettable output directory. E2E TypeScript passed; the follow-up
-  run `c979b17e-e07a-477f-9d5a-62f7135ddc2e` passed **22 fresh + 22 retained**,
-  1.6m/54.8s. Desktop and 390px mobile screenshots were inspected; no horizontal
-  overflow. Both runs passed owned cleanup and protected-resource comparisons.
-  Initial run `82ce7de3-56fe-43b3-abd4-ab1ebcebbff1` ran **no browser scenarios**:
-  the packaging source guard rejected Docker Desktop's inspected
-  `/run/desktop/mnt/host/c/...` mapping of its exact synthetic Windows root.
-  The guard now accepts that full, exact local-drive mapping without prefix
-  stripping/containment shortcuts; confinement, labels, volume and network checks
-  remain mandatory. Seven foreign/relative/ambiguous mappings are rejected.
-  Packaging isolation helpers and the full demo E2E helper safety suite passed.
-  An initial shell wrapper incorrectly checked stale LASTEXITCODE after a pure
-  PowerShell test; the corrected Stop-on-error invocation passed both suites.
+Verification:
 
-Migrations through **0024 are immutable**. Earlier history pagination, archive,
-GCS, account-history and database-error-boundary evidence, including intermediate
-failures and corrections, remains in [historical checkpoints](autonomous-pbr-history.md).
+- Shared-form extraction: **52 focused passed**, 7.15s. Initial lint rejected
+  reading a ref during render and mutating a memo object used as state. The
+  controller now uses immutable lifetime symbols and effect/event-only refs;
+  lint passed with the rules intact.
+- New account scenarios + existing account/form/receipt cases: **26 passed**, 3.44s.
+  Includes unknown creates, target-bound role retry after a later edit, in-app
+  navigation, cross-form blocking, actor changes, late completion/reads and no
+  dispatch after unmount during digest preparation.
+- Full frontend: **891 passed**, 24.82s; lint, build (2.07s) and E2E TypeScript
+  passed. The browser suite passed **23 fresh + 23 retained**, 1.6m/54.9s, run
+  `9335edd9-3c53-4efb-bdd6-f58157a2192f`. It includes real lost responses after
+  profile create and role/status update, explicit GET recovery, exact replay,
+  in-app navigation and preserved later administrator edits after restart.
+  Four create/update desktop/mobile screenshots were inspected; 390px layouts
+  have no horizontal overflow. Owned cleanup and protected-resource checks passed.
+- Initial browser run `3f2e0911-2c37-4f8c-b7ca-c18a5a0b6a19`: **22 passed / 1
+  failed**, 2.4m; retained pass did not run. Profile creation and GET recovery
+  succeeded, but the new test's exact label lookup did not locate the nested role
+  select. The snapshot showed the correctly named enabled combobox. The test now
+  selects that exact accessible combobox; role/status assertions are unchanged.
+  E2E TypeScript and the fresh/retained run above then passed.
+
+Last pushed ordinary-command evidence: PostgreSQL **418 passed** (auth 27/27),
+Linux affected regression **346 passed**, prior frontend **884 passed**, actual
+browser **22 fresh + 22 retained**. Exact run/image identities, earlier failures,
+corrections and visual evidence remain in [historical checkpoints](autonomous-pbr-history.md).
+Migrations through **0024 are immutable**.
 
 ## Scope and implementation status
 
@@ -95,19 +86,20 @@ Implemented and tested within documented contracts:
   immutable evidence, current-work exclusion and uncertain-result recovery. Any
   prior external staging dispatch blocks lifecycle changes pending reconciliation.
 - Atomic ordinary-write receipts and lost-response recovery in the shared record
-  forms; current-role/target checks apply to replay and read recovery.
+  and account-profile forms; current-role/target checks apply to replay and read
+  recovery. Account credentials keep their separate security contract.
 
 These are bounded implementations, not a claim of production-ready completion.
 The README links the individual feature/operations contracts.
 
 ## Next work and real blockers
 
-1. Extend the separate account-profile administration forms to the same
-   recovery contract ([bounded plan](account-profile-recovery-plan.md)). Legacy
-   requests without keys have no exact replay guarantee.
+1. Ensure guarded temporary-workspace cleanup after ordinary packaging errors;
+   currently some handled failures leave the owned attempt directory until explicit
+   reconciliation. Preserve crash/unknown-ownership recovery and retained proof.
 2. Finish derived-artifact cleanup lifecycle and operational/final review docs.
    Temporary workspaces already have bounded ownership/journal-based cleanup;
-   accepted retained ZIP expiry/removal needs a separate explicit contract.
+  accepted retained ZIP expiry/removal needs a separate explicit contract.
 3. Verify actual importer contract, golden material outputs, manual publication
    confirmation and realistic historical workbook/source compatibility. Production
    inputs/importer fixtures are unavailable; do not invent live verification.

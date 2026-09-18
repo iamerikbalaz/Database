@@ -80,7 +80,7 @@ function App({ client = apiClient, initialPath }: AppProps) {
       />
     );
   else if (path === "/settings/users" || (path === "/settings" && role === "ADMIN"))
-    page = <AccountsPage />;
+    page = <AccountsPage navigate={navigate} />;
   else if (path === "/catalog")
     page = <CatalogPage client={client} />;
   else if (path === "/compare")

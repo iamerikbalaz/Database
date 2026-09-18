@@ -22,6 +22,7 @@ afterEach(() => { vi.unstubAllGlobals(); });
 it.each(cases)("accepts only a complete actor/key/target-bound $kind receipt", ({ kind, response }) => {
   const value = receipt(kind, response);
   expect(resourceReceipt(value, scope(kind, response.id), actor, key, "a".repeat(64)).resourceId).toBe(response.id);
+  if (kind === "USER") expect(resourceReceipt(value, scope(kind, response.id), actor, key, "a".repeat(64)).path).toBe("/settings/users");
   for (const changed of [
     { ...value, actor_id: key }, { ...value, request_key: actor }, { ...value, action: "CREATED" },
     { ...value, resource_id: actor }, { ...value, response: { ...response, id: key } },

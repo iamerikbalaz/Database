@@ -5,6 +5,7 @@ import { runManifest } from "./run-manifest";
 import { retainedPass, signInThroughApi } from "./auth-helpers";
 
 test("approved CSV batch, exact retry and frozen download survive retained restart", async ({ page }) => {
+  test.setTimeout(90_000);
   await signInThroughApi(page);
   const fixture = runManifest.state.publication, path = `/api/materials/${fixture.id}`;
   const auth = await (await page.request.get("/api/auth/session")).json();
@@ -69,12 +70,65 @@ test("approved CSV batch, exact retry and frozen download survive retained resta
     await expect(page.getByRole("status")).toContainText("CSV batch saved");
     expect(sent).toHaveLength(2); expect(sent[0]).toEqual(sent[1]);
     await page.unroute("**/api/publication-batches");
+    const batchPanel = page.getByRole("group", { name: "Saved CSV batch", exact: true });
+    await batchPanel.getByText(`1. ${fixture.material_name} — ${fixture.technical_identity}`, { exact: true }).click();
+    const packaging = batchPanel.getByRole("article", { name: "Material packaging", exact: true });
+    await packaging.locator("summary").click();
+    const acknowledge = async (reason: string) => {
+      await packaging.getByLabel("Reason for packaging action").fill(reason);
+      await packaging.getByRole("checkbox", { name: "I reviewed the selected batch, ZIP rule and job progress.", exact: true }).check();
+    };
+    await expect(packaging.getByRole("button", { name: "Reserve packaging job", exact: true })).toBeVisible();
+    await acknowledge("Create actual synthetic local packages");
+    await packaging.getByRole("button", { name: "Reserve packaging job", exact: true }).click();
+    await expect(packaging.getByText("Job reserved. Start packaging when ready.", { exact: true })).toBeVisible();
+    const jobs = await (await page.request.get(path + "/packaging-executions")).json();
+    expect(jobs.enabled).toBe(true); expect(jobs.items).toHaveLength(1); expect(jobs.items[0].status).toBe("RESERVED");
+    const runPath = path + "/packaging-executions/" + jobs.items[0].id + "/run";
+    let lostRun = false; const runRequests: unknown[] = [];
+    await page.route("**" + runPath, async (route) => {
+      runRequests.push(route.request().postDataJSON());
+      if (!lostRun) {
+        lostRun = true; const complete = await route.fetch({ timeout: 60_000 });
+        expect(complete.status()).toBe(200); expect((await complete.json()).status).toBe("PACKAGED");
+        await route.abort("failed");
+      } else await route.continue();
+    });
+    await acknowledge("Run approved synthetic packaging");
+    await packaging.getByRole("button", { name: "Start packaging", exact: true }).click();
+    await expect(packaging.getByRole("alert")).toContainText("The outcome is unknown");
+    await packaging.getByRole("button", { name: "Recover same packaging request", exact: true }).click();
+    await expect(packaging.getByRole("heading", { name: "Packaged", exact: true })).toBeVisible();
+    expect(runRequests).toHaveLength(2); expect(runRequests[0]).toEqual(runRequests[1]);
+    await page.unroute("**" + runPath);
+    const historyPath = path + "/packaging-executions/" + jobs.items[0].id + "/dispatches";
+    const actions = await (await page.request.get(historyPath)).json();
+    expect(actions.items).toHaveLength(1); expect(actions.items[0].action).toBe("EXECUTE");
+    expect(actions.items[0].observation.outcome).toBe("READY");
+    expect(actions.items[0].observation.proof_sha256).toMatch(/^[a-f0-9]{64}$/);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await packaging.screenshot({ path: test.info().outputPath("packaging-job-desktop.png") });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await packaging.screenshot({ path: test.info().outputPath("packaging-job-mobile.png") });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    // A second, explicitly unsent reservation can be closed without conversion.
+    await acknowledge("Reserve a synthetic closure case");
+    await packaging.getByRole("button", { name: "Reserve packaging job", exact: true }).click();
+    await expect(packaging.getByText("Job reserved. Start packaging when ready.", { exact: true })).toBeVisible();
+    await acknowledge("Close the unsent synthetic reservation");
+    await packaging.getByRole("button", { name: "Close packaging job", exact: true }).click();
+    await expect(packaging.getByRole("heading", { name: "Closed", exact: true })).toBeVisible();
     // Current content changes after preparation; the already saved artifact must not.
     const current = await (await page.request.get(path + "/content")).json();
     expect((await page.request.post(path + "/content", { headers, data: { idempotency_key: crypto.randomUUID(), expected_revision: current.revision,
       description: "Later unapproved content", credits: 13, tags: ["changed"], category_ids: current.categories.map((item: { id: string }) => item.id), collection_ids: [], reason: "Verify immutable export after edit" } })).status()).toBe(200);
   }
   const history = await (await page.request.get("/api/publication-batches")).json(); expect(history.items).toHaveLength(1);
+  const packagingHistory = await (await page.request.get(path + "/packaging-executions")).json();
+  expect(packagingHistory.items).toHaveLength(2);
+  expect(packagingHistory.items.map((item: { status: string }) => item.status).sort()).toEqual(["PACKAGED", "REJECTED"]);
+  expect(packagingHistory.items.find((item: { status: string }) => item.status === "PACKAGED").proof_sha256).toMatch(/^[a-f0-9]{64}$/);
   const summary = history.items[0];
   await page.getByRole("button", { name: "Load latest batches", exact: true }).click();
   await page.getByRole("button", { name: `Open batch ${summary.id}`, exact: true }).click();
@@ -129,4 +183,15 @@ test("approved CSV batch, exact retry and frozen download survive retained resta
   await policy.screenshot({ path: test.info().outputPath("packaging-policy-mobile.png") });
   await page.setViewportSize({ width: 1280, height: 900 });
   await policy.screenshot({ path: test.info().outputPath("packaging-policy-desktop.png") });
+  // Capture the persisted job in both passes; Playwright clears first-pass output.
+  const retainedJob = page.getByRole("article", { name: "Material packaging", exact: true });
+  await retainedJob.locator("summary").click();
+  await retainedJob.getByRole("button", { name: /^Open Packaged ·/ }).click();
+  await expect(retainedJob.getByRole("heading", { name: "Packaged", exact: true })).toBeVisible();
+  await retainedJob.getByRole("button", { name: "Load packaging actions", exact: true }).click();
+  await expect(retainedJob.getByRole("listitem").last()).toContainText("execute · Run approved synthetic packaging · ready");
+  await retainedJob.screenshot({ path: test.info().outputPath("packaging-job-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await retainedJob.screenshot({ path: test.info().outputPath("packaging-job-mobile.png") });
 });

@@ -20,6 +20,13 @@ RUN pip install --no-cache-dir "."
 USER 65532:65532
 CMD ["python", "-m", "uvicorn", "app.packaging_api:app", "--host", "0.0.0.0", "--port", "8081", "--workers", "1", "--no-access-log", "--no-proxy-headers", "--limit-concurrency", "8", "--timeout-keep-alive", "5"]
 
+FROM runtime AS e2e
+USER root
+# Docker copies these owned empty directories into the E2E runner's fresh named
+# volume. Production service roots still require explicit operator provisioning.
+RUN install -d -m 0700 -o 65532 -g 65532 /e2e-packaging /e2e-packaging/workspace /e2e-packaging/artifacts /e2e-packaging/journal
+USER 65532:65532
+
 FROM runtime AS test
 USER root
 COPY tests ./tests

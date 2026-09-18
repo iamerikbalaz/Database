@@ -66,9 +66,25 @@ content, folder paths, credentials or auth-session IDs. Execution detail adds th
 latest current-input/account flags and worker terminal state. Audit events record
 dispatch and observation facts, including fixed acceptance failure reasons.
 
-No migration is changed. Schema 0017 remains the current immutable head. There is
-no production deployment, live upload, publication-status change or online-import
-confirmation. Operator UI, proof-bound downloads and actual end-to-end application
-HTTP/worker/browser coverage remain the next slices. Unit tests use explicitly
-synthetic rebound proof shapes; their success is not a claim of actual ZIP creation.
-Actual worker conversion/restart proofs are separately tested and exported.
+## Operator UI and verification
+
+Material detail and each material in a saved CSV batch expose a lazy packaging
+panel to ADMIN/LEADERSHIP. A reservation requires the exact saved batch snapshot,
+saved ZIP policy, reason and acknowledgement. Starting is a separate explicit
+action. Progress refreshes with GET requests only; unknown outcomes preserve the
+exact original request for recovery. Collapse does not discard that request.
+Closure follows the server's ADMIN restriction. History and commands are paginated.
+
+The isolated browser E2E uses a real packaging service with its own internal
+network and fresh private named volume, and synthetic sources mounted read-only.
+It creates actual local packages, discards the successful run response, recovers
+the same request and verifies a single READY dispatch. It also closes an unsent
+reservation and checks both records after service restart and later content/policy
+edits. That retained browser pass checks database history, not artifact bytes;
+actual worker artifact recovery is separately verified by runtime restart tests.
+Frontend unit tests use explicit mocks. Backend unit tests use synthetic rebound
+proof shapes; these alone do not establish ZIP creation.
+
+No migration is changed. Schema 0017 remains the current immutable head. Proof-bound
+downloads, upload and online-import confirmation remain separate unfinished
+slices. No production deployment or publication-status change has occurred.

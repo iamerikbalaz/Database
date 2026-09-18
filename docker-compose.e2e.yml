@@ -20,6 +20,12 @@ services:
       WORKER_TIMEOUT_SECONDS: 5
       SOURCE_MUTATIONS_ENABLED: true
       WORKER_MUTATION_TOKEN: ${E2E_WORKER_MUTATION_TOKEN:?E2E runner must provide an ephemeral worker credential}
+      PACKAGING_ENABLED: true
+      PACKAGING_BASE_URL: http://packaging:8081
+      PACKAGING_SERVICE_TOKEN: ${E2E_PACKAGING_TOKEN:?E2E runner must provide a separate ephemeral packaging credential}
+    networks:
+      - default
+      - packaging_private
 
   worker:
     environment:
@@ -47,6 +53,43 @@ services:
       VITE_API_BASE_URL: /api
       BACKEND_PROXY_TARGET: http://backend:8000
 
+  packaging:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile.packaging
+      target: e2e
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 4g
+    cpus: 2
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m,mode=1777
+    environment:
+      PACKAGING_ENABLED: true
+      PACKAGING_SERVICE_TOKEN: ${E2E_PACKAGING_TOKEN:?E2E runner must provide a separate ephemeral packaging credential}
+      MATERIALS_ROOT: /e2e-materials
+      PACKAGING_WORKSPACE_ROOT: /e2e-packaging/workspace
+      PACKAGING_ARTIFACT_ROOT: /e2e-packaging/artifacts
+      PACKAGING_JOURNAL_ROOT: /e2e-packaging/journal
+    volumes:
+      - type: bind
+        source: ${E2E_MATERIALS_ROOT:?E2E materials root is required}
+        target: /e2e-materials
+        read_only: true
+      - type: volume
+        source: packaging_data
+        target: /e2e-packaging
+    networks:
+      - packaging_private
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health', timeout=2).read()"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
 volumes:
   postgres_data:
     name: ${E2E_PROJECT_NAME:-reawote-e2e}-postgres-data
@@ -54,3 +97,10 @@ volumes:
     name: ${E2E_IDENTITY_VOLUME_PREFIX:?E2E runner must allocate fresh identity volumes}-sources
   identity_journals:
     name: ${E2E_IDENTITY_VOLUME_PREFIX:?E2E runner must allocate fresh identity volumes}-journals
+  packaging_data:
+    name: ${E2E_PACKAGING_VOLUME:?E2E runner must allocate a fresh packaging volume}
+
+networks:
+  default: {}
+  packaging_private:
+    internal: true

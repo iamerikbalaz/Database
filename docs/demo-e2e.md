@@ -18,6 +18,10 @@ publikované značky, projekt, procesora a osm materiálů a v Chromium provede:
 - řízenou změnu identity na syntetických Linux souborech, včetně zachování UUID a historie;
 - kategorie/kolekce, verzovaný publikační obsah, jeho schválení a invalidaci po úpravě;
 - skutečné dekódování náhledů, přepínání obrázků a porovnání dvou materiálů;
+- schválený historický CSV export a jeho neměnnost po úpravě obsahu;
+- skutečné lokální balení, obnovu stejného požadavku po ztracené odpovědi,
+  jediný potvrzený worker příkaz a uzavření neodeslané rezervace;
+- historii balení a změn ZIP pravidel po restartu;
 - klientské odmítnutí absolutní cesty a `..` bez preflight requestu;
 - kontrolu veřejných odpovědí, UI a browser console na únik raw obsahu, host path
   nebo neočekávanou chybu.
@@ -64,6 +68,22 @@ Runner používá pouze Compose projekt `reawote-e2e`, volume
 `materials`; NAS se nepřipojuje a PostgreSQL heslo vznikne náhodně pouze v
 procesním prostředí. UNC a network-drive repozitáře jsou odmítnuty; na Windows
 musí být repozitář na lokálním `Fixed` disku.
+
+Privátní packaging služba používá pouze interní síť `<projekt>_packaging_private`,
+nepublikuje žádný port a běží jako UID 65532 s read-only kořenem a omezenými
+prostředky. Syntetické zdroje má připojené jen pro čtení. Samostatný nový volume
+`<projekt>-packaging-<GUID bez pomlček>` obsahuje workspace, hotové artefakty a
+journal; runner odmítne jeho předchozí existenci. Token vzniká náhodně pro daný
+běh, neukládá se do manifestu a diagnostika jej odstraňuje.
+Před startem a po startu/restartu se kontrolují skutečné mounty, UID, síť,
+read-only režim a vlastnictví volume. Čisté guard testy bez Dockeru jsou
+v `scripts/test-packaging-e2e-helpers.ps1`.
+
+Oba workery se restartují spolu s aplikací. Druhý browser průchod kontroluje
+zachovanou databázovou historii balení; čtení uložených ZIP bajtů po restartu
+ověřuje samostatná runtime worker sada. Packaging volume se při cleanupu zachová,
+stejně jako izolované identity source/journal volumes. Tyto prostředky nejsou
+produkční data a runner nemaže ani starší volumes svých předchozích běhů.
 
 Před startem se kontroluje vyrenderovaný Compose model včetně převodu logického
 klíče `postgres_data` na engine název `reawote-e2e-postgres-data`; po startu se

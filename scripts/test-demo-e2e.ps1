@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot 'demo-e2e-helpers.ps1')
+. (Join-Path $PSScriptRoot 'packaging-e2e-helpers.ps1')
 
 $projectName = if ($env:E2E_PROJECT_NAME) { $env:E2E_PROJECT_NAME } else { 'reawote-e2e' }
 if ($projectName -cnotmatch '^reawote-e2e(?:-[a-z0-9][a-z0-9-]{0,40})?$') {
@@ -167,6 +168,7 @@ function Invoke-E2eComposeWithStandardInput {
 function Assert-RenderedE2eCompose {
     param([Parameter(Mandatory)] [string] $Json)
     $configuration = $Json | ConvertFrom-Json -ErrorAction Stop
+    Assert-E2ePackagingCompose $configuration $script:E2eMaterialsRoot $env:E2E_PACKAGING_VOLUME
     if ($configuration.name -ne $script:E2eProjectName) { throw 'Rendered Compose project is not the exact E2E project.' }
     if ($Json.Contains('reawote-demo-postgres-data')) { throw 'Rendered E2E Compose unexpectedly references the protected demo volume.' }
     foreach ($serviceProperty in $configuration.services.PSObject.Properties) {
@@ -214,6 +216,20 @@ function Assert-RuntimeIdentityMounts {
         $mount = @($inspection[0].Mounts | Where-Object { $_.Destination -eq $target })
         if ($mount.Count -ne 1 -or $mount[0].Type -ne 'volume' -or $mount[0].Name -cne $expected -or $mount[0].RW -ne $true) { throw 'Runtime identity mount does not belong to this run.' }
     }
+}
+
+function Assert-RuntimePackagingMounts {
+    $containerId = (Invoke-E2eCompose @('ps', '--quiet', 'packaging') 'Locate E2E packaging service') -join ''
+    $containerJson = (& docker inspect $containerId.Trim()) -join [Environment]::NewLine
+    Assert-LastCommandSucceeded 'Inspect E2E packaging service'
+    $networkJson = (& docker network inspect ($script:E2eProjectName + '_packaging_private')) -join [Environment]::NewLine
+    Assert-LastCommandSucceeded 'Inspect E2E private packaging network'
+    $containers = @($containerJson | ConvertFrom-Json -ErrorAction Stop)
+    $networks = @($networkJson | ConvertFrom-Json -ErrorAction Stop)
+    if ($containers.Count -ne 1 -or $networks.Count -ne 1) { throw 'Unexpected packaging runtime inspection.' }
+    $volume = Get-ExactVolumeInspection $env:E2E_PACKAGING_VOLUME
+    [void](Assert-E2eEngineVolumeInspection $volume $env:E2E_PACKAGING_VOLUME $script:E2eProjectName 'packaging_data')
+    Assert-E2ePackagingRuntime $containers[0] $networks[0] $script:E2eProjectName $script:E2eMaterialsRoot $env:E2E_PACKAGING_VOLUME
 }
 
 function Assert-RuntimeDatabaseMount {
@@ -411,7 +427,7 @@ function Save-E2eFailureDiagnostics {
         catch { $lines.Add("Diagnostics collection error: $($_.Exception.Message)") }
     }
     $text = $lines -join [Environment]::NewLine
-    foreach ($secret in @($Password, $RunRoot, $env:E2E_RUN_TOKEN, $env:E2E_ADMIN_PASSWORD, $env:E2E_TEMPORARY_PASSWORD, $env:E2E_USER_PASSWORD, $env:E2E_WORKER_MUTATION_TOKEN, $script:E2eCsrf)) { if ($secret) { $text = $text.Replace($secret, '[REDACTED]') } }
+    foreach ($secret in @($Password, $RunRoot, $env:E2E_RUN_TOKEN, $env:E2E_ADMIN_PASSWORD, $env:E2E_TEMPORARY_PASSWORD, $env:E2E_USER_PASSWORD, $env:E2E_WORKER_MUTATION_TOKEN, $env:E2E_PACKAGING_TOKEN, $script:E2eCsrf)) { if ($secret) { $text = $text.Replace($secret, '[REDACTED]') } }
     Write-E2eSafeTextFile -RepositoryRoot $RepositoryRoot -RunRoot $ArtifactRoot -Path (Join-Path $ArtifactRoot 'runner-diagnostics.txt') -Content $text
 }
 
@@ -425,7 +441,7 @@ $runGuid = [guid]::NewGuid()
 $mutex = $null
 $runFailure = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
-$environmentNames = @('BACKEND_PORT', 'FRONTEND_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'COMPOSE_PROJECT_NAME', 'E2E_FRONTEND_PORT', 'E2E_MATERIALS_ROOT', 'E2E_WORKER_PORT', 'E2E_RUN_MANIFEST', 'E2E_RUN_TOKEN', 'E2E_ADMIN_PASSWORD', 'E2E_TEMPORARY_PASSWORD', 'E2E_USER_PASSWORD', 'E2E_RETAINED_PASS', 'E2E_IDENTITY_VOLUME_PREFIX', 'E2E_WORKER_MUTATION_TOKEN')
+$environmentNames = @('BACKEND_PORT', 'FRONTEND_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'COMPOSE_PROJECT_NAME', 'E2E_FRONTEND_PORT', 'E2E_MATERIALS_ROOT', 'E2E_WORKER_PORT', 'E2E_RUN_MANIFEST', 'E2E_RUN_TOKEN', 'E2E_ADMIN_PASSWORD', 'E2E_TEMPORARY_PASSWORD', 'E2E_USER_PASSWORD', 'E2E_RETAINED_PASS', 'E2E_IDENTITY_VOLUME_PREFIX', 'E2E_WORKER_MUTATION_TOKEN', 'E2E_PACKAGING_TOKEN', 'E2E_PACKAGING_VOLUME')
 $previousEnvironment = @{}
 foreach ($name in $environmentNames) { $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 $repositoryRoot = $runRoot = $artifactRoot = $dataManagedRoot = $artifactManagedRoot = $postgresPassword = $protectedBefore = $null
@@ -454,6 +470,9 @@ try {
     [void](New-E2eSafeDirectory $repositoryRoot $runRoot (Join-Path $script:E2eMaterialsRoot 'e2e-identity'))
     $env:E2E_IDENTITY_VOLUME_PREFIX = $projectName + '-identity-' + $runGuid.ToString('N')
     $env:E2E_WORKER_MUTATION_TOKEN = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
+    $env:E2E_PACKAGING_TOKEN = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
+    $env:E2E_PACKAGING_VOLUME = $projectName + '-packaging-' + $runGuid.ToString('N')
+    if ($null -ne (Get-ExactVolumeInspection $env:E2E_PACKAGING_VOLUME)) { throw 'Fresh packaging volume already exists; refusing all mutations.' }
     foreach ($suffix in @('sources', 'journals')) {
         if ($null -ne (Get-ExactVolumeInspection ($env:E2E_IDENTITY_VOLUME_PREFIX + '-' + $suffix))) { throw 'Fresh identity volume name already exists; refusing all mutations.' }
     }
@@ -493,6 +512,7 @@ try {
     Assert-E2eResourcesOwned
     Assert-RuntimeDatabaseMount
     Initialize-E2eAuthentication $backendUrl $frontendUrl
+    Assert-RuntimePackagingMounts
     $state = New-E2eSeedManifestData $backendUrl $repositoryRoot $runRoot $script:E2eMaterialsRoot
     $runToken = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
     $manifestPath = Join-Path $runRoot 'run-manifest.json'
@@ -510,8 +530,9 @@ try {
         & npm.cmd exec -- playwright test
         Assert-LastCommandSucceeded 'Playwright E2E scenarios'
         # Restart the application without resetting the database or fixtures.
-        Invoke-E2eCompose @('restart', 'backend', 'frontend', 'worker') 'Restart application and worker with retained data and journals' -Mutation
+        Invoke-E2eCompose @('restart', 'backend', 'frontend', 'worker', 'packaging') 'Restart application and workers with retained data and journals' -Mutation
         Assert-RuntimeIdentityMounts
+        Assert-RuntimePackagingMounts
         $deadline = [DateTime]::UtcNow.AddSeconds(45)
         $ready = $false
         while ([DateTime]::UtcNow -lt $deadline) {
@@ -588,4 +609,5 @@ Write-Host 'All Playwright demo E2E scenarios passed.'
 if ($keepSuccessfulArtifacts) { Write-Host "Successful synthetic UI artifacts retained for visual review: $artifactRoot" }
 Write-Host "Cleanup removed only project '$projectName' containers/network and run '$($runGuid.ToString('D'))'; volume '$databaseVolumeName' was preserved."
 Write-Host "Synthetic identity source/journal volumes with prefix '$projectName-identity-$($runGuid.ToString('N'))' were preserved."
+Write-Host "Synthetic packaging volume '$projectName-packaging-$($runGuid.ToString('N'))' was preserved."
 Write-Host 'Regular project reawote and demo project/volume state remained unchanged.'

@@ -6,6 +6,7 @@ import { publicationClient, type PublicationBatch, type PublicationCreate, type 
 import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
 import { NavigationLink } from "../components/NavigationLink";
+import { PackagingJobsPanel } from "../components/PackagingJobsPanel";
 
 function Warnings({ items }: { items: PublicationWarning[] }) {
   return items.length ? <ul className="publication-warnings">{items.map((warning, index) => <li key={index}>
@@ -117,11 +118,14 @@ function PublicationWorkspace({ client, navigate }: { client: ApiClient; navigat
         {!history.items.length && <p>No saved batches.</p>}{history.nextCursor && <button className="button" onClick={() => void loadHistory(history.nextCursor)}>Older batches</button>}</>}
     </fieldset>
     {batch && <fieldset className="panel" disabled={frozen}><legend>Saved CSV batch</legend><p className="revision-hash">Batch {batch.id}</p><p>{new Date(batch.createdAt).toLocaleString()} · {batch.rowCount} materials · CSV prepared</p>
-      <p>Reason: {batch.reason}</p><p>Packaging, upload and online publication are pending. This CSV is a historical snapshot.</p>
+      <p>Reason: {batch.reason}</p><p>This CSV is a historical snapshot. Review each material's packaging progress below. Upload and online publication have separate steps.</p>
       <p className="revision-hash">CSV SHA-256: {batch.csvSha256}</p><Warnings items={batch.warnings} />
       <button className="button button--primary" onClick={() => void downloadCsv()}>Download saved CSV</button>
       {batch.items.map((item) => <details key={item.materialId}><summary>{item.ordinal}. {item.row.name} — {item.row.identityName}</summary><Row value={item.row} />
-        <p className="revision-hash">Asset revision: {item.row.revisionHash}</p><p className="revision-hash">Content snapshot: {item.row.contentContextHash}</p></details>)}
+        <p className="revision-hash">Asset revision: {item.row.revisionHash}</p><p className="revision-hash">Content snapshot: {item.row.contentContextHash}</p>
+        <NavigationLink href={`/materials/${item.materialId}`} navigate={navigate}>Open material</NavigationLink>
+        <PackagingJobsPanel key={`${batch.id}-${item.materialId}`} materialId={item.materialId} batch={{ id: batch.id, snapshotHash: item.snapshotHash }} />
+      </details>)}
     </fieldset>}
   </>;
 }

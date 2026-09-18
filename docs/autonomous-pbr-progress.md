@@ -204,11 +204,35 @@ backend regression in `reawote-packaging-backend-fe048c33396f4bbd8b8dcc53861b9f8
 passed **1319 tests (525.51s)** with no skips and the two existing dependency
 warnings, including those guards. It ran without network, database, ports or host
 data, as UID 65532 with a read-only root; its container was removed automatically.
-Application UI/client work is in progress; actual app/worker E2E and artifact
-downloads remain unfinished. No committed migration was modified.
+The application action suite is complete. No committed migration was modified.
+The verified application action slice is committed and pushed as `da6d7ce`;
+remote main was rechecked and remains `88a1f99`.
 
-Next: durable database jobs/attempts
-with current approval/source checks and operator UI (`docs/packaging-execution-plan.md`). GCS/Notion,
+Packaging UI/client is implemented and currently uncommitted: lazy material/batch
+panels, separate reserve/start, exact recovery of a lost response, progress polling,
+role-specific retry/reconcile/closure and bounded action history. All **476 frontend
+tests (17.21s)** passed, including 19 new cases; lint/build and E2E TypeScript passed.
+The isolated E2E environment now includes a private, non-root packaging service,
+read-only synthetic sources, its own fresh retained volume and internal network.
+All 16 new packaging isolation guard checks and existing E2E helper checks passed.
+E2E `13b30160-f270-4f26-a25e-f3d3f6f60845` passed **17 fresh (1.2m) and 17 retained
+(38.0s)** scenarios with actual local packages, exact recovery after a lost run
+response, a single READY dispatch and explicit unsent closure. A later run
+`6a5e1dec-d5b0-4d7e-a8b6-759a48f085c7` was safely stopped by the exact runtime mount
+guard before browser work; owned cleanup succeeded. The guard was split into
+specific diagnostics without relaxing its comparisons. The failure did not recur
+in final E2E `5378cfc9-3b40-48e5-a16d-6b6575d5094d`, which passed **17 fresh (1.2m)
+and 17 retained (39.8s)**. Its desktop/390px packaging screenshots were visually
+inspected; no overflow was present. Duplicate action-list numbering was corrected.
+The final 29 affected frontend tests and lint/build/E2E TypeScript also passed
+before that cosmetic numbering change; all 19 packaging UI tests passed again
+after it. All 16 packaging guard checks passed again.
+The final cleanup removed only owned containers/networks and preserved owned
+DB/source/journal/packaging volumes; protected resources were unchanged.
+No production Compose service or live deployment was added.
+
+Next: proof-bound artifact downloads. Durable jobs, current approval/source checks
+and operator UI are implemented (`docs/packaging-actions.md`). GCS/Notion,
 online-import confirmation and the remaining catalog, history and operations work
 are unfinished. Older entries below are history; this checkpoint takes precedence
 over their former pending states.

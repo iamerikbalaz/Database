@@ -204,8 +204,10 @@ The derived-file cleanup rule still needs an explicit lifecycle implementation:
 temporary attempt workspaces must be cleared while preserving SOURCE/PREVIEW/master
 and production metadata, immutable evidence and currently served historical downloads.
 The existing retained artifact history must not be casually deleted or rewritten.
-This gap is not closed by the transport or preview. Credential refresh/ADC, isolated
-live verification, throughput and storage/readback cost also remain unverified.
+This gap is not closed by the transport or preview. Credential refresh/ADC is now
+implemented with offline checks in [the credential guide](gcs-credentials.md).
+Isolated live credentials/target verification, throughput and storage/readback cost
+remain unverified.
 
 Reservation checks include fresh/prior migration and Alembic parity, append-only and
 downgrade guards, real PostgreSQL cross-operation races, simultaneous exact retries,

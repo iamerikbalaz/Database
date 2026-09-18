@@ -2,13 +2,13 @@
 
 ## Latest checkpoint (2026-09-18, material lifecycle verification)
 
-Latest pushed tip before the archive commits: `b57e14e5c33abb7afe55ed540c38c04f320f227a`. Account security
-history and the database exception boundary are committed and pushed. Remote main
+Latest pushed tip: `221c9c0b895fe0549dd7cc3670c4c5834d32ba69`. Archive backend/UI,
+account security history and the database exception boundary are committed and pushed. Remote main
 was last verified unchanged at `88a1f99d748d2a0edbb1fce509e13d18bfc03908`.
 Earlier test runs and resolved failures are preserved in the historical checkpoints.
 
 Material lifecycle backend is committed as `e9964c5136a26c39e5d18f5284a25764951d3711`.
-Its UI/docs follow in the next commit; use `git log -1` for the current branch tip.
+Its UI/docs are committed as `221c9c0`; use `git log -1` for the current branch tip.
 Lifecycle 0023 is implemented and wired: ADMIN preview,
 archive/restore, exact command recovery, bounded listing/history, current-work
 denial and narrow historical packaging/download reads. Its UI supports explicit
@@ -80,17 +80,22 @@ Verification collected so far:
   Owned containers/network removed; own volume/image retained. This image also
   contains initial, uncommitted ADC work, disabled in these tests.
 
-Next uncommitted slice: request-level GCS credential renewal and an opt-in ADC
-provider. Configuration and provider are wired; local verification passed
-**134 tests, 3.52s**, including the installed Google Auth 2.58.0 SDK with a synthetic
-ADC file and Google metadata responses. Affected transport/batch/runtime regression
+Request-level GCS credential renewal and an opt-in ADC provider are implemented,
+wired and verified, ready for their own commit. Final local verification passed
+**136 tests, 3.80s**, including the installed Google Auth 2.58.0 SDK with a synthetic
+ADC file, service-account signing and Google metadata responses. Affected transport/batch/runtime regression
 also passed **179 tests, 114.96s**, two warnings, before the added ADC cases.
-Linux verification is running in session 22111; no real credential/account was used.
+Linux verification passed **280 tests, 275.89s**, no skips, two dependency warnings,
+in owned image `reawote-gcs-credentials-1726fce9943d41959977d081016a3b2f:test`, ID
+`d57af828176a7969eb45ff09af6957bf412954e9b6393d217dc68048b795e9c9`.
+Nonroot/read-only/no network or host mounts; owned container automatically removed.
+The two final service-account SDK cases were added after the Linux snapshot and
+passed locally. No real credential/account was used.
 Initial transport
 tests passed 110 with one new expected-request-count assertion failure: the final
 PUT already returns metadata, so the actual protocol correctly has two later GETs,
 not three. The corrected assertion preserves exact write counts. See
-`gcs-credentials-plan.md` and the uncommitted implementation guide.
+`gcs-credentials.md`. No schema or frontend change is required for credential renewal.
 
 Committed migrations through 0023 are immutable; append a new migration for later changes.
 No original/demo/restore database, NAS or real external target has been modified.
@@ -117,7 +122,7 @@ Implemented and tested within the documented contracts:
   conversion/ZIP execution, durable reservations/dispatch/lease/recovery, accepted
   proof and authorized historical downloads.
 - Configurable GCS staging transport, bounded source streams, immutable staging jobs,
-  explicit start/recovery/abandon controls and UI.
+  explicit start/recovery/abandon controls and UI, plus opt-in renewable ADC credentials.
 - Disabled-by-default Notion comparison and reviewed selective local adoption,
   request-bound recovery, immutable company history and UI.
 - Ordinary brand/project/user/material audit history and successful account security
@@ -132,14 +137,12 @@ loss in [historical checkpoints](autonomous-pbr-history.md).
 
 ## Remaining work and real blockers
 
-1. Finish the current renewable GCS credential verification and commit its bounded
-   implementation. Live account/target verification remains separately blocked.
-2. Complete remaining history pagination/legacy CRUD replay decisions, artifact
+1. Complete remaining history pagination/legacy CRUD replay decisions, artifact
    cleanup lifecycle and operational/final review documentation.
-3. Verify the actual online importer contract, golden material outputs, manual
+2. Verify the actual online importer contract, golden material outputs, manual
    publication confirmation and realistic historical workbook/source compatibility.
    Production inputs and importer fixtures are not available in this environment.
-4. Finish external credential lifecycle/configuration where necessary and verify
+3. Finish external credential lifecycle/configuration where necessary and verify
    isolated live GCS/Notion/AI integration only after separately authorized targets
    and access are supplied. Contract tests do not substitute for that live check.
 

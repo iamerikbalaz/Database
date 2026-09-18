@@ -10,13 +10,15 @@ There is no fake production success path.
 ## Contract and configuration
 
 `GcsClient.from_settings(settings)` uses `GCS_ENABLED`, `GCS_BUCKET_NAME`,
-`GCS_STAGING_PREFIX`, `GCS_ACCESS_TOKEN` (secret) and `GCS_TIMEOUT_SECONDS` (default
-900, maximum 3600). Enabling requires an explicit bucket, prefix and short-lived
-OAuth access token. Inject the token through the service's secret environment,
-never command-line arguments, tracked files or logs. Token refresh is not provided
-by this initial provider; expiry fails closed. A server-owned async token provider
-can instead be passed to `GcsClient`. No ambient account, credential file or gcloud
-subprocess is consulted. `GOOGLE_APPLICATION_CREDENTIALS` is not consumed yet.
+`GCS_STAGING_PREFIX`, `GCS_AUTH_MODE`, `GCS_ACCESS_TOKEN` (secret) and
+`GCS_TIMEOUT_SECONDS` (default 900, maximum 3600). The default `access_token` mode
+uses an explicit short-lived OAuth token from the secret environment and never
+discovers an ambient account. Never put tokens in command arguments, tracked files
+or logs. Explicit `adc` mode supports server-side discovery and renewal through
+Google Auth; it cannot be combined with a static token. See
+[credential renewal](gcs-credentials.md) for its limits and deployment contract.
+The provider is checked before every storage request, with application authority
+rechecked on both sides. Credential failure never automatically retries a write.
 
 Use a dedicated staging target with create/get permissions and an appropriate
 bucket access policy. The adapter neither changes ACLs nor requests public access.

@@ -1,4 +1,8 @@
-# Next slice: explicit renewable GCS credentials
+# Design: explicit renewable GCS credentials
+
+Implemented and tested on the development branch. This document preserves the
+design; [the credential guide](gcs-credentials.md) describes the actual contract,
+supported verification and deployment limits.
 
 The existing injected async provider is useful for transport tests, but deployment
 currently accepts only a static access token. Keep that default compatible and add
@@ -29,6 +33,6 @@ no automatic storage retry, connection cleanup and absence of sensitive diagnost
 Run against the real installed auth library with injected local transports; no
 ambient credentials or real Google endpoint may be used during these tests.
 
-This document is a plan, not completed ADC support or live verification. Deployment
+This design does not establish live verification. Deployment
 credential selection, actual IAM grants and an isolated live target remain explicit
 operator responsibilities; this development run will not change external accounts.

@@ -167,6 +167,9 @@ class GcsClient:
         configuration = GcsConfiguration(enabled=settings.gcs_enabled,
             bucket_name=settings.gcs_bucket_name, staging_prefix=settings.gcs_staging_prefix,
             timeout_seconds=settings.gcs_timeout_seconds)
+        if configuration.enabled and settings.gcs_auth_mode == "adc":
+            from app.gcs_credentials import AdcTokenProvider
+            return cls(configuration, AdcTokenProvider())
 
         async def token():
             # An explicitly supplied short-lived OAuth token. No key file reads,
@@ -174,6 +177,18 @@ class GcsClient:
             return settings.gcs_access_token
 
         return cls(configuration, token)
+
+    async def _credential(self, guard):
+        await guard.require()
+        try:
+            token = await self._token_provider()
+            raw = token.get_secret_value()
+            if not 32 <= len(raw) <= 8192 or not raw.isascii() or any(not 33 <= ord(c) <= 126 for c in raw):
+                raise ValueError()
+        except Exception:
+            raise GcsError("GCS_CREDENTIAL_UNAVAILABLE") from None
+        await guard.require()
+        return raw
 
     @asynccontextmanager
     async def _connection(self, guard):
@@ -185,15 +200,7 @@ class GcsClient:
         client = None
         try:
             with anyio.fail_after(self.configuration.timeout_seconds):
-                await guard.require()
-                try:
-                    token = await self._token_provider()
-                    raw = token.get_secret_value()
-                    if not 32 <= len(raw) <= 8192 or not raw.isascii() or any(not 33 <= ord(c) <= 126 for c in raw):
-                        raise ValueError()
-                except Exception:
-                    raise GcsError("GCS_CREDENTIAL_UNAVAILABLE") from None
-                await guard.require()
+                raw = await self._credential(guard)
                 client = httpx.AsyncClient(timeout=httpx.Timeout(60, connect=5),
                     trust_env=False, follow_redirects=False, http2=False,
                     limits=httpx.Limits(max_connections=1, max_keepalive_connections=1),
@@ -214,8 +221,11 @@ class GcsClient:
 
     @asynccontextmanager
     async def _response(self, client, method, url, *, guard, **kwargs):
-        await guard.require()
-        response = await client.send(client.build_request(method, url, **kwargs), stream=True)
+        # A long upload may outlive the token used to open its connection. Ask the
+        # provider before every HTTP request, with authority checked on both sides.
+        raw = await self._credential(guard)
+        headers = {**kwargs.pop("headers", {}), "Authorization": "Bearer " + raw}
+        response = await client.send(client.build_request(method, url, headers=headers, **kwargs), stream=True)
         try:
             yield response
         finally:

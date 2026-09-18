@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -28,6 +29,7 @@ class Settings(BaseSettings):
     gcs_bucket_name: str = ""
     gcs_staging_prefix: str = ""
     gcs_access_token: SecretStr | None = None
+    gcs_auth_mode: Literal["access_token", "adc"] = "access_token"
     gcs_timeout_seconds: float = Field(default=900, gt=0, le=3600)
     notion_enabled: bool = False
     notion_access_token: SecretStr | None = None
@@ -90,7 +92,9 @@ class Settings(BaseSettings):
             staging_prefix=self.gcs_staging_prefix, timeout_seconds=self.gcs_timeout_seconds)
         if self.gcs_enabled:
             gcs_token = self.gcs_access_token.get_secret_value() if self.gcs_access_token else ""
-            if not 32 <= len(gcs_token) <= 8192 or not gcs_token.isascii() or any(not 33 <= ord(c) <= 126 for c in gcs_token):
+            if self.gcs_auth_mode == "adc" and gcs_token:
+                raise ValueError("Choose one GCS credential mode")
+            if self.gcs_auth_mode == "access_token" and (not 32 <= len(gcs_token) <= 8192 or not gcs_token.isascii() or any(not 33 <= ord(c) <= 126 for c in gcs_token)):
                 raise ValueError("GCS requires an explicitly supplied OAuth access token")
         try:
             packaging_url = urlsplit(self.packaging_base_url)

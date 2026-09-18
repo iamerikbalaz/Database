@@ -39,6 +39,7 @@ Aktuální funkce a skutečně provedené testy shrnuje
 - [Spouštění, obnova a uzavření ZIP packagingu](docs/packaging-actions.md).
 - [Ověřené stahování historických balíčků](docs/packaging-downloads.md).
 - [Rezervace dávky pro GCS a ochrana materiálů](docs/gcs-upload-jobs.md).
+- [Režimy přístupu ke GCS a obnova tokenů](docs/gcs-credentials.md).
 - [Auditní historie změn firem](docs/company-history.md).
 - [Historie značek, projektů, profilů a materiálů](docs/resource-history.md).
 - [Historie úspěšných změn přístupu k účtům](docs/account-security-history.md).

@@ -42,6 +42,7 @@ Aktuální funkce a skutečně provedené testy shrnuje
 - [Auditní historie změn firem](docs/company-history.md).
 - [Historie značek, projektů, profilů a materiálů](docs/resource-history.md).
 - [Historie úspěšných změn přístupu k účtům](docs/account-security-history.md).
+- [Ochrana HTTP odpovědí a logů při databázové chybě](docs/database-error-redaction-plan.md).
 - [Řízené převzetí údajů firmy z Notion](docs/notion-adoption.md).
 
 Ukládání CSV, lokální ZIP packaging a rezervace interní GCS dávky jsou implementované.

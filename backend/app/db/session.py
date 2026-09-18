@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 class Database:
     def __init__(self, url: str) -> None:
-        engine_options: dict[str, object] = {"pool_pre_ping": True}
+        engine_options: dict[str, object] = {"pool_pre_ping": True, "hide_parameters": True}
 
         if url.startswith("sqlite"):
             engine_options["connect_args"] = {"check_same_thread": False}

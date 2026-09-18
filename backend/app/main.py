@@ -14,6 +14,7 @@ from app.api.material_operations import build_material_operations_router
 from app.api.resources import SessionDatabase, build_resources_router
 from app.core.config import Settings, get_settings
 from app.db.session import Database
+from app.db.errors import DatabaseErrorBoundary
 from app.worker_client import MaterialPreflightClient, WorkerClient
 from app.inventory_client import InventoryClient, WorkerInventoryClient
 from app.api.material_review import build_material_review_router
@@ -85,13 +86,6 @@ def create_app(
     application.state.database = app_database
     application.state.settings = app_settings
     application.add_exception_handler(RequestValidationError, safe_request_validation_handler)
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=app_settings.parsed_cors_origins,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PATCH"],
-        allow_headers=["Accept", "Content-Type", "X-CSRF-Token"],
-    )
     application.include_router(build_auth_router(app_database, app_settings))
     application.include_router(build_account_router(app_database, app_settings))
     application.include_router(build_health_router(app_database))
@@ -144,6 +138,18 @@ def create_app(
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
         return response
+
+    # Wrap all request/stream processing, including cache middleware, without
+    # formatting database exceptions. CORS remains outside so safe failures keep
+    # the configured origin policy. The last registered middleware runs first.
+    application.add_middleware(DatabaseErrorBoundary)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=app_settings.parsed_cors_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PATCH"],
+        allow_headers=["Accept", "Content-Type", "X-CSRF-Token"],
+    )
 
     @application.get("/", tags=["system"])
     def root() -> dict[str, str]:

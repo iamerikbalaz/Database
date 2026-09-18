@@ -45,6 +45,45 @@ def _current_head():
     return ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
 
 
+def test_postgresql_unhandled_driver_detail_is_contained_at_http_boundary(review_pg_case, caplog):
+    from app.auth.access import AccessDependency, ADMIN
+    case = review_pg_case
+    marker = uuid4().hex
+
+    def duplicate():
+        with case.database.engine.begin() as connection:
+            connection.execute(text("CREATE TEMP TABLE error_probe (value TEXT UNIQUE) ON COMMIT DROP"))
+            connection.execute(text("INSERT INTO error_probe VALUES (:value)"), {"value": marker})
+            connection.execute(text("INSERT INTO error_probe VALUES (:value)"), {"value": marker})
+
+    with pytest.raises(IntegrityError) as captured:
+        duplicate()
+    assert captured.value.hide_parameters
+    # Real PostgreSQL DETAIL retains the conflicting value despite hidden binds.
+    # Check it internally; never print the driver message or parameters.
+    has_driver_detail = marker in str(captured.value.orig)
+    assert has_driver_detail
+
+    @case.app.get("/api/database-error-probe")
+    def fail(access: AccessDependency):
+        with case.database.session() as session:
+            access.check(session, ADMIN)
+        duplicate()
+
+    with case.client_for() as client:
+        response = client.get("/api/database-error-probe")
+        assert response.status_code == 503
+        assert response.json() == {"detail": {"code": "DATABASE_UNAVAILABLE"}}
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["access-control-allow-origin"] == client.headers["Origin"]
+        assert marker not in response.text
+        assert client.get(case.path).status_code == 200
+    assert marker not in caplog.text
+    records = [item for item in caplog.records if item.name == "reawote.database"]
+    assert len(records) == 1 and records[0].exc_info is None
+
+
 @pytest.fixture
 def review_pg_case(request, migrated_postgresql_url):
     if getattr(request, "param", None) == "isolated-history":

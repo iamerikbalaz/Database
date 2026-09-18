@@ -2,6 +2,31 @@
 
 ## Latest checkpoint (2026-09-18)
 
+Latest pushed tip: `44df61ba2fee825e20af368b88102e744f0723cc`. Account security
+history is complete in the branch. Main was rechecked unchanged at `88a1f99`.
+
+Two following slices are uncommitted. The database exception boundary has passed
+38 local checks and 258 affected Linux tests. Its first PostgreSQL run passed 369
+tests with one new logging assertion failure (auth 27/27, no skips, 438.05s).
+Alembic disabled the existing application logger; its configuration now retains
+loggers and hides bound parameters. Corrected PostgreSQL run: owned project
+`reawote-test-c66e079d51d54f2f88de5c2ec773c4fc`, **370 passed, 444.15s**, auth
+**27/27**, no skips, five dependency/schema warnings. Image manifest
+`291ccf6c1fbf7512a5b891533844ad3c3383414288ca24544cb93e1b1cd9cf32`.
+Owned containers/network were removed; own volume/image retained.
+The image also contains the initial uncommitted 0023 archive schema/guards; the
+archive API is not wired into the application. See the exception-boundary guide.
+
+Material archive work is in progress: new state/event tables in additive 0023,
+ADMIN preview/command/recovery/history/list implementation (currently only attached
+by dedicated tests), default archive denial for ordinary work and narrow accepted
+artifact read exceptions. **26 initial archive tests passed, 28.31s**, two dependency
+warnings. **51 schema/metadata tests passed, 27.53s**, two warnings. Expanded source
+IO race/recovery/history/access regression: **108 passed, 126.47s**, two warnings. Actual
+PostgreSQL lifecycle races/immutability/preservation, UI and browser tests remain
+unfinished. Do not enable or claim this feature complete from these initial tests.
+Committed migrations through 0022 are immutable; uncommitted 0023 can still change.
+
 Account security backend commit: `8c8eec0c579db99e5aa39c431a2cf6f4be164181`.
 Its verified UI/docs follow in the next commit; use `git log -1` for the latest tip.
 Previously pushed checkpoint: `352d75f6b76e5e4de1144c9d456c210cd216177c`.
@@ -39,7 +64,7 @@ nonroot/read-only/no network/host mounts. Its owned container was automatically
 removed. Migrations through committed 0021 are unchanged. The new ledger is ready
 for review; it has not been deployed or run against a production database.
 An independent synthetic probe also confirmed bound parameters appear in default
-database exceptions. The next small hardening step is recorded in
+database exceptions. The hardening step is now verified above and recorded in
 `docs/database-error-redaction-plan.md`; no real secret or database was involved.
 
 Resource history backend is committed as `584ec48c43ee1d7813dc6c099cc7d0de256c33e8`.
@@ -155,16 +180,14 @@ loss in [historical checkpoints](autonomous-pbr-history.md).
 
 ## Remaining work and real blockers
 
-1. Close the confirmed database exception-output gap:
-   [bounded hardening plan](database-error-redaction-plan.md).
-2. Implement conservative material archive/restore with full authorization and
+1. Implement conservative material archive/restore with full authorization and
    asynchronous-operation coverage: [plan and integration map](resource-audit-plan.md).
-3. Complete remaining history pagination/legacy CRUD replay decisions, artifact
+2. Complete remaining history pagination/legacy CRUD replay decisions, artifact
    cleanup lifecycle and operational/final review documentation.
-4. Verify the actual online importer contract, golden material outputs, manual
+3. Verify the actual online importer contract, golden material outputs, manual
    publication confirmation and realistic historical workbook/source compatibility.
    Production inputs and importer fixtures are not available in this environment.
-5. Finish external credential lifecycle/configuration where necessary and verify
+4. Finish external credential lifecycle/configuration where necessary and verify
    isolated live GCS/Notion/AI integration only after separately authorized targets
    and access are supplied. Contract tests do not substitute for that live check.
 

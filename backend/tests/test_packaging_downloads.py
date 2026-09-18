@@ -1,13 +1,16 @@
 """Actual sessions/DB authorization with explicitly synthetic artifact streams."""
 from contextlib import asynccontextmanager
 import hashlib
+import traceback
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from app.api import packaging_downloads as api
 from app.db.models import InternalUser, UserCredential
+from app.db.errors import DatabaseResponseInterrupted
 from app.packaging_client import PackagingClientError
 from test_application_access import access_case
 from test_material_approvals import approval_case
@@ -70,6 +73,41 @@ def test_list_pages_and_download_remain_historical_after_material_edit(download_
         assert "folder_path" not in client.get(item.files_path).text and "worker_request" not in client.get(item.files_path).text
         assert client.get(item.material_path).json()["is_published"] is False
     assert item.download.opened == item.download.closed == 1
+    assert len(item.worker.commands) == 1 and len(item.inventory.calls) == 2
+
+
+@pytest.mark.parametrize("failure_at", [1, 2, 3])
+def test_database_failure_during_download_does_not_expose_driver_details(download_case, monkeypatch, caplog, failure_at):
+    item = download_case
+    marker = uuid4().hex
+    calls = 0
+    original = api.AuthorizedArtifactResponse.authorize
+
+    def authorize(response):
+        nonlocal calls
+        calls += 1
+        if calls == failure_at:
+            raise OperationalError(marker, {"value": marker}, RuntimeError(marker))
+        return original(response)
+
+    monkeypatch.setattr(api.AuthorizedArtifactResponse, "authorize", authorize)
+    monkeypatch.setattr(api, "RECHECK_BYTES", 4)
+    with item.case.client("LEADERSHIP") as client:
+        if failure_at == 3:
+            with pytest.raises(DatabaseResponseInterrupted) as captured:
+                client.get(item.download_path, params=item.params)
+            assert marker not in "".join(traceback.format_exception(captured.value))
+        else:
+            response = client.get(item.download_path, params=item.params)
+            assert response.status_code == 503
+            assert response.json() == {"detail": {"code": "DATABASE_UNAVAILABLE"}}
+            assert response.headers["cache-control"] == "no-store"
+            assert response.headers["x-content-type-options"] == "nosniff"
+            assert marker not in response.text
+    assert item.download.opened == item.download.closed == (0 if failure_at == 1 else 1)
+    assert marker not in caplog.text
+    records = [record for record in caplog.records if record.name == "reawote.database"]
+    assert len(records) == 1 and records[0].exc_info is None
     assert len(item.worker.commands) == 1 and len(item.inventory.calls) == 2
 
 

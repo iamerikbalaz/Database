@@ -8,11 +8,13 @@ from urllib.parse import urlsplit
 import httpx
 from pydantic import SecretStr
 
-from app.packaging_contract import PackagingResult, PreparedPackaging
+from app.packaging_contract import PackagingResult, PreparedPackaging, PackagingDispatch, DispatchedPackagingResult
 
 MAX_REQUEST_BYTES = 8 * 1024**2
 MAX_RESPONSE_BYTES = 32 * 1024**2 + 65536
 PACKAGING_CODES = frozenset({
+    "PACKAGING_DISPATCH_REQUIRED", "PACKAGING_DISPATCH_INVALID", "PACKAGING_DISPATCH_ORDER", "PACKAGING_DISPATCH_STALE",
+    "PACKAGING_DISPATCH_CONFLICT", "PACKAGING_EXECUTION_CLOSED",
     "PACKAGING_SERVICE_DISABLED", "PACKAGING_SERVICE_UNAVAILABLE", "PACKAGING_SERVICE_UNAUTHORIZED", "PACKAGING_SERVICE_BUSY",
     "PACKAGING_REQUEST_INVALID", "PACKAGING_REQUEST_TOO_LARGE", "PACKAGING_REQUEST_TIMEOUT",
     "PACKAGING_EXECUTION_NOT_FOUND", "PACKAGING_EXECUTION_REQUEST_CONFLICT", "PACKAGING_EXECUTION_REPORT_CHANGED",
@@ -37,6 +39,7 @@ class PackagingClientError(RuntimeError):
 
 class PackagingClient(Protocol):
     def prepare(self, payload: dict) -> PreparedPackaging: ...
+    def dispatch(self, prepared: PreparedPackaging, report: dict, command: PackagingDispatch) -> DispatchedPackagingResult: ...
     def execute(self, prepared: PreparedPackaging, report: dict, *, retry: bool = False) -> PackagingResult: ...
     def reconcile(self, prepared: PreparedPackaging, report: dict) -> PackagingResult: ...
 
@@ -124,3 +127,19 @@ class WorkerPackagingClient:
     def execute(self, prepared, report, *, retry=False): return self._result("execute", prepared, report, retry)
 
     def reconcile(self, prepared, report): return self._result("reconcile", prepared, report)
+
+    def dispatch(self, prepared, report, command):
+        """Application jobs use only this ordered boundary, including recovery."""
+        self._enabled()
+        try:
+            bound = PreparedPackaging.model_validate_json(prepared.model_dump_json())
+            bound.request.verify_report(report)
+            action = PackagingDispatch.model_validate_json(command.model_dump_json())
+            payload = {**bound.model_dump(mode="json"), "dispatch": action.model_dump(mode="json")}
+            if action.action in {"EXECUTE", "RETRY"}: payload["report"] = report
+            result = DispatchedPackagingResult.model_validate_json(self._request("dispatch", payload))
+            result.verify_request(bound, report); result.verify_dispatch(action)
+            return result
+        except PackagingClientError: raise
+        except (ValueError, TypeError, AttributeError, ArithmeticError, KeyError, RecursionError):
+            raise PackagingClientError() from None

@@ -162,9 +162,15 @@ def _name(request, number):
 
 def _record(value, request, binding, directory_identity):
     corrupt = "PACKAGING_EXECUTION_CORRUPT_STATE"
-    _check(isinstance(value, dict) and set(value) == {"version", "kind", "request", "request_hash", "roots",
-        "directory_identity", "lease_identity", "status", "attempts", "result"}, corrupt)
-    _check(type(value["version"]) is int and value["version"] == 1 and value["kind"] == "PBR_PACKAGING_EXECUTION", corrupt)
+    _check(isinstance(value, dict), corrupt)
+    version = value.get("version")
+    _check(type(version) is int and version in {1, 2}, corrupt)
+    fields = {"version", "kind", "request", "request_hash", "roots",
+        "directory_identity", "lease_identity", "status", "attempts", "result"}
+    _check(set(value) == fields | ({"dispatch"} if version == 2 else set()) and value["kind"] == "PBR_PACKAGING_EXECUTION", corrupt)
+    if version == 2:
+        from app.packaging_dispatch import validate_record_dispatch
+        validate_record_dispatch(value)
     _check(value["request"] == request.document() and value["request_hash"] == request.sha256
         and _digest(value["request"]) == request.sha256, "PACKAGING_EXECUTION_REQUEST_CONFLICT")
     _check(value["roots"] == binding and value["directory_identity"] == directory_identity, "PACKAGING_EXECUTION_ROOT_CHANGED")
@@ -310,6 +316,7 @@ def reconcile_packaging(request: PackagingRequest, *, roots: ExecutionRoots) -> 
         _validate_request(request); deadline = _Deadline(request.limits.seconds)
         with _roots(roots) as (handles, binding, verify_roots):
             with _operation(request, handles, binding, verify_roots, create=False) as (journal, record, _, verify):
+                _check(record["version"] == 1, "PACKAGING_DISPATCH_REQUIRED")
                 return _recover(request, roots, handles, journal, record, verify, deadline)
 
 
@@ -328,34 +335,39 @@ def execute_packaging(request: PackagingRequest, report: dict, *, roots: Executi
         deadline = _Deadline(request.limits.seconds)
         with _roots(roots) as (handles, binding, verify_roots):
             with _operation(request, handles, binding, verify_roots, create=True) as (journal, record, created, verify):
-                if created:
-                    _check(_exists(handles["artifacts"], str(request.operation_id)) is None, "PACKAGING_EXECUTION_UNEXPECTED_RESULT")
-                if not created:
-                    result = _recover(request, roots, handles, journal, record, verify, deadline)
-                    if result.status == "READY" or not retry: return result
-                    _check(len(record["attempts"]) < MAX_ATTEMPTS, "PACKAGING_EXECUTION_ATTEMPT_LIMIT")
-                    record["attempts"].append(_attempt(request, len(record["attempts"]) + 1))
-                    record["status"] = "RESERVED"; verify(); journal.write(record)
-                item = record["attempts"][-1]
-                verify(); _check_old_workspaces(handles, record)
-                _check(_exists(handles["workspace"], item["workspace"]) is None, "PACKAGING_EXECUTION_WORKSPACE_EXISTS")
-                os.mkdir(item["workspace"], 0o700, dir_fd=handles["workspace"]); os.fsync(handles["workspace"])
-                fd = os.open(item["workspace"], _directory_flags(), dir_fd=handles["workspace"])
-                try: item["identity"] = _private(fd)
-                finally: os.close(fd)
-                record["status"] = "WORKING"; verify(); journal.write(record)
-                workspace = roots.workspace / item["workspace"]
-                with stage_packaging_inputs(roots.materials, request.parts, report, expected_source_revision_hash=request.source_revision_hash,
-                        policy=request.policy, workspace_root=workspace, operation_id=request.operation_id,
-                        max_seconds=deadline.remaining(600), max_bytes=request.limits.staged_bytes) as inputs:
-                    verify()
-                    with assemble_packages(inputs, workspace_root=workspace, storage_timezone=request.storage_timezone,
-                            max_seconds=deadline.remaining(), max_bytes=request.limits.generated_bytes) as bundle:
-                        verify()
-                        stored = retain_packages(bundle, artifact_root=roots.artifacts, request_hash=request.sha256,
-                            max_seconds=deadline.remaining(), max_bytes=request.limits.retained_bytes)
-                        record["result"] = {"proof_sha256": stored.proof_sha256, "retention_attempt": stored.attempt}
-                        record["status"] = "RETAINED"; verify(); journal.write(record)
-                _cleanup(request, handles, record, verify)
-                record["status"] = "READY"; verify(); journal.write(record)
-                return ExecutionResult(request.operation_id, request.sha256, "READY", len(record["attempts"]), stored)
+                _check(record["version"] == 1, "PACKAGING_DISPATCH_REQUIRED")
+                return _execute_locked(request, report, roots, handles, journal, record, created, verify, deadline, retry=retry)
+
+
+def _execute_locked(request, report, roots, handles, journal, record, created, verify, deadline, *, retry):
+    if created:
+        _check(_exists(handles["artifacts"], str(request.operation_id)) is None, "PACKAGING_EXECUTION_UNEXPECTED_RESULT")
+    if not created:
+        result = _recover(request, roots, handles, journal, record, verify, deadline)
+        if result.status == "READY" or not retry: return result
+        _check(len(record["attempts"]) < MAX_ATTEMPTS, "PACKAGING_EXECUTION_ATTEMPT_LIMIT")
+        record["attempts"].append(_attempt(request, len(record["attempts"]) + 1))
+        record["status"] = "RESERVED"; verify(); journal.write(record)
+    item = record["attempts"][-1]
+    verify(); _check_old_workspaces(handles, record)
+    _check(_exists(handles["workspace"], item["workspace"]) is None, "PACKAGING_EXECUTION_WORKSPACE_EXISTS")
+    os.mkdir(item["workspace"], 0o700, dir_fd=handles["workspace"]); os.fsync(handles["workspace"])
+    fd = os.open(item["workspace"], _directory_flags(), dir_fd=handles["workspace"])
+    try: item["identity"] = _private(fd)
+    finally: os.close(fd)
+    record["status"] = "WORKING"; verify(); journal.write(record)
+    workspace = roots.workspace / item["workspace"]
+    with stage_packaging_inputs(roots.materials, request.parts, report, expected_source_revision_hash=request.source_revision_hash,
+            policy=request.policy, workspace_root=workspace, operation_id=request.operation_id,
+            max_seconds=deadline.remaining(600), max_bytes=request.limits.staged_bytes) as inputs:
+        verify()
+        with assemble_packages(inputs, workspace_root=workspace, storage_timezone=request.storage_timezone,
+                max_seconds=deadline.remaining(), max_bytes=request.limits.generated_bytes) as bundle:
+            verify()
+            stored = retain_packages(bundle, artifact_root=roots.artifacts, request_hash=request.sha256,
+                max_seconds=deadline.remaining(), max_bytes=request.limits.retained_bytes)
+            record["result"] = {"proof_sha256": stored.proof_sha256, "retention_attempt": stored.attempt}
+            record["status"] = "RETAINED"; verify(); journal.write(record)
+    _cleanup(request, handles, record, verify)
+    record["status"] = "READY"; verify(); journal.write(record)
+    return ExecutionResult(request.operation_id, request.sha256, "READY", len(record["attempts"]), stored)

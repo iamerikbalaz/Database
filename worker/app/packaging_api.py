@@ -156,6 +156,23 @@ class ExecuteInput(ReconcileInput):
     retry: bool = False
 
 
+class DispatchCommand(StrictModel):
+    id: OperationId
+    ordinal: Annotated[int, Field(ge=1, le=2**31 - 1)]
+    action: Literal["EXECUTE", "RETRY", "RECONCILE", "CLOSE"]
+
+    def value(self):
+        from app.packaging_dispatch import PackagingDispatch, validate_dispatch
+        command = PackagingDispatch(UUID(self.id), self.ordinal, self.action)
+        validate_dispatch(command)
+        return command
+
+
+class DispatchInput(ReconcileInput):
+    dispatch: DispatchCommand
+    report: dict | None = None
+
+
 def _report(value):
     try: TechnicalValidationResponse.model_validate_json(json.dumps(value, allow_nan=False), strict=True)
     except (ValidationError, TypeError, ValueError): raise HTTPException(422, {"code": "PACKAGING_REQUEST_INVALID"}) from None
@@ -227,6 +244,14 @@ def create_packaging_app(settings: PackagingServiceSettings | None = None):
     def execute(value: ExecuteInput):
         with available_slot():
             return _response(execute_packaging(value.value(), _report(value.report), roots=settings.roots, retry=value.retry))
+
+    @application.post("/internal/packaging/dispatch")
+    def dispatch(value: DispatchInput):
+        from app.packaging_dispatch import dispatch_packaging
+        with available_slot():
+            result = dispatch_packaging(value.value(), value.dispatch.value(), roots=settings.roots,
+                report=_report(value.report) if value.report is not None else None)
+            return {**_response(result.result), "dispatch": result.dispatch.document(), "terminal": result.terminal}
 
     @application.post("/internal/packaging/reconcile")
     def reconcile(value: ReconcileInput):

@@ -230,6 +230,32 @@ class PackagingResult(Strict):
         _verify_layout(request, report, payload)
 
 
+class PackagingDispatch(Strict):
+    id: Operation
+    ordinal: Annotated[int, Field(ge=1, le=2**31 - 1)]
+    action: Literal["EXECUTE", "RETRY", "RECONCILE", "CLOSE"]
+
+    @model_validator(mode="after")
+    def ordered(self) -> Self:
+        _require(self.action != "EXECUTE" or self.ordinal == 1)
+        _require(self.action not in {"RETRY", "RECONCILE"} or self.ordinal > 1)
+        return self
+
+
+class DispatchedPackagingResult(PackagingResult):
+    dispatch: PackagingDispatch
+    terminal: Literal["OPEN", "CLOSING", "CLOSED"]
+
+    @model_validator(mode="after")
+    def command_state(self) -> Self:
+        if self.dispatch.action in {"EXECUTE", "RETRY"}: _require(self.terminal == "OPEN")
+        elif self.dispatch.action == "CLOSE": _require(self.terminal == "CLOSED")
+        return self
+
+    def verify_dispatch(self, command):
+        _require(self.dispatch == command)
+
+
 def _fit(width, height, side):
     return tuple(max(1, (value * side * 2 + max(width, height)) // (max(width, height) * 2)) for value in (width, height))
 

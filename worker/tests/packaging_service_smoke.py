@@ -18,7 +18,7 @@ BASE = "http://127.0.0.1:8081"
 IDENTITY = "SYNTHETIC_SMOKE_0001_G03"
 
 
-def main(export_path=None, variant="single"):
+def main(export_path=None, variant="single", ordered=False):
     assert variant in {"single", "multi-current", "nonstandard", "square"}
     root = Path("/tmp") / ("packaging-smoke-" + uuid4().hex); root.mkdir(mode=0o700)
     source, workspace, artifacts, journal = [root / name for name in ("materials", "workspace", "artifacts", "journal")]
@@ -82,7 +82,9 @@ def main(export_path=None, variant="single"):
             "approval_context_hash": "a" * 64, "policy": "CURRENT_ON_OR_AFTER_2026_03_04" if variant == "multi-current" else "LEGACY_BEFORE_2026_03_04",
             "storage_timezone": "Europe/Prague" if variant == "multi-current" else "UTC", "report": report})
         assert status == 200 and _digest(prepared["request"]) == prepared["request_hash"]
-        status, completed = call("/internal/packaging/execute", {**prepared, "report": report})
+        dispatch = {"id": str(uuid4()), "ordinal": 1, "action": "EXECUTE"}
+        status, completed = call("/internal/packaging/dispatch" if ordered else "/internal/packaging/execute",
+            {**prepared, "report": report, **({"dispatch": dispatch} if ordered else {})})
         assert status == 200 and completed["status"] == "READY" and completed["attempt"] == 1
         assert _digest(completed["stored"]["payload"]) == completed["stored"]["proof_sha256"]
         assert not list(workspace.iterdir())
@@ -91,15 +93,41 @@ def main(export_path=None, variant="single"):
     finally: stop(child)
     child = start()
     try:
-        status, recovered = call("/internal/packaging/reconcile", prepared)
-        assert status == 200 and recovered == completed
-        status, replayed = call("/internal/packaging/execute", {**prepared, "report": report, "retry": True})
-        assert status == 200 and replayed == completed and not list(workspace.iterdir())
+        if ordered:
+            recover_command = {"id": str(uuid4()), "ordinal": 2, "action": "RECONCILE"}
+            status, recovered = call("/internal/packaging/dispatch", {**prepared, "dispatch": recover_command})
+            assert status == 200 and recovered == {**completed, "dispatch": recover_command}
+            close_command = {"id": str(uuid4()), "ordinal": 3, "action": "CLOSE"}
+            status, closed = call("/internal/packaging/dispatch", {**prepared, "dispatch": close_command})
+            assert status == 200 and closed == {**completed, "dispatch": close_command, "terminal": "CLOSED"}
+        else:
+            status, recovered = call("/internal/packaging/reconcile", prepared)
+            assert status == 200 and recovered == completed
+            status, replayed = call("/internal/packaging/execute", {**prepared, "report": report, "retry": True})
+            assert status == 200 and replayed == completed and not list(workspace.iterdir())
     finally: stop(child)
+    if ordered:
+        child = start()
+        try:
+            status, replayed = call("/internal/packaging/dispatch", {**prepared, "dispatch": close_command})
+            assert status == 200 and replayed == closed
+            delayed = {"id": str(uuid4()), "ordinal": 2, "action": "RETRY"}
+            status, rejected = call("/internal/packaging/dispatch", {**prepared, "report": report, "dispatch": delayed})
+            assert status == 409 and rejected["detail"]["code"] == "PACKAGING_DISPATCH_STALE"
+            delayed["ordinal"] = 4
+            status, rejected = call("/internal/packaging/dispatch", {**prepared, "report": report, "dispatch": delayed})
+            assert status == 409 and rejected["detail"]["code"] == "PACKAGING_EXECUTION_CLOSED"
+            status, rejected = call("/internal/packaging/execute", {**prepared, "report": report, "retry": True})
+            assert status == 409 and rejected["detail"]["code"] == "PACKAGING_DISPATCH_REQUIRED"
+            assert not list(workspace.iterdir())
+        finally: stop(child)
     if export_path is not None:
-        Path(export_path).write_text(json.dumps({"report": report, "prepared": prepared, "result": completed},
+        Path(export_path).write_text(json.dumps({"report": report, "prepared": prepared, "result": completed,
+            **({"recovered": recovered, "closed": closed} if ordered else {})},
             ensure_ascii=True, sort_keys=True, indent=2) + "\n")
-    print("Packaging production image smoke: actual HTTP, conversion, restart and offline replay passed.")
+    print("Packaging production image smoke: actual HTTP, conversion, restart and offline replay passed." +
+        (" Ordered recovery and permanent closure also passed after restart." if ordered else ""))
 
 
-if __name__ == "__main__": main(sys.argv[1] if len(sys.argv) >= 2 else None, sys.argv[2] if len(sys.argv) >= 3 else "single")
+if __name__ == "__main__": main(sys.argv[1] if len(sys.argv) >= 2 else None, sys.argv[2] if len(sys.argv) >= 3 else "single",
+    len(sys.argv) >= 4 and sys.argv[3] == "ordered")

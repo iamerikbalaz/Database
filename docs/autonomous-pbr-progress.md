@@ -170,6 +170,21 @@ The first full run's two test-only environment assumptions are resolved. No
 frontend source changed; the preceding 457 frontend/lint/build result remains
 applicable. Ordered worker-command fencing is now being implemented separately;
 application conversion dispatch remains unavailable until that boundary is ready.
+The verified reservation/API slice is committed and pushed as `5e3ac9e`.
+
+Ordered worker dispatch fencing is implemented and verified
+(`docs/packaging-dispatch.md`). The complete Linux runtime suite in
+`reawote-packaging-da8cb1025e03461cbc7ef339e972b35c` passed **687 tests (338.45s)**,
+without skips and with two existing dependency warnings. Owned cleanup succeeded.
+The final backend contract/ordered-client run passed **94 tests (2.74s)**,
+including independent validation of the actual exported ordered proof fixture.
+Runtime image `reawote-packaging-dispatch-c554f7444f40495bab148b22912188b4:runtime`
+passed actual HTTP, 2K/1K and 16-bit conversion, offline recovery, permanent closure
+and two service restarts, including rejection of stale/new/legacy retries after
+closure. It exported the synthetic ordered proof fixture in the backend tests.
+Application run/retry/reconcile integration remains the next step;
+production publishing and external writes remain
+outside this run's authority.
 
 Next: durable database jobs/attempts
 with current approval/source checks and operator UI (`docs/packaging-execution-plan.md`). GCS/Notion,

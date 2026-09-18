@@ -1,9 +1,10 @@
 # Durable staging reservations and remaining execution design
 
 Migration 0018 and the reservation/history/unsent-close API are implemented following
-the GCS transport and staging preview. Actual upload dispatch is not yet implemented.
-No production writes are authorized or performed. Existing migrations through 0017
-remain immutable; apply 0018 only to an approved environment.
+the GCS transport and staging preview. Migration 0019 adds the verified durable
+dispatch journal described below. Actual upload
+dispatch is not yet implemented. No production writes are authorized or performed.
+Existing migrations through 0019 remain immutable.
 
 ## Reservation and ownership
 
@@ -41,11 +42,43 @@ CSRF and current authorization:
   safe; a distinct second closure request fails.
 
 This slice creates no upload, download stream, NAS operation or publication change.
-The only states are RESERVED and CLOSED. Closure is explicitly **before dispatch**;
-the next migration must extend the closure guard before adding any cloud dispatch.
+The existing closure endpoint is explicitly **before dispatch** and rejects any job
+with a recorded dispatch. Its original payload, request digest and exact-replay
+behavior remain compatible. History reads the persisted progress introduced by 0019.
 The E2E configuration pins a synthetic bucket/prefix, GCS disabled and an empty token.
 
-## Next: dispatch and observations
+## Dispatch journal (0019)
+
+Five tables separate ordered dispatch intent, per-object transfer intent, immutable
+storage observations, immutable dispatch results and guarded current progress.
+The first action is EXECUTE; subsequent actions are read-only RECONCILE. The database
+serializes them on the job and enforces the exact predecessor, ordinal and plan hash.
+Transfer intents must follow the plan's exact object order. The next object cannot
+start until every preceding object has a VERIFIED observation. A completion marker
+requires all planned objects first. Receipt validation binds the exact job, plan,
+path, size, SHA-256, bucket, object name and positive signed-64-bit generations.
+
+Deferred constraints require complete progress at transaction commit. A dispatch
+without a result remains RUNNING; an uncertain result becomes RECOVERY_REQUIRED.
+A VERIFIED result requires complete receipt coverage and a verified marker.
+STAGED_VERIFIED additionally requires current inputs, actor and lease flags. These
+flags are application checks, not proof that SQL itself contacted the cloud or
+authorized an account. The application must reconstruct the exact manifest bytes
+from those receipts before recording its intent and accepting readback.
+
+Late observations/results can be recorded without replacing newer progress. Closure
+freezes the current dispatch/result pointers and releases all owners atomically.
+A closure record must explicitly say whether dispatch occurred. The existing
+unsent-close endpoint cannot close dispatched jobs; a separate acknowledged abandon
+action still needs implementation. Closure never claims remote cancellation.
+
+0019 backfills RESERVED/CLOSED progress for existing 0018 reservations. Empty journal
+downgrade preserves those old reservations and restores 0018 closure semantics.
+Once dispatch provenance exists, downgrade refuses rather than deleting it. Database
+guards reject direct update/delete/truncate of immutable facts and deletion of
+progress. ORM guards also protect immutable facts and closed state in unit tests.
+
+## Next: execution orchestration
 
 The GCS-specific dedicated-session lease is implemented in
 `backend/app/staging_dispatch_lease.py`; its shared mechanics and tests are described
@@ -78,9 +111,7 @@ its UUID. Closed, missing or reassigned ownership fails. This read-only helper d
 not acquire the dispatch lease or inspect live source files; the runner must do both
 and must finish the transaction before network IO.
 
-The next additive schema should keep five concerns separate: ordered dispatch intent,
-per-object transfer intent, immutable per-object observations, immutable dispatch
-results, and guarded current progress. An object intent commits before opening its
+An object intent must commit before opening its
 source or making any cloud request. Record the completion marker as an additional
 object intent/observation, with exact coverage of every planned receipt. A late fact
 may be retained even after lease loss; only the current nonclosed dispatch with fresh

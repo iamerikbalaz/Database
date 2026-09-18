@@ -18,7 +18,8 @@ from app.auth.access import AccessDependency
 from app.auth.service import _aware
 from app.catalog import Reason
 from app.db.models import (MaterialAuditEvent, MaterialPackagingExecution, PublicationStagingJob,
-    PublicationStagingItem, PublicationStagingOwner, PublicationStagingClose)
+    PublicationStagingItem, PublicationStagingOwner, PublicationStagingClose, PublicationStagingState,
+    PublicationStagingDispatch)
 from app.gcs_batch import StagingPlan, GcsBatchError
 from app.material_review import canonical_hash
 from app.publication_staging import prepare_staging
@@ -85,12 +86,18 @@ def _job(session, identifier):
 
 def _summary(session, job):
     closed = session.scalar(select(PublicationStagingClose).where(PublicationStagingClose.job_id == job.id))
+    state = session.get(PublicationStagingState, job.id)
+    if state is None:
+        raise HTTPException(503, {"code": "GCS_STAGING_HISTORY_INVALID"})
     return {"id": str(job.id), "batch_id": str(job.batch_id), "actor_id": str(job.actor_id),
-        "status": "CLOSED" if closed else "RESERVED", "plan_sha256": job.plan_sha256,
+        "status": state.status, "plan_sha256": job.plan_sha256,
+        "last_dispatch_id": str(state.last_dispatch_id) if state.last_dispatch_id else None,
+        "last_result_id": str(state.last_result_id) if state.last_result_id else None,
         "material_count": job.material_count, "bucket_name": job.bucket_name,
         "staging_prefix": job.staging_prefix, "created_at": _aware(job.created_at).isoformat(),
         "close": None if closed is None else {"id": str(closed.id), "actor_id": str(closed.actor_id),
-            "reason": closed.reason, "created_at": _aware(closed.created_at).isoformat()}}
+            "reason": closed.reason, "dispatched": closed.dispatched,
+            "created_at": _aware(closed.created_at).isoformat()}}
 
 
 def _view(session, job):
@@ -133,6 +140,7 @@ def build_staging_jobs_router(database, settings):
                 reason=payload.reason, material_count=len(plan.body.materials), bucket_name=plan.body.bucket_name,
                 staging_prefix=plan.body.staging_prefix, plan_sha256=plan.sha256, plan=plan.model_dump(mode="json"))
             session.add(job); session.flush()
+            session.add(PublicationStagingState(job_id=job.id, status="RESERVED"))
             selected = {item.material_id: item for item in payload.packages}
             for bound in plan.body.materials:
                 material_id = UUID(bound.material_id)
@@ -194,9 +202,15 @@ def build_staging_jobs_router(database, settings):
             session.scalar(select(PublicationStagingJob.id).where(PublicationStagingJob.id == job.id).with_for_update())
             if session.scalar(select(PublicationStagingClose.id).where(PublicationStagingClose.job_id == job.id)):
                 _conflict("GCS_STAGING_ALREADY_CLOSED")
+            if session.scalar(select(PublicationStagingDispatch.id).where(PublicationStagingDispatch.job_id == job.id).limit(1)):
+                _conflict("GCS_STAGING_ALREADY_DISPATCHED")
             closure = PublicationStagingClose(job_id=job.id, actor_id=actor.id, issuer_session_id=access.context.session.id,
                 request_key=payload.idempotency_key, request_hash=digest, reason=payload.reason)
             session.add(closure); session.flush()
+            state = session.get(PublicationStagingState, job.id)
+            if state is None:
+                _conflict("GCS_STAGING_HISTORY_INVALID")
+            state.status = "CLOSED"; state.close_id = closure.id
             for item in items:
                 owner = session.get(PublicationStagingOwner, (job.id, item.material_id))
                 if owner is None or not owner.active:

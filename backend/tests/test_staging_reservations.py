@@ -162,3 +162,40 @@ def test_sqlite_reservation_is_only_an_explicit_unit_test_aid(staging_case):
         response = client.post(PATH, json=body)
         assert response.status_code == 503
         assert response.json()["detail"]["code"] == "GCS_STAGING_DATABASE_UNSUPPORTED"
+
+
+@pytest.mark.parametrize("target", ["dispatch", "transfer", "observation", "result", "state"])
+def test_staging_dispatch_facts_and_closed_progress_are_immutable_through_orm(staging_case, target):
+    import staging_history_support as journal
+    item = staging_case
+    with item.case.client("ADMIN") as client:
+        saved = client.post(PATH, json=reservation(item, client)).json()
+    with item.case.database.session() as session:
+        dispatched = journal.dispatch(session, UUID(saved["id"]))
+        intent = journal.transfer(session, dispatched)
+        observed = journal.observe(session, intent, outcome="UNCERTAIN", receipt=None, failure_code="GCS_OUTCOME_UNCERTAIN")
+        result = journal.result(session, dispatched)
+        journal.close(session, dispatched.job_id); session.commit()
+        state = session.get(journal.PublicationStagingState, dispatched.job_id)
+        record = {"dispatch": dispatched, "transfer": intent, "observation": observed, "result": result, "state": state}[target]
+        field = {"dispatch": "reason", "transfer": "relative_path", "observation": "failure_code", "result": "failure_code", "state": "status"}[target]
+        setattr(record, field, "CHANGED")
+        with pytest.raises(ImmutableAuditSnapshotError): session.commit()
+        session.rollback()
+        session.delete(record)
+        with pytest.raises(ImmutableAuditSnapshotError): session.commit()
+
+
+def test_unsent_close_cannot_mislabel_a_previously_dispatched_job(staging_case):
+    import staging_history_support as journal
+    item = staging_case
+    with item.case.client("ADMIN") as client:
+        saved = client.post(PATH, json=reservation(item, client)).json()
+        with item.case.database.session() as session:
+            journal.dispatch(session, UUID(saved["id"])); session.commit()
+        response = client.post(PATH + "/" + saved["id"] + "/close", json=close_payload(saved))
+        assert response.status_code == 409 and response.json()["detail"]["code"] == "GCS_STAGING_ALREADY_DISPATCHED"
+        assert client.get(PATH + "/" + saved["id"]).json()["status"] == "RUNNING"
+    with item.case.database.session() as session:
+        assert session.scalar(select(PublicationStagingClose)) is None
+        assert session.scalar(select(PublicationStagingOwner.active)) is True

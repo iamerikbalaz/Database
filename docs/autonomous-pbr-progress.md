@@ -2,6 +2,29 @@
 
 ## Latest checkpoint (2026-09-18)
 
+Verified after pushed `79d3b96`: migration 0019 and its models add immutable
+staging dispatch/transfer intents, verified or uncertain storage observations,
+dispatch results and guarded current progress. Existing reservation/unsent-close APIs maintain
+progress atomically; actual upload/reconcile orchestration and UI remain pending.
+Migrations through 0018 remain unchanged. The initial PostgreSQL run passed 246
+tests; 22 new journal tests failed on a test-helper JSON decoding mistake, now fixed.
+Windows reservation/input/migration tests: 81 passed; six new ORM/unsent-close checks
+then passed. Corrected PostgreSQL suite: **269 passed**, auth **27/27**, no skips,
+321.33s, four dependency/schema-alias warnings. Project
+`reawote-test-d6d9ac2b872843dc8ffa14506d82fb8a`, manifest digest
+`bd17b83bff672cf6ae1bc0b0081f0c38409b7d4fe6900d4bfaa5ce772147c5a4`;
+owned containers/network removed, owned volume/image retained. Linux affected-area tests:
+265 passed, no skips, 113.60s, two dependency warnings; image
+`reawote-staging-history-8bcf0b515d63460cb52d781467a26ba1:test`, manifest digest
+`dc25560ee8727fd1462544acec0f6f88b140469abf0b90906d4aca4337247ae1`.
+This used a read-only nonroot container without network, mounts, ports or a database;
+the container was automatically removed. A separate, not yet committed slice adds
+bounded journal reads and ADMIN-only acknowledged abandonment; its initial 17 API
+tests plus two lost-lease/unsent-job tests passed. That API slice still needs actual
+PostgreSQL concurrency and final Linux verification. Upload/reconcile orchestration
+and its UI remain pending.
+No live cloud or production database operation is authorized.
+
 The owned branch is `codex/autonomous-pbr-completion`; the last verified main is
 `88a1f99d748d2a0edbb1fce509e13d18bfc03908`. UI controls (`54aed25`), private
 proof-bound worker downloads (`95e780b`) and authenticated application downloads

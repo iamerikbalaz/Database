@@ -1188,6 +1188,7 @@ class PublicationStagingClose(Base):
     request_key: Mapped[UUID] = mapped_column(Uuid, nullable=False)
     request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
+    dispatched: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -1218,6 +1219,151 @@ def _protect_staging_owner(_, __, item):
 
 
 event.listen(PublicationStagingOwner, "before_delete", _reject_review_history_mutation)
+
+
+class PublicationStagingDispatch(Base):
+    __tablename__ = "publication_staging_dispatches"
+    __table_args__ = (
+        UniqueConstraint("job_id", "id", name="uq_staging_dispatches_job"),
+        UniqueConstraint("job_id", "ordinal", name="uq_staging_dispatches_order"),
+        UniqueConstraint("actor_id", "request_key", name="uq_staging_dispatches_request"),
+        ForeignKeyConstraint(["job_id", "previous_dispatch_id"], ["publication_staging_dispatches.job_id", "publication_staging_dispatches.id"],
+            name="fk_staging_dispatches_previous", ondelete="RESTRICT"),
+        CheckConstraint("ordinal BETWEEN 1 AND 2147483647", name="ck_staging_dispatches_ordinal"),
+        CheckConstraint("action IN ('EXECUTE','RECONCILE')", name="ck_staging_dispatches_action"),
+        CheckConstraint("(ordinal=1 AND previous_dispatch_id IS NULL AND action='EXECUTE') OR "
+            "(ordinal>1 AND previous_dispatch_id IS NOT NULL AND action='RECONCILE')", name="ck_staging_dispatches_sequence"),
+        CheckConstraint("length(reason) BETWEEN 1 AND 2000", name="ck_staging_dispatches_reason"),
+        *(_review_hash_constraint(field, "ck_staging_dispatches_" + field) for field in ("request_hash", "plan_sha256")),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    job_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("publication_staging_jobs.id", ondelete="RESTRICT"))
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    previous_dispatch_id: Mapped[UUID | None] = mapped_column(Uuid)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    issuer_session_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_key: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    plan_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PublicationStagingTransfer(Base):
+    __tablename__ = "publication_staging_transfers"
+    __table_args__ = (
+        UniqueConstraint("job_id", "dispatch_id", "id", name="uq_staging_transfers_binding"),
+        UniqueConstraint("dispatch_id", "ordinal", name="uq_staging_transfers_order"),
+        UniqueConstraint("dispatch_id", "relative_path", name="uq_staging_transfers_object"),
+        ForeignKeyConstraint(["job_id", "dispatch_id"], ["publication_staging_dispatches.job_id", "publication_staging_dispatches.id"],
+            name="fk_staging_transfers_dispatch", ondelete="RESTRICT"),
+        CheckConstraint("ordinal BETWEEN 1 AND 20002", name="ck_staging_transfers_ordinal"),
+        CheckConstraint("kind IN ('DATA','MARKER')", name="ck_staging_transfers_kind"),
+        CheckConstraint("length(relative_path) BETWEEN 1 AND 900", name="ck_staging_transfers_path"),
+        CheckConstraint("size BETWEEN 1 AND 17179869184", name="ck_staging_transfers_size"),
+        CheckConstraint("(kind='MARKER' AND relative_path='_reawote/complete.json' AND size<=33554432) OR "
+            "(kind='DATA' AND relative_path<>'_reawote/complete.json')", name="ck_staging_transfers_marker"),
+        _review_hash_constraint("sha256", "ck_staging_transfers_sha256"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    job_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    dispatch_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    relative_path: Mapped[str] = mapped_column(String(900), nullable=False)
+    size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PublicationStagingObservation(Base):
+    __tablename__ = "publication_staging_observations"
+    __table_args__ = (
+        UniqueConstraint("transfer_id", name="uq_staging_observations_transfer"),
+        UniqueConstraint("job_id", "dispatch_id", "id", name="uq_staging_observations_binding"),
+        ForeignKeyConstraint(["job_id", "dispatch_id", "transfer_id"],
+            ["publication_staging_transfers.job_id", "publication_staging_transfers.dispatch_id", "publication_staging_transfers.id"],
+            name="fk_staging_observations_transfer", ondelete="RESTRICT"),
+        CheckConstraint("outcome IN ('VERIFIED','UNCERTAIN')", name="ck_staging_observations_outcome"),
+        CheckConstraint("(outcome='VERIFIED' AND receipt IS NOT NULL AND failure_code IS NULL) OR "
+            "(outcome='UNCERTAIN' AND receipt IS NULL AND failure_code IS NOT NULL)", name="ck_staging_observations_result"),
+        CheckConstraint("failure_code IS NULL OR length(failure_code) BETWEEN 1 AND 64", name="ck_staging_observations_failure"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    job_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    dispatch_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    transfer_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    receipt: Mapped[dict | None] = mapped_column(JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"))
+    failure_code: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PublicationStagingResult(Base):
+    __tablename__ = "publication_staging_results"
+    __table_args__ = (
+        UniqueConstraint("dispatch_id", name="uq_staging_results_dispatch"),
+        UniqueConstraint("job_id", "dispatch_id", "id", name="uq_staging_results_binding"),
+        ForeignKeyConstraint(["job_id", "dispatch_id"], ["publication_staging_dispatches.job_id", "publication_staging_dispatches.id"],
+            name="fk_staging_results_dispatch", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["job_id", "dispatch_id", "completion_observation_id"],
+            ["publication_staging_observations.job_id", "publication_staging_observations.dispatch_id", "publication_staging_observations.id"],
+            name="fk_staging_results_completion", ondelete="RESTRICT"),
+        CheckConstraint("outcome IN ('VERIFIED','UNCERTAIN')", name="ck_staging_results_outcome"),
+        CheckConstraint("(outcome='VERIFIED' AND completion_observation_id IS NOT NULL AND failure_code IS NULL) OR "
+            "(outcome='UNCERTAIN' AND completion_observation_id IS NULL AND failure_code IS NOT NULL)", name="ck_staging_results_result"),
+        CheckConstraint("failure_code IS NULL OR length(failure_code) BETWEEN 1 AND 64", name="ck_staging_results_failure"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    job_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    dispatch_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    completion_observation_id: Mapped[UUID | None] = mapped_column(Uuid)
+    failure_code: Mapped[str | None] = mapped_column(String(64))
+    inputs_current: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    actor_current: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    lease_current: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PublicationStagingState(TimestampMixin, Base):
+    __tablename__ = "publication_staging_states"
+    __table_args__ = (
+        ForeignKeyConstraint(["job_id", "last_dispatch_id"], ["publication_staging_dispatches.job_id", "publication_staging_dispatches.id"],
+            name="fk_staging_states_dispatch", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["job_id", "last_dispatch_id", "last_result_id"],
+            ["publication_staging_results.job_id", "publication_staging_results.dispatch_id", "publication_staging_results.id"],
+            name="fk_staging_states_result", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["job_id", "close_id"], ["publication_staging_closes.job_id", "publication_staging_closes.id"],
+            name="fk_staging_states_close", ondelete="RESTRICT"),
+        CheckConstraint("status IN ('RESERVED','RUNNING','RECOVERY_REQUIRED','STAGED_VERIFIED','CLOSED')", name="ck_staging_states_status"),
+        CheckConstraint("(status='CLOSED' AND close_id IS NOT NULL) OR (status<>'CLOSED' AND close_id IS NULL)", name="ck_staging_states_close"),
+        CheckConstraint("(status='RESERVED' AND last_dispatch_id IS NULL AND last_result_id IS NULL) OR "
+            "(status='RUNNING' AND last_dispatch_id IS NOT NULL AND last_result_id IS NULL) OR "
+            "(status IN ('RECOVERY_REQUIRED','STAGED_VERIFIED') AND last_dispatch_id IS NOT NULL AND last_result_id IS NOT NULL) OR "
+            "status='CLOSED'", name="ck_staging_states_progress"),
+    )
+    job_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("publication_staging_jobs.id", ondelete="RESTRICT"), primary_key=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    last_dispatch_id: Mapped[UUID | None] = mapped_column(Uuid)
+    last_result_id: Mapped[UUID | None] = mapped_column(Uuid)
+    close_id: Mapped[UUID | None] = mapped_column(Uuid)
+
+
+@event.listens_for(PublicationStagingState, "before_update")
+def _protect_staging_state(_, __, item):
+    state = sa_inspect(item)
+    previous = state.attrs.status.history.deleted
+    was_closed = (previous[0] if previous else item.status) == "CLOSED"
+    if (any(state.attrs[field].history.has_changes() for field in ("job_id", "created_at"))
+            or (item.status == "CLOSED" and any(state.attrs[field].history.has_changes()
+                for field in ("last_dispatch_id", "last_result_id")))
+            or (was_closed and any(attribute.history.has_changes() for attribute in state.attrs))):
+        raise ImmutableAuditSnapshotError("Staging progress identity and closed state are immutable.")
+
+
+event.listen(PublicationStagingState, "before_delete", _reject_review_history_mutation)
 
 
 class MaterialImportBatch(Base):
@@ -1345,6 +1491,6 @@ for _catalog_type in (OnlineCategory, BrandCollection):
     event.listen(_catalog_type, "before_delete", _reject_review_history_mutation)
 
 
-for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow, MaterialAiDraft, PublicationBatch, PublicationBatchItem, MaterialPackagingPolicy, MaterialPackagingExecution, MaterialPackagingDispatch, MaterialPackagingObservation, PublicationStagingJob, PublicationStagingItem, PublicationStagingClose):
+for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow, MaterialAiDraft, PublicationBatch, PublicationBatchItem, MaterialPackagingPolicy, MaterialPackagingExecution, MaterialPackagingDispatch, MaterialPackagingObservation, PublicationStagingJob, PublicationStagingItem, PublicationStagingClose, PublicationStagingDispatch, PublicationStagingTransfer, PublicationStagingObservation, PublicationStagingResult):
     event.listen(_review_history_type, "before_update", _reject_review_history_mutation)
     event.listen(_review_history_type, "before_delete", _reject_review_history_mutation)

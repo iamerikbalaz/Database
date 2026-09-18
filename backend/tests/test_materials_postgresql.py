@@ -39,9 +39,25 @@ from domain_support import create_domain_app as create_app
 from app.worker_client import WorkerMaterialPreflight, WorkerMaterialPreflightResponse
 
 
+def _current_head():
+    # Dedicated head/chain tests pin the expected release revision. Historical
+    # upgrade/downgrade guards must preserve whichever single head is current.
+    return ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
+
+
 @pytest.fixture
-def review_pg_case(migrated_postgresql_url):
-    yield from _review_pg_case(migrated_postgresql_url)
+def review_pg_case(request, migrated_postgresql_url):
+    if getattr(request, "param", None) == "isolated-history":
+        # A newer populated audit table must not mask the historical downgrade
+        # guard this particular test is intended to exercise.
+        with isolated_postgresql_database() as database_url, pytest.MonkeyPatch.context() as patch:
+            patch.setenv("DATABASE_URL", database_url); get_settings.cache_clear()
+            try:
+                command.upgrade(Config("alembic.ini"), "head")
+                yield from _review_pg_case(database_url)
+            finally: get_settings.cache_clear()
+    else:
+        yield from _review_pg_case(migrated_postgresql_url)
 
 
 def _review_pg_case(migrated_postgresql_url):
@@ -470,6 +486,7 @@ def test_postgresql_identity_ledger_history_and_authorization_are_immutable(revi
                 connection.execute(text(sql), {"id": case.material.id})
 
 
+@pytest.mark.parametrize("review_pg_case", ["isolated-history"], indirect=True)
 def test_postgresql_identity_active_owner_is_unique_and_downgrade_refuses_it(review_pg_case):
     from test_material_identity import prepare
     from app.identity_client import IdentityClientError
@@ -891,6 +908,7 @@ def test_postgresql_import_gate_keeps_reference_snapshot_consistent_until_commit
         assert administrator.get(f"/api/projects/{case.material.project_id}").json()["name"] == "Changed after import"
 
 
+@pytest.mark.parametrize("review_pg_case", ["isolated-history"], indirect=True)
 def test_postgresql_import_audit_rejects_direct_sql_mutation_and_destructive_downgrade(review_pg_case):
     from test_import_confirm import confirmation
     case = review_pg_case
@@ -910,7 +928,7 @@ def test_postgresql_import_audit_rejects_direct_sql_mutation_and_destructive_dow
             command.downgrade(Config("alembic.ini"), "20260916_0011")
         assert client.get("/api/material-imports/" + str(batch_id)).json() == response.json()
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0020"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == _current_head()
 
 
 def test_postgresql_import_upgrade_from_0011_and_empty_downgrade_preserve_prior_records():
@@ -1002,6 +1020,7 @@ def test_postgresql_source_approval_serializes_duplicates_and_active_limit(revie
         assert len(rows) == (1 if duplicate else 20)
 
 
+@pytest.mark.parametrize("review_pg_case", ["isolated-history"], indirect=True)
 def test_postgresql_ai_and_source_provenance_cannot_be_erased_or_rewritten(review_pg_case):
     from test_ai_content import approve_source, proposal
     case = review_pg_case
@@ -1016,7 +1035,7 @@ def test_postgresql_ai_and_source_provenance_cannot_be_erased_or_rewritten(revie
         with pytest.raises(DBAPIError): command.downgrade(Config("alembic.ini"), "20260917_0012")
         assert client.get(case.path + "/content-drafts").json()["items"][0]["id"] == draft["id"]
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0020"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == _current_head()
 
 
 def test_postgresql_ai_upgrade_from_0012_preserves_records_and_empty_downgrade():
@@ -1191,6 +1210,7 @@ def test_postgresql_ai_expiry_rechecked_after_material_lock_wait(review_pg_case,
                 event.remove(case.database.engine, "before_cursor_execute", observe)
 
 
+@pytest.mark.parametrize("review_pg_case", ["isolated-history"], indirect=True)
 def test_postgresql_ai_credential_scope_and_revocation_are_permanent(review_pg_case):
     from test_ai_service import issue
     case = review_pg_case
@@ -1205,7 +1225,7 @@ def test_postgresql_ai_credential_scope_and_revocation_are_permanent(review_pg_c
                 connection.execute(text(statement), {"id": credential_id})
         with pytest.raises(DBAPIError): command.downgrade(Config("alembic.ini"), "20260917_0013")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0020"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == _current_head()
 
 
 def test_postgresql_ai_service_upgrade_from_0013_preserves_prior_records():
@@ -1311,7 +1331,7 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
             current_revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            assert current_revision == "20260918_0020"
+            assert current_revision == _current_head()
     finally:
         engine.dispose()
 
@@ -1354,7 +1374,7 @@ def test_postgresql_auth_upgrade_from_previous_head_preserves_users_without_cred
                 ).scalar_one() == 0
                 assert connection.execute(
                     text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "20260918_0020"
+                ).scalar_one() == _current_head()
         finally:
             engine.dispose()
             if previous_database_url is None:
@@ -2604,8 +2624,8 @@ def test_postgresql_metadata_fresh_upgrade_and_downgrade() -> None:
             get_settings.cache_clear()
 
 
-# Keep populated publication cases after older shared-schema downgrade guards.
-# Those guards must each reach the provenance table they are intended to verify.
+# Populated-history downgrade guards use a separate isolated schema so each guard
+# reaches its own provenance table regardless of earlier test order.
 def _prepare_pg_publication(case):
     from test_publication_preflight import prepare_candidate
     adapter = SimpleNamespace(database=case.database, materials=[case.material], client=lambda _: case.client_for())
@@ -2681,6 +2701,7 @@ def test_postgresql_publication_commit_preserves_snapshot_during_competing_edit(
         assert preview(publisher, case.material.id)["can_prepare"] is False
 
 
+@pytest.mark.parametrize("review_pg_case", ["isolated-history"], indirect=True)
 def test_postgresql_publication_history_rejects_mutation_cross_material_proof_and_downgrade(review_pg_case):
     from test_publication_preflight import preview
     from test_publication_batches import PATH, creation
@@ -2712,7 +2733,7 @@ def test_postgresql_publication_history_rejects_mutation_cross_material_proof_an
         with pytest.raises(DBAPIError, match="Publication provenance exists"):
             command.downgrade(Config("alembic.ini"), "20260917_0014")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0020"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == _current_head()
 
 
 def test_postgresql_publication_upgrade_from_0014_preserves_prior_records_and_empty_downgrade():
@@ -2824,6 +2845,7 @@ def test_postgresql_packaging_write_serializes_material_and_account_change(revie
             assert first.post(case.path + "/packaging-policy/override", json=body).status_code == 401
 
 
+@pytest.mark.parametrize("review_pg_case", ["isolated-history"], indirect=True)
 def test_postgresql_packaging_decisions_require_immutable_contiguous_same_material_history(review_pg_case):
     from app.db.models import MaterialPackagingPolicy
     from test_packaging_policy import override_body
@@ -2866,7 +2888,7 @@ def test_postgresql_packaging_decisions_require_immutable_contiguous_same_materi
         with pytest.raises(DBAPIError, match="Packaging policy provenance exists"):
             command.downgrade(Config("alembic.ini"), "20260917_0015")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0020"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == _current_head()
 
 
 def test_postgresql_packaging_upgrade_from_0015_preserves_prior_records_and_empty_downgrade():
@@ -2982,6 +3004,7 @@ def test_postgresql_identity_reactivation_cannot_bypass_packaging_ownership(revi
             session.commit()
 
 
+@pytest.mark.parametrize("review_pg_case", ["isolated-history"], indirect=True)
 def test_postgresql_packaging_provenance_is_append_only_and_ownership_is_preserved(review_pg_case):
     from test_packaging_ownership import reserve, dispatch, finish
     case = review_pg_case; values = _prepare_pg_packaging_execution(case)
@@ -3004,7 +3027,7 @@ def test_postgresql_packaging_provenance_is_append_only_and_ownership_is_preserv
         with pytest.raises(DBAPIError, match="Packaging execution provenance exists"):
             command.downgrade(Config("alembic.ini"), "20260918_0016")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0020"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == _current_head()
 
 
 def test_postgresql_packaging_inputs_and_dispatch_cannot_commit_without_ownership_progress(review_pg_case):
@@ -3509,6 +3532,7 @@ def test_postgresql_staging_reservation_replay_and_exclusive_active_material(rev
         assert len(owners) == 1 and not owners[0].active
 
 
+@pytest.mark.parametrize("review_pg_case", ["isolated-history"], indirect=True)
 def test_postgresql_staging_history_and_released_ownership_are_preserved(review_pg_case):
     from test_staging_reservations import PATH, close_payload
     case = review_pg_case; _, body = _pg_staging_case(case)
@@ -3533,7 +3557,7 @@ def test_postgresql_staging_history_and_released_ownership_are_preserved(review_
         with pytest.raises(DBAPIError, match="Staging reservation provenance exists"):
             command.downgrade(Config("alembic.ini"), "20260918_0017")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0020"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == _current_head()
 
 
 def _clone_staging_values(case, saved):
@@ -3813,6 +3837,7 @@ def test_postgresql_staging_late_facts_preserve_newer_and_closed_progress(stagin
                 session.execute(text("UPDATE publication_staging_states SET status='RUNNING',close_id=NULL WHERE job_id=:id"), {"id": identifier})
 
 
+@pytest.mark.parametrize("review_pg_case", ["isolated-history"], indirect=True)
 def test_postgresql_staging_journal_is_append_only_and_populated_downgrade_refuses(staging_history_pg):
     import staging_history_support as journal
     case, identifier = staging_history_pg
@@ -3833,7 +3858,7 @@ def test_postgresql_staging_journal_is_append_only_and_populated_downgrade_refus
         with pytest.raises(DBAPIError, match="Staging dispatch provenance exists"):
             command.downgrade(Config("alembic.ini"), "20260918_0018")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0020"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == _current_head()
 
 
 def test_postgresql_staging_dispatch_commit_serializes_against_competing_dispatch(staging_history_pg):
@@ -4268,7 +4293,7 @@ def test_postgresql_company_0020_preserves_0019_data_and_refuses_history_loss():
             with pytest.raises(DBAPIError, match="Company history exists"):
                 command.downgrade(config, "20260918_0019")
             with database.engine.connect() as connection:
-                assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20260918_0020"
+                assert connection.scalar(text("SELECT version_num FROM alembic_version")) == _current_head()
                 assert connection.scalar(text("SELECT count(*) FROM company_change_events")) == 1
         finally: database.dispose(); get_settings.cache_clear()
 
@@ -4465,3 +4490,101 @@ def test_postgresql_notion_adoption_late_response_returns_committed_replay_befor
             assert replay.status_code == 200 and replay.json() == committed.json()
             history = after_restart.get(item.path + "/history").json()["items"]
             assert [entry["action"] for entry in history] == ["UPDATED", "NOTION_ADOPTED"]
+
+
+def _resource_target(case, kind):
+    return {"BRAND": case.material.published_brand_id, "PROJECT": case.material.project_id,
+        "USER": case.users[1].id, "MATERIAL": case.material.id}[kind]
+
+
+def _pg_resource_event(case, kind):
+    from app.resource_history import KINDS, append_resource_change, resource_snapshot
+    model, _, _, fields = KINDS[kind]; identifier = _resource_target(case, kind)
+    field = next(value for value in ("name", "display_name", "material_name") if value in fields)
+    with case.database.session() as session:
+        target = session.scalar(select(model).where(model.id == identifier).with_for_update())
+        before = resource_snapshot(target); setattr(target, field, "Audited synthetic resource")
+        item = append_resource_change(session, target, case.users[0].id, before)
+        session.commit(); return item
+
+
+@pytest.mark.parametrize("kind", ["BRAND", "PROJECT", "USER", "MATERIAL"])
+@pytest.mark.parametrize("operation", ["update", "delete", "truncate"])
+def test_postgresql_resource_history_is_append_only(review_pg_case, kind, operation):
+    case = review_pg_case; item = _pg_resource_event(case, kind)
+    statement = {"update": "UPDATE resource_change_events SET action='CREATED' WHERE id=:id",
+        "delete": "DELETE FROM resource_change_events WHERE id=:id", "truncate": "TRUNCATE resource_change_events"}[operation]
+    with pytest.raises(DBAPIError, match="append-only"), case.database.engine.begin() as connection:
+        connection.execute(text(statement), {"id": item.id})
+    with case.database.engine.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM resource_change_events WHERE id=:id"), {"id": item.id}) == 1
+
+
+@pytest.mark.parametrize("kind", ["BRAND", "PROJECT", "USER", "MATERIAL"])
+@pytest.mark.parametrize("change", ["extra-target", "wrong-after", "extra-before", "skip-version", "false-creation", "bad-hash"])
+def test_postgresql_resource_history_rejects_unbound_or_invalid_snapshots(review_pg_case, kind, change):
+    from app.db.models import ResourceChangeEvent
+    from app.material_review import canonical_hash
+    case = review_pg_case; previous = _pg_resource_event(case, kind)
+    values = {column.key: getattr(previous, column.key) for column in ResourceChangeEvent.__table__.columns if column.key not in {"id", "created_at"}}
+    values.update(version=2, before_snapshot=previous.before_snapshot.copy(), after_snapshot=previous.after_snapshot.copy())
+    if change == "extra-target":
+        field = "project_id" if kind != "PROJECT" else "brand_id"
+        values[field] = case.material.project_id if field == "project_id" else case.material.published_brand_id
+    elif change == "wrong-after": values["after_snapshot"]["id"] = str(uuid4())
+    elif change == "extra-before": values["before_snapshot"]["raw"] = "Unmapped synthetic property"
+    elif change == "skip-version": values["version"] = 3
+    elif change == "false-creation": values["action"] = "CREATED"; values["before_snapshot"] = {}
+    values["before_hash"] = canonical_hash(values["before_snapshot"])
+    values["after_hash"] = "invalid" if change == "bad-hash" else canonical_hash(values["after_snapshot"])
+    with pytest.raises(DBAPIError), case.database.session() as session:
+        session.add(ResourceChangeEvent(**values)); session.commit()
+
+
+@pytest.mark.parametrize("kind", ["BRAND", "PROJECT", "USER", "MATERIAL"])
+def test_postgresql_resource_api_concurrent_changes_preserve_commit_order(review_pg_case, kind):
+    from app.resource_history import KINDS
+    case = review_pg_case; identifier = _resource_target(case, kind); path = f"/api/{KINDS[kind][2]}/{identifier}"
+    changes = {"BRAND": ({"name": "Concurrent brand"}, {"is_active": False}),
+        "PROJECT": ({"notes": "Concurrent note"}, {"due_date": "2026-10-01"}),
+        "USER": ({"display_name": "Concurrent user"}, {"is_active": False}),
+        "MATERIAL": ({"material_name": "Concurrent material"}, {"assigned_processor_id": str(case.users[2].id)})}[kind]
+    barrier = Barrier(2)
+    with case.client_for() as first, case.client_for(3) as second:
+        def update(client, values): barrier.wait(15); return client.patch(path, json=values)
+        with ThreadPoolExecutor(2) as pool:
+            futures = [pool.submit(update, first, changes[0]), pool.submit(update, second, changes[1])]
+            responses = [future.result(timeout=20) for future in futures]
+            assert [response.status_code for response in responses] == [200, 200]
+        events = first.get(path + "/history").json()["items"]
+        assert [item["version"] for item in events] == [2, 1]
+        assert events[0]["before"] == events[1]["after"]
+        assert {item["actor_id"] for item in events} == {str(case.users[0].id), str(case.users[3].id)}
+        for field, value in (changes[0] | changes[1]).items(): assert events[0]["after"][field] == value
+
+
+def test_postgresql_resource_history_0021_preserves_0020_records_and_refuses_history_loss():
+    from app.db.models import ResourceChangeEvent
+    from app.resource_history import KINDS, resource_snapshot
+    with isolated_postgresql_database() as database_url, pytest.MonkeyPatch.context() as patch:
+        patch.setenv("DATABASE_URL", database_url); get_settings.cache_clear()
+        config = Config("alembic.ini"); command.upgrade(config, "20260918_0020")
+        fixture = _review_pg_case(database_url); case = next(fixture)
+        try:
+            with case.database.session() as session:
+                frozen = {kind: resource_snapshot(session.get(model, _resource_target(case, kind))) for kind, (model, *_) in KINDS.items()}
+            command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
+            with case.database.session() as session:
+                assert not list(session.scalars(select(ResourceChangeEvent)))
+                assert frozen == {kind: resource_snapshot(session.get(model, _resource_target(case, kind))) for kind, (model, *_) in KINDS.items()}
+            command.downgrade(config, "20260918_0020")
+            assert not inspect(case.database.engine).has_table("resource_change_events")
+            command.upgrade(config, "head")
+            with case.client_for() as client:
+                assert client.patch(f"/api/projects/{case.material.project_id}", json={"notes": "First audited change"}).status_code == 200
+            with pytest.raises(DBAPIError, match="Resource history exists"):
+                command.downgrade(config, "20260918_0020")
+            with case.database.engine.connect() as connection:
+                assert connection.scalar(text("SELECT version_num FROM alembic_version")) == _current_head()
+                assert connection.scalar(text("SELECT count(*) FROM resource_change_events")) == 1
+        finally: fixture.close(); get_settings.cache_clear()

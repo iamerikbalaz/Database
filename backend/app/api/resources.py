@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.auth.access import AccessDependency, ADMIN, CATALOG_MANAGERS, MATERIAL_EDITORS
 from app.auth.service import database_now, lock_user_credential, revoke_all_user_sessions
 from app.company_history import append_company_change, company_snapshot
+from app.resource_history import append_resource_change, resource_snapshot
 from app.material_identity import identity_context, require_brand_idle, require_material_idle
 
 from app.db.models import (
@@ -146,6 +147,15 @@ def _commit_company(session, company, actor_id, before, *, action="UPDATED"):
         raise HTTPException(409, "A record with one of the unique values already exists.") from None
 
 
+def _commit_resource(session, item, actor_id, before, *, action="UPDATED"):
+    try:
+        append_resource_change(session, item, actor_id, before, action=action)
+        return _commit(session, item)
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(409, "A record with one of the unique values already exists.") from None
+
+
 def build_resources_router(database: SessionDatabase) -> APIRouter:
     router = APIRouter(prefix="/api")
 
@@ -239,7 +249,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
     )
     def create_brand(payload: PublishedBrandCreate, access: AccessDependency) -> PublishedBrand:
         with database.session() as session:
-            access.check(session, CATALOG_MANAGERS)
+            actor = access.check(session, CATALOG_MANAGERS)
             _require_company(session, payload.company_id)
             _ensure_unique(
                 session,
@@ -257,7 +267,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             )
             brand = PublishedBrand(**_values(payload))
             session.add(brand)
-            return _commit(session, brand)
+            return _commit_resource(session, brand, actor.id, {}, action="CREATED")
 
     @router.get("/brands/{brand_id}", response_model=PublishedBrandRead, tags=["brands"])
     def get_brand(brand_id: UUID, access: AccessDependency) -> PublishedBrand:
@@ -275,6 +285,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             brand = session.scalar(select(PublishedBrand).where(PublishedBrand.id == brand_id).with_for_update())
             if brand is None:
                 raise HTTPException(404, "Published brand not found.")
+            before = resource_snapshot(brand)
             require_brand_idle(session, brand_id)
             if "company_id" in values:
                 _require_company(session, values["company_id"])
@@ -308,7 +319,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                         .order_by(PBRMaterial.id).with_for_update()):
                     invalidate_review(session, material, actor.id, "BRAND_FIELDS_CHANGED")
             _apply_update(brand, values)
-            return _commit(session, brand)
+            return _commit_resource(session, brand, actor.id, before)
 
     @router.get("/projects", response_model=list[ProjectRead], tags=["projects"])
     def list_projects(filters: Annotated[ProjectListFilters, Query()], access: AccessDependency) -> list[Project]:
@@ -336,7 +347,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
     )
     def create_project(payload: ProjectCreate, access: AccessDependency) -> Project:
         with database.session() as session:
-            access.check(session, CATALOG_MANAGERS)
+            actor = access.check(session, CATALOG_MANAGERS)
             _require_company(session, payload.company_id)
             _ensure_unique(
                 session,
@@ -347,7 +358,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             )
             project = Project(**_values(payload))
             session.add(project)
-            return _commit(session, project)
+            return _commit_resource(session, project, actor.id, {}, action="CREATED")
 
     @router.get("/projects/{project_id}", response_model=ProjectRead, tags=["projects"])
     def get_project(project_id: UUID, access: AccessDependency) -> Project:
@@ -358,8 +369,10 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
     @router.patch("/projects/{project_id}", response_model=ProjectRead, tags=["projects"])
     def update_project(project_id: UUID, payload: ProjectUpdate, access: AccessDependency) -> Project:
         with database.session() as session:
-            access.check(session, CATALOG_MANAGERS)
-            project = _get_or_404(session, Project, project_id, "Project")
+            actor = access.check(session, CATALOG_MANAGERS)
+            project = session.scalar(select(Project).where(Project.id == project_id).with_for_update())
+            if project is None: raise HTTPException(404, "Project not found.")
+            before = resource_snapshot(project)
             values = _values(payload, exclude_unset=True)
             if "company_id" in values:
                 _require_company(session, values["company_id"])
@@ -373,7 +386,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                     project.id,
                 )
             _apply_update(project, values)
-            return _commit(session, project)
+            return _commit_resource(session, project, actor.id, before)
 
     @router.get(
         "/internal-users",
@@ -410,7 +423,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
     )
     def create_internal_user(payload: InternalUserCreate, access: AccessDependency) -> InternalUser:
         with database.session() as session:
-            access.check(session, ADMIN, exclusive=True)
+            actor = access.check(session, ADMIN, exclusive=True)
             _ensure_unique(
                 session,
                 InternalUser,
@@ -420,7 +433,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             )
             user = InternalUser(**_values(payload))
             session.add(user)
-            return _commit(session, user)
+            return _commit_resource(session, user, actor.id, {}, action="CREATED")
 
     @router.get(
         "/internal-users/{user_id}",
@@ -441,9 +454,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
     )
     def update_internal_user(user_id: UUID, payload: InternalUserUpdate, access: AccessDependency) -> InternalUser:
         with database.session() as session:
-            access.check(session, ADMIN, exclusive=True)
+            actor = access.check(session, ADMIN, exclusive=True)
             lock_user_credential(session, user_id)
-            user = _get_or_404(session, InternalUser, user_id, "Internal user")
+            user = session.scalar(select(InternalUser).where(InternalUser.id == user_id).with_for_update())
+            if user is None: raise HTTPException(404, "Internal user not found.")
+            before = resource_snapshot(user)
             values = _values(payload, exclude_unset=True)
             if user.id == access.user.id and any(
                 field in values and values[field] != getattr(user, field)
@@ -463,7 +478,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                     user.id,
                 )
             _apply_update(user, values)
-            return _commit(session, user)
+            return _commit_resource(session, user, actor.id, before)
 
     @router.get("/materials", response_model=list[PBRMaterialRead], tags=["materials"])
     def list_materials(
@@ -508,7 +523,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
     )
     def create_material(payload: PBRMaterialCreate, access: AccessDependency) -> PBRMaterial:
         with database.session() as session:
-            access.check(session, CATALOG_MANAGERS)
+            actor = access.check(session, CATALOG_MANAGERS)
             _get_or_404(session, Project, payload.project_id, "Project")
             _require_active_internal_user(session, payload.assigned_processor_id)
             brand = session.scalar(
@@ -550,7 +565,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             session.flush()
             session.add(MaterialNumberReservation(brand_id=brand.id, sequence_number=sequence_number,
                 material_id=material.id, actor_id=access.user.id if session.get(InternalUser, access.user.id) else None))
-            return _commit(session, material)
+            return _commit_resource(session, material, actor.id, {}, action="CREATED")
 
     @router.get("/materials/{material_id}", response_model=PBRMaterialRead, tags=["materials"])
     def get_material(material_id: UUID, access: AccessDependency) -> PBRMaterial:
@@ -604,7 +619,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
     )
     def update_material(material_id: UUID, payload: PBRMaterialUpdate, access: AccessDependency) -> PBRMaterial:
         with database.session() as session:
-            access.check(session, MATERIAL_EDITORS)
+            actor = access.check(session, MATERIAL_EDITORS)
             material = session.scalar(
                 select(PBRMaterial)
                 .where(PBRMaterial.id == material_id)
@@ -618,6 +633,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             access.require_material(material)
             values = _values(payload, exclude_unset=True)
             require_material_idle(session, material_id)
+            before = resource_snapshot(material)
             old_identity = identity_context(material)
             if access.user.role == "PROCESSOR" and set(values) - {"material_name"}:
                 raise HTTPException(403, "Only a production lead or administrator can change material assignment or identity.")
@@ -665,6 +681,6 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                     actor_id=access.user.id if session.get(InternalUser, access.user.id) else None,
                     old_context=old_identity, new_context=identity_context(material),
                     reason="Category changed before linking a source folder."))
-            return _commit(session, material)
+            return _commit_resource(session, material, actor.id, before)
 
     return router

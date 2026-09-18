@@ -860,6 +860,38 @@ class CompanyChangeEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class ResourceChangeEvent(Base):
+    __tablename__ = "resource_change_events"
+    __table_args__ = (
+        UniqueConstraint("brand_id", "version", name="uq_resource_change_events_brand_version"),
+        UniqueConstraint("project_id", "version", name="uq_resource_change_events_project_version"),
+        UniqueConstraint("user_id", "version", name="uq_resource_change_events_user_version"),
+        UniqueConstraint("material_id", "version", name="uq_resource_change_events_material_version"),
+        CheckConstraint("version BETWEEN 1 AND 2147483647", name="ck_resource_change_events_version"),
+        CheckConstraint("action IN ('CREATED', 'UPDATED')", name="ck_resource_change_events_action"),
+        CheckConstraint("(kind = 'BRAND' AND brand_id IS NOT NULL AND project_id IS NULL AND user_id IS NULL AND material_id IS NULL) OR "
+            "(kind = 'PROJECT' AND project_id IS NOT NULL AND brand_id IS NULL AND user_id IS NULL AND material_id IS NULL) OR "
+            "(kind = 'USER' AND user_id IS NOT NULL AND brand_id IS NULL AND project_id IS NULL AND material_id IS NULL) OR "
+            "(kind = 'MATERIAL' AND material_id IS NOT NULL AND brand_id IS NULL AND project_id IS NULL AND user_id IS NULL)", name="ck_resource_change_events_target"),
+        _review_hash_constraint("before_hash", "ck_resource_change_events_before_hash"),
+        _review_hash_constraint("after_hash", "ck_resource_change_events_after_hash"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    brand_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("published_brands.id", ondelete="RESTRICT"))
+    project_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("projects.id", ondelete="RESTRICT"))
+    user_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    material_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"))
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    before_snapshot: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
+    after_snapshot: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
+    before_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    after_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class CatalogAuditEvent(Base):
     __tablename__ = "catalog_audit_events"
     __table_args__ = (
@@ -1523,3 +1555,6 @@ for _catalog_type in (OnlineCategory, BrandCollection):
 for _review_history_type in (CompanyChangeEvent, MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow, MaterialAiDraft, PublicationBatch, PublicationBatchItem, MaterialPackagingPolicy, MaterialPackagingExecution, MaterialPackagingDispatch, MaterialPackagingObservation, PublicationStagingJob, PublicationStagingItem, PublicationStagingClose, PublicationStagingDispatch, PublicationStagingTransfer, PublicationStagingObservation, PublicationStagingResult):
     event.listen(_review_history_type, "before_update", _reject_review_history_mutation)
     event.listen(_review_history_type, "before_delete", _reject_review_history_mutation)
+
+event.listen(ResourceChangeEvent, "before_update", _reject_review_history_mutation)
+event.listen(ResourceChangeEvent, "before_delete", _reject_review_history_mutation)

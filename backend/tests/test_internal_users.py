@@ -50,7 +50,10 @@ def test_internal_user_create_list_detail_patch_without_delete(client: TestClien
     assert user["created_at"]
     assert user["updated_at"]
     assert client.get(f"/api/internal-users/{user['id']}").json() == user
-    assert client.get("/api/internal-users").json() == [user]
+    # The domain-only fixture's administrator now exists as the audit actor.
+    listed = client.get("/api/internal-users").json()
+    assert [item for item in listed if item["id"] != "00000000-0000-0000-0000-000000000001"] == [user]
+    assert next(item for item in listed if item["id"] == "00000000-0000-0000-0000-000000000001")["role"] == "ADMIN"
 
     patch_response = client.patch(
         f"/api/internal-users/{user['id']}",

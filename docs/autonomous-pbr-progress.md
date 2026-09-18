@@ -133,6 +133,18 @@ above. Fresh/prior migrations, Alembic current/heads/check, real competing owner
 identity exclusion and downgrade guards passed. Owned cleanup succeeded; only its
 database volume is retained. No application packaging endpoint or UI dispatch is
 enabled by this schema slice. Committed migrations through 0017 are immutable.
+The schema/ownership slice is committed and pushed as `1dc5835`.
+
+Backend dispatch coordination is verified separately (`docs/packaging-dispatch-lease.md`).
+Ten focused tests passed; isolated PostgreSQL-only project
+`reawote-test-19a24c2d30694e219c36d11739c0f509` passed **193 actual PG tests (158.37s,
+auth 27/27)**, including eight new real lease/process-death cases, without skips.
+The dedicated session is idle outside transactions, excludes independent backend
+engines, detects unexpected disconnect/unlock, and physically closes on every exit.
+The test runner now supports PostgreSQL-only work with the same isolation/auth
+gates; all ten offline runner safety cases passed. Owned cleanup passed and its
+database volume is retained. Reservation/API integration is now in progress and
+has not yet been verified or enabled.
 
 Next: durable database jobs/attempts
 with current approval/source checks and operator UI (`docs/packaging-execution-plan.md`). GCS/Notion,

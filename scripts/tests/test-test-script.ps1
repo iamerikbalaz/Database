@@ -25,7 +25,7 @@ function docker {
         if (-not $command.Contains('--project-name ' + $state.Project + ' ')) { throw 'Project escaped isolation.' }
         if (-not $command.Contains(' --env-file ') -or -not $command.Contains(' -f ')) { throw 'Compose files must be pinned.' }
         if ($command -match 'RUN_POSTGRES_TESTS=1') {
-            if ($state.Mode -eq 'success') { 'collected=20, executed=20, passed=20, skipped=0, failed=0' }
+            if ($state.Mode -in @('success', 'pg-only')) { 'collected=20, executed=20, passed=20, skipped=0, failed=0' }
             else { $global:LASTEXITCODE = 1; 'mandatory auth gate failed' }
         }
         return
@@ -37,13 +37,13 @@ $previousPassword = $env:POSTGRES_PASSWORD
 $projects = [Collections.Generic.HashSet[string]]::new()
 try {
     $env:DOCKER_HOST = $null
-    foreach ($mode in @('success', 'auth-failure', 'auth-skip', 'no-auth-tests', 'collision', 'remote-context', 'remote-env', 'windows-engine')) {
+    foreach ($mode in @('success', 'pg-only', 'pg-only-failure', 'auth-failure', 'auth-skip', 'no-auth-tests', 'collision', 'remote-context', 'remote-env', 'windows-engine')) {
         $state.Mode = $mode; $state.Calls.Clear(); $state.Project = ''
         $state.Endpoint = if ($mode -eq 'remote-context') { 'ssh://remote.example' } else { 'npipe:////./pipe/dockerDesktopLinuxEngine' }
         $env:DOCKER_HOST = if ($mode -eq 'remote-env') { 'tcp://127.0.0.1:2375' } else { $null }
         $failure = $null
-        try { & $testScript | Out-Null } catch { $failure = $_.Exception.Message }
-        if (($null -eq $failure) -ne ($mode -eq 'success')) { throw "Unexpected result for ${mode}: $failure" }
+        try { & $testScript -PostgresqlOnly:($mode.StartsWith('pg-only')) | Out-Null } catch { $failure = $_.Exception.Message }
+        if (($null -eq $failure) -ne ($mode -in @('success', 'pg-only'))) { throw "Unexpected result for ${mode}: $failure" }
         $mutations = @($state.Calls | Where-Object { $_ -match '^compose .* (build|up|run|down)( |$)' })
         $blocked = $mode -in @('collision', 'remote-context', 'remote-env', 'windows-engine')
         if ($blocked -and $mutations.Count -ne 0) { throw 'Unsafe mutation before validation.' }
@@ -51,6 +51,13 @@ try {
             if (-not $projects.Add($state.Project)) { throw 'Reused test namespace.' }
             $gate = @($mutations | Where-Object { $_ -match 'RUN_POSTGRES_TESTS=1.*--require-auth-postgresql.*test_auth_postgresql.py.*test_materials_postgresql.py' })
             if ($gate.Count -ne 1) { throw 'Mandatory PostgreSQL gate missing.' }
+            if (-not $gate[0].Contains('test_packaging_dispatch_lease_postgresql.py')) { throw 'Dispatch PostgreSQL tests missing.' }
+            if ($mode.StartsWith('pg-only')) {
+                if (@($mutations | Where-Object { $_ -match ' backend pytest --ignore| worker pytest| frontend npm' }).Count) {
+                    throw 'PostgreSQL-only run entered an unrelated phase.'
+                }
+                if (@($mutations | Where-Object { $_ -match ' build backend$' }).Count -ne 1) { throw 'PostgreSQL-only build is not bounded to backend.' }
+            }
             $cleanup = @($mutations | Where-Object { $_ -match ' down --remove-orphans$' })
             if ($cleanup.Count -ne 1) { throw 'Owned container cleanup missing.' }
             $worker = @($mutations | Where-Object { $_ -match ' worker pytest$' })
@@ -60,6 +67,6 @@ try {
         if ($env:POSTGRES_PASSWORD -ne $previousPassword) { throw 'Environment was not restored.' }
         Write-Host "PASS: $mode"
     }
-    Write-Host 'Test runner isolation: 8 passed, 0 skipped, 0 failed.'
+    Write-Host 'Test runner isolation: 10 passed, 0 skipped, 0 failed.'
 }
 finally { $env:DOCKER_HOST = $previousHost }

@@ -96,12 +96,44 @@ Once dispatch provenance exists, downgrade refuses rather than deleting it. Data
 guards reject direct update/delete/truncate of immutable facts and deletion of
 progress. ORM guards also protect immutable facts and closed state in unit tests.
 
-## Next: execution orchestration
+## Execution orchestration (verification in progress)
+
+The draft runner now connects `POST /{job_id}/run` and `POST /{job_id}/reconcile`
+under `/api/publication-staging-jobs`. Both require current ADMIN/LEADERSHIP access,
+CSRF, `idempotency_key`, `expected_plan_sha256`, `expected_last_dispatch_id` (null
+before the first dispatch) and a reason. Exact actor-scoped replay returns current
+job history without repeating IO. `run` is allowed once per job; reconciliation
+only reads existing objects. A failed partial upload requires an explicitly abandoned
+old job and a fresh reservation to write again. GCS remains disabled by default.
+
+One runner per application instance is admitted at a time, plus the dedicated
+cross-process job lease. A dispatch and each object intent commit before IO. Sources
+are the exact frozen CSV and proof-bound retained package streams. Live source
+inventory is checked before a new upload, before creating its marker and before
+acceptance. A reconciliation may retain verified cloud facts while offline or changed
+sources prevent acceptance. The current material/input context is checked before
+every object; account, ownership and lease are rechecked throughout streaming by
+the existing guarded transport. Returned receipts are independently revalidated.
+
+The async operation budget is one hour, with configured per-object GCS deadlines.
+Short runner transactions set PostgreSQL statement/lock waits to 10s/5s. An already
+running read-only inventory call may finish after its cancelled waiter; it has no
+database transaction, lease connection or cloud write capability. Database/network
+availability still determines whether final uncertainty can be persisted. On a
+process crash or persistence failure, a committed RUNNING intent remains visible
+and requires explicit recovery. There is no background scheduler or automatic retry.
+
+Cancellation shields only source/connection cleanup and the short uncertainty record.
+Immutable observations can arrive late; acceptance additionally checks current actor,
+inputs, ownership and the exact latest dispatch. A verified cloud result can therefore
+remain RECOVERY_REQUIRED. The audit records bounded failure/acceptance codes; no
+remote payload, credential or upload-session URL is retained. Synthetic application,
+full Linux backend and actual PostgreSQL concurrency tests passed (see the progress
+checkpoint). Live cloud verification and product UI testing remain incomplete.
 
 The GCS-specific dedicated-session lease is implemented in
 `backend/app/staging_dispatch_lease.py`; its shared mechanics and tests are described
-in `docs/packaging-dispatch-lease.md`. It is not yet connected to an upload route.
-Commit an immutable ordered dispatch before cloud IO, and hold this lease outside
+in `docs/packaging-dispatch-lease.md`. The runner holds this lease outside
 database transactions. Verify both session identity and lock ownership before each
 consequential write and before accepting a result. A stale process can leave remote observations,
 but it cannot replace newer database progress. Release the physical advisory session
@@ -115,7 +147,7 @@ session URLs, OAuth tokens or raw remote errors. Apply bounded error codes only.
 The runner opens only approved retained artifacts using their complete package proof;
 the CSV comes from the frozen immutable batch. Streams remain bounded end to end.
 The independently verified source adapter is implemented in `staging_sources.py`
-(`docs/gcs-staging-sources.md`); connecting it to durable dispatch is still pending.
+(`docs/gcs-staging-sources.md`) and is connected to durable dispatch.
 Recheck the live source, current account/session and approved input context before
 dispatch and before acceptance. No transaction spans network IO. Revalidate returned
 receipts against the frozen plan even when the transport is injected in tests.
@@ -178,6 +210,8 @@ live verification, throughput and storage/readback cost also remain unverified.
 Reservation checks include fresh/prior migration and Alembic parity, append-only and
 downgrade guards, real PostgreSQL cross-operation races, simultaneous exact retries,
 partial-commit rejection, current approvals and role/CSRF enforcement. Execution
-still needs interrupted IO/lease loss, account revocation and changed source while
-uploading, late-result handling, exact recovery and frozen receipt history. Use
-owned synthetic infrastructure only.
+tests cover interrupted IO/lease loss, account revocation and changed source while
+uploading, late-result handling, exact recovery and frozen receipt history. The
+history response exposes the deployed transfer-enabled setting for controls;
+authorization and configuration are always rechecked on dispatch. Continue using
+owned synthetic infrastructure only; these checks do not verify a live GCS account.

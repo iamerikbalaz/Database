@@ -3977,3 +3977,149 @@ def test_postgresql_staging_abandonment_serializes_duplicate_requests(staging_hi
         assert len(list(session.scalars(select(MaterialAuditEvent).where(
             MaterialAuditEvent.material_id == case.material.id,
             MaterialAuditEvent.event_type == "PUBLICATION_STAGING_ABANDONED")))) == 1
+
+
+@pytest.fixture
+def staging_runtime_pg(review_pg_case):
+    from test_staging_runtime import make_runtime_case
+    from test_application_access import PASSWORD, ORIGIN
+    case = review_pg_case; package = _pg_dispatch_case(case)
+    # This fixture replaces the app to inject the synthetic cloud transport.
+    # The shared fixture's factory closes over its original, GCS-disabled app.
+    def client_for(index=0):
+        client = TestClient(case.app, base_url=ORIGIN)
+        response = client.post("/api/auth/login", json={"email": case.users[index].email,
+            "password": PASSWORD}, headers={"Origin": ORIGIN})
+        assert response.status_code == 200
+        client.headers.update({"Origin": ORIGIN, "X-CSRF-Token": response.json()["csrf_token"]})
+        return client
+    case.client_for = client_for
+    class Adapter:
+        database = case.database
+        worker = None  # No metadata/preflight endpoint is used by this fixture.
+        @property
+        def app(self): return case.app
+        @app.setter
+        def app(self, value): case.app = value
+        def client(self, role):
+            assert role == "ADMIN"
+            return case.client_for()
+    with case.client_for() as client:
+        batch = client.get("/api/publication-batches/" + package.saved["batch_id"]).json()
+    item = make_runtime_case(SimpleNamespace(case=Adapter(), worker=package.worker, inventory=package.inventory,
+        technical=case.technical, material=case.material, material_path=case.path, job_path=package.path, batch=batch))
+    return case, item
+
+
+@pytest.mark.parametrize("change", [None, "revoke", "source"])
+def test_postgresql_staging_upload_has_committed_intent_and_no_transaction_over_io(staging_runtime_pg, change):
+    import anyio
+    from app.db.models import PublicationStagingTransfer, PublicationStagingResult
+    from test_staging_runtime import body
+    from test_staging_reservations import PATH
+    case, item = staging_runtime_pg; entered = Event(); release = Event()
+    async def hold(spec):
+        if not entered.is_set():
+            entered.set()
+            if not await anyio.to_thread.run_sync(release.wait, 20): raise TimeoutError("Synthetic upload was not released")
+    item.cloud.before = hold; payload = body(item).model_dump(mode="json")
+    path = PATH + "/" + item.job["id"]
+    with case.client_for() as actor, case.client_for() as replaying, case.client_for(3) as admin:
+        with ThreadPoolExecutor(1) as pool:
+            pending = pool.submit(actor.post, path + "/run", json=payload)
+            try:
+                assert entered.wait(20)
+                assert replaying.post(path + "/run", json=payload).json()["status"] == "RUNNING"
+                with case.database.engine.connect() as connection:
+                    assert connection.scalar(text("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND state LIKE 'idle in transaction%'")) == 0
+                with case.database.session() as session:
+                    assert session.scalar(select(PublicationStagingTransfer.id).where(PublicationStagingTransfer.job_id == item.identifier))
+                assert admin.patch(case.path, json={"material_name": "Still owned during upload"}).status_code == 409
+                if change == "revoke":
+                    assert admin.patch("/api/internal-users/" + str(case.users[0].id), json={"is_active": False}).status_code == 200
+                elif change == "source": item.inventory.changed = True
+            finally: release.set()
+            response = pending.result(timeout=30)
+            assert response.status_code == (401 if change == "revoke" else 200), response.json()
+            if response.status_code == 200:
+                assert response.json()["status"] == ("RECOVERY_REQUIRED" if change else "STAGED_VERIFIED")
+        assert admin.get(path).json()["status"] == ("RECOVERY_REQUIRED" if change else "STAGED_VERIFIED")
+        assert admin.get(case.path).json()["is_published"] is False
+    with case.database.session() as session:
+        result = session.scalar(select(PublicationStagingResult).where(PublicationStagingResult.job_id == item.identifier))
+        assert result.inputs_current is (change is None) and result.actor_current is (change != "revoke")
+
+
+def test_postgresql_staging_lost_dispatch_session_cannot_accept_and_read_only_recovery_succeeds(staging_runtime_pg):
+    from app.db.models import PublicationStagingResult
+    from app.dispatch_lease import _key
+    from test_staging_runtime import body
+    from test_staging_reservations import PATH
+    case, item = staging_runtime_pg
+    key = _key(item.identifier, b"reawote/staging-dispatch/v1/") & ((1 << 64) - 1)
+    async def lose(spec):
+        if spec.relative_path != "_reawote/complete.json": return
+        with case.database.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+            pid = connection.scalar(text("""SELECT pid FROM pg_locks WHERE locktype='advisory'
+                AND database=(SELECT oid FROM pg_database WHERE datname=current_database())
+                AND classid::bigint=:high AND objid::bigint=:low AND objsubid=1 AND granted"""),
+                {"high": key >> 32, "low": key & 0xffffffff})
+            assert pid is not None and connection.scalar(text("SELECT pg_terminate_backend(:pid)"), {"pid": pid})
+    item.cloud.after = lose; path = PATH + "/" + item.job["id"]
+    with case.client_for() as client:
+        first = client.post(path + "/run", json=body(item).model_dump(mode="json"))
+        assert first.status_code == 200 and first.json()["status"] == "RECOVERY_REQUIRED", first.json()
+        assert "_reawote/complete.json" in item.cloud.objects
+        item.cloud.after = None; uploads = len(item.cloud.calls)
+        recovered = client.post(path + "/reconcile", json=body(item,
+            expected_last_dispatch_id=UUID(first.json()["last_dispatch_id"])).model_dump(mode="json"))
+        assert recovered.status_code == 200 and recovered.json()["status"] == "STAGED_VERIFIED", recovered.json()
+        assert all(method == "reconcile" for method, _ in item.cloud.calls[uploads:])
+    with case.database.session() as session:
+        results = list(session.scalars(select(PublicationStagingResult).where(PublicationStagingResult.job_id == item.identifier)))
+        assert len(results) == 2 and sum(result.lease_current for result in results) == 1
+
+
+def test_postgresql_staging_old_response_cannot_replace_new_backend_reconciliation(staging_runtime_pg):
+    import anyio
+    from app.main import create_app as authenticated_app
+    from app.db.models import PublicationStagingResult, PublicationStagingState
+    from app.dispatch_lease import _key
+    from test_staging_runtime import body
+    from test_staging_reservations import PATH
+    case, item = staging_runtime_pg; entered = Event(); release = Event()
+    async def hold(spec):
+        if spec.relative_path == "_reawote/complete.json" and not entered.is_set():
+            entered.set()
+            if not await anyio.to_thread.run_sync(release.wait, 25): raise TimeoutError("Late marker response was not released")
+    item.cloud.after = hold; path = PATH + "/" + item.job["id"]
+    with case.client_for() as original:
+        with ThreadPoolExecutor(1) as pool:
+            pending = pool.submit(original.post, path + "/run", json=body(item).model_dump(mode="json"))
+            try:
+                assert entered.wait(20)
+                first = original.get(path).json()
+                key = _key(item.identifier, b"reawote/staging-dispatch/v1/") & ((1 << 64) - 1)
+                with case.database.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+                    pid = connection.scalar(text("""SELECT pid FROM pg_locks WHERE locktype='advisory'
+                        AND database=(SELECT oid FROM pg_database WHERE datname=current_database())
+                        AND classid::bigint=:high AND objid::bigint=:low AND objsubid=1 AND granted"""),
+                        {"high": key >> 32, "low": key & 0xffffffff})
+                    assert pid is not None and connection.scalar(text("SELECT pg_terminate_backend(:pid)"), {"pid": pid})
+                case.app = authenticated_app(item.settings, case.database, inventory_client=item.inventory,
+                    technical_client=item.technical, packaging_client=item.worker, gcs_client=item.cloud)
+                with case.client_for() as replacement:
+                    current = replacement.post(path + "/reconcile", json=body(item,
+                        expected_last_dispatch_id=UUID(first["last_dispatch_id"])).model_dump(mode="json"))
+                    assert current.status_code == 200 and current.json()["status"] == "STAGED_VERIFIED", current.json()
+                    accepted = current.json()
+            finally: release.set()
+            late = pending.result(timeout=20)
+            assert late.status_code == 200 and late.json() == accepted
+    with case.database.session() as session:
+        state = session.get(PublicationStagingState, item.identifier)
+        assert str(state.last_dispatch_id) == accepted["last_dispatch_id"] and state.status == "STAGED_VERIFIED"
+        results = list(session.scalars(select(PublicationStagingResult).where(PublicationStagingResult.job_id == item.identifier)))
+        assert len(results) == 2
+        old = next(result for result in results if str(result.dispatch_id) == first["last_dispatch_id"])
+        assert old.outcome == "UNCERTAIN" and not old.lease_current and not old.inputs_current

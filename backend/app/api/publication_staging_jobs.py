@@ -170,7 +170,7 @@ def build_staging_jobs_router(database, settings):
                 query = query.where(or_(PublicationStagingJob.created_at < stamp,
                     and_(PublicationStagingJob.created_at == stamp, PublicationStagingJob.id < cursor.id)))
             rows = list(session.scalars(query.order_by(PublicationStagingJob.created_at.desc(), PublicationStagingJob.id.desc()).limit(limit + 1)))
-            return {"items": [_summary(session, item) for item in rows[:limit]],
+            return {"enabled": settings.gcs_enabled, "items": [_summary(session, item) for item in rows[:limit]],
                 "next_cursor": str(rows[limit - 1].id) if len(rows) > limit else None}
 
     @router.get("/{job_id}")

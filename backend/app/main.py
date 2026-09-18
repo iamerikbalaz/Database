@@ -38,6 +38,8 @@ from app.packaging_client import PackagingClient, WorkerPackagingClient
 from app.api.publication_staging import build_staging_preview_router
 from app.api.publication_staging_jobs import build_staging_jobs_router
 from app.api.staging_history import build_staging_history_router
+from app.api.staging_execution import build_staging_execution_router
+from app.gcs_client import GcsClient
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -54,6 +56,7 @@ def create_app(
     preview_client: PreviewClient | None = None,
     discovery_client: DiscoveryClient | None = None,
     packaging_client: PackagingClient | None = None,
+    gcs_client: GcsClient | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     app_database = database or Database(app_settings.resolved_database_url)
@@ -97,10 +100,14 @@ def create_app(
     application.include_router(build_staging_history_router(app_database, app_settings),
         prefix="/api/publication-staging-jobs", tags=["publication staging"])
     application.include_router(build_packaging_policy_router(app_database, app_settings))
-    application.include_router(build_packaging_jobs_router(app_database,
-        packaging_client or WorkerPackagingClient(app_settings.packaging_base_url, token=app_settings.packaging_service_token,
-            enabled=app_settings.packaging_enabled, timeout_seconds=app_settings.packaging_timeout_seconds), app_settings,
-        inventory_client or WorkerInventoryClient(app_settings.worker_base_url)))
+    app_packaging_client = packaging_client or WorkerPackagingClient(app_settings.packaging_base_url,
+        token=app_settings.packaging_service_token, enabled=app_settings.packaging_enabled,
+        timeout_seconds=app_settings.packaging_timeout_seconds)
+    app_inventory_client = inventory_client or WorkerInventoryClient(app_settings.worker_base_url)
+    application.include_router(build_packaging_jobs_router(app_database, app_packaging_client, app_settings, app_inventory_client))
+    application.include_router(build_staging_execution_router(app_database, app_packaging_client,
+        app_inventory_client, gcs_client or GcsClient.from_settings(app_settings), app_settings),
+        prefix="/api/publication-staging-jobs", tags=["publication staging"])
     application.include_router(build_folder_discovery_router(app_database,
         discovery_client or WorkerDiscoveryClient(app_settings.worker_base_url)))
     application.include_router(build_content_approvals_router(app_database))

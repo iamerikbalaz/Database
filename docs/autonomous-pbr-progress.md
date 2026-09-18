@@ -32,10 +32,37 @@ manifest digest `2c4e7775b6ebbc27e6f80518b182db5577581dfb6e3ddd9b3c632e2f94c3952
 Tests cover real lease contention, concurrent duplicate requests and late immutable
 facts after abandonment. Owned cleanup completed; images/volumes retained.
 
-In progress: `backend/app/staging_runtime.py` is an uncommitted, untested coordinator
-draft. It is not connected to any route. Review/test its source checks, database/IO
-boundaries, cancellation, strict receipt validation and result acceptance before
-connecting upload/reconcile endpoints. GCS UI remains pending.
+API history/abandonment commit `39676fb` is pushed. The next backend slice:
+`backend/app/staging_runtime.py` and `api/staging_execution.py` now connect explicit
+upload/read-only reconciliation routes. Its 25 Windows
+tests passed (98.34s, two dependency warnings), including streamed synthetic archive
+bytes, complete manifest, current roles/CSRF, source changes before/after the marker,
+strict receipt validation, cancellation and deadline cleanup. The initial 24/25 run
+failed only because a test tried to mutate frozen Settings; it now constructs a new
+disabled application as deployment does. Synthetic archive bytes are not a claim of
+real ZIP generation; that is covered by the existing Linux worker suite.
+
+The first PostgreSQL run (`reawote-test-7959acb898984f49a29c38692947ae86`) passed
+271 tests; five new runtime tests failed because their client factory still closed
+over the original GCS-disabled app instead of the synthetic transport app. The test
+fixture now follows the replaced app. Corrected PostgreSQL: **276 passed**, auth
+**27/27**, no skips, 334.70s, three dependency/schema warnings; project
+`reawote-test-1bc71c42bd184945baba3be9e41e0f95`, manifest digest
+`8054bfd08d5c9207f9517256d4359ecbe5d95c7aa6145e737585513fac9bd823`.
+The five new cases cover committed intent/no transaction over IO, revocation/source
+changes, terminated lease session, read-only recovery and a late response after
+another backend's reconciliation. Both runs completed owned container/network
+cleanup, retaining owned volumes/images. Full isolated Linux backend:
+**1656 passed**, no skips, 887.04s, two dependency warnings, image
+`reawote-staging-runtime-9f7345fb83264332bb4bf6ae8dae0278:test`, manifest digest
+`3427ba875ad1038fabf32031e69590f952b84743647eddf8a5146aca272c86d9`.
+The container was automatically removed. A later additive history `enabled` field
+passed two focused Windows tests (10.47s, 25 deselected); it is not included in those
+two frozen Linux/PG snapshots. No migration beyond 0019 is required.
+GCS client/UI is in progress, uncommitted and not yet fully tested: `stagingClient.ts`,
+`StagingPanel.tsx`, and its Publication integration. Initial TypeScript build/lint
+passed. Finish contract/component tests, full frontend checks, and isolated fresh
+and retained E2E before marking the UI verified. No real cloud request was sent.
 No live cloud or production database operation is authorized.
 
 The owned branch is `codex/autonomous-pbr-completion`; the last verified main is

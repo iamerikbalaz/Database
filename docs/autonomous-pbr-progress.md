@@ -132,6 +132,24 @@ an actual concurrent closure that waits for the input-validation transaction.
 Project `reawote-test-e88eb72404cd43b98ae5f4b081ded066`, backend image manifest
 `6f7488a22da142196383f97d2c257b9552f665d9657f94f599647a4258da524d`.
 Owned cleanup completed and only its exact `..._postgres_data` volume/image remain.
+This input-revalidation slice is committed as `11e7a76`.
+
+The staging source adapter (`docs/gcs-staging-sources.md`) now supplies exact frozen
+CSV and proof-bound retained files as bounded 64 KiB streams. It independently checks
+complete plan/package coverage, detaches mutable evidence, verifies streamed bytes,
+withholds the final block until EOF/hash validation, rechecks authorization and closes
+the owning worker context under cancellation shielding. It performs no NAS/cloud
+operation on its own and is not yet connected to an upload runner.
+The first source cancellation test expected an arbitrary producer's own unshielded
+async finally block to complete under cancellation; the fixture now models the
+producer's own cleanup responsibility, separately from the adapter-owned connection.
+Final Windows source/transport/batch contracts passed **178 tests (5.93s)**. The later
+isolated Linux suite including sources, reserved-input validation, transport, config
+and both lease namespaces passed **281 tests (32.33s)**, no skips, two existing
+dependency warnings. Image `reawote-staging-source-f0baa4ab116d4986be53787d095cc6b5:test`,
+manifest `4e730b9b4abbfaba9560d670fd0c64062138faae60f57d9899208624111712ba`;
+read-only UID 65532, no network/host mounts/ports/DB, bounded tmpfs, auto-removed
+container. Its test image remains.
 
 Next: durable dispatch/recovery, then the manual-import workflow. No upload API,
 actual importer mapping or GCS UI is implemented yet. Existing migrations through

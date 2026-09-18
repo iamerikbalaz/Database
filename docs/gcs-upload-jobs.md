@@ -63,6 +63,8 @@ session URLs, OAuth tokens or raw remote errors. Apply bounded error codes only.
 
 The runner opens only approved retained artifacts using their complete package proof;
 the CSV comes from the frozen immutable batch. Streams remain bounded end to end.
+The independently verified source adapter is implemented in `staging_sources.py`
+(`docs/gcs-staging-sources.md`); connecting it to durable dispatch is still pending.
 Recheck the live source, current account/session and approved input context before
 dispatch and before acceptance. No transaction spans network IO. Revalidate returned
 receipts against the frozen plan even when the transport is injected in tests.

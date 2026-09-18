@@ -114,3 +114,12 @@ it("records a late successful save after navigation without navigating the new p
   expect(recovered).toHaveBeenCalledWith(result.path, result.message);
   expect(save).toHaveBeenCalledOnce();
 });
+
+it("never dispatches a save when its form unmounts during digest preparation", async () => {
+  let complete!: (value: ArrayBuffer) => void;
+  vi.spyOn(crypto.subtle, "digest").mockImplementationOnce(() => new Promise<ArrayBuffer>((resolve) => { complete = resolve; }));
+  const id = owner(), save = vi.fn().mockResolvedValue(result), view = render(tree(id, definition(save)));
+  fireEvent.click(screen.getByRole("button", { name: "Save" })); view.unmount();
+  await act(async () => complete(new ArrayBuffer(32)));
+  expect(save).not.toHaveBeenCalled(); expect(pendingRecordCommands.get(id)).toBeNull();
+});

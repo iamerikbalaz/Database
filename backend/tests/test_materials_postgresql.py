@@ -54,7 +54,8 @@ def review_pg_case(migrated_postgresql_url):
         def dispose(self): pass
     database = SharedDatabase(migrated_postgresql_url)
     suffix = uuid4().hex
-    settings = Settings(_env_file=None, database_url=migrated_postgresql_url, cors_origins=ORIGIN, auth_rate_limit_attempts=100)
+    settings = Settings(_env_file=None, database_url=migrated_postgresql_url, cors_origins=ORIGIN, auth_rate_limit_attempts=100,
+        gcs_bucket_name="synthetic-reawote-staging", gcs_staging_prefix="isolated/contracts")
     password_hash = PasswordService(settings).hash_password(PASSWORD)
     with database.session() as session:
         users = []
@@ -3402,3 +3403,44 @@ def test_postgresql_download_reauthorizes_without_transaction_across_stream(revi
                 else: assert DATA.decode() not in result.text
         assert editor.get(item.path).json()["status"] == "PACKAGED"
     assert transfer.opened == transfer.closed == 1 and len(item.worker.commands) == 1
+
+
+@pytest.mark.parametrize("change", ["material", "brand"])
+def test_postgresql_staging_preview_holds_current_inputs_until_concurrent_edit_commits(review_pg_case, monkeypatch, change):
+    from app import publication_staging
+    from test_packaging_reservations import close_body
+    case = review_pg_case; item = _pg_dispatch_case(case)
+    entered = Event(); release = Event()
+    original = publication_staging.current_inputs
+    def hold(*args, **kwargs):
+        result = original(*args, **kwargs)
+        if not entered.is_set():
+            entered.set()
+            if not release.wait(15): raise TimeoutError("Staging preview was not released")
+        return result
+    with case.client_for() as reader, case.client_for(3) as editor:
+        packaged = reader.post(item.path + "/run", json=close_body()).json()
+        assert packaged["status"] == "PACKAGED"
+        batch_path = "/api/publication-batches/" + packaged["batch_id"]
+        batch = reader.get(batch_path).json()
+        payload = {"job_id": str(uuid4()), "expected_snapshot_hash": batch["snapshot_hash"],
+            "expected_csv_sha256": batch["csv_sha256"], "packages": [{"material_id": str(case.material.id),
+                "execution_id": packaged["id"], "expected_observation_id": packaged["last_observation_id"],
+                "expected_proof_sha256": packaged["proof_sha256"]}]}
+        before = reader.post(batch_path + "/staging-preview", json=payload)
+        assert before.status_code == 200, before.json()
+        monkeypatch.setattr(publication_staging, "current_inputs", hold)
+        with ThreadPoolExecutor(2) as pool:
+            pending = pool.submit(reader.post, batch_path + "/staging-preview", json=payload)
+            try:
+                assert entered.wait(15)
+                writing = pool.submit(editor.patch, case.path if change == "material" else "/api/brands/" + str(case.material.published_brand_id),
+                    json={"material_name": "Changed after staging preview"} if change == "material" else {"name": "Changed brand after staging preview"})
+                with pytest.raises(TimeoutError): writing.result(timeout=.15)
+            finally: release.set()
+            response = pending.result(timeout=25)
+            assert response.status_code == 200 and response.json() == before.json()
+            assert writing.result(timeout=25).status_code == 200
+        assert reader.post(batch_path + "/staging-preview", json=payload).status_code == 409
+        assert reader.get(item.path + "/artifacts").status_code == 200
+    assert len(item.worker.commands) == 1 and len(item.inventory.calls) == 2

@@ -29,7 +29,7 @@ Final verification for the application-download slice:
 Existing dependency deprecations remain. No schema change was needed; migrations
 through 0017 remain immutable. Live GCS/Notion, production throughput and the deployed
 online-importer contract are unverified. No production resource was modified.
-The configurable create-only GCS transport is implemented with bounded resumable
+The configurable create-only GCS transport (`27ab34e`, pushed) is implemented with bounded resumable
 uploads, full SHA-256 readback, conditional live-object verification, secret-safe
 diagnostics and read-only reconciliation. It remains disabled and has no upload API.
 The first targeted run found a forged boolean size being serialized as 1; strict
@@ -42,9 +42,29 @@ This image has no Compose labels; tests ran as UID 65532 without network, host
 mounts, ports or DB, with a read-only root, bounded tmpfs and automatic container
 removal. The test image remains. No live GCS operation occurred. Details and remaining
 credential/importer limitations are in `docs/gcs-staging-transport.md`.
-Next: batch planning/current-input preview, then durable upload and manual-import
-workflow. Batch compiler and preview work begun after the 1455-test image are not
-included in that result. The older checkpoints below record historical test counts
+The internal batch compiler and authenticated current-input staging preview are now
+implemented (`docs/gcs-batch-plan.md`). Every CSV row binds exactly one accepted
+package; the plan includes all retained files. A deterministic completion manifest
+requires exact receipt coverage. The preview rechecks current approval/policy/batch
+bindings without cloud or NAS IO. It creates no upload job or publication transition.
+The internal staging layout is explicitly not importer compatible.
+
+After the 1455-test image, targeted Windows checks passed **80 tests** (19 new preview,
+41 batch compiler and 20 access tests), then the final Linux affected-area suite passed
+**364 tests in 173.18s**, no skips, two existing dependency warnings. Image
+`reawote-gcs-staging-7bd431ca2402462c857cf526d446cfd7:test`, manifest digest
+`428b05e9946942c02d1cb5a4abede4f5ca9f4a515af6d95b3f0a4d55efcbe365`;
+no network, host mounts, ports or DB, read-only UID 65532, bounded tmpfs. The current
+PostgreSQL suite passed **215 tests in 189.38s**, auth **27/27**, no skips, five warnings
+(the two dependency deprecations plus Pydantic field-alias warnings): project
+`reawote-test-4fd7fae12cc946b5867b7ab99b9511a5`. Actual concurrent material/brand edits
+waited for preview locks and invalidated the next preview. Fresh/prior schema checks
+also passed; there is no new migration. Owned cleanup completed; only its exact
+`reawote-test-4fd7fae12cc946b5867b7ab99b9511a5_postgres_data` volume and test images remain.
+
+Next: durable reservation/ownership for staging jobs, then dispatch/recovery and
+manual-import workflow (`docs/gcs-upload-jobs.md`). No durable upload reservation,
+upload API, actual importer mapping or GCS UI is implemented yet. The older checkpoints below record historical test counts
 and intermediate limitations; this section is the current download checkpoint.
 
 ## Workspace and authority

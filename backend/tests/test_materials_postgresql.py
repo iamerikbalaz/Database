@@ -902,7 +902,7 @@ def test_postgresql_import_audit_rejects_direct_sql_mutation_and_destructive_dow
             command.downgrade(Config("alembic.ini"), "20260916_0011")
         assert client.get("/api/material-imports/" + str(batch_id)).json() == response.json()
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0016"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0017"
 
 
 def test_postgresql_import_upgrade_from_0011_and_empty_downgrade_preserve_prior_records():
@@ -1008,7 +1008,7 @@ def test_postgresql_ai_and_source_provenance_cannot_be_erased_or_rewritten(revie
         with pytest.raises(DBAPIError): command.downgrade(Config("alembic.ini"), "20260917_0012")
         assert client.get(case.path + "/content-drafts").json()["items"][0]["id"] == draft["id"]
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0016"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0017"
 
 
 def test_postgresql_ai_upgrade_from_0012_preserves_records_and_empty_downgrade():
@@ -1197,7 +1197,7 @@ def test_postgresql_ai_credential_scope_and_revocation_are_permanent(review_pg_c
                 connection.execute(text(statement), {"id": credential_id})
         with pytest.raises(DBAPIError): command.downgrade(Config("alembic.ini"), "20260917_0013")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0016"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0017"
 
 
 def test_postgresql_ai_service_upgrade_from_0013_preserves_prior_records():
@@ -1303,7 +1303,7 @@ def test_postgresql_alembic_upgrade_and_check(migrated_postgresql_url: str) -> N
             current_revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            assert current_revision == "20260918_0016"
+            assert current_revision == "20260918_0017"
     finally:
         engine.dispose()
 
@@ -1346,7 +1346,7 @@ def test_postgresql_auth_upgrade_from_previous_head_preserves_users_without_cred
                 ).scalar_one() == 0
                 assert connection.execute(
                     text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "20260918_0016"
+                ).scalar_one() == "20260918_0017"
         finally:
             engine.dispose()
             if previous_database_url is None:
@@ -2698,7 +2698,7 @@ def test_postgresql_publication_history_rejects_mutation_cross_material_proof_an
         with pytest.raises(DBAPIError, match="Publication provenance exists"):
             command.downgrade(Config("alembic.ini"), "20260917_0014")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0016"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0017"
 
 
 def test_postgresql_publication_upgrade_from_0014_preserves_prior_records_and_empty_downgrade():
@@ -2852,7 +2852,7 @@ def test_postgresql_packaging_decisions_require_immutable_contiguous_same_materi
         with pytest.raises(DBAPIError, match="Packaging policy provenance exists"):
             command.downgrade(Config("alembic.ini"), "20260917_0015")
     with case.database.engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0016"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0017"
 
 
 def test_postgresql_packaging_upgrade_from_0015_preserves_prior_records_and_empty_downgrade():
@@ -2871,6 +2871,190 @@ def test_postgresql_packaging_upgrade_from_0015_preserves_prior_records_and_empt
                 assert connection.execute(text("SELECT count(*) FROM material_packaging_policies")).scalar_one() == 0
             command.downgrade(config, "20260917_0015")
             assert not inspect(engine).has_table("material_packaging_policies") and inspect(engine).has_table("publication_batches")
+            command.upgrade(config, "head"); command.check(config)
+        finally:
+            engine.dispose()
+            if previous is None: os.environ.pop("DATABASE_URL", None)
+            else: os.environ["DATABASE_URL"] = previous
+            get_settings.cache_clear()
+
+
+# Execution provenance follows all earlier populated downgrade guards.
+def _prepare_pg_packaging_execution(case):
+    from test_packaging_policy import choose
+    from test_publication_preflight import preview
+    from test_publication_batches import PATH, creation
+    from test_packaging_ownership import execution_values
+    _prepare_pg_publication(case)
+    with case.client_for() as client:
+        policy = choose(client, case.path)
+        response = client.post(PATH, json=creation(preview(client, case.material.id)))
+        assert response.status_code == 201
+    with case.database.session() as session:
+        return execution_values(session, UUID(response.json()["id"]), case.material.id, UUID(policy["id"]), case.users[0].id)
+
+
+def _packaging_identity_fixture(case, *, status="RUNNING"):
+    from app.db.models import MaterialFileOperation
+    return MaterialFileOperation(material_id=case.material.id, actor_id=case.users[0].id,
+        source_brand_id=case.material.published_brand_id, target_brand_id=case.material.published_brand_id,
+        request_key=uuid4(), request_hash="a" * 64, proposal_hash="b" * 64, request_payload={},
+        source_context={"folder_path": case.material.folder_path}, target_context={"folder_path": case.material.folder_path + "_NEXT"},
+        worker_plan={}, status=status)
+
+
+def test_postgresql_packaging_owner_claim_is_unique_under_real_concurrent_insert(review_pg_case):
+    from app.db.models import MaterialPackagingState
+    from test_packaging_ownership import reserve
+    case = review_pg_case; values = _prepare_pg_packaging_execution(case)
+    # Preserve UUID types and change only the independently bound operation/key.
+    other = {**values, "id": uuid4(), "request_key": uuid4()}
+    other["worker_request"] = json.loads(json.dumps(values["worker_request"]))
+    other["worker_request"]["request"]["operation_id"] = str(other["id"])
+    from app.material_review import canonical_hash
+    other["worker_request_hash"] = canonical_hash(other["worker_request"]["request"])
+    other["worker_request"]["request_hash"] = other["worker_request_hash"]
+    barrier = Barrier(2)
+    def claim(data):
+        with case.database.session() as session:
+            barrier.wait(timeout=10)
+            try: reserve(session, data); session.commit(); return "claimed"
+            except IntegrityError as error:
+                assert "uq_packaging_states_active" in str(error.orig)
+                session.rollback(); return "blocked"
+    with ThreadPoolExecutor(2) as pool:
+        futures = [pool.submit(claim, data) for data in (values, other)]
+        assert sorted(future.result(timeout=20) for future in futures) == ["blocked", "claimed"]
+    with case.database.session() as session:
+        assert len(list(session.scalars(select(MaterialPackagingState).where(MaterialPackagingState.material_id == case.material.id)))) == 1
+
+
+@pytest.mark.parametrize("first", ["concurrent", "packaging", "identity"])
+def test_postgresql_packaging_and_identity_are_mutually_exclusive_in_both_directions(review_pg_case, first):
+    from app.db.models import MaterialFileOperation, MaterialPackagingState
+    from test_packaging_ownership import reserve
+    case = review_pg_case; values = _prepare_pg_packaging_execution(case); barrier = Barrier(2)
+    def claim(kind, *, wait=False):
+        with case.database.session() as session:
+            if wait: barrier.wait(timeout=10)
+            try:
+                if kind == "packaging": reserve(session, values)
+                else: session.add(_packaging_identity_fixture(case))
+                session.commit(); return "claimed"
+            except DBAPIError as error:
+                assert "active identity operation" in str(error.orig) or "active packaging execution" in str(error.orig)
+                session.rollback(); return "blocked"
+    if first == "concurrent":
+        with ThreadPoolExecutor(2) as pool:
+            futures = [pool.submit(claim, kind, wait=True) for kind in ("packaging", "identity")]
+            assert sorted(future.result(timeout=20) for future in futures) == ["blocked", "claimed"]
+    else:
+        assert claim(first) == "claimed"
+        assert claim("identity" if first == "packaging" else "packaging") == "blocked"
+    with case.database.session() as session:
+        packages = list(session.scalars(select(MaterialPackagingState).where(MaterialPackagingState.material_id == case.material.id)))
+        identities = list(session.scalars(select(MaterialFileOperation).where(MaterialFileOperation.material_id == case.material.id)))
+        assert len(packages) + len(identities) == 1
+
+
+def test_postgresql_identity_reactivation_cannot_bypass_packaging_ownership(review_pg_case):
+    from test_packaging_ownership import reserve
+    case = review_pg_case; values = _prepare_pg_packaging_execution(case)
+    with case.database.session() as session:
+        identity = _packaging_identity_fixture(case, status="COMPLETED"); session.add(identity); session.commit()
+        reserve(session, values); session.commit()
+        with pytest.raises(DBAPIError, match="active packaging execution"):
+            session.execute(text("UPDATE material_file_operations SET status='RUNNING' WHERE id=:id"), {"id": identity.id})
+            session.commit()
+
+
+def test_postgresql_packaging_provenance_is_append_only_and_ownership_is_preserved(review_pg_case):
+    from test_packaging_ownership import reserve, dispatch, finish
+    case = review_pg_case; values = _prepare_pg_packaging_execution(case)
+    with case.database.session() as session:
+        execution = reserve(session, values); action = dispatch(session, execution)
+        finish(session, execution, action); session.commit()
+    for table in ("material_packaging_executions", "material_packaging_dispatches", "material_packaging_observations"):
+        for sql in (f"UPDATE {table} SET created_at=created_at", f"DELETE FROM {table}", f"TRUNCATE {table} CASCADE"):
+            with case.database.engine.begin() as connection:
+                with pytest.raises(DBAPIError, match="append-only"): connection.execute(text(sql))
+    for sql in ("DELETE FROM material_packaging_states", "TRUNCATE material_packaging_states"):
+        with case.database.engine.begin() as connection:
+            with pytest.raises(DBAPIError, match="append-only"): connection.execute(text(sql))
+    with case.database.engine.begin() as connection:
+        with pytest.raises(DBAPIError, match="immutable"):
+            connection.execute(text("UPDATE material_packaging_states SET material_id=:other WHERE execution_id=:id"),
+                {"other": uuid4(), "id": values["id"]})
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("DATABASE_URL", case.database.engine.url.render_as_string(hide_password=False)); get_settings.cache_clear()
+        with pytest.raises(DBAPIError, match="Packaging execution provenance exists"):
+            command.downgrade(Config("alembic.ini"), "20260918_0016")
+    with case.database.engine.connect() as connection:
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260918_0017"
+
+
+def test_postgresql_packaging_inputs_and_dispatch_cannot_commit_without_ownership_progress(review_pg_case):
+    from app.db.models import MaterialPackagingExecution, MaterialPackagingDispatch
+    from test_packaging_ownership import reserve, dispatch
+    case = review_pg_case; values = _prepare_pg_packaging_execution(case)
+    with case.database.session() as session:
+        session.add(MaterialPackagingExecution(**values))
+        with pytest.raises(DBAPIError, match="matching durable ownership"): session.commit()
+        session.rollback()
+        execution = reserve(session, values); session.commit()
+        session.add(MaterialPackagingDispatch(execution_id=execution.id, ordinal=1, actor_id=execution.actor_id,
+            issuer_session_id=execution.issuer_session_id, action="EXECUTE", request_key=uuid4(), request_hash="c" * 64,
+            reason="Synthetic incomplete dispatch"))
+        with pytest.raises(DBAPIError, match="matching durable ownership"): session.commit()
+        session.rollback()
+        dispatch(session, session.get(MaterialPackagingExecution, values["id"])); session.commit()
+
+
+def test_postgresql_packaged_state_requires_current_facts_and_terminal_state_cannot_restart(review_pg_case):
+    from app.db.models import MaterialPackagingExecution, MaterialPackagingState
+    from test_packaging_ownership import reserve, dispatch, finish
+    case = review_pg_case; values = _prepare_pg_packaging_execution(case)
+    with case.database.session() as session:
+        execution = reserve(session, values); action = dispatch(session, execution); session.commit()
+        with pytest.raises(DBAPIError, match="inconsistent"):
+            finish(session, execution, action, outcome="READY", target="PACKAGED", current=False); session.commit()
+        session.rollback()
+        finish(session, execution, action, outcome="READY", target="PACKAGED", current=True); session.commit()
+        with pytest.raises(DBAPIError, match="immutable"):
+            session.execute(text("UPDATE material_packaging_states SET status='RUNNING', last_observation_id=NULL WHERE execution_id=:id"),
+                {"id": execution.id})
+            session.commit()
+
+
+@pytest.mark.parametrize("change", ["batch", "policy", "source", "folder", "snapshot"])
+def test_postgresql_execution_inputs_cannot_substitute_frozen_batch_or_policy(review_pg_case, change):
+    from test_packaging_ownership import reserve
+    case = review_pg_case; values = _prepare_pg_packaging_execution(case)
+    if change == "batch": values["batch_id"] = uuid4()
+    elif change == "policy": values["policy_id"] = uuid4()
+    elif change == "source": values["worker_request"]["request"]["source_revision_hash"] = "b" * 64
+    elif change == "folder": values["worker_request"]["request"]["parts"] = ["different", "folder"]
+    else: values["input_snapshot"]["generation"] += 1
+    with case.database.session() as session:
+        with pytest.raises(DBAPIError, match="Packaging inputs must bind"): reserve(session, values); session.commit()
+
+
+def test_postgresql_packaging_execution_upgrade_from_0016_and_empty_downgrade():
+    with isolated_postgresql_database() as database_url:
+        previous = os.environ.get("DATABASE_URL"); os.environ["DATABASE_URL"] = database_url; get_settings.cache_clear()
+        engine = create_engine(database_url)
+        try:
+            config = Config("alembic.ini"); command.upgrade(config, "20260918_0016")
+            company_id = uuid4()
+            with engine.begin() as connection:
+                connection.execute(text("INSERT INTO companies (id, name) VALUES (:id, 'Prior packaging fixture')"), {"id": company_id})
+            command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
+            for suffix in ("executions", "dispatches", "observations", "states"):
+                assert inspect(engine).has_table("material_packaging_" + suffix)
+            with engine.connect() as connection:
+                assert connection.execute(text("SELECT name FROM companies WHERE id=:id"), {"id": company_id}).scalar_one() == "Prior packaging fixture"
+            command.downgrade(config, "20260918_0016")
+            assert not inspect(engine).has_table("material_packaging_executions") and inspect(engine).has_table("material_packaging_policies")
             command.upgrade(config, "head"); command.check(config)
         finally:
             engine.dispose()

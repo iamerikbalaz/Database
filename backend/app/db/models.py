@@ -997,6 +997,126 @@ class PublicationBatchItem(Base):
     snapshot: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
 
 
+class MaterialPackagingExecution(Base):
+    __tablename__ = "material_packaging_executions"
+    __table_args__ = (
+        UniqueConstraint("material_id", "id", name="uq_packaging_executions_material"),
+        UniqueConstraint("actor_id", "request_key", name="uq_packaging_executions_request"),
+        ForeignKeyConstraint(["batch_id", "material_id"], ["publication_batch_items.batch_id", "publication_batch_items.material_id"],
+            name="fk_packaging_executions_batch_item", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["material_id", "policy_id"], ["material_packaging_policies.material_id", "material_packaging_policies.id"],
+            name="fk_packaging_executions_policy", ondelete="RESTRICT"),
+        CheckConstraint("length(folder_path) BETWEEN 1 AND 2048", name="ck_packaging_executions_folder"),
+        CheckConstraint("length(reason) BETWEEN 1 AND 2000", name="ck_packaging_executions_reason"),
+        *(_review_hash_constraint(field, "ck_packaging_executions_" + field) for field in ("request_hash", "input_hash", "worker_request_hash")),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), index=True)
+    batch_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    brand_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("published_brands.id", ondelete="RESTRICT"), index=True)
+    policy_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    issuer_session_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_key: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    folder_path: Mapped[str] = mapped_column(String(2048), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    input_snapshot: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    worker_request: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
+    worker_request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+
+class MaterialPackagingDispatch(Base):
+    __tablename__ = "material_packaging_dispatches"
+    __table_args__ = (
+        UniqueConstraint("execution_id", "id", name="uq_packaging_dispatches_execution"),
+        UniqueConstraint("execution_id", "ordinal", name="uq_packaging_dispatches_ordinal"),
+        UniqueConstraint("actor_id", "request_key", name="uq_packaging_dispatches_request"),
+        CheckConstraint("ordinal >= 1", name="ck_packaging_dispatches_ordinal"),
+        CheckConstraint("action IN ('EXECUTE', 'RETRY', 'RECONCILE', 'CLOSE')", name="ck_packaging_dispatches_action"),
+        CheckConstraint("length(reason) BETWEEN 1 AND 2000", name="ck_packaging_dispatches_reason"),
+        _review_hash_constraint("request_hash", "ck_packaging_dispatches_request_hash"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    execution_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("material_packaging_executions.id", ondelete="RESTRICT"))
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    issuer_session_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    request_key: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class MaterialPackagingObservation(Base):
+    __tablename__ = "material_packaging_observations"
+    __table_args__ = (
+        UniqueConstraint("execution_id", "id", name="uq_packaging_observations_execution"),
+        UniqueConstraint("dispatch_id", name="uq_packaging_observations_dispatch"),
+        ForeignKeyConstraint(["execution_id", "dispatch_id"], ["material_packaging_dispatches.execution_id", "material_packaging_dispatches.id"],
+            name="fk_packaging_observations_dispatch", ondelete="RESTRICT"),
+        CheckConstraint("outcome IN ('READY', 'RETRY_REQUIRED', 'UNCERTAIN', 'NOT_STARTED')", name="ck_packaging_observations_outcome"),
+        CheckConstraint("(outcome = 'UNCERTAIN' AND failure_code IS NOT NULL AND worker_result IS NULL) OR "
+            "(outcome IN ('READY', 'RETRY_REQUIRED') AND failure_code IS NULL AND worker_result IS NOT NULL) OR "
+            "(outcome = 'NOT_STARTED' AND failure_code IS NULL AND worker_result IS NULL AND NOT inputs_current AND NOT actor_current)",
+            name="ck_packaging_observations_result"),
+        CheckConstraint("(outcome = 'READY' AND proof_sha256 IS NOT NULL) OR (outcome <> 'READY' AND proof_sha256 IS NULL)",
+            name="ck_packaging_observations_proof"),
+        _review_hash_constraint("proof_sha256", "ck_packaging_observations_proof_sha256"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    execution_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("material_packaging_executions.id", ondelete="RESTRICT"))
+    dispatch_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False)
+    worker_result: Mapped[dict | None] = mapped_column(JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"))
+    failure_code: Mapped[str | None] = mapped_column(String(100))
+    proof_sha256: Mapped[str | None] = mapped_column(String(64))
+    inputs_current: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    actor_current: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+PACKAGING_ACTIVE_STATUSES = ("RESERVED", "RUNNING", "RETRY_REQUIRED", "RECOVERY_REQUIRED")
+
+
+class MaterialPackagingState(TimestampMixin, Base):
+    __tablename__ = "material_packaging_states"
+    __table_args__ = (
+        ForeignKeyConstraint(["material_id", "execution_id"], ["material_packaging_executions.material_id", "material_packaging_executions.id"],
+            name="fk_packaging_states_execution", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["execution_id", "last_dispatch_id"], ["material_packaging_dispatches.execution_id", "material_packaging_dispatches.id"],
+            name="fk_packaging_states_dispatch", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["execution_id", "last_observation_id"], ["material_packaging_observations.execution_id", "material_packaging_observations.id"],
+            name="fk_packaging_states_observation", ondelete="RESTRICT"),
+        CheckConstraint("status IN ('RESERVED', 'RUNNING', 'RETRY_REQUIRED', 'RECOVERY_REQUIRED', 'PACKAGED', 'REJECTED')",
+            name="ck_packaging_states_status"),
+        CheckConstraint("(status = 'RESERVED' AND last_dispatch_id IS NULL AND last_observation_id IS NULL) OR "
+            "(status = 'RUNNING' AND last_dispatch_id IS NOT NULL AND last_observation_id IS NULL) OR "
+            "(status NOT IN ('RESERVED', 'RUNNING') AND last_dispatch_id IS NOT NULL AND last_observation_id IS NOT NULL)",
+            name="ck_packaging_states_progress"),
+        Index("uq_packaging_states_active", "material_id", unique=True,
+            postgresql_where=text("status IN ('RESERVED', 'RUNNING', 'RETRY_REQUIRED', 'RECOVERY_REQUIRED')"),
+            sqlite_where=text("status IN ('RESERVED', 'RUNNING', 'RETRY_REQUIRED', 'RECOVERY_REQUIRED')")),
+    )
+    execution_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    material_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    last_dispatch_id: Mapped[UUID | None] = mapped_column(Uuid)
+    last_observation_id: Mapped[UUID | None] = mapped_column(Uuid)
+
+
+@event.listens_for(MaterialPackagingState, "before_update")
+def _protect_packaging_state_identity(_, __, item):
+    if any(sa_inspect(item).attrs[field].history.has_changes() for field in ("execution_id", "material_id", "created_at")):
+        raise ImmutableAuditSnapshotError("Packaging ownership identity is immutable.")
+
+
+event.listen(MaterialPackagingState, "before_delete", _reject_review_history_mutation)
+
+
 class MaterialImportBatch(Base):
     __tablename__ = "material_import_batches"
     __table_args__ = (
@@ -1122,6 +1242,6 @@ for _catalog_type in (OnlineCategory, BrandCollection):
     event.listen(_catalog_type, "before_delete", _reject_review_history_mutation)
 
 
-for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow, MaterialAiDraft, PublicationBatch, PublicationBatchItem, MaterialPackagingPolicy):
+for _review_history_type in (MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow, MaterialAiDraft, PublicationBatch, PublicationBatchItem, MaterialPackagingPolicy, MaterialPackagingExecution, MaterialPackagingDispatch, MaterialPackagingObservation):
     event.listen(_review_history_type, "before_update", _reject_review_history_mutation)
     event.listen(_review_history_type, "before_delete", _reject_review_history_mutation)

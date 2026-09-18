@@ -111,8 +111,28 @@ request substitution, unavailable credentials, response/body limits, lost networ
 responses and no-implicit-retry behavior are covered. The client remains unwired
 until durable database ownership/current-account/approval checks are implemented.
 Final archive-size parity checks passed in the same 73-case suite (2.57s).
-The verified client/contract slice is ready for commit. No database schema,
-application endpoint or frontend behavior changed in this slice.
+The verified client/contract slice is committed and pushed as `0a97a6f`. No
+database schema, application endpoint or frontend behavior changed in this slice.
+The next integration design is recorded in `docs/packaging-jobs-plan.md`:
+immutable execution/dispatch/observation history, separate mutable ownership,
+explicit reserve/run/reconcile, and bidirectional exclusion with identity work.
+
+Migration 0017 and the four provenance/ownership tables are implemented and
+verified. Shared material, brand and
+overlapping-folder mutation gates include active packaging. Twelve focused
+ownership tests plus the migration-head test passed (13/13, 17.37s); the initial
+failure was a stale test-only folder reference, corrected without weakening the
+assertion. Fourteen new PostgreSQL cases cover competing owners/identity work,
+immutable/deferred provenance, terminal states, input substitution and prior/empty
+downgrade upgrades. Full isolated project
+`reawote-test-09c7300533ae43e891b45c7c2ed35b7f` passed **1211 backend tests (396.72s),
+185 actual PostgreSQL cases (153.75s, auth 27/27), 476 ordinary-worker and 457
+frontend tests**, plus lint/build. The ordinary worker skipped 180 runtime-only
+cases; all 180 already passed in the unchanged 656-case required-runtime suite
+above. Fresh/prior migrations, Alembic current/heads/check, real competing owners,
+identity exclusion and downgrade guards passed. Owned cleanup succeeded; only its
+database volume is retained. No application packaging endpoint or UI dispatch is
+enabled by this schema slice. Committed migrations through 0017 are immutable.
 
 Next: durable database jobs/attempts
 with current approval/source checks and operator UI (`docs/packaging-execution-plan.md`). GCS/Notion,

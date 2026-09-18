@@ -1,0 +1,807 @@
+{
+  "prepared": {
+    "request": {
+      "approval_context_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "limits": {
+        "generated_bytes": 17179869184,
+        "retained_bytes": 17179869184,
+        "seconds": 1800,
+        "staged_bytes": 8589934592
+      },
+      "operation_id": "575636f6-f6c5-4a21-bcba-b75160aa16f4",
+      "parts": [
+        "SYNTHETIC_SMOKE_0001_G03"
+      ],
+      "plan_hash": "b3535c8aba31039c04d043f046db60ae235272cd55efd5668d3334af67f85b47",
+      "policy": "LEGACY_BEFORE_2026_03_04",
+      "source_revision_hash": "610a2ea61a7d20effee98678a6fbe358712cafd82079636cee403f297b9b2d46",
+      "storage_timezone": "UTC",
+      "technical_report_hash": "2f9dd632658f6542bb6ab2ce9eedee67991a612d73a6c4d0d85391745b9ecf63",
+      "version": 1
+    },
+    "request_hash": "4f90f6168f7bbf3bc1d952d540ae5a421d474021ab5f74f0fafd7d1e94914092"
+  },
+  "report": {
+    "can_approve": true,
+    "errors": [],
+    "images": [
+      {
+        "bits": 8,
+        "format": "PNG",
+        "height": 1105,
+        "map": "COL",
+        "path": "4K/SYNTHETIC_SMOKE_0001_G03_COL_4K.png",
+        "sha256": "9242f2a48810d0809c8d56bb9938447d1c238eaeb37be7ea7942b19b8f42d13b",
+        "width": 3072
+      },
+      {
+        "bits": 16,
+        "format": "PNG",
+        "height": 1105,
+        "map": "NRM16",
+        "path": "4K/SYNTHETIC_SMOKE_0001_G03_NRM16_4K.png",
+        "sha256": "a5b08c0d9a15f8c3598c95d82cd45753344b6f75462d33cdaeb93e03da69ac61",
+        "width": 3072
+      }
+    ],
+    "inventory": {
+      "entries": [
+        {
+          "kind": "directory",
+          "path": "4K",
+          "sha256": null,
+          "size": 0
+        },
+        {
+          "kind": "file",
+          "path": "4K/SYNTHETIC_SMOKE_0001_G03_COL_4K.png",
+          "sha256": "9242f2a48810d0809c8d56bb9938447d1c238eaeb37be7ea7942b19b8f42d13b",
+          "size": 13373
+        },
+        {
+          "kind": "file",
+          "path": "4K/SYNTHETIC_SMOKE_0001_G03_NRM16_4K.png",
+          "sha256": "a5b08c0d9a15f8c3598c95d82cd45753344b6f75462d33cdaeb93e03da69ac61",
+          "size": 9205
+        },
+        {
+          "kind": "directory",
+          "path": "PREVIEW",
+          "sha256": null,
+          "size": 0
+        },
+        {
+          "kind": "directory",
+          "path": "PREVIEW/empty",
+          "sha256": null,
+          "size": 0
+        },
+        {
+          "kind": "file",
+          "path": "PREVIEW/preview.png",
+          "sha256": "f7f8481c1c262ddc625c0ccccdb0db894f0cec3cc902cacc21846b13aa1b8746",
+          "size": 27
+        },
+        {
+          "kind": "file",
+          "path": "PREVIEW/\u010desk\u00fd n\u00e1hled.png",
+          "sha256": "084fc2fc7ec9b69b782d57745e4090be95f1bc736e41adda0c6510e7686437cc",
+          "size": 25
+        },
+        {
+          "kind": "file",
+          "path": "metadata.txt",
+          "sha256": "4189bf6e0c58928c1ac2d85c5fec82e67447a1f737c3743d39d5cef4e8a52de6",
+          "size": 43
+        }
+      ],
+      "folder_name": "SYNTHETIC_SMOKE_0001_G03",
+      "master_last_modified_at": "2026-09-18T10:38:39.523847067+00:00",
+      "master_resolution": "4K",
+      "policy": "CURRENT_ON_OR_AFTER_2026_03_04",
+      "schema_version": 1,
+      "source_revision_hash": "610a2ea61a7d20effee98678a6fbe358712cafd82079636cee403f297b9b2d46",
+      "total_bytes": 22673
+    },
+    "schema_version": 1,
+    "validator_version": "pbr-images-1",
+    "warnings": [
+      {
+        "code": "MASTER_DIMENSIONS_DIFFER",
+        "path": "4K/SYNTHETIC_SMOKE_0001_G03_COL_4K.png"
+      },
+      {
+        "code": "SURFACE_RESPONSE_MAP_MISSING",
+        "path": "4K"
+      },
+      {
+        "code": "SOURCE_METADATA_INVALID_FORMAT",
+        "path": "metadata.txt"
+      }
+    ]
+  },
+  "result": {
+    "attempt": 1,
+    "operation_id": "575636f6-f6c5-4a21-bcba-b75160aa16f4",
+    "request_hash": "4f90f6168f7bbf3bc1d952d540ae5a421d474021ab5f74f0fafd7d1e94914092",
+    "status": "READY",
+    "stored": {
+      "attempt": 1,
+      "attempt_history": [],
+      "payload": {
+        "bundle": {
+          "archives": [
+            {
+              "entries": [
+                {
+                  "crc32": 0,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_3K/",
+                  "sha256": null,
+                  "size": 0
+                },
+                {
+                  "crc32": 0,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_3K/3K/",
+                  "sha256": null,
+                  "size": 0
+                },
+                {
+                  "crc32": 2444839588,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_3K/3K/SYNTHETIC_SMOKE_0001_G03_COL_3K.png",
+                  "sha256": "39f582c54226da9ede81cc9be37ec6cd9a163441adaa533eb2c25a8d7764e4b0",
+                  "size": 6166
+                },
+                {
+                  "crc32": 1730629343,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_3K/3K/SYNTHETIC_SMOKE_0001_G03_NRM16_3K.png",
+                  "sha256": "e97359ea5b50b164b1b3eb6125b45cf4d89d9c8c01384044a0fc5546fd7e4e88",
+                  "size": 9388
+                },
+                {
+                  "crc32": 3448778544,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_3K/3K/metadata.txt",
+                  "sha256": "4189bf6e0c58928c1ac2d85c5fec82e67447a1f737c3743d39d5cef4e8a52de6",
+                  "size": 43
+                },
+                {
+                  "crc32": 0,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_3K/PREVIEW/",
+                  "sha256": null,
+                  "size": 0
+                },
+                {
+                  "crc32": 0,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_3K/PREVIEW/empty/",
+                  "sha256": null,
+                  "size": 0
+                },
+                {
+                  "crc32": 3568059378,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_3K/PREVIEW/preview.png",
+                  "sha256": "f7f8481c1c262ddc625c0ccccdb0db894f0cec3cc902cacc21846b13aa1b8746",
+                  "size": 27
+                },
+                {
+                  "crc32": 428695701,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_3K/PREVIEW/\u010desk\u00fd n\u00e1hled.png",
+                  "sha256": "084fc2fc7ec9b69b782d57745e4090be95f1bc736e41adda0c6510e7686437cc",
+                  "size": 25
+                },
+                {
+                  "crc32": 3963260927,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_3K/metadata.json",
+                  "sha256": "bcfd310d667023b92e0a1914b2d6abc38fa859521835b8c8cc8c89db52da48a6",
+                  "size": 248
+                }
+              ],
+              "filename": "SYNTHETIC_SMOKE_0001_G03_3K.zip",
+              "policy": "LEGACY_BEFORE_2026_03_04",
+              "sha256": "dfdeb2006f95e19533733f671dde9346b67ea188410c4278ec51aabcb61c1858",
+              "size": 2763,
+              "storage_timezone": "UTC"
+            },
+            {
+              "entries": [
+                {
+                  "crc32": 0,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_2K/",
+                  "sha256": null,
+                  "size": 0
+                },
+                {
+                  "crc32": 0,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_2K/2K/",
+                  "sha256": null,
+                  "size": 0
+                },
+                {
+                  "crc32": 2568663345,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_2K/2K/SYNTHETIC_SMOKE_0001_G03_COL_2K.png",
+                  "sha256": "aa58b164bf682853cbe3efb645d764835952152dc361d30d439273ae71a2b257",
+                  "size": 3505
+                },
+                {
+                  "crc32": 2782418656,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_2K/2K/SYNTHETIC_SMOKE_0001_G03_NRM16_2K.png",
+                  "sha256": "c15176c6fa271d40f3f3e3b0d2d3ef8fdf9a0a407b060fe9ebc59346009eaf95",
+                  "size": 4879
+                },
+                {
+                  "crc32": 3448778544,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_2K/2K/metadata.txt",
+                  "sha256": "4189bf6e0c58928c1ac2d85c5fec82e67447a1f737c3743d39d5cef4e8a52de6",
+                  "size": 43
+                },
+                {
+                  "crc32": 0,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_2K/PREVIEW/",
+                  "sha256": null,
+                  "size": 0
+                },
+                {
+                  "crc32": 0,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_2K/PREVIEW/empty/",
+                  "sha256": null,
+                  "size": 0
+                },
+                {
+                  "crc32": 3568059378,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_2K/PREVIEW/preview.png",
+                  "sha256": "f7f8481c1c262ddc625c0ccccdb0db894f0cec3cc902cacc21846b13aa1b8746",
+                  "size": 27
+                },
+                {
+                  "crc32": 428695701,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_2K/PREVIEW/\u010desk\u00fd n\u00e1hled.png",
+                  "sha256": "084fc2fc7ec9b69b782d57745e4090be95f1bc736e41adda0c6510e7686437cc",
+                  "size": 25
+                },
+                {
+                  "crc32": 3963260927,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_2K/metadata.json",
+                  "sha256": "bcfd310d667023b92e0a1914b2d6abc38fa859521835b8c8cc8c89db52da48a6",
+                  "size": 248
+                }
+              ],
+              "filename": "SYNTHETIC_SMOKE_0001_G03_2K.zip",
+              "policy": "LEGACY_BEFORE_2026_03_04",
+              "sha256": "fafe7ac5a0321fcd1676d9976b121b886d73c9174cf21625c876307cdbb36069",
+              "size": 2597,
+              "storage_timezone": "UTC"
+            },
+            {
+              "entries": [
+                {
+                  "crc32": 0,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_1K/",
+                  "sha256": null,
+                  "size": 0
+                },
+                {
+                  "crc32": 0,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_1K/1K/",
+                  "sha256": null,
+                  "size": 0
+                },
+                {
+                  "crc32": 1353400835,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_1K/1K/SYNTHETIC_SMOKE_0001_G03_COL_1K.png",
+                  "sha256": "1a8f1357c01c01d3346bfa90edf9be83bb709dde2556a1c53cc52dd29be29112",
+                  "size": 1499
+                },
+                {
+                  "crc32": 2443982492,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_1K/1K/SYNTHETIC_SMOKE_0001_G03_NRM16_1K.png",
+                  "sha256": "dd0e6419cd233452c77eff2835db722c3bbc7a158798cefcf9599c508e1d2fc7",
+                  "size": 1788
+                },
+                {
+                  "crc32": 3448778544,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_1K/1K/metadata.txt",
+                  "sha256": "4189bf6e0c58928c1ac2d85c5fec82e67447a1f737c3743d39d5cef4e8a52de6",
+                  "size": 43
+                },
+                {
+                  "crc32": 0,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_1K/PREVIEW/",
+                  "sha256": null,
+                  "size": 0
+                },
+                {
+                  "crc32": 0,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_1K/PREVIEW/empty/",
+                  "sha256": null,
+                  "size": 0
+                },
+                {
+                  "crc32": 3568059378,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_1K/PREVIEW/preview.png",
+                  "sha256": "f7f8481c1c262ddc625c0ccccdb0db894f0cec3cc902cacc21846b13aa1b8746",
+                  "size": 27
+                },
+                {
+                  "crc32": 428695701,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_1K/PREVIEW/\u010desk\u00fd n\u00e1hled.png",
+                  "sha256": "084fc2fc7ec9b69b782d57745e4090be95f1bc736e41adda0c6510e7686437cc",
+                  "size": 25
+                },
+                {
+                  "crc32": 3963260927,
+                  "date_time": [
+                    2026,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0
+                  ],
+                  "path": "SYNTHETIC_SMOKE_0001_G03_1K/metadata.json",
+                  "sha256": "bcfd310d667023b92e0a1914b2d6abc38fa859521835b8c8cc8c89db52da48a6",
+                  "size": 248
+                }
+              ],
+              "filename": "SYNTHETIC_SMOKE_0001_G03_1K.zip",
+              "policy": "LEGACY_BEFORE_2026_03_04",
+              "sha256": "7a2cb1e092eac893f211bc27114537c12e30697258b0af2460239b6fc37341a0",
+              "size": 2641,
+              "storage_timezone": "UTC"
+            }
+          ],
+          "manifest_sha256": "bcfd310d667023b92e0a1914b2d6abc38fa859521835b8c8cc8c89db52da48a6",
+          "maps": [
+            {
+              "bits": 8,
+              "conversion": {
+                "bits": 8,
+                "format": "PNG",
+                "height": 1105,
+                "input_sha256": "9242f2a48810d0809c8d56bb9938447d1c238eaeb37be7ea7942b19b8f42d13b",
+                "policy_sha256": "4f01e6391b3c53642c6d813fc9f350a4a277f4767385ad4b4ed5a8438a50a0a4",
+                "runtime_version": "7.1.1-43",
+                "sha256": "39f582c54226da9ede81cc9be37ec6cd9a163441adaa533eb2c25a8d7764e4b0",
+                "size": 6166,
+                "width": 3072
+              },
+              "input_sha256": "9242f2a48810d0809c8d56bb9938447d1c238eaeb37be7ea7942b19b8f42d13b",
+              "operation": {
+                "action": "RESIZE",
+                "bits": 8,
+                "destination": "3K/SYNTHETIC_SMOKE_0001_G03_COL_3K.png",
+                "format": "PNG",
+                "height": 1105,
+                "input_is_effective_master": false,
+                "shortcut": "COL",
+                "source": "4K/SYNTHETIC_SMOKE_0001_G03_COL_4K.png",
+                "source_sha256": "9242f2a48810d0809c8d56bb9938447d1c238eaeb37be7ea7942b19b8f42d13b",
+                "width": 3072
+              },
+              "sha256": "39f582c54226da9ede81cc9be37ec6cd9a163441adaa533eb2c25a8d7764e4b0",
+              "size": 6166
+            },
+            {
+              "bits": 16,
+              "conversion": {
+                "bits": 16,
+                "format": "PNG",
+                "height": 1105,
+                "input_sha256": "a5b08c0d9a15f8c3598c95d82cd45753344b6f75462d33cdaeb93e03da69ac61",
+                "policy_sha256": "4f01e6391b3c53642c6d813fc9f350a4a277f4767385ad4b4ed5a8438a50a0a4",
+                "runtime_version": "7.1.1-43",
+                "sha256": "e97359ea5b50b164b1b3eb6125b45cf4d89d9c8c01384044a0fc5546fd7e4e88",
+                "size": 9388,
+                "width": 3072
+              },
+              "input_sha256": "a5b08c0d9a15f8c3598c95d82cd45753344b6f75462d33cdaeb93e03da69ac61",
+              "operation": {
+                "action": "RESIZE",
+                "bits": 16,
+                "destination": "3K/SYNTHETIC_SMOKE_0001_G03_NRM16_3K.png",
+                "format": "PNG",
+                "height": 1105,
+                "input_is_effective_master": false,
+                "shortcut": "NRM16",
+                "source": "4K/SYNTHETIC_SMOKE_0001_G03_NRM16_4K.png",
+                "source_sha256": "a5b08c0d9a15f8c3598c95d82cd45753344b6f75462d33cdaeb93e03da69ac61",
+                "width": 3072
+              },
+              "sha256": "e97359ea5b50b164b1b3eb6125b45cf4d89d9c8c01384044a0fc5546fd7e4e88",
+              "size": 9388
+            },
+            {
+              "bits": 8,
+              "conversion": {
+                "bits": 8,
+                "format": "PNG",
+                "height": 737,
+                "input_sha256": "39f582c54226da9ede81cc9be37ec6cd9a163441adaa533eb2c25a8d7764e4b0",
+                "policy_sha256": "4f01e6391b3c53642c6d813fc9f350a4a277f4767385ad4b4ed5a8438a50a0a4",
+                "runtime_version": "7.1.1-43",
+                "sha256": "aa58b164bf682853cbe3efb645d764835952152dc361d30d439273ae71a2b257",
+                "size": 3505,
+                "width": 2048
+              },
+              "input_sha256": "39f582c54226da9ede81cc9be37ec6cd9a163441adaa533eb2c25a8d7764e4b0",
+              "operation": {
+                "action": "RESIZE",
+                "bits": 8,
+                "destination": "2K/SYNTHETIC_SMOKE_0001_G03_COL_2K.png",
+                "format": "PNG",
+                "height": 737,
+                "input_is_effective_master": true,
+                "shortcut": "COL",
+                "source": "4K/SYNTHETIC_SMOKE_0001_G03_COL_4K.png",
+                "source_sha256": "9242f2a48810d0809c8d56bb9938447d1c238eaeb37be7ea7942b19b8f42d13b",
+                "width": 2048
+              },
+              "sha256": "aa58b164bf682853cbe3efb645d764835952152dc361d30d439273ae71a2b257",
+              "size": 3505
+            },
+            {
+              "bits": 16,
+              "conversion": {
+                "bits": 16,
+                "format": "PNG",
+                "height": 737,
+                "input_sha256": "e97359ea5b50b164b1b3eb6125b45cf4d89d9c8c01384044a0fc5546fd7e4e88",
+                "policy_sha256": "4f01e6391b3c53642c6d813fc9f350a4a277f4767385ad4b4ed5a8438a50a0a4",
+                "runtime_version": "7.1.1-43",
+                "sha256": "c15176c6fa271d40f3f3e3b0d2d3ef8fdf9a0a407b060fe9ebc59346009eaf95",
+                "size": 4879,
+                "width": 2048
+              },
+              "input_sha256": "e97359ea5b50b164b1b3eb6125b45cf4d89d9c8c01384044a0fc5546fd7e4e88",
+              "operation": {
+                "action": "RESIZE",
+                "bits": 16,
+                "destination": "2K/SYNTHETIC_SMOKE_0001_G03_NRM16_2K.png",
+                "format": "PNG",
+                "height": 737,
+                "input_is_effective_master": true,
+                "shortcut": "NRM16",
+                "source": "4K/SYNTHETIC_SMOKE_0001_G03_NRM16_4K.png",
+                "source_sha256": "a5b08c0d9a15f8c3598c95d82cd45753344b6f75462d33cdaeb93e03da69ac61",
+                "width": 2048
+              },
+              "sha256": "c15176c6fa271d40f3f3e3b0d2d3ef8fdf9a0a407b060fe9ebc59346009eaf95",
+              "size": 4879
+            },
+            {
+              "bits": 8,
+              "conversion": {
+                "bits": 8,
+                "format": "PNG",
+                "height": 368,
+                "input_sha256": "39f582c54226da9ede81cc9be37ec6cd9a163441adaa533eb2c25a8d7764e4b0",
+                "policy_sha256": "4f01e6391b3c53642c6d813fc9f350a4a277f4767385ad4b4ed5a8438a50a0a4",
+                "runtime_version": "7.1.1-43",
+                "sha256": "1a8f1357c01c01d3346bfa90edf9be83bb709dde2556a1c53cc52dd29be29112",
+                "size": 1499,
+                "width": 1024
+              },
+              "input_sha256": "39f582c54226da9ede81cc9be37ec6cd9a163441adaa533eb2c25a8d7764e4b0",
+              "operation": {
+                "action": "RESIZE",
+                "bits": 8,
+                "destination": "1K/SYNTHETIC_SMOKE_0001_G03_COL_1K.png",
+                "format": "PNG",
+                "height": 368,
+                "input_is_effective_master": true,
+                "shortcut": "COL",
+                "source": "4K/SYNTHETIC_SMOKE_0001_G03_COL_4K.png",
+                "source_sha256": "9242f2a48810d0809c8d56bb9938447d1c238eaeb37be7ea7942b19b8f42d13b",
+                "width": 1024
+              },
+              "sha256": "1a8f1357c01c01d3346bfa90edf9be83bb709dde2556a1c53cc52dd29be29112",
+              "size": 1499
+            },
+            {
+              "bits": 16,
+              "conversion": {
+                "bits": 16,
+                "format": "PNG",
+                "height": 368,
+                "input_sha256": "e97359ea5b50b164b1b3eb6125b45cf4d89d9c8c01384044a0fc5546fd7e4e88",
+                "policy_sha256": "4f01e6391b3c53642c6d813fc9f350a4a277f4767385ad4b4ed5a8438a50a0a4",
+                "runtime_version": "7.1.1-43",
+                "sha256": "dd0e6419cd233452c77eff2835db722c3bbc7a158798cefcf9599c508e1d2fc7",
+                "size": 1788,
+                "width": 1024
+              },
+              "input_sha256": "e97359ea5b50b164b1b3eb6125b45cf4d89d9c8c01384044a0fc5546fd7e4e88",
+              "operation": {
+                "action": "RESIZE",
+                "bits": 16,
+                "destination": "1K/SYNTHETIC_SMOKE_0001_G03_NRM16_1K.png",
+                "format": "PNG",
+                "height": 368,
+                "input_is_effective_master": true,
+                "shortcut": "NRM16",
+                "source": "4K/SYNTHETIC_SMOKE_0001_G03_NRM16_4K.png",
+                "source_sha256": "a5b08c0d9a15f8c3598c95d82cd45753344b6f75462d33cdaeb93e03da69ac61",
+                "width": 1024
+              },
+              "sha256": "dd0e6419cd233452c77eff2835db722c3bbc7a158798cefcf9599c508e1d2fc7",
+              "size": 1788
+            }
+          ],
+          "operation_id": "575636f6-f6c5-4a21-bcba-b75160aa16f4",
+          "plan_sha256": "b3535c8aba31039c04d043f046db60ae235272cd55efd5668d3334af67f85b47",
+          "storage_timezone": "UTC"
+        },
+        "bundle_sha256": "d016826d99128de94d4b7f33894517d5c14b7c7b78bec95fc4ca172cd4759d03",
+        "directories": [
+          "PREVIEW/",
+          "PREVIEW/empty/"
+        ],
+        "files": [
+          {
+            "path": "PREVIEW/preview.png",
+            "sha256": "f7f8481c1c262ddc625c0ccccdb0db894f0cec3cc902cacc21846b13aa1b8746",
+            "size": 27
+          },
+          {
+            "path": "PREVIEW/\u010desk\u00fd n\u00e1hled.png",
+            "sha256": "084fc2fc7ec9b69b782d57745e4090be95f1bc736e41adda0c6510e7686437cc",
+            "size": 25
+          },
+          {
+            "path": "SYNTHETIC_SMOKE_0001_G03_1K.zip",
+            "sha256": "7a2cb1e092eac893f211bc27114537c12e30697258b0af2460239b6fc37341a0",
+            "size": 2641
+          },
+          {
+            "path": "SYNTHETIC_SMOKE_0001_G03_2K.zip",
+            "sha256": "fafe7ac5a0321fcd1676d9976b121b886d73c9174cf21625c876307cdbb36069",
+            "size": 2597
+          },
+          {
+            "path": "SYNTHETIC_SMOKE_0001_G03_3K.zip",
+            "sha256": "dfdeb2006f95e19533733f671dde9346b67ea188410c4278ec51aabcb61c1858",
+            "size": 2763
+          },
+          {
+            "path": "metadata.json",
+            "sha256": "bcfd310d667023b92e0a1914b2d6abc38fa859521835b8c8cc8c89db52da48a6",
+            "size": 248
+          }
+        ],
+        "schema_version": 1
+      },
+      "plan_hash": "b3535c8aba31039c04d043f046db60ae235272cd55efd5668d3334af67f85b47",
+      "proof_sha256": "87983643d5352c4324b30a3bb14433afb8bea6e4e823650a538959c824e56a97"
+    },
+    "version": 1
+  }
+}

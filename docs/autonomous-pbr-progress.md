@@ -98,11 +98,23 @@ no skips, with the two existing dependency deprecations. Owned cleanup passed.
 The production-image smoke also exported a synthetic request/report/result for
 independent backend contract tests; no credentials or source metadata are included.
 An initial extraction from an already-stopped tmpfs failed; direct export to the
-owned fixture succeeded in a subsequent passing smoke. These API/image changes
-are ready for commit. Backend contract/client work is in progress and not yet
-verified. Database ownership, application jobs and artifact download remain next.
+owned fixture succeeded in a subsequent passing smoke. API/image changes are
+committed and pushed as `8abf702`.
 
-Next: guarded worker execution/recovery followed by durable database jobs/attempts
+The separate backend packaging contract/client passed its first 70 tests and then
+73 tests (2.65s), including all frozen byte budgets, with no skips and the two
+existing dependency warnings. Four synthetic fixtures were exported from actual
+production-image HTTP/conversion/restart runs: rectangle, multiple resolutions
+with 16-bit maps/current timestamps, nonstandard 3K master and square COPY. All
+four passed independent backend proof validation. Rehashed corrupt layouts,
+request substitution, unavailable credentials, response/body limits, lost network
+responses and no-implicit-retry behavior are covered. The client remains unwired
+until durable database ownership/current-account/approval checks are implemented.
+Final archive-size parity checks passed in the same 73-case suite (2.57s).
+The verified client/contract slice is ready for commit. No database schema,
+application endpoint or frontend behavior changed in this slice.
+
+Next: durable database jobs/attempts
 with current approval/source checks and operator UI (`docs/packaging-execution-plan.md`). GCS/Notion,
 online-import confirmation and the remaining catalog, history and operations work
 are unfinished. Older entries below are history; this checkpoint takes precedence

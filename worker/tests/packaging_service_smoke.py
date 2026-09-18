@@ -18,14 +18,23 @@ BASE = "http://127.0.0.1:8081"
 IDENTITY = "SYNTHETIC_SMOKE_0001_G03"
 
 
-def main(export_path=None):
+def main(export_path=None, variant="single"):
+    assert variant in {"single", "multi-current", "nonstandard", "square"}
     root = Path("/tmp") / ("packaging-smoke-" + uuid4().hex); root.mkdir(mode=0o700)
     source, workspace, artifacts, journal = [root / name for name in ("materials", "workspace", "artifacts", "journal")]
     for path in (source, workspace, artifacts, journal): path.mkdir(mode=0o700)
-    folder = source / IDENTITY; (folder / "1K").mkdir(parents=True)
-    Image.linear_gradient("L").resize((1024, 368)).convert("RGB").save(folder / "1K" / (IDENTITY + "_COL_1K.png"))
+    master = "4K" if variant == "nonstandard" else "2K" if variant == "multi-current" else "1K"
+    size = (3072, 1105) if variant == "nonstandard" else (2048, 736) if variant == "multi-current" else (1024, 1024) if variant == "square" else (1024, 368)
+    folder = source / IDENTITY; (folder / master).mkdir(parents=True)
+    Image.linear_gradient("L").resize(size).convert("RGB").save(folder / master / (IDENTITY + "_COL_" + master + ".png"))
+    if variant != "single":
+        Image.new("I;16", size, 54321).save(folder / master / (IDENTITY + "_NRM16_" + master + ".png"))
+        (folder / "metadata.txt").write_bytes(b'{"WEB_APP_PART":{},"DESKTOP_APP_PART":{}}\r\n')
     preview = folder / "PREVIEW"; preview.mkdir()
     (preview / "preview.png").write_bytes(b"Synthetic preview preserved")
+    if variant != "single":
+        (preview / "empty").mkdir()
+        (preview / "český náhled.png").write_bytes(b"Synthetic unicode preview")
     report = validate_material(source, (IDENTITY,)); assert report["can_approve"]
     original = {str(path.relative_to(folder)): hashlib.sha256(path.read_bytes()).hexdigest() for path in folder.rglob("*") if path.is_file()}
     token = uuid4().hex + uuid4().hex
@@ -70,7 +79,8 @@ def main(export_path=None):
         status, prepared = call("/internal/packaging/prepare", {
             "operation_id": str(uuid4()), "parts": [IDENTITY], "expected_source_revision_hash": report["inventory"]["source_revision_hash"],
             "expected_technical_report_hash": _digest({key: value for key, value in report.items() if key != "inventory"}),
-            "approval_context_hash": "a" * 64, "policy": "LEGACY_BEFORE_2026_03_04", "storage_timezone": "UTC", "report": report})
+            "approval_context_hash": "a" * 64, "policy": "CURRENT_ON_OR_AFTER_2026_03_04" if variant == "multi-current" else "LEGACY_BEFORE_2026_03_04",
+            "storage_timezone": "Europe/Prague" if variant == "multi-current" else "UTC", "report": report})
         assert status == 200 and _digest(prepared["request"]) == prepared["request_hash"]
         status, completed = call("/internal/packaging/execute", {**prepared, "report": report})
         assert status == 200 and completed["status"] == "READY" and completed["attempt"] == 1
@@ -92,4 +102,4 @@ def main(export_path=None):
     print("Packaging production image smoke: actual HTTP, conversion, restart and offline replay passed.")
 
 
-if __name__ == "__main__": main(sys.argv[1] if len(sys.argv) == 2 else None)
+if __name__ == "__main__": main(sys.argv[1] if len(sys.argv) >= 2 else None, sys.argv[2] if len(sys.argv) >= 3 else "single")

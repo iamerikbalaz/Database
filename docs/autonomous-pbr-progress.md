@@ -38,7 +38,7 @@ Owned cleanup succeeded; only the test image remains. No packaging HTTP endpoint
 live upload or deployment exists.
 
 Retention is committed and pushed as `8810c0a`; main remains `88a1f99`.
-The next uncommitted slice implements first-policy persistence and administrator
+The next slice implements first-policy persistence and administrator
 preview/override with immutable migration 0016 (`docs/packaging-policy.md`). Full
 isolated project `reawote-test-c20f7bc006b6437da53ac19b39e78cab` passed **1126 backend,
 171 actual PostgreSQL (auth 27/27), 452 ordinary-worker and 436 existing frontend**
@@ -48,11 +48,21 @@ required-runtime 562-test packaging run above. Only existing dependency warnings
 remain. Owned cleanup passed and its exact database volume is retained.
 The subsequent policy UI passed **457 frontend tests** including 21 new cases.
 Build, lint and E2E TypeScript passed after correcting test-only typing/lint issues;
-fresh/retained browser verification is running. No new schema is committed yet;
-committed migrations through 0015 stay immutable.
+server/migration 0016 are committed as `b93fd16` (not yet pushed). Migrations
+through 0016 are now immutable. First E2E run `2a41e17e-185d-414b-8a3b-3361f59cda0e`
+passed 16 scenarios; publication/policy failed because the post-save callback
+remounted the whole detail and hid the success notice/expanded panel. The new
+panel now refreshes detail data in place. Its database save had succeeded; no
+assertion or validation was weakened. Final E2E run
+`403e4755-695e-4bda-969b-028a8ea64427` passed **17 fresh (1.1m) and 17 retained (41.4s)**
+scenarios, including actual first selection, administrator preview/override, exact
+retry after a lost committed response, preserved CSV and history after restart.
+Desktop and 390px screenshots were visually inspected without overflow. The final
+457 frontend tests, lint/build and E2E TypeScript check also passed. Owned cleanup
+and protected-resource checks passed; only owned DB/source/journal volumes remain.
 
-Next: finish policy UI verification, then durable database jobs/attempts with
-current approval/source checks, worker execution and operator UI. GCS/Notion,
+Next: guarded worker execution/recovery followed by durable database jobs/attempts
+with current approval/source checks and operator UI (`docs/packaging-execution-plan.md`). GCS/Notion,
 online-import confirmation and the remaining catalog, history and operations work
 are unfinished. Older entries below are history; this checkpoint takes precedence
 over their former pending states.

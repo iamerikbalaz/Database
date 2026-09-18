@@ -83,8 +83,12 @@ fresh/prior upgrade, Alembic current/heads/check, immutable/FK/downgrade guards 
 real concurrency. No backend or PostgreSQL case was skipped. Existing dependency
 warnings remain. The subsequent UI passed 457 frontend tests, build, lint and E2E
 TypeScript checks. Test-only Testing Library typing and an unused callback parameter
-were corrected without changing validation rules. Fresh/retained browser results
-are recorded in autonomous-pbr-progress.md as they complete.
+were corrected without changing validation rules. An initial E2E exposed the
+whole-detail refresh closing the panel after a successful save; the callback now
+refreshes detail data in place. The final unchanged assertions passed all 17 fresh
+and 17 retained-data E2E scenarios. Desktop and 390px screenshots were visually
+inspected. The complete final frontend suite again passed 457 tests, lint/build
+and E2E TypeScript. Exact project/run identifiers are in autonomous-pbr-progress.md.
 
 Migration 0016 is additive. Empty downgrade to 0015 is supported; any saved policy
 refuses downgrade to preserve provenance. Prefer a forward repair once populated.

@@ -29,6 +29,17 @@ test("approved CSV batch, exact retry and frozen download survive retained resta
     expect((await page.request.post(path + "/content/approve", { headers, data: { idempotency_key: crypto.randomUUID(), expected_revision: content.content_revision,
       expected_context_hash: content.context_hash, warnings_acknowledged: true, note: "Reviewed synthetic publication content" } })).status()).toBe(200);
   }
+  if (!retainedPass) {
+    await page.goto("/materials/" + fixture.id);
+    const policy = page.getByRole("article", { name: "ZIP packaging policy", exact: true });
+    await policy.locator("summary").click();
+    await expect(policy.getByText("No ZIP policy has been saved.", { exact: true })).toBeVisible();
+    await policy.getByLabel("Reason for ZIP policy decision").fill("Freeze original synthetic ZIP dates");
+    await policy.getByRole("checkbox", { name: "I reviewed this ZIP rule and its effect.", exact: true }).check();
+    await policy.getByRole("button", { name: "Save ZIP policy", exact: true }).click();
+    await expect(policy.getByText("ZIP policy saved.", { exact: true })).toBeVisible();
+    await expect(policy.getByText("Current · retain packaging dates", { exact: true })).toBeVisible();
+  }
   await page.goto("/publication");
   if (!retainedPass) {
     await page.getByRole("searchbox", { name: "Search materials", exact: true }).fill(fixture.material_name);
@@ -84,4 +95,38 @@ test("approved CSV batch, exact retry and frozen download survive retained resta
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await saved.screenshot({ path: test.info().outputPath("publication-saved-mobile.png") });
+  await page.goto("/materials/" + fixture.id);
+  const policy = page.getByRole("article", { name: "ZIP packaging policy", exact: true });
+  await policy.locator("summary").click();
+  if (!retainedPass) {
+    await policy.getByRole("button", { name: "Review ZIP policy change", exact: true }).click();
+    await expect(policy.getByRole("region", { name: "ZIP policy change preview", exact: true })).toContainText("All current technical, publication and content approvals");
+    await policy.getByLabel("Reason for ZIP policy decision").fill("Reviewed synthetic historical override");
+    await policy.getByRole("checkbox", { name: "I reviewed this ZIP rule and its effect.", exact: true }).check();
+    let discarded = false; const sent: unknown[] = [];
+    await page.route("**" + path + "/packaging-policy/override", async (route) => {
+      sent.push(route.request().postDataJSON());
+      if (!discarded) { discarded = true; expect((await route.fetch()).status()).toBe(200); await route.abort("failed"); }
+      else await route.continue();
+    });
+    await policy.getByRole("button", { name: "Confirm ZIP policy change", exact: true }).click();
+    await expect(policy.getByRole("alert")).toContainText("The outcome is unknown");
+    await expect(policy.getByLabel("Reason for ZIP policy decision")).toBeDisabled();
+    await policy.getByRole("button", { name: "Retry same policy request", exact: true }).click();
+    await expect(policy.getByText("ZIP policy saved.", { exact: true })).toBeVisible();
+    expect(sent).toHaveLength(2); expect(sent[0]).toEqual(sent[1]);
+    await page.unroute("**" + path + "/packaging-policy/override");
+  }
+  await expect(policy.getByText("Legacy · normalize ZIP dates to 1 January 2026", { exact: true })).toBeVisible();
+  await policy.getByRole("button", { name: "Load policy history", exact: true }).click();
+  await expect(policy.getByRole("listitem")).toHaveCount(2);
+  await expect(policy.getByRole("listitem").last()).toContainText("Freeze original synthetic ZIP dates");
+  const policyReview = await (await page.request.get(path + "/review")).json();
+  expect(policyReview.revision_hash).toBe(null);
+  expect((await page.request.get("/api/publication-batches/" + summary.id + "/csv")).status()).toBe(200);
+  expect((await (await page.request.get("/api/publication-batches/" + summary.id)).json()).csv_sha256).toBe(summary.csv_sha256);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await policy.screenshot({ path: test.info().outputPath("packaging-policy-mobile.png") });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await policy.screenshot({ path: test.info().outputPath("packaging-policy-desktop.png") });
 });

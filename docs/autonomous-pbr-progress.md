@@ -2,6 +2,35 @@
 
 ## Latest checkpoint (2026-09-18)
 
+Backend staging runtime is pushed as `940bc14`. Storage controls on Publication
+are now verified and ready to commit. They select accepted packages for the exact
+saved CSV, review/reserve the destination, explicitly upload or read-only reconcile,
+page through durable evidence and close unsent jobs or ADMIN-acknowledged dispatched
+jobs. Unknown requests keep the exact key/body across batch changes and in-app
+navigation; browser reload recovery uses durable history. No cloud operation was
+performed by this development task.
+
+UI verification: **550 full frontend tests passed**, lint/build and E2E TypeScript
+passed. A later delayed-poll regression passed with all **16 staging component
+tests**; lint/build passed again. The first targeted run had 63/64 passing tests:
+one assertion ran before the successful reservation's history refresh finished;
+it now waits for the rendered action. Browser E2E run
+`d494d54e-a17e-4f1b-9658-6f987c544c27`: **17 fresh + 17 retained passed**, 1.3m/40.9s,
+including real ZIP selection, a lost committed staging reservation response, exact
+replay, material edit exclusion, deployed disabled-cloud rejection without intent,
+UI closure and history after restart. Desktop and 390px screenshots were visually
+inspected. Owned container/network cleanup and protected-resource checks passed;
+owned volumes/images and synthetic UI artifacts were retained. An initial E2E
+preflight invoked npx from the wrong directory and stopped before Docker; the
+successful runner used the project's existing local TypeScript binary explicitly.
+
+Next: implement a disabled-by-default Notion reader with explicit property/source
+bindings and synthetic HTTP contracts, then remaining synchronization/audit,
+soft-delete/restore and artifact lifecycle work. Deployed importer/golden assets,
+live GCS/Notion tests and production operations remain unavailable/outside current
+authorization. Migrations through 0019 are immutable. Details for operators:
+`docs/gcs-staging-controls.md`; backend evidence follows below.
+
 Verified after pushed `79d3b96`: migration 0019 and its models add immutable
 staging dispatch/transfer intents, verified or uncertain storage observations,
 dispatch results and guarded current progress. Existing reservation/unsent-close APIs maintain
@@ -59,10 +88,8 @@ cleanup, retaining owned volumes/images. Full isolated Linux backend:
 The container was automatically removed. A later additive history `enabled` field
 passed two focused Windows tests (10.47s, 25 deselected); it is not included in those
 two frozen Linux/PG snapshots. No migration beyond 0019 is required.
-GCS client/UI is in progress, uncommitted and not yet fully tested: `stagingClient.ts`,
-`StagingPanel.tsx`, and its Publication integration. Initial TypeScript build/lint
-passed. Finish contract/component tests, full frontend checks, and isolated fresh
-and retained E2E before marking the UI verified. No real cloud request was sent.
+GCS client/UI verification is recorded at the top of this checkpoint. No real
+cloud request was sent.
 No live cloud or production database operation is authorized.
 
 The owned branch is `codex/autonomous-pbr-completion`; the last verified main is

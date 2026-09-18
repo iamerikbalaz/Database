@@ -1,6 +1,6 @@
 """Compile an internal staging plan and an all-object completion manifest.
 
-Pure functions: no authorization, IO or publication state transition. The future
+Pure functions: no authorization, IO or publication state transition. The
 coordinator must load matching immutable batch/package records and check current
 approvals before any dispatch. INTERNAL_STAGING_V1 is not an importer layout.
 """

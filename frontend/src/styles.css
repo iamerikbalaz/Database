@@ -1100,6 +1100,13 @@ a.button {
 .publication-warnings { color: #6c430a; background: #fff6e6; padding: .8rem .8rem .8rem 2rem; border-radius: 6px; }
 .publication-page details { margin-top: 1rem; }
 .publication-page summary { cursor: pointer; font-weight: 600; }
+.staging-panel section { margin-block: 1rem; min-width: 0; }
+.staging-panel .button { margin: .4rem .4rem .4rem 0; }
+.staging-panel label:has(input[type="checkbox"]) { display: flex; align-items: flex-start; gap: .75rem; }
+.staging-panel input[type="checkbox"] { margin-top: .3rem; flex-shrink: 0; }
+.staging-panel li { margin-block: .7rem; }
+.staging-package { border-bottom: 1px solid var(--border); padding-block: .5rem; }
+.staging-package > strong, .staging-panel li > .revision-hash { display: block; }
 @media (max-width: 720px) { .publication-filters { grid-template-columns: minmax(0, 1fr); gap: 0; } .publication-row { grid-template-columns: minmax(0, 1fr); gap: .4rem; } .publication-row dd { margin-bottom: .6rem; } }
 .folder-discovery .button-row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
 .folder-discovery-list { list-style: none; padding: 0; }

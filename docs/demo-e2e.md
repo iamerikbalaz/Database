@@ -22,6 +22,9 @@ publikované značky, projekt, procesora a osm materiálů a v Chromium provede:
 - skutečné lokální balení, obnovu stejného požadavku po ztracené odpovědi,
   jediný potvrzený worker příkaz a uzavření neodeslané rezervace;
 - historii balení a změn ZIP pravidel po restartu;
+- výběr skutečného balíčku pro GCS, kontrolu cíle, rezervaci přes UI po ztrátě
+  potvrzené odpovědi, blokování změn materiálu, uzavření a historii po restartu;
+- serverový zákaz uploadu při vypnutém GCS bez vytvoření dispatch záznamu;
 - stažení skutečného ZIPu s kontrolou velikosti a SHA-256 před restartem i po něm,
   i po následné změně obsahu a ZIP pravidla;
 - klientské odmítnutí absolutní cesty a `..` bez preflight requestu;

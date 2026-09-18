@@ -7,6 +7,7 @@ import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
 import { NavigationLink } from "../components/NavigationLink";
 import { PackagingJobsPanel } from "../components/PackagingJobsPanel";
+import { StagingPanel } from "../components/StagingPanel";
 
 function Warnings({ items }: { items: PublicationWarning[] }) {
   return items.length ? <ul className="publication-warnings">{items.map((warning, index) => <li key={index}>
@@ -127,5 +128,6 @@ function PublicationWorkspace({ client, navigate }: { client: ApiClient; navigat
         <PackagingJobsPanel key={`${batch.id}-${item.materialId}`} materialId={item.materialId} batch={{ id: batch.id, snapshotHash: item.snapshotHash }} />
       </details>)}
     </fieldset>}
+    <StagingPanel batch={batch} />
   </>;
 }

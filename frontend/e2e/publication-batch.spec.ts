@@ -122,29 +122,48 @@ test("approved CSV batch, exact retry and frozen download survive retained resta
     // Review and reserve the real retained package without any cloud connection.
     const ready = await (await page.request.get(path + "/packaging-executions/" + jobs.items[0].id)).json();
     const batch = await (await page.request.get("/api/publication-batches/" + ready.batch_id)).json();
-    const selection = { job_id: crypto.randomUUID(), expected_snapshot_hash: batch.snapshot_hash,
-      expected_csv_sha256: batch.csv_sha256, packages: [{ material_id: fixture.id, execution_id: ready.id,
-        expected_observation_id: ready.last_observation_id, expected_proof_sha256: ready.proof_sha256 }] };
-    const stagingPreview = await page.request.post("/api/publication-batches/" + batch.id + "/staging-preview", { headers, data: selection });
-    expect(stagingPreview.status()).toBe(200);
-    const plan = await stagingPreview.json();
+    const storage = page.getByRole("article", { name: "Storage uploads", exact: true });
+    await storage.locator("summary").click();
+    await expect(storage.getByText(/Storage upload is disabled/)).toBeVisible();
+    await storage.getByRole("button", { name: "Load packages for " + fixture.technical_identity, exact: true }).click();
+    await storage.getByRole("combobox", { name: "Accepted package for " + fixture.technical_identity, exact: true }).selectOption(ready.id);
+    const reviewed = page.waitForResponse((response) => response.url().endsWith("/staging-preview") && response.request().method() === "POST");
+    await storage.getByRole("button", { name: "Review storage upload", exact: true }).click();
+    const stagingPreview = await reviewed; expect(stagingPreview.status()).toBe(200); const plan = await stagingPreview.json();
     expect(plan.transfer_enabled).toBe(false); expect(plan.importer_compatible).toBe(false);
     expect(plan.bucket_name).toBe("synthetic-reawote-staging"); expect(plan.object_count).toBeGreaterThan(2);
-    const reservation = { ...selection, batch_id: batch.id, idempotency_key: crypto.randomUUID(),
-      expected_plan_sha256: plan.plan_sha256, reason: "Reserve synthetic staging without cloud IO" };
-    const staged = await page.request.post("/api/publication-staging-jobs", { headers, data: reservation });
-    expect(staged.status()).toBe(201); const reserved = await staged.json();
+    await expect(storage.getByRole("heading", { name: "Review upload destination", exact: true })).toBeVisible();
+    const confirmStorage = async (reason: string) => {
+      await storage.getByLabel("Reason for storage action").fill(reason);
+      await storage.getByRole("checkbox", { name: "I reviewed the selected CSV batch, destination and storage progress.", exact: true }).check();
+    };
+    await confirmStorage("Reserve synthetic staging without cloud IO");
+    let lostReservation = false; const stagingRequests: unknown[] = [];
+    await page.route("**/api/publication-staging-jobs", async (route) => {
+      if (route.request().method() !== "POST") { await route.continue(); return; }
+      stagingRequests.push(route.request().postDataJSON());
+      if (!lostReservation) { lostReservation = true; expect((await route.fetch()).status()).toBe(201); await route.abort("failed"); }
+      else await route.continue();
+    });
+    await storage.getByRole("button", { name: "Reserve storage job", exact: true }).click();
+    await expect(storage.getByRole("alert")).toContainText("The outcome is unknown");
+    await storage.getByRole("button", { name: "Recover same storage request", exact: true }).click();
+    await expect(storage.getByRole("heading", { name: "Reserved · ready to upload", exact: true })).toBeVisible();
+    expect(stagingRequests).toHaveLength(2); expect(stagingRequests[0]).toEqual(stagingRequests[1]);
+    await page.unroute("**/api/publication-staging-jobs");
+    const reserved = await (await page.request.get("/api/publication-staging-jobs/" + plan.job_id)).json();
     expect(reserved.status).toBe("RESERVED"); expect(reserved.plan_sha256).toBe(plan.plan_sha256);
-    const replayed = await page.request.post("/api/publication-staging-jobs", { headers, data: reservation });
-    expect(replayed.status()).toBe(201); expect(await replayed.json()).toEqual(reserved);
+    expect(reserved.batch_id).toBe(batch.id);
+    await expect(storage.getByRole("button", { name: "Start storage upload", exact: true })).toHaveCount(0);
     expect((await page.request.patch(path, { headers, data: { material_name: "Blocked during staging" } })).status()).toBe(409);
-    const closure = { idempotency_key: crypto.randomUUID(), expected_plan_sha256: plan.plan_sha256,
-      reason: "Close synthetic staging before dispatch" };
     const stagingPath = "/api/publication-staging-jobs/" + reserved.id;
-    const closed = await page.request.post(stagingPath + "/close", { headers, data: closure });
-    expect(closed.status()).toBe(200); const closedJob = await closed.json(); expect(closedJob.status).toBe("CLOSED");
-    const closeReplay = await page.request.post(stagingPath + "/close", { headers, data: closure });
-    expect(closeReplay.status()).toBe(200); expect(await closeReplay.json()).toEqual(closedJob);
+    const disabled = await page.request.post(stagingPath + "/run", { headers, data: { idempotency_key: crypto.randomUUID(),
+      expected_plan_sha256: plan.plan_sha256, expected_last_dispatch_id: null, reason: "Verify deployed disabled gate" } });
+    expect(disabled.status()).toBe(503); expect((await disabled.json()).detail.code).toBe("GCS_DISABLED");
+    expect((await (await page.request.get(stagingPath + "/dispatches")).json()).items).toHaveLength(0);
+    await confirmStorage("Close synthetic staging before dispatch");
+    await storage.getByRole("button", { name: "Close unsent storage job", exact: true }).click();
+    await expect(storage.getByRole("heading", { name: "Closed", exact: true })).toBeVisible();
     // Current content changes after preparation; the already saved artifact must not.
     const current = await (await page.request.get(path + "/content")).json();
     expect((await page.request.post(path + "/content", { headers, data: { idempotency_key: crypto.randomUUID(), expected_revision: current.revision,
@@ -164,6 +183,19 @@ test("approved CSV batch, exact retry and frozen download survive retained resta
   expect(staging.materials[0].packaging_proof_sha256).toBe(
     packagingHistory.items.find((item: { status: string }) => item.status === "PACKAGED").proof_sha256);
   expect(staging.close.reason).toBe("Close synthetic staging before dispatch");
+  await page.goto("/publication");
+  const storageHistory = page.getByRole("article", { name: "Storage uploads", exact: true });
+  await storageHistory.locator("summary").click();
+  await storageHistory.getByRole("button", { name: /^Open Closed ·/ }).click();
+  await expect(storageHistory.getByRole("heading", { name: "Closed", exact: true })).toBeVisible();
+  await expect(storageHistory.getByText(/No upload was dispatched/)).toBeVisible();
+  await storageHistory.getByRole("button", { name: "Load storage actions", exact: true }).click();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await storageHistory.screenshot({ path: test.info().outputPath("storage-history-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await storageHistory.screenshot({ path: test.info().outputPath("storage-history-mobile.png") });
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("button", { name: "Load latest batches", exact: true }).click();
   await page.getByRole("button", { name: `Open batch ${summary.id}`, exact: true }).click();
   const saved = page.getByRole("group", { name: "Saved CSV batch", exact: true });

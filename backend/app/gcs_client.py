@@ -1,7 +1,7 @@
 """Create-only bounded GCS JSON API transport with independent full readback.
 
-No production route invokes this adapter yet. Callers must establish approval and
-durable ownership before calling upload; object receipts alone never publish data.
+The staging coordinator establishes approval and durable ownership before calling
+upload; object receipts alone never publish data.
 """
 from contextlib import asynccontextmanager
 from contextvars import ContextVar

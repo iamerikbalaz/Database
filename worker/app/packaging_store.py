@@ -97,6 +97,10 @@ def _validate_payload(value, operation_id, plan_hash):
 
 
 def _record(value, operation_id, request_hash, plan_hash):
+    if isinstance(value, dict) and value.get("version") == 2:
+        from app.packaging_retirement import validate_record
+        validate_record(value, operation_id, request_hash, plan_hash)
+        raise PackagingStoreError("PACKAGING_STORE_RETIRED")
     _check(isinstance(value, dict) and set(value) == {"version", "kind", "operation_id", "request_hash", "plan_hash", "status", "attempt", "attempt_history", "directory_identity", "proof_sha256", "payload"}
         and value["version"] == 1 and value["kind"] == "PBR_PACKAGED_RESULT" and value["operation_id"] == str(operation_id), "PACKAGING_STORE_CORRUPT_STATE")
     _check(value["request_hash"] == request_hash and value["plan_hash"] == plan_hash, "PACKAGING_STORE_REQUEST_CONFLICT")

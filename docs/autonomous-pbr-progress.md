@@ -1,16 +1,37 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-19, incomplete retention cleanup)
+## Latest checkpoint (2026-09-19, accepted-copy storage retirement)
 
 Owned worktree: `C:\Database\Database\tmp\autonomous-pbr-completion`.
 Branch: `codex/autonomous-pbr-completion`. Current pushed tip:
-`d9ffbcb6077f30d510fb96521831f97989e57057` (updated packaging/staging docs).
+`d7922d8567cb16a2fef0460a006295887f196e5e` (component documentation links).
 API/migration 0024: `249b9e6e3a88495544b8eaaaf44c5ba50241972c`; Docker source
 mapping guard: `c3a0d1631f06e372284409da5fe003b472cd0b45`. Remote main last
 verified unchanged at `88a1f99d748d2a0edbb1fce509e13d18bfc03908` during that push.
 Shared controller extraction is committed as `9957a0ef8729f23175412ac2f295886c35d76bc2`.
-Account profiles (`6c83a33`), temporary error cleanup (`7565a1c`) and reconciled
-docs (`d9ffbcb`) have been pushed. Remote main remains unchanged at the stated base.
+Account profiles (`6c83a33`), temporary error cleanup (`7565a1c`), incomplete retained
+copy cleanup (`e5679b6`) and reconciled docs have been pushed. Remote main remains
+unchanged at the stated base.
+
+### Accepted-copy storage retirement
+
+The internal [retirement primitive](packaging-retirement.md) now verifies an exact
+READY result and persists a version-2 REMOVING intent before byte removal. It keeps
+the entire original proof/attempt record, binds root/operation and file identities,
+supports exact interrupted replay and leaves a permanent REMOVED receipt. Legacy
+storage reads/recovery/retention reject both retirement states. No HTTP endpoint,
+application authorization/command, database migration or UI is added in this slice.
+
+The complete required-runtime Linux suite **passed 780 tests**, 491.86s, no skips
+and two existing dependency deprecations. Owned run
+`reawote-packaging-1eaeac8c0c5346c88da20f0ac6792bc6`, immutable image
+`sha256:2e1f3ede6fc621687dd9329d8554d40ce2505efc54269c69a4e324eb2620f1f6`.
+This final complete run also includes both cleanup slices and their corrected
+test fixtures documented below. The owned container was removed; image retained.
+New scenarios verify exact recovery after actual process deaths at six removal/
+commit boundaries, active-reader exclusion, corruption/replacement refusal,
+strict journal validation and unchanged synthetic source files.
+Next integration is specified in [the application plan](packaging-retirement-integration-plan.md).
 
 ### Incomplete retention cleanup
 
@@ -159,8 +180,8 @@ The README links the individual feature/operations contracts.
 
 ## Next work and real blockers
 
-1. Implement accepted-artifact retirement with a durable worker tombstone, exact
-   replay and crash-safe byte removal. See [cleanup sequence](packaging-cleanup-plan.md).
+1. Add the opt-in private retirement endpoint under the recorded execution lease
+   and an independently validating backend client. The storage primitive is verified.
 2. Add application retirement provenance, ownership/download/staging gates and UI,
    then operational/final review docs. Temporary attempt workspaces and proven
    incomplete retention now have guarded cleanup; accepted output remains preserved.

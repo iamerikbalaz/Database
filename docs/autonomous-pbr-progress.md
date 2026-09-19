@@ -1,10 +1,11 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-19, application retirement and browser verification)
+## Latest checkpoint (2026-09-19, verified PBR review candidate)
 
 Owned worktree: `C:\Database\Database\tmp\autonomous-pbr-completion`.
-Branch: `codex/autonomous-pbr-completion`. Previous pushed checkpoint:
-`1ed3b44339b42558513ebdf19ddb32b8e52545e1` (authorized recoverable retirement API).
+Branch: `codex/autonomous-pbr-completion`. Implementation checkpoints:
+`1ed3b44339b42558513ebdf19ddb32b8e52545e1` (authorized recoverable retirement API)
+and `776a36a4a8d3aef4f7f4a8a8eb4464bfd657972e` (reviewed UI and actual E2E).
 API/migration 0024: `249b9e6e3a88495544b8eaaaf44c5ba50241972c`; Docker source
 mapping guard: `c3a0d1631f06e372284409da5fe003b472cd0b45`. Remote main last
 verified unchanged at `88a1f99d748d2a0edbb1fce509e13d18bfc03908` during that push.
@@ -12,6 +13,13 @@ Shared controller extraction is committed as `9957a0ef8729f23175412ac2f295886c35
 Account profiles (`6c83a33`), temporary error cleanup (`7565a1c`), incomplete retained
 copy cleanup (`e5679b6`) and reconciled docs have been pushed. Remote main remains
 unchanged at the stated base.
+
+The [consolidated review handoff](pbr-review-candidate.md) records implemented
+behavior, safe reproduction, migration/rollback boundaries and concrete missing
+external inputs. All six baseline migrations compare unchanged against main.
+There are no running test sessions at this checkpoint. No merge, production
+enablement or external write was performed. Remaining acceptance work below needs
+real fixtures/targets or a separately authorized deployment/integration step.
 
 ### Application retirement API and operator controls
 
@@ -308,14 +316,13 @@ The README links the individual feature/operations contracts.
 
 ## Next work and real blockers
 
-1. Finalize the consolidated operational/review handoff and commit the verified UI.
-   Storage, private service/client, additive database evidence, application gates
-   and fresh/retained browser integration are verified.
-2. Verify actual importer contract, golden material outputs, manual publication
+1. Verify actual importer contract, golden material outputs, manual publication
    confirmation and realistic historical workbook/source compatibility. Production
    inputs/importer fixtures are unavailable; do not invent live verification.
-3. Verify isolated live GCS/Notion/AI only after separately authorized targets and
-   access are supplied. Credential contract tests do not substitute for live checks.
+2. Verify isolated live GCS/Notion/AI only after separately authorized targets and
+  access are supplied. Credential contract tests do not substitute for live checks.
+3. Review production topology, representative workload and backup custody before
+   any separately approved deployment. Multi-gigabyte throughput remains unverified.
 
 3D/HDRI remain later scope. Backups are unchanged; off-machine custody is unconfirmed.
 Draft PR has not been created: no available GitHub CLI/PR connector was found.

@@ -27,7 +27,9 @@ Kontrakt propojeni slozky materialu a specializovane operace Mark as Done je v
 [`docs/material-folder-api.md`](docs/material-folder-api.md).
 
 Aktuální funkce a skutečně provedené testy shrnuje
-[`docs/autonomous-pbr-progress.md`](docs/autonomous-pbr-progress.md). Kontrakty:
+[`docs/autonomous-pbr-progress.md`](docs/autonomous-pbr-progress.md).
+[Přehled verze k review](docs/pbr-review-candidate.md) uvádí rozsah, bezpečné
+opakování testů, migrační hranice a konkrétní zbývající vstupy. Kontrakty:
 
 - [Inventář a znovuotevření materiálu](docs/source-inventory.md).
 - [Technická kontrola a schválení](docs/material-approvals.md).

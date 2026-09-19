@@ -23,14 +23,14 @@ for an application user.
 - Fence delayed ordinary dispatches before changing execution history, so an old
   CLOSE command cannot strand exact retirement recovery in CLOSING after deletion.
 
-## Additive database evidence and gates
+## Implemented additive database evidence and gates
 
-Use a new migration after immutable 0024. Preserve PACKAGED execution/observation
-facts. Add separate immutable retirement intent, ordered dispatch and observation
-facts, with actor/session, reason, actor-scoped idempotency and matching composite
-references. One retirement intent per accepted execution permanently prevents that
-copy being selected again. A verified removal result is monotonic; a late uncertain
-observation must not undo it. Exact later worker replays return the same receipt.
+[Migration 0025](packaging-retirement-database.md) preserves PACKAGED execution/
+observation facts and adds separate immutable retirement intent, ordered dispatch
+and observation facts, with actor/session, reason, actor-scoped idempotency and
+matching composite references. Database staging claims reject retired copies.
+The application must enforce the same exclusion for downloads and derive removal
+from any verified receipt, so a late uncertain observation cannot undo it.
 
 Before committing intent, lock the material and target execution and verify the
 accepted observation/proof. Require no active staging owner referencing that
@@ -45,7 +45,7 @@ finish; physical removal must receive BUSY instead of racing it. New upload
 reservations cannot use the quarantined execution. A different newly generated
 package uses a new operation UUID and its normal current-approval checks.
 
-## Explicit operator action and recovery
+## Remaining explicit operator action and recovery
 
 Conservative role: ADMIN only. Require current session/account/role, CSRF, reason,
 exact accepted-proof acknowledgment and request key. Keep retirement disabled by

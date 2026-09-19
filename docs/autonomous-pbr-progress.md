@@ -1,10 +1,10 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-19, private retirement boundary)
+## Latest checkpoint (2026-09-19, retirement database evidence)
 
 Owned worktree: `C:\Database\Database\tmp\autonomous-pbr-completion`.
 Branch: `codex/autonomous-pbr-completion`. Previous pushed checkpoint:
-`9eb496cff885f4bad7e667f94701596caacd86e8` (durable storage retirement).
+`8fe4347d0ab09383af17cda101067a47f1e1863a` (private retirement boundary).
 API/migration 0024: `249b9e6e3a88495544b8eaaaf44c5ba50241972c`; Docker source
 mapping guard: `c3a0d1631f06e372284409da5fe003b472cd0b45`. Remote main last
 verified unchanged at `88a1f99d748d2a0edbb1fce509e13d18bfc03908` during that push.
@@ -12,6 +12,33 @@ Shared controller extraction is committed as `9957a0ef8729f23175412ac2f295886c35
 Account profiles (`6c83a33`), temporary error cleanup (`7565a1c`), incomplete retained
 copy cleanup (`e5679b6`) and reconciled docs have been pushed. Remote main remains
 unchanged at the stated base.
+
+### Retirement database evidence (0025)
+
+The additive [retirement schema](packaging-retirement-database.md) now preserves
+intent, ordered dispatch and factual observation as append-only evidence, while
+keeping existing PACKAGED history unchanged. Matching references, accepted-proof/
+manifest checks and material-row locking exclude active/new staging claims for the
+same copy. Verified receipts bind every intent field; late uncertain facts cannot
+erase a receipt. Populated retirement evidence refuses downgrade.
+
+The complete isolated PostgreSQL phase **passed 459 tests**, 641.03s, **auth 27/27**,
+no skips, four existing dependency warnings. Run
+`reawote-test-2e40bc8235254f23a219e729ecd0d40b`, immutable backend image
+`sha256:fa541a68885aefb1eaead568a90344f544b35a2dc1775f6563a189d8b0f4438e`.
+This includes fresh/prior upgrade, Alembic current/heads/check, strict receipt and
+history guards, empty/populated downgrade and real competing retirement/staging
+claims. Owned containers/network were removed; owned test image/volume retained.
+Relevant local schema/packaging backend tests **134 passed**, 213.74s, no skips;
+the runner's **10 offline isolation cases passed**.
+
+The application route/config/download integration is a separate working draft,
+excluded from this schema commit and that immutable test image. Its first focused
+run was **20 passed / 1 failed**, 79.80s: a new disabled-feature fixture attempted
+to mutate frozen Settings. It now rebuilds the test app with a copied settings
+object; application guards and the expected 503 remain unchanged. Expanded API
+verification is running. Continue that slice, then real PG application concurrency,
+frontend and fresh/retained browser integration.
 
 ### Private retirement boundary
 
@@ -46,7 +73,7 @@ unchanged. Run `reawote-packaging-service-cf0be92a7fef4fd3b210fc6ca321e863:runti
 image `sha256:e184c1f145361c655e89318690a4d52d0968e87b7da8468136d51a359d153fab`.
 All owned test containers were removed and images retained. This checkpoint
 accompanies the private-boundary commit; read the branch tip for its exact hash.
-The additive 0025 database schema is the next draft and is excluded from this commit.
+The private-boundary image predates the separately verified 0025 schema above.
 
 ### Accepted-copy storage retirement
 
@@ -215,9 +242,9 @@ The README links the individual feature/operations contracts.
 
 ## Next work and real blockers
 
-1. Add application retirement provenance, ownership/download/staging gates and UI.
-   Storage and the opt-in private service/client are verified; new database/API/UI
-   work remains. Temporary workspaces and proven incomplete retention have guarded
+1. Finish application retirement ownership/download/staging gates and UI.
+   Storage, private service/client and additive database evidence are verified;
+   application API/UI verification remains. Temporary workspaces and proven incomplete retention have guarded
    cleanup. Accepted output requires explicit proof-bound retirement.
 2. Complete operational/final review docs after the application boundary is tested.
 3. Verify actual importer contract, golden material outputs, manual publication

@@ -1281,6 +1281,103 @@ def _protect_packaging_state_identity(_, __, item):
 event.listen(MaterialPackagingState, "before_delete", _reject_review_history_mutation)
 
 
+class MaterialPackagingRetirement(Base):
+    """Permanent quarantine of one accepted local copy, independent of its history."""
+    __tablename__ = "material_packaging_retirements"
+    __table_args__ = (
+        UniqueConstraint("execution_id", name="uq_packaging_retirements_execution"),
+        UniqueConstraint("actor_id", "request_key", name="uq_packaging_retirements_request"),
+        UniqueConstraint("id", "worker_command_hash", name="uq_packaging_retirements_command"),
+        ForeignKeyConstraint(["material_id", "execution_id"],
+            ["material_packaging_executions.material_id", "material_packaging_executions.id"],
+            name="fk_packaging_retirements_execution", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["execution_id", "accepted_observation_id"],
+            ["material_packaging_observations.execution_id", "material_packaging_observations.id"],
+            name="fk_packaging_retirements_observation", ondelete="RESTRICT"),
+        CheckConstraint("length(reason) BETWEEN 1 AND 2000", name="ck_packaging_retirements_reason"),
+        CheckConstraint("file_count BETWEEN 2 AND 20008", name="ck_packaging_retirements_files"),
+        CheckConstraint("byte_count BETWEEN 0 AND 137438953472", name="ck_packaging_retirements_bytes"),
+        *(_review_hash_constraint(field, "ck_packaging_retirements_" + field)
+            for field in ("request_hash", "worker_request_hash", "plan_hash", "proof_sha256", "worker_command_hash")),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(Uuid, nullable=False, index=True)
+    execution_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    accepted_observation_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    issuer_session_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_key: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    worker_request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    plan_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    proof_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    worker_command_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    file_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    byte_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+
+class MaterialPackagingRetirementDispatch(Base):
+    __tablename__ = "material_packaging_retirement_dispatches"
+    __table_args__ = (
+        UniqueConstraint("retirement_id", "id", name="uq_retirement_dispatches_retirement"),
+        UniqueConstraint("retirement_id", "ordinal", name="uq_retirement_dispatches_order"),
+        UniqueConstraint("actor_id", "request_key", name="uq_retirement_dispatches_request"),
+        ForeignKeyConstraint(["retirement_id", "worker_command_hash"],
+            ["material_packaging_retirements.id", "material_packaging_retirements.worker_command_hash"],
+            name="fk_retirement_dispatches_command", ondelete="RESTRICT"),
+        ForeignKeyConstraint(["retirement_id", "previous_dispatch_id"],
+            ["material_packaging_retirement_dispatches.retirement_id", "material_packaging_retirement_dispatches.id"],
+            name="fk_retirement_dispatches_previous", ondelete="RESTRICT"),
+        CheckConstraint("ordinal BETWEEN 1 AND 2147483647", name="ck_retirement_dispatches_order"),
+        CheckConstraint("(ordinal=1 AND previous_dispatch_id IS NULL AND action='EXECUTE') OR "
+            "(ordinal>1 AND previous_dispatch_id IS NOT NULL AND action='RECONCILE')", name="ck_retirement_dispatches_sequence"),
+        CheckConstraint("length(reason) BETWEEN 1 AND 2000", name="ck_retirement_dispatches_reason"),
+        *(_review_hash_constraint(field, "ck_retirement_dispatches_" + field)
+            for field in ("request_hash", "worker_command_hash")),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    retirement_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    previous_dispatch_id: Mapped[UUID | None] = mapped_column(Uuid)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    issuer_session_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_key: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    worker_command_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class MaterialPackagingRetirementObservation(Base):
+    __tablename__ = "material_packaging_retirement_observations"
+    __table_args__ = (
+        UniqueConstraint("dispatch_id", name="uq_retirement_observations_dispatch"),
+        ForeignKeyConstraint(["retirement_id", "dispatch_id"],
+            ["material_packaging_retirement_dispatches.retirement_id", "material_packaging_retirement_dispatches.id"],
+            name="fk_retirement_observations_dispatch", ondelete="RESTRICT"),
+        CheckConstraint("(outcome='REMOVED' AND receipt IS NOT NULL AND failure_code IS NULL) OR "
+            "(outcome='UNCERTAIN' AND receipt IS NULL AND failure_code IS NOT NULL)", name="ck_retirement_observations_result"),
+        CheckConstraint("failure_code IS NULL OR length(failure_code) BETWEEN 1 AND 100", name="ck_retirement_observations_failure"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    retirement_id: Mapped[UUID] = mapped_column(Uuid, nullable=False, index=True)
+    dispatch_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    receipt: Mapped[dict | None] = mapped_column(JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"))
+    failure_code: Mapped[str | None] = mapped_column(String(100))
+    actor_current: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    lease_current: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+for _retirement_type in (MaterialPackagingRetirement, MaterialPackagingRetirementDispatch, MaterialPackagingRetirementObservation):
+    event.listen(_retirement_type, "before_update", _reject_review_history_mutation)
+    event.listen(_retirement_type, "before_delete", _reject_review_history_mutation)
+
+
 class PublicationStagingJob(Base):
     """Immutable internal staging reservation; cloud dispatch is a later phase."""
     __tablename__ = "publication_staging_jobs"

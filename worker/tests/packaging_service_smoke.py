@@ -18,8 +18,9 @@ BASE = "http://127.0.0.1:8081"
 IDENTITY = "SYNTHETIC_SMOKE_0001_G03"
 
 
-def main(export_path=None, variant="single", ordered=False):
+def main(export_path=None, variant="single", ordered=False, retirement=False):
     assert variant in {"single", "multi-current", "nonstandard", "square"}
+    assert not retirement or ordered
     root = Path("/tmp") / ("packaging-smoke-" + uuid4().hex); root.mkdir(mode=0o700)
     source, workspace, artifacts, journal = [root / name for name in ("materials", "workspace", "artifacts", "journal")]
     for path in (source, workspace, artifacts, journal): path.mkdir(mode=0o700)
@@ -40,6 +41,7 @@ def main(export_path=None, variant="single", ordered=False):
     token = uuid4().hex + uuid4().hex
     environment = {"PATH": os.defpath, "PYTHONDONTWRITEBYTECODE": "1", "PACKAGING_ENABLED": "true", "PACKAGING_SERVICE_TOKEN": token,
         "MATERIALS_ROOT": str(source), "PACKAGING_WORKSPACE_ROOT": str(workspace), "PACKAGING_ARTIFACT_ROOT": str(artifacts), "PACKAGING_JOURNAL_ROOT": str(journal)}
+    if retirement: environment["PACKAGING_RETIREMENT_ENABLED"] = "true"
     def call(path, body=None, *, authorized=True):
         headers = {"Content-Type": "application/json"}
         if authorized: headers["Authorization"] = "Bearer " + token
@@ -139,12 +141,48 @@ def main(export_path=None, variant="single", ordered=False):
             assert not list(workspace.iterdir())
             download_files()
         finally: stop(child)
+    if retirement:
+        removal = {**prepared, "retirement_id": str(uuid4()), "proof_sha256": completed["stored"]["proof_sha256"]}
+        history = (journal / prepared["request"]["operation_id"] / "state.json").read_bytes()
+        child = start()
+        try:
+            request = urllib.request.Request(BASE + "/internal/packaging/retire", data=json.dumps(removal).encode(),
+                headers={"Content-Type": "application/json", "Authorization": "Bearer " + token})
+            with urllib.request.urlopen(request, timeout=150) as response:
+                assert response.status == 200
+                # Deliberately lose the committed receipt body before restarting.
+        finally: stop(child)
+        child = start()
+        try:
+            status, removed = call("/internal/packaging/retire", removal)
+            assert status == 200 and removed["status"] == "REMOVED"
+            assert removed["retirement_id"] == removal["retirement_id"] and removed["proof_sha256"] == removal["proof_sha256"]
+            assert call("/internal/packaging/retire", removal) == (200, removed)
+            assert (journal / prepared["request"]["operation_id"] / "state.json").read_bytes() == history
+            assert not (artifacts / prepared["request"]["operation_id"] / "ready").exists()
+            selection = {"operation_id": prepared["request"]["operation_id"], "request_hash": prepared["request_hash"],
+                "plan_hash": prepared["request"]["plan_hash"], "proof_sha256": removed["proof_sha256"],
+                **completed["stored"]["payload"]["files"][0]}
+            assert call("/internal/packaging/artifact", selection) == (409, {"detail": {"code": "PACKAGING_STORE_RETIRED"}})
+            status, refused = call("/internal/packaging/dispatch", {**prepared, "dispatch": close_command})
+            assert status == 409 and refused["detail"]["code"] == "PACKAGING_STORE_RETIRED"
+            status, refused = call("/internal/packaging/dispatch", {**prepared,
+                "dispatch": {"id": str(uuid4()), "ordinal": 4, "action": "RECONCILE"}})
+            assert status == 409 and refused["detail"]["code"] == "PACKAGING_STORE_RETIRED"
+            assert (journal / prepared["request"]["operation_id"] / "state.json").read_bytes() == history
+            assert not list(workspace.iterdir())
+            offline_folder = source.with_name("offline-materials") / IDENTITY
+            assert {str(path.relative_to(offline_folder)): hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in offline_folder.rglob("*") if path.is_file()} == original
+        finally: stop(child)
     if export_path is not None:
         Path(export_path).write_text(json.dumps({"report": report, "prepared": prepared, "result": completed,
-            **({"recovered": recovered, "closed": closed} if ordered else {})},
+            **({"recovered": recovered, "closed": closed} if ordered else {}),
+            **({"retirement": removed} if retirement else {})},
             ensure_ascii=True, sort_keys=True, indent=2) + "\n")
     print("Packaging production image smoke: actual HTTP, conversion, restart, proof-bound downloads and offline replay passed." +
-        (" Ordered recovery and permanent closure also passed after restart." if ordered else ""))
+        (" Ordered recovery and permanent closure also passed after restart." if ordered else "") +
+        (" Retirement recovered its lost receipt after restart and fenced later downloads." if retirement else ""))
 
 
 if __name__ == "__main__": main(sys.argv[1] if len(sys.argv) >= 2 else None, sys.argv[2] if len(sys.argv) >= 3 else "single",

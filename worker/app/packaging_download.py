@@ -79,7 +79,7 @@ class RetainedFileResponse(Response):
         except (PackagingStoreError, OSError, TimeoutError) as error:
             if started: raise RuntimeError("Packaging transfer interrupted.") from None
             code = str(error) if isinstance(error, PackagingStoreError) else "PACKAGING_DOWNLOAD_UNAVAILABLE"
-            allowed = {"PACKAGING_STORE_BUSY", "PACKAGING_STORE_UNKNOWN_OPERATION", "PACKAGING_STORE_FILE_NOT_FOUND",
+            allowed = {"PACKAGING_STORE_BUSY", "PACKAGING_STORE_RETIRED", "PACKAGING_STORE_UNKNOWN_OPERATION", "PACKAGING_STORE_FILE_NOT_FOUND",
                 "PACKAGING_STORE_PROOF_MISMATCH", "PACKAGING_STORE_FILE_MISMATCH", "PACKAGING_STORE_REQUEST_CONFLICT", "PACKAGING_STORE_ARTIFACT_CHANGED",
                 "PACKAGING_STORE_ARTIFACT_MISSING", "PACKAGING_STORE_TIME_LIMIT"}
             if code not in allowed: code = "PACKAGING_DOWNLOAD_UNAVAILABLE"

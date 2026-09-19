@@ -1,8 +1,9 @@
 # Internal retained-copy retirement
 
 `worker/app/packaging_retirement.py` implements the storage primitive for explicit
-retirement of an exact READY package. The complete Linux suite passed 780 tests. There is
-no HTTP retirement endpoint, application command or operator UI yet. The caller
+retirement of an exact READY package. The complete primitive Linux suite passed 780 tests.
+The opt-in [private service](packaging-service.md) and [client](packaging-client.md)
+now expose its internal contract; application commands and operator UI remain pending. The caller
 must first durably authorize retirement and hold execution ownership; a library
 argument is not an application permission. The application integration is specified
 in [the cleanup plan](packaging-cleanup-plan.md).
@@ -70,4 +71,4 @@ replaced remaining trees, strict journal validation, time limits and real proces
 death after intent, file/directory removal, READY-root removal and final commit.
 See the current [checkpoint](autonomous-pbr-progress.md) for completed results.
 Application authorization, immutable database retirement provenance, staging claim
-races, private service/client contracts and browser recovery remain next steps.
+races and browser recovery remain next steps.

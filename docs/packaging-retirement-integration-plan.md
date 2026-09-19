@@ -1,10 +1,12 @@
 # Application retirement integration: next bounded slices
 
 The storage primitive and its verification are tracked in
-[retirement](packaging-retirement.md). It currently has no exposed command. Complete
-the following before allowing an application user to remove accepted output.
+[retirement](packaging-retirement.md). The opt-in [private service](packaging-service.md)
+and independently validating [client](packaging-client.md) are implemented.
+Complete the remaining database/application/UI slices below before enabling removal
+for an application user.
 
-## Worker boundary and independent client
+## Implemented worker boundary and independent client
 
 - Require the private service credential and its existing admission/body/runtime
   gates. Accept the frozen packaging request and digest, retirement UUID and exact
@@ -18,6 +20,8 @@ the following before allowing an application user to remove accepted output.
 - Validate the compact receipt independently in the backend against its accepted
   request, plan, proof, retirement UUID, file count and total byte count. A fixed
   transport failure remains uncertain; no automatic retry or inferred absence.
+- Fence delayed ordinary dispatches before changing execution history, so an old
+  CLOSE command cannot strand exact retirement recovery in CLOSING after deletion.
 
 ## Additive database evidence and gates
 

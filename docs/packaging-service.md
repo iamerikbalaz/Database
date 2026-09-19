@@ -33,6 +33,7 @@ Configuration (disabled by default):
 | Variable | Meaning |
 | --- | --- |
 | PACKAGING_ENABLED | Must be exactly true, case insensitive, to opt in. |
+| PACKAGING_RETIREMENT_ENABLED | Separate false-by-default opt-in for proof-bound local-copy removal. Keep disabled until the application retirement gates are integrated. |
 | PACKAGING_SERVICE_TOKEN | Independent 32–256 printable ASCII characters; inject privately. |
 | MATERIALS_ROOT | Absolute read-only source root. |
 | PACKAGING_WORKSPACE_ROOT | Existing private workspace root. |
@@ -102,6 +103,30 @@ invalid HTTP/model input 422, and execution conflicts/refusals 409. An unchanged
 request after a lost response returns the original verified retained result.
 
 ## Verification
+
+### Private retirement contract
+
+POST /internal/packaging/retire accepts the exact frozen `request` and
+`request_hash`, a UUIDv4 `retirement_id`, and the independently accepted
+`proof_sha256`. No caller-supplied paths, source report or deletion root is accepted.
+It requires the ordinary private credential/runtime/body/admission guards, a
+recorded ordered READY execution under its execution lease, matching roots/proof,
+and OPEN or CLOSED execution state. It never reads NAS or starts a new attempt.
+
+The [storage retirement](packaging-retirement.md) persists intent before deletion
+and returns the same compact REMOVED receipt after interruption or response loss.
+Execution history stays unchanged. Old downloads and all delayed dispatch actions
+are fenced by PACKAGING_STORE_RETIRED before rewriting execution history, including
+while physical removal is incomplete. Unrelated files or replacement roots remain
+errors requiring review. The removal budget is at most 120 seconds.
+
+This internal credential is not a substitute for the pending [application
+authorization and database gates](packaging-retirement-integration-plan.md).
+No application route or operator UI enables removal in this checkpoint.
+The production smoke explicitly enables retirement only on its owned synthetic
+storage and tests lost receipt recovery, restarts, offline sources and old requests.
+
+### Test history
 
 The focused service suite initially passed 29 tests, including actual prepare/
 execute/reconcile, offline source recovery, lost committed response, independent

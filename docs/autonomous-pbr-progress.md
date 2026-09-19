@@ -1,10 +1,10 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-19, accepted-copy storage retirement)
+## Latest checkpoint (2026-09-19, private retirement boundary)
 
 Owned worktree: `C:\Database\Database\tmp\autonomous-pbr-completion`.
-Branch: `codex/autonomous-pbr-completion`. Current pushed tip:
-`d7922d8567cb16a2fef0460a006295887f196e5e` (component documentation links).
+Branch: `codex/autonomous-pbr-completion`. Previous pushed checkpoint:
+`9eb496cff885f4bad7e667f94701596caacd86e8` (durable storage retirement).
 API/migration 0024: `249b9e6e3a88495544b8eaaaf44c5ba50241972c`; Docker source
 mapping guard: `c3a0d1631f06e372284409da5fe003b472cd0b45`. Remote main last
 verified unchanged at `88a1f99d748d2a0edbb1fce509e13d18bfc03908` during that push.
@@ -12,6 +12,41 @@ Shared controller extraction is committed as `9957a0ef8729f23175412ac2f295886c35
 Account profiles (`6c83a33`), temporary error cleanup (`7565a1c`), incomplete retained
 copy cleanup (`e5679b6`) and reconciled docs have been pushed. Remote main remains
 unchanged at the stated base.
+
+### Private retirement boundary
+
+The separately opt-in private retirement endpoint holds the recorded execution
+lease and binds its READY proof/roots before removal. It preserves execution
+history and supports exact receipt recovery with NAS offline. Delayed ordinary
+dispatches inspect retirement state before writing any command, so a late CLOSE
+cannot strand receipt recovery in CLOSING. New downloads report a fixed retired
+code. No application user action, database migration or UI is enabled yet.
+
+The independent backend client validates every receipt binding and file/byte
+total against the accepted request/report/result; responses are at most 4096 bytes
+and 150 seconds, without automatic retry. Final relevant backend client tests:
+**164 passed**, 3.60s, no skips, two existing dependency deprecations. They include
+independent validation of an actual HTTP/restart/lost-receipt synthetic export.
+
+Before the additional delayed-dispatch fence, the affected Linux suites passed
+**201 tests**, 280.10s, no skips, two existing warnings. Owned run
+`reawote-retirement-api-947f1213c9f54d89834371d5d7c97919`, image
+`sha256:e402ae3ec89cbb2a4ce3f8573efcdd4640185c696e2606437404410cefd7c8b7`.
+Actual HTTP/conversion/closure/offline retirement/lost-receipt/restart smoke and
+synthetic contract export passed in owned
+`reawote-retirement-smoke-c6ef9d25a3af49faa4aa1d3e259bd154:runtime`, image
+`sha256:0ab0c5c2a0db237cc00af29b411aec3bad2d62c5d53b7a09eeae67a3d626cdb3`.
+Final affected Linux suites, including the dispatch fence: **209 passed**, 295.96s,
+no skips, two existing warnings. Run
+`reawote-retirement-fence-7e312e1d687b4db98deafc8459948b54`, image
+`sha256:10503f303f88fe0806b797c98f0a5d2b6decf386530cf956770e09934f95302d`.
+The final production HTTP/conversion/download/offline/closure/retirement smoke also
+passed, including a new delayed reconciliation that leaves execution history
+unchanged. Run `reawote-packaging-service-cf0be92a7fef4fd3b210fc6ca321e863:runtime`,
+image `sha256:e184c1f145361c655e89318690a4d52d0968e87b7da8468136d51a359d153fab`.
+All owned test containers were removed and images retained. This checkpoint
+accompanies the private-boundary commit; read the branch tip for its exact hash.
+The additive 0025 database schema is the next draft and is excluded from this commit.
 
 ### Accepted-copy storage retirement
 
@@ -180,11 +215,11 @@ The README links the individual feature/operations contracts.
 
 ## Next work and real blockers
 
-1. Add the opt-in private retirement endpoint under the recorded execution lease
-   and an independently validating backend client. The storage primitive is verified.
-2. Add application retirement provenance, ownership/download/staging gates and UI,
-   then operational/final review docs. Temporary attempt workspaces and proven
-   incomplete retention now have guarded cleanup; accepted output remains preserved.
+1. Add application retirement provenance, ownership/download/staging gates and UI.
+   Storage and the opt-in private service/client are verified; new database/API/UI
+   work remains. Temporary workspaces and proven incomplete retention have guarded
+   cleanup. Accepted output requires explicit proof-bound retirement.
+2. Complete operational/final review docs after the application boundary is tested.
 3. Verify actual importer contract, golden material outputs, manual publication
    confirmation and realistic historical workbook/source compatibility. Production
    inputs/importer fixtures are unavailable; do not invent live verification.

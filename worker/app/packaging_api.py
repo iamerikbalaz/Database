@@ -31,13 +31,15 @@ class PackagingServiceSettings:
     enabled: bool = False
     token: str | None = field(default=None, repr=False)
     roots: ExecutionRoots | None = None
+    retirement_enabled: bool = False
 
     @classmethod
     def from_environment(cls):
         names = ("MATERIALS_ROOT", "PACKAGING_WORKSPACE_ROOT", "PACKAGING_ARTIFACT_ROOT", "PACKAGING_JOURNAL_ROOT")
         paths = [os.getenv(name) for name in names]
         roots = ExecutionRoots(*(Path(value) for value in paths)) if all(paths) else None
-        return cls(os.getenv("PACKAGING_ENABLED", "false").lower() == "true", os.getenv("PACKAGING_SERVICE_TOKEN"), roots)
+        return cls(os.getenv("PACKAGING_ENABLED", "false").lower() == "true", os.getenv("PACKAGING_SERVICE_TOKEN"), roots,
+            retirement_enabled=os.getenv("PACKAGING_RETIREMENT_ENABLED", "false").lower() == "true")
 
     def configured(self):
         return (self.enabled is True and isinstance(self.roots, ExecutionRoots) and isinstance(self.token, str)
@@ -154,6 +156,11 @@ class ReconcileInput(StrictModel):
 class ExecuteInput(ReconcileInput):
     report: dict
     retry: bool = False
+
+
+class RetireInput(ReconcileInput):
+    retirement_id: OperationId
+    proof_sha256: Sha
 
 
 class DispatchCommand(StrictModel):
@@ -278,6 +285,15 @@ def create_packaging_app(settings: PackagingServiceSettings | None = None):
         if not _relative(value.path) or "range" in request.headers:
             raise HTTPException(422, {"code": "PACKAGING_REQUEST_INVALID"})
         return RetainedFileResponse(slot=slot, selection=value, artifact_root=settings.roots.artifacts)
+
+    @application.post("/internal/packaging/retire")
+    def retire(value: RetireInput):
+        from app.packaging_retirement_execution import retire_execution
+        if settings.retirement_enabled is not True:
+            raise HTTPException(503, {"code": "PACKAGING_RETIREMENT_DISABLED"})
+        with available_slot():
+            return retire_execution(value.value(), roots=settings.roots, retirement_id=UUID(value.retirement_id),
+                expected_proof_sha256=value.proof_sha256)
 
     return application
 

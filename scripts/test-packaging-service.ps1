@@ -27,7 +27,7 @@ try {
         --network none --read-only --cap-drop ALL --security-opt no-new-privileges --user 65532:65532 `
         --memory 4g --cpus 2 --pids-limit 256 --tmpfs '/tmp:rw,noexec,nosuid,size=2g' `
         --mount "type=bind,source=$serviceSmoke,target=/smoke.py,readonly" `
-        $serviceImage python -c "import runpy; runpy.run_path('/smoke.py')['main'](variant='multi-current', ordered=True)"
+        $serviceImage python -c "import runpy; runpy.run_path('/smoke.py')['main'](variant='multi-current', ordered=True, retirement=True)"
     Assert-ServiceCommand 'Actual service HTTP/restart/download smoke'
     Write-Host "Retained production service image: $serviceImage"
 }

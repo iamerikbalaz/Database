@@ -1,8 +1,7 @@
 """Explicit, proof-bound retirement of retained copies; never source files.
 
 This internal primitive needs a durable authorized caller holding execution
-ownership. It is not exposed by the service until application retirement gates
-and the corresponding private contract are implemented.
+ownership. The opt-in private service is not application-user authorization.
 """
 from contextlib import contextmanager
 import json
@@ -79,6 +78,22 @@ def validate_record(value, operation_id, request_hash_value, plan_hash):
     expected_receipt = _receipt(value) if value["status"] == "REMOVED" else None
     _check(value["receipt"] == expected_receipt and storage._digest(value["receipt"]) == storage._digest(expected_receipt), corrupt)
     return value
+
+
+def reject_retired_packages(*, artifact_root, operation_id, request_hash_value, plan_hash, expected_root_identity):
+    """Fence a delayed dispatch before it can rewrite execution history.
+
+    The caller holds execution ownership, so no retirement can begin between
+    this check and its command journal write. Do not open or rehash artifact bytes.
+    """
+    try:
+        with storage._operation(artifact_root, operation_id, create=False,
+                expected_root_identity=expected_root_identity) as (journal, _, verify):
+            record = journal.read()
+            if record is not None: storage._record(record, operation_id, request_hash_value, plan_hash)
+            verify()
+    except storage.PackagingStoreError as error:
+        if str(error) != "PACKAGING_STORE_NOT_FOUND": raise
 
 
 @contextmanager

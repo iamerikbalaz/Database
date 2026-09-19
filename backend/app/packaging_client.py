@@ -9,6 +9,7 @@ import httpx
 from pydantic import SecretStr
 
 from app.packaging_contract import PackagingResult, PreparedPackaging, PackagingDispatch, DispatchedPackagingResult
+from app.packaging_retirement_contract import PackagingRetirementCommand, PackagingRetirementReceipt
 
 MAX_REQUEST_BYTES = 8 * 1024**2
 MAX_RESPONSE_BYTES = 32 * 1024**2 + 65536
@@ -30,6 +31,11 @@ PACKAGING_CODES = frozenset({
     "PACKAGING_STAGE_SIZE_LIMIT", "PACKAGING_ASSEMBLY_SIZE_LIMIT", "PACKAGING_STORE_SIZE_LIMIT",
     "PACKAGING_STAGE_TIME_LIMIT", "PACKAGING_ASSEMBLY_TIME_LIMIT", "PACKAGING_STORE_TIME_LIMIT",
     "PACKAGING_CONVERSION_RUNTIME_UNAVAILABLE", "PACKAGING_CONVERSION_POLICY_MISMATCH", "PACKAGING_CONVERSION_BUSY",
+    "PACKAGING_STORE_RETIRED", "PACKAGING_RETIREMENT_DISABLED", "PACKAGING_RETIREMENT_INVALID",
+    "PACKAGING_RETIREMENT_NOT_READY", "PACKAGING_RETIREMENT_PROOF_MISMATCH", "PACKAGING_RETIREMENT_REQUEST_CONFLICT",
+    "PACKAGING_RETIREMENT_UNKNOWN_OPERATION", "PACKAGING_RETIREMENT_CORRUPT_STATE", "PACKAGING_RETIREMENT_FAILED",
+    "PACKAGING_RETIREMENT_FILE_CHANGED", "PACKAGING_RETIREMENT_DIRECTORY_CHANGED", "PACKAGING_RETIREMENT_TREE_CHANGED",
+    "PACKAGING_RETIREMENT_ROOT_CHANGED",
 })
 
 
@@ -40,6 +46,8 @@ class PackagingClientError(RuntimeError):
 
 
 class PackagingClient(Protocol):
+    def retire(self, prepared: PreparedPackaging, report: dict, accepted: DispatchedPackagingResult,
+        command: PackagingRetirementCommand) -> PackagingRetirementReceipt: ...
     def open_artifact(self, prepared, report, result, path): ...
     def prepare(self, payload: dict) -> PreparedPackaging: ...
     def dispatch(self, prepared: PreparedPackaging, report: dict, command: PackagingDispatch) -> DispatchedPackagingResult: ...
@@ -71,23 +79,25 @@ class WorkerPackagingClient:
         from app.packaging_download_client import open_worker_artifact
         return open_worker_artifact(self, prepared, report, result, path)
 
-    def _request(self, action, payload):
+    def _request(self, action, payload, *, response_limit=None, time_limit=None):
         self._enabled()
         try:
+            if response_limit is None: response_limit = MAX_RESPONSE_BYTES
             body = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), allow_nan=False).encode()
             if len(body) > MAX_REQUEST_BYTES: raise PackagingClientError("PACKAGING_REQUEST_TOO_LARGE")
-            deadline = time.monotonic() + self.timeout_seconds
+            seconds = self.timeout_seconds if time_limit is None else min(self.timeout_seconds, time_limit)
+            deadline = time.monotonic() + seconds
             with httpx.stream("POST", self.base_url + "/internal/packaging/" + action, content=body,
                     headers={"Authorization": "Bearer " + self._token.get_secret_value(), "Content-Type": "application/json"},
-                    timeout=self.timeout, trust_env=False, follow_redirects=False) as response:
+                    timeout=httpx.Timeout(seconds, connect=min(5, seconds)), trust_env=False, follow_redirects=False) as response:
                 if response.headers.get("Content-Encoding", "identity").lower() != "identity": raise ValueError()
                 if response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json": raise ValueError()
                 declared = response.headers.get("Content-Length")
-                if declared is not None and (re.fullmatch(r"[0-9]{1,10}", declared) is None or int(declared) > MAX_RESPONSE_BYTES): raise ValueError()
+                if declared is not None and (re.fullmatch(r"[0-9]{1,10}", declared) is None or int(declared) > response_limit): raise ValueError()
                 chunks = []; size = 0
-                for chunk in response.iter_bytes(chunk_size=65536):
+                for chunk in response.iter_bytes(chunk_size=min(65536, response_limit + 1)):
                     size += len(chunk)
-                    if size > MAX_RESPONSE_BYTES or time.monotonic() >= deadline: raise ValueError()
+                    if size > response_limit or time.monotonic() >= deadline: raise ValueError()
                     chunks.append(chunk)
                 if declared is not None and size != int(declared): raise ValueError()
                 content = b"".join(chunks)
@@ -147,6 +157,25 @@ class WorkerPackagingClient:
             result = DispatchedPackagingResult.model_validate_json(self._request("dispatch", payload))
             result.verify_request(bound, report); result.verify_dispatch(action)
             return result
+        except PackagingClientError: raise
+        except (ValueError, TypeError, AttributeError, ArithmeticError, KeyError, RecursionError):
+            raise PackagingClientError() from None
+
+    def retire(self, prepared, report, accepted, command):
+        """Caller commits durable authorization before this non-retrying command."""
+        self._enabled()
+        try:
+            bound = PreparedPackaging.model_validate_json(prepared.model_dump_json())
+            saved = DispatchedPackagingResult.model_validate_json(accepted.model_dump_json())
+            saved.verify_request(bound, report)
+            action = PackagingRetirementCommand.model_validate_json(command.model_dump_json())
+            if (saved.status != "READY" or saved.stored is None or saved.terminal not in {"OPEN", "CLOSED"}
+                    or saved.stored.proof_sha256 != action.proof_sha256): raise ValueError()
+            payload = {**bound.model_dump(mode="json"), **action.model_dump(mode="json")}
+            receipt = PackagingRetirementReceipt.model_validate_json(
+                self._request("retire", payload, response_limit=4096, time_limit=150))
+            receipt.verify(bound, saved, action)
+            return receipt
         except PackagingClientError: raise
         except (ValueError, TypeError, AttributeError, ArithmeticError, KeyError, RecursionError):
             raise PackagingClientError() from None

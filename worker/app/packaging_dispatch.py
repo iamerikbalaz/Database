@@ -1,9 +1,12 @@
 """Durable ordered commands fence delayed retries and permanent job closure."""
 from dataclasses import dataclass
+import os
 from uuid import UUID
 
 from app.packaging_execution import (ExecutionResult, _check, _Deadline, _errors, _execute_locked,
     _exists, _operation, _recover, _roots, _validate_request, prepare_packaging_request)
+from app.packaging_retirement import reject_retired_packages
+from app.packaging_stage import _identity
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,10 @@ def dispatch_packaging(request, command, *, roots, report=None):
             with _operation(request, handles, binding, verify_roots, create=True) as (journal, record, created, verify):
                 if created:
                     _check(_exists(handles["artifacts"], str(request.operation_id)) is None, "PACKAGING_EXECUTION_UNEXPECTED_RESULT")
+                else:
+                    reject_retired_packages(artifact_root=roots.artifacts, operation_id=request.operation_id,
+                        request_hash_value=request.sha256, plan_hash=request.plan_hash,
+                        expected_root_identity=_identity(os.fstat(handles["artifacts"])))
                 previous = record.get("dispatch")
                 exact = False
                 terminal = previous["terminal"] if previous else "OPEN"

@@ -56,6 +56,16 @@ sends only the request/digest to the worker, never rereads NAS. Known fixed erro
 codes are preserved; all other diagnostics, bodies and parser causes are hidden
 behind PACKAGING_UNAVAILABLE. No request/credential/body logging is added.
 
+The `retire` client additionally revalidates an independently accepted ordered
+READY result, its frozen request and technical report before any IO. It sends only
+the request/digest, retirement UUID and proof hash. Its compact receipt must bind
+the exact operation, request, plan, proof, retirement key and canonical retirement
+request hash, plus the accepted file/byte totals. All fields are strictly typed;
+extra fields, altered nested models and plausible but mismatched receipts fail.
+Retirement responses are limited to 4096 bytes and at most 150 seconds (or a
+smaller configured timeout), with no automatic retry. Timeout remains uncertain.
+The application must persist authorization/intent before calling this method.
+
 ## Verification and remaining integration
 
 The four packaging-contract*.json files in backend/tests/fixtures are synthetic
@@ -76,4 +86,6 @@ The application now supplies immutable execution/attempt history, material-opera
 ownership shared with identity/catalog/content gates, account/approval revalidation,
 explicit retry/reconcile, downloads and UI; see [actions](packaging-actions.md).
 Those ownership gates remain mandatory for any additional client caller. Live
-storage/importer verification and accepted-artifact retirement remain separate.
+storage/importer verification and application retirement authorization remain
+separate. The private retirement transport is implemented; its application and
+database integration is tracked in [the retirement plan](packaging-retirement-integration-plan.md).

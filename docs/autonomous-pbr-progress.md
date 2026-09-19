@@ -1,10 +1,10 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-19, retirement database evidence)
+## Latest checkpoint (2026-09-19, application retirement integration)
 
 Owned worktree: `C:\Database\Database\tmp\autonomous-pbr-completion`.
 Branch: `codex/autonomous-pbr-completion`. Previous pushed checkpoint:
-`8fe4347d0ab09383af17cda101067a47f1e1863a` (private retirement boundary).
+`a8b44128bda0388b71eafd5ce0fae7baca833c66` (immutable retirement database evidence).
 API/migration 0024: `249b9e6e3a88495544b8eaaaf44c5ba50241972c`; Docker source
 mapping guard: `c3a0d1631f06e372284409da5fe003b472cd0b45`. Remote main last
 verified unchanged at `88a1f99d748d2a0edbb1fce509e13d18bfc03908` during that push.
@@ -12,6 +12,52 @@ Shared controller extraction is committed as `9957a0ef8729f23175412ac2f295886c35
 Account profiles (`6c83a33`), temporary error cleanup (`7565a1c`), incomplete retained
 copy cleanup (`e5679b6`) and reconciled docs have been pushed. Remote main remains
 unchanged at the stated base.
+
+### Application retirement API and UI draft
+
+The [application API](packaging-retirement-api.md) implements ADMIN/CSRF/proof-bound
+intent and recovery with dedicated execution leases and short transactions.
+Committed intent quarantines new downloads/staging; existing worker-locked
+readers retain account rechecks. Exact replay performs no IO. Factual receipts
+survive actor revocation or lease loss, and another administrator can recover.
+The separate backend flag defaults false. No production enablement occurred.
+
+Relevant expanded API verification passed **117 tests with three test-adapter
+failures**, 299.85s. All 24 retirement cases passed; the existing download failure
+spy needed to forward the new `opening` keyword. After correcting that adapter,
+all **32 targeted download/config cases passed**, 10.79s. The first focused run
+was **20 passed / 1 failed**, because the disabled-feature fixture tried to mutate
+frozen Settings; it now constructs the app with a copied Settings value.
+The final focused retirement/download suite passed **48 tests**, no skips, two
+dependency warnings, including an already opened reader finishing while new
+readers are quarantined and the synthetic worker reports BUSY to removal.
+
+The first complete application PostgreSQL run was **462 passed / 1 failed**,
+674.89s, **auth 27/27**, no skips, four dependency warnings. Run
+`reawote-test-95e57e08988a40949299c5d2b7d5d448`, image
+`sha256:470a09f99860da0b5f2fd53abee158a336860138921a5c22d4e5884c96e5eeb8`.
+The new real account-demotion test expected 403, but the established account
+endpoint revokes sessions on role changes and correctly returns 401. Only that
+expectation/comment changed; guards remain intact. Full corrected PG run
+`reawote-test-e58187a18ac2461bbe69ff3d8c40e977` passed **463 tests**, 661.61s,
+**auth 27/27**, no skips, five dependency warnings. Owned containers/network were
+removed; test image/volume retained. Inspected image:
+`sha256:1674244796e07dd1a7e5c1c125182daaf6426f4f0fc5745813fc2eb06e5619cf`.
+Runner offline gates: **10 passed**, no skips.
+
+UI/client work is a separate draft: read availability before download controls,
+explicit ADMIN confirmation, exact unknown-response packet, read-only recovery,
+actor/proof-bound late-callback isolation, monotonic REMOVED display and history.
+The frontend suite passed **935 tests**, 27.19s; lint and E2E TypeScript passed.
+After actor/time display, wrapping and lazy loading the copy controls, all **64
+affected client/component tests passed**, 3.72s; lint/E2E TypeScript passed again.
+The final build passed in 2.79s. Loading the copy controls only when needed moved
+11.36 kB into its own chunk and reduced the main bundle to 498.37 kB, eliminating
+the earlier 508 kB bundle warning without raising the warning threshold.
+Real-browser fresh/retained retirement coverage is running. All E2E helper safety
+cases passed; direct invocation failed closed with zero POSTs/fixture writes.
+The browser's fresh/retained screenshot directories are now separate, preserving
+review evidence from both passes. No real cloud access is enabled.
 
 ### Retirement database evidence (0025)
 
@@ -32,13 +78,8 @@ claims. Owned containers/network were removed; owned test image/volume retained.
 Relevant local schema/packaging backend tests **134 passed**, 213.74s, no skips;
 the runner's **10 offline isolation cases passed**.
 
-The application route/config/download integration is a separate working draft,
-excluded from this schema commit and that immutable test image. Its first focused
-run was **20 passed / 1 failed**, 79.80s: a new disabled-feature fixture attempted
-to mutate frozen Settings. It now rebuilds the test app with a copied settings
-object; application guards and the expected 503 remain unchanged. Expanded API
-verification is running. Continue that slice, then real PG application concurrency,
-frontend and fresh/retained browser integration.
+That schema checkpoint and immutable image predate the separately verified
+application route/config/download integration described above.
 
 ### Private retirement boundary
 
@@ -203,7 +244,7 @@ Last pushed ordinary-command evidence: PostgreSQL **418 passed** (auth 27/27),
 Linux affected regression **346 passed**, prior frontend **884 passed**, actual
 browser **22 fresh + 22 retained**. Exact run/image identities, earlier failures,
 corrections and visual evidence remain in [historical checkpoints](autonomous-pbr-history.md).
-Migrations through **0024 are immutable**.
+Migrations through **0025 are immutable**.
 
 ## Scope and implementation status
 
@@ -242,9 +283,9 @@ The README links the individual feature/operations contracts.
 
 ## Next work and real blockers
 
-1. Finish application retirement ownership/download/staging gates and UI.
-   Storage, private service/client and additive database evidence are verified;
-   application API/UI verification remains. Temporary workspaces and proven incomplete retention have guarded
+1. Finish application retirement UI/browser integration. Storage, private service/
+   client, additive database evidence and application PostgreSQL gates are
+   verified. Temporary workspaces and proven incomplete retention have guarded
    cleanup. Accepted output requires explicit proof-bound retirement.
 2. Complete operational/final review docs after the application boundary is tested.
 3. Verify actual importer contract, golden material outputs, manual publication

@@ -83,12 +83,12 @@ def test_database_failure_during_download_does_not_expose_driver_details(downloa
     calls = 0
     original = api.AuthorizedArtifactResponse.authorize
 
-    def authorize(response):
+    def authorize(response, **kwargs):
         nonlocal calls
         calls += 1
         if calls == failure_at:
             raise OperationalError(marker, {"value": marker}, RuntimeError(marker))
-        return original(response)
+        return original(response, **kwargs)
 
     monkeypatch.setattr(api.AuthorizedArtifactResponse, "authorize", authorize)
     monkeypatch.setattr(api, "RECHECK_BYTES", 4)

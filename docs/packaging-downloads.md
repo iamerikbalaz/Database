@@ -73,3 +73,12 @@ proof, path-derived IDs and bounds. Downloads use same-origin browser-managed
 attachments, keeping large ZIPs out of frontend JavaScript memory. Browser download
 progress determines completion; the UI does not infer success from clicking a link.
 Ranges/resumption are not supported in this first implementation.
+
+## Local-copy retirement
+
+An immutable [application retirement intent](packaging-retirement-api.md) blocks
+new file listings/downloads and is rechecked before worker IO. An already opened
+reader continues its normal current-account checks while holding the worker's
+retention lock; competing physical removal must receive BUSY. Retirement does not
+erase the original accepted proof. The UI verifies copy availability before
+offering files and displays the separate removal evidence after an intent exists.

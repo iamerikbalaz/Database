@@ -41,6 +41,14 @@ class DownloadContext:
 
 
 def accepted(session, material_id, execution_id, access):
+    context = accepted_snapshot(session, material_id, execution_id, access)
+    from app.packaging_retirement_jobs import require_available
+    require_available(session, execution_id)
+    return context
+
+
+def accepted_snapshot(session, material_id, execution_id, access):
+    """Historical proof for authorized readers and the separate retirement action."""
     access.check(session, PUBLICATION_APPROVERS)
     _material(session, material_id, access, historical=True)
     item = execution(session, material_id, execution_id)
@@ -69,7 +77,7 @@ class AuthorizedArtifactResponse(Response):
         self.database = database; self.worker = worker; self.access = access
         self.material_id = material_id; self.context = context; self.item = item
 
-    def authorize(self):
+    def authorize(self, *, opening=False):
         with self.database.session() as session:
             self.access.check(session, PUBLICATION_APPROVERS)
             _material(session, self.material_id, self.access, historical=True)
@@ -77,6 +85,9 @@ class AuthorizedArtifactResponse(Response):
             state = session.get(MaterialPackagingState, self.context.execution_id)
             if state is None or state.status != "PACKAGED" or state.last_observation_id != self.context.observation_id:
                 raise HTTPException(409, {"code": "PACKAGING_DOWNLOAD_NOT_ACCEPTED"})
+            if opening:
+                from app.packaging_retirement_jobs import require_available
+                require_available(session, self.context.execution_id)
 
     async def __call__(self, scope, receive, send):
         started = False
@@ -100,7 +111,7 @@ class AuthorizedArtifactResponse(Response):
             if pending: yield pending
 
         try:
-            await run_in_threadpool(self.authorize)
+            await run_in_threadpool(self.authorize, opening=True)
             context = self.context
             async with self.worker.open_artifact(context.prepared, context.report, context.result, self.item.path) as upstream:
                 # Recheck the account after the worker has verified/opened bytes,

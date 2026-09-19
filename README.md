@@ -38,6 +38,7 @@ Aktuální funkce a skutečně provedené testy shrnuje
 - [Schválené publikační dávky a uložené CSV](docs/publication-batches.md).
 - [Spouštění, obnova a uzavření ZIP packagingu](docs/packaging-actions.md).
 - [Ověřené stahování historických balíčků](docs/packaging-downloads.md).
+- [Výslovné odstranění lokálního balíčku a obnova přerušené operace](docs/packaging-retirement-api.md).
 - [Rezervace dávky pro GCS a ochrana materiálů](docs/gcs-upload-jobs.md).
 - [Režimy přístupu ke GCS a obnova tokenů](docs/gcs-credentials.md).
 - [Auditní historie změn firem](docs/company-history.md).

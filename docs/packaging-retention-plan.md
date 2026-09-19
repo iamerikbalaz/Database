@@ -1,9 +1,11 @@
-# Durable packaging results: next execution boundary
+# Durable packaging results: implementation plan record
 
 Local assembly is complete and tested; its context removes temporary artifacts.
 The worker retention implementation now follows this plan; its concrete contract
-is in [packaging-retention.md](packaging-retention.md). Database job integration
-remains next. This plan does not enable source writes, upload or publication.
+is in [packaging-retention.md](packaging-retention.md). Subsequent database job,
+download and retirement integration is tracked in the
+[current checkpoint](autonomous-pbr-progress.md). The sequence below records the
+original dependencies; this plan does not enable source writes or publication.
 
 Use a separately configured existing private artifact root, disjoint from the
 material root and ephemeral workspace. Bind a per-operation journal to the UUID,

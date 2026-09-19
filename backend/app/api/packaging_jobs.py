@@ -52,6 +52,8 @@ def build_packaging_jobs_router(database, worker, settings, inventory_client):
     router = APIRouter(prefix="/api/materials/{material_id}/packaging-executions", tags=["packaging executions"])
     from app.api.packaging_downloads import build_packaging_downloads_router
     router.include_router(build_packaging_downloads_router(database, worker))
+    from app.api.packaging_retirement import build_packaging_retirement_router
+    router.include_router(build_packaging_retirement_router(database, worker, settings))
 
     @router.post("")
     def reserve(material_id: UUID, payload: PackagingReservation, access: AccessDependency):

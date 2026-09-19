@@ -120,9 +120,10 @@ are fenced by PACKAGING_STORE_RETIRED before rewriting execution history, includ
 while physical removal is incomplete. Unrelated files or replacement roots remain
 errors requiring review. The removal budget is at most 120 seconds.
 
-This internal credential is not a substitute for the pending [application
-authorization and database gates](packaging-retirement-integration-plan.md).
-No application route or operator UI enables removal in this checkpoint.
+This internal credential is not a substitute for the separate [application
+authorization and database gates](packaging-retirement-api.md). Both service and
+backend retirement flags default to disabled. Operator UI verification is tracked
+in the [current checkpoint](autonomous-pbr-progress.md).
 The production smoke explicitly enables retirement only on its owned synthetic
 storage and tests lost receipt recovery, restarts, offline sources and old requests.
 

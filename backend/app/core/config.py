@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     worker_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
     zip_policy_timezone: str = Field(default="Europe/Prague", min_length=1, max_length=100)
     packaging_enabled: bool = False
+    packaging_retirement_enabled: bool = False
     packaging_base_url: str = "http://localhost:8081"
     packaging_service_token: SecretStr | None = None
     packaging_timeout_seconds: float = Field(default=3630, gt=0, le=3660)

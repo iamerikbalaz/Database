@@ -56,12 +56,12 @@ identities, exact allowed entries and file identities. Preserve ambiguous or cha
 trees. A final tombstone must distinguish intentional removal from corruption and
 prevent delayed execute/retry/read requests from recreating the old result.
 
-The [internal storage primitive](packaging-retirement.md) is implemented and verified;
-it has no exposed retirement endpoint or application authorization in that commit.
-Application integration requires additive database provenance/guards, private worker/client contracts,
-download and staging gates, operator controls, PostgreSQL race tests, actual Linux
-fault tests and browser recovery coverage. That integration is not yet implemented. Automatic
-retirement after terminal upload/import can then use the same audited operation;
+The [internal storage primitive](packaging-retirement.md), private worker/client
+contracts, immutable schema 0025 and [application authorization/download/staging
+gates](packaging-retirement-api.md) are implemented. Operator controls and their
+real-browser verification are tracked in the [current checkpoint](autonomous-pbr-progress.md),
+alongside real PostgreSQL race tests and Linux fault tests. Automatic
+retirement after terminal upload/import can later use the same audited operation;
 do not invent a time-based expiry policy or claim the whole cleanup requirement is
 complete before this integration exists. Remote staging-object deletion remains
 outside this local lifecycle.

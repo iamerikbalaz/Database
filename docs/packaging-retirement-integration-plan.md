@@ -3,8 +3,8 @@
 The storage primitive and its verification are tracked in
 [retirement](packaging-retirement.md). The opt-in [private service](packaging-service.md)
 and independently validating [client](packaging-client.md) are implemented.
-Complete the remaining database/application/UI slices below before enabling removal
-for an application user.
+The database and [application API](packaging-retirement-api.md) are implemented.
+Complete UI/browser verification below before enabling removal for an application user.
 
 ## Implemented worker boundary and independent client
 
@@ -29,7 +29,7 @@ for an application user.
 observation facts and adds separate immutable retirement intent, ordered dispatch
 and observation facts, with actor/session, reason, actor-scoped idempotency and
 matching composite references. Database staging claims reject retired copies.
-The application must enforce the same exclusion for downloads and derive removal
+The application enforces the same exclusion for downloads and derives removal
 from any verified receipt, so a late uncertain observation cannot undo it.
 
 Before committing intent, lock the material and target execution and verify the
@@ -45,7 +45,7 @@ finish; physical removal must receive BUSY instead of racing it. New upload
 reservations cannot use the quarantined execution. A different newly generated
 package uses a new operation UUID and its normal current-approval checks.
 
-## Remaining explicit operator action and recovery
+## Implemented application action and recovery
 
 Conservative role: ADMIN only. Require current session/account/role, CSRF, reason,
 exact accepted-proof acknowledgment and request key. Keep retirement disabled by
@@ -59,12 +59,16 @@ grant the revoked caller fresh access. Another current administrator must be abl
 to explicitly recover the same retirement intent with an audited action, without
 needing the original administrator's session or idempotency packet.
 
-The UI shows the proof/history and a reviewed removal action. Explain that the
+## Operator UI and remaining browser verification
+
+The draft UI shows the proof/history and a reviewed removal action. It explains that the
 local copy becomes unavailable and future use requires a newly generated package;
 source files and historical evidence remain. Unknown responses preserve exact
 request bindings, offer explicit recovery and never imply completed removal.
 Historical download controls become unavailable after intent, with retirement
-state and audit visible to authorized operators.
+state and audit visible to authorized operators. Component/client tests pass;
+fresh/retained real-browser verification is pending. A second real accepted copy
+will be removed while the original remains downloadable across restart.
 
 ## Verification and rollout boundary
 

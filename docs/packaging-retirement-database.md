@@ -39,8 +39,9 @@ PostgreSQL rejects UPDATE, DELETE and TRUNCATE of all three tables. ORM events a
 reject updates/deletes. A populated retirement ledger refuses downgrade; preserve
 the evidence and roll forward. Empty downgrade to 0024 is supported and tested.
 Applying this schema does not enable the private service or expose an operator
-action by itself. The application ownership/download gates and UI are the next
-separate slice; see [the integration plan](packaging-retirement-integration-plan.md).
+action by itself. The separate [application API](packaging-retirement-api.md)
+implements ownership/download gates; UI/browser verification is tracked in
+[the integration plan](packaging-retirement-integration-plan.md).
 
 ## Verified boundary
 

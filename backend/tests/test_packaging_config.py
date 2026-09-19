@@ -8,10 +8,10 @@ from app.core.config import Settings
 
 
 def test_packaging_defaults_are_disabled_and_bounded(monkeypatch):
-    for name in ("PACKAGING_ENABLED", "PACKAGING_SERVICE_TOKEN", "PACKAGING_BASE_URL", "PACKAGING_TIMEOUT_SECONDS"):
+    for name in ("PACKAGING_ENABLED", "PACKAGING_RETIREMENT_ENABLED", "PACKAGING_SERVICE_TOKEN", "PACKAGING_BASE_URL", "PACKAGING_TIMEOUT_SECONDS"):
         monkeypatch.delenv(name, raising=False)
     settings = Settings(_env_file=None)
-    assert settings.packaging_enabled is False and settings.packaging_service_token is None
+    assert settings.packaging_enabled is False and settings.packaging_retirement_enabled is False and settings.packaging_service_token is None
     assert settings.packaging_base_url == "http://localhost:8081" and settings.packaging_timeout_seconds == 3630
 
 

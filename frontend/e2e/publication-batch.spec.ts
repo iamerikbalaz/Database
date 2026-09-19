@@ -4,8 +4,8 @@ import { expect, test } from "@playwright/test";
 import { runManifest } from "./run-manifest";
 import { retainedPass, signInThroughApi } from "./auth-helpers";
 
-test("approved CSV batch, exact retry and frozen download survive retained restart", async ({ page }) => {
-  test.setTimeout(90_000);
+test("approved CSV, downloads and proof-bound local removal survive retained restart", async ({ page }) => {
+  test.setTimeout(120_000);
   await signInThroughApi(page);
   const fixture = runManifest.state.publication, path = `/api/materials/${fixture.id}`;
   const auth = await (await page.request.get("/api/auth/session")).json();
@@ -119,6 +119,14 @@ test("approved CSV batch, exact retry and frozen download survive retained resta
     await acknowledge("Close the unsent synthetic reservation");
     await packaging.getByRole("button", { name: "Close packaging job", exact: true }).click();
     await expect(packaging.getByRole("heading", { name: "Closed", exact: true })).toBeVisible();
+    // A separate real accepted copy is retired later; the original remains
+    // downloadable in both passes, independently of the retained tombstone.
+    await acknowledge("Create synthetic copy for local retirement");
+    await packaging.getByRole("button", { name: "Reserve packaging job", exact: true }).click();
+    await expect(packaging.getByText("Job reserved. Start packaging when ready.", { exact: true })).toBeVisible();
+    await acknowledge("Package synthetic copy for local retirement");
+    await packaging.getByRole("button", { name: "Start packaging", exact: true }).click();
+    await expect(packaging.getByRole("heading", { name: "Packaged", exact: true })).toBeVisible();
     // Review and reserve the real retained package without any cloud connection.
     const ready = await (await page.request.get(path + "/packaging-executions/" + jobs.items[0].id)).json();
     const batch = await (await page.request.get("/api/publication-batches/" + ready.batch_id)).json();
@@ -156,6 +164,11 @@ test("approved CSV batch, exact retry and frozen download survive retained resta
     expect(reserved.batch_id).toBe(batch.id);
     await expect(storage.getByRole("button", { name: "Start storage upload", exact: true })).toHaveCount(0);
     expect((await page.request.patch(path, { headers, data: { material_name: "Blocked during staging" } })).status()).toBe(409);
+    const blockedRemoval = await page.request.post(path + "/packaging-executions/" + ready.id + "/retirement", { headers, data: {
+      idempotency_key: crypto.randomUUID(), expected_observation_id: ready.last_observation_id, expected_proof_sha256: ready.proof_sha256,
+      acknowledgement: "REMOVE_LOCAL_COPY", reason: "Verify active staging excludes retirement" } });
+    expect(blockedRemoval.status()).toBe(409); expect((await blockedRemoval.json()).detail.code).toBe("PACKAGING_RETIREMENT_STAGING_ACTIVE");
+    expect((await (await page.request.get(path + "/packaging-executions/" + ready.id + "/retirement")).json()).retirement).toBe(null);
     const stagingPath = "/api/publication-staging-jobs/" + reserved.id;
     const disabled = await page.request.post(stagingPath + "/run", { headers, data: { idempotency_key: crypto.randomUUID(),
       expected_plan_sha256: plan.plan_sha256, expected_last_dispatch_id: null, reason: "Verify deployed disabled gate" } });
@@ -171,17 +184,25 @@ test("approved CSV batch, exact retry and frozen download survive retained resta
   }
   const history = await (await page.request.get("/api/publication-batches")).json(); expect(history.items).toHaveLength(1);
   const packagingHistory = await (await page.request.get(path + "/packaging-executions")).json();
-  expect(packagingHistory.items).toHaveLength(2);
-  expect(packagingHistory.items.map((item: { status: string }) => item.status).sort()).toEqual(["PACKAGED", "REJECTED"]);
-  expect(packagingHistory.items.find((item: { status: string }) => item.status === "PACKAGED").proof_sha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(packagingHistory.items).toHaveLength(3);
+  expect(packagingHistory.items.map((item: { status: string }) => item.status).sort()).toEqual(["PACKAGED", "PACKAGED", "REJECTED"]);
+  // History uses compact summaries; reservation reasons belong to job detail.
+  const acceptedDetails = await Promise.all(packagingHistory.items.filter((item: { status: string }) => item.status === "PACKAGED")
+    .map(async (item: { id: string }) => {
+      const detail = await page.request.get(path + "/packaging-executions/" + item.id);
+      expect(detail.status()).toBe(200); return detail.json();
+    }));
+  const completedJob = acceptedDetails.find((item) => item.reason === "Create actual synthetic local packages");
+  const disposableJob = acceptedDetails.find((item) => item.reason === "Create synthetic copy for local retirement");
+  expect(completedJob).toBeDefined(); expect(disposableJob).toBeDefined();
+  expect(completedJob.proof_sha256).toMatch(/^[a-f0-9]{64}$/); expect(disposableJob.proof_sha256).toMatch(/^[a-f0-9]{64}$/);
   const summary = history.items[0];
   const stagingHistory = await (await page.request.get("/api/publication-staging-jobs")).json();
   expect(stagingHistory.items).toHaveLength(1);
   const staging = await (await page.request.get("/api/publication-staging-jobs/" + stagingHistory.items[0].id)).json();
   expect(staging.status).toBe("CLOSED"); expect(staging.batch_id).toBe(summary.id);
   expect(staging.importer_compatible).toBe(false); expect(staging.materials).toHaveLength(1);
-  expect(staging.materials[0].packaging_proof_sha256).toBe(
-    packagingHistory.items.find((item: { status: string }) => item.status === "PACKAGED").proof_sha256);
+  expect(staging.materials[0].packaging_proof_sha256).toBe(completedJob.proof_sha256);
   expect(staging.close.reason).toBe("Close synthetic staging before dispatch");
   await page.goto("/publication");
   const storageHistory = page.getByRole("article", { name: "Storage uploads", exact: true });
@@ -249,15 +270,15 @@ test("approved CSV batch, exact retry and frozen download survive retained resta
   await policy.screenshot({ path: test.info().outputPath("packaging-policy-mobile.png") });
   await page.setViewportSize({ width: 1280, height: 900 });
   await policy.screenshot({ path: test.info().outputPath("packaging-policy-desktop.png") });
-  // Capture the persisted job in both passes; Playwright clears first-pass output.
+  // Capture the persisted job in both independently retained pass directories.
   const retainedJob = page.getByRole("article", { name: "Material packaging", exact: true });
   await retainedJob.locator("summary").click();
-  await retainedJob.getByRole("button", { name: /^Open Packaged ·/ }).click();
+  await retainedJob.getByRole("button", { name: /^Open Packaged ·/ }).last().click();
   await expect(retainedJob.getByRole("heading", { name: "Packaged", exact: true })).toBeVisible();
+  await expect(retainedJob.getByText("Job: " + completedJob.id, { exact: true })).toBeVisible();
   await retainedJob.getByRole("button", { name: "Load packaging actions", exact: true }).click();
   await expect(retainedJob.getByRole("listitem").last()).toContainText("execute · Run approved synthetic packaging · ready");
   await retainedJob.getByRole("button", { name: "Load packaged files", exact: true }).click();
-  const completedJob = packagingHistory.items.find((item: { status: string }) => item.status === "PACKAGED");
   const files = await (await page.request.get(path + "/packaging-executions/" + completedJob.id + "/artifacts")).json();
   expect(files.proof_sha256).toBe(completedJob.proof_sha256);
   const archive = files.items.find((item: { path: string }) => item.path.endsWith(".zip"));
@@ -271,4 +292,52 @@ test("approved CSV batch, exact retry and frozen download survive retained resta
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await retainedJob.screenshot({ path: test.info().outputPath("packaging-job-mobile.png") });
+  await retainedJob.getByRole("button", { name: /^Open Packaged ·/ }).first().click();
+  await expect(retainedJob.getByText("Job: " + disposableJob.id, { exact: true })).toBeVisible();
+  const copy = retainedJob.getByRole("region", { name: "Local packaged copy", exact: true });
+  const retirementPath = path + "/packaging-executions/" + disposableJob.id + "/retirement";
+  if (!retainedPass) {
+    await expect(copy.getByRole("button", { name: "Load packaged files", exact: true })).toBeVisible();
+    await copy.getByLabel("Reason for local copy removal").fill("Retire only the reviewed synthetic local copy");
+    await copy.getByRole("checkbox", { name: /I reviewed this package proof/ }).check();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await retainedJob.screenshot({ path: test.info().outputPath("packaging-retirement-confirm-desktop.png") });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await retainedJob.screenshot({ path: test.info().outputPath("packaging-retirement-confirm-mobile.png") });
+    let requests = 0;
+    await page.route("**" + retirementPath, async (route) => {
+      if (route.request().method() !== "POST") { await route.continue(); return; }
+      requests++;
+      const committed = await route.fetch({ timeout: 60_000 });
+      expect(committed.status()).toBe(201); expect((await committed.json()).status).toBe("REMOVED");
+      await route.abort("failed");
+    });
+    await copy.getByRole("button", { name: "Remove this local copy", exact: true }).click();
+    await expect(copy.getByRole("alert")).toContainText("The removal outcome is unknown");
+    await expect(copy.getByRole("button", { name: "Load packaged files", exact: true })).toHaveCount(0);
+    await expect(copy.getByLabel("Reason for local copy removal")).toBeDisabled();
+    await copy.getByRole("button", { name: "Check recorded removal", exact: true }).click();
+    await expect(copy.getByText("Local copy removed", { exact: true })).toBeVisible();
+    expect(requests).toBe(1); await page.unroute("**" + retirementPath);
+  }
+  await expect(copy.getByText("Local copy removed", { exact: true })).toBeVisible();
+  await expect(copy.getByRole("button", { name: "Load packaged files", exact: true })).toHaveCount(0);
+  await copy.getByRole("button", { name: "Load removal actions", exact: true }).click();
+  await expect(copy.getByRole("listitem")).toHaveCount(1);
+  await expect(copy.getByRole("listitem")).toContainText("Removal requested · Retire only the reviewed synthetic local copy · removed");
+  const recorded = (await (await page.request.get(retirementPath)).json()).retirement;
+  expect(recorded.status).toBe("REMOVED"); expect(recorded.receipt.proof_sha256).toBe(disposableJob.proof_sha256);
+  const removedPath = path + "/packaging-executions/" + disposableJob.id;
+  expect((await page.request.get(removedPath + "/artifacts")).status()).toBe(409);
+  expect((await page.request.get(removedPath + "/artifacts/" + archive.id + "?proof_sha256=" + disposableJob.proof_sha256)).status()).toBe(409);
+  expect((await (await page.request.get(removedPath)).json()).status).toBe("PACKAGED");
+  expect((await page.request.get(path + "/packaging-executions/" + completedJob.id + "/artifacts")).status()).toBe(200);
+  expect((await (await page.request.get("/api/publication-batches/" + summary.id)).json()).csv_sha256).toBe(summary.csv_sha256);
+  expect((await (await page.request.get("/api/publication-staging-jobs/" + staging.id)).json()).status).toBe("CLOSED");
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await retainedJob.screenshot({ path: test.info().outputPath("packaging-retirement-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await retainedJob.screenshot({ path: test.info().outputPath("packaging-retirement-mobile.png") });
 });

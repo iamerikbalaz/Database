@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../api/errors";
 import { packagingClient as api, packagingStatusLabel, type PackagingAction, type PackagingCommand, type PackagingJob, type PackagingReservation } from "../api/packagingClient";
 import { packagingPolicyClient, policyLabel } from "../api/packagingPolicyClient";
 import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
 import { ErrorState, LoadingState } from "./PageState";
-import { PackagingArtifacts } from "./PackagingArtifacts";
+
+const PackagedCopy = lazy(() => import("./PackagedCopy").then((module) => ({ default: module.PackagedCopy })));
 
 type Props = { materialId: string; batch?: { id: string; snapshotHash: string }; onChanged?: () => void };
 type Packet = { kind: "reserve"; body: PackagingReservation } | { kind: PackagingAction; id: string; body: PackagingCommand };
@@ -132,7 +133,9 @@ function PackagingWork({ materialId, batch, onChanged }: Props) {
         <button className="button" disabled={readBusy} onClick={() => void loadCommands()}>Load packaging actions</button>
         {commands && <ol>{commands.items.map((entry) => <li key={entry.id} value={entry.ordinal}>{entry.action.toLowerCase()} · {entry.reason} · {entry.observation?.outcome.toLowerCase().replaceAll("_", " ") ?? "awaiting result"}</li>)}</ol>}
         {commands?.nextCursor && <button className="button" disabled={readBusy} onClick={() => void loadCommands(true)}>More packaging actions</button>}
-        {job.status === "PACKAGED" && job.proofSha256 && <PackagingArtifacts key={job.id + job.proofSha256} materialId={materialId} job={job} />}
+        {job.status === "PACKAGED" && job.proofSha256 && <Suspense fallback={<LoadingState label="Loading local copy controls…" />}>
+          <PackagedCopy key={job.id + job.proofSha256} materialId={materialId} job={job} />
+        </Suspense>}
       </section>}
       {(canReserve || canAct) && <fieldset disabled={frozen}><legend>Packaging decision</legend>
         <label>Reason for packaging action<textarea value={reason} maxLength={2000} onChange={(event) => setReason(event.target.value)} /></label>

@@ -1,10 +1,11 @@
-# Application retirement integration: next bounded slices
+# Application retirement integration: implemented contracts
 
 The storage primitive and its verification are tracked in
 [retirement](packaging-retirement.md). The opt-in [private service](packaging-service.md)
 and independently validating [client](packaging-client.md) are implemented.
-The database and [application API](packaging-retirement-api.md) are implemented.
-Complete UI/browser verification below before enabling removal for an application user.
+The database, [application API](packaging-retirement-api.md) and operator UI are
+implemented and verified with fresh/retained synthetic browser scenarios. Removal
+remains disabled by default; production deployment/enablement has not occurred.
 
 ## Implemented worker boundary and independent client
 
@@ -59,16 +60,18 @@ grant the revoked caller fresh access. Another current administrator must be abl
 to explicitly recover the same retirement intent with an audited action, without
 needing the original administrator's session or idempotency packet.
 
-## Operator UI and remaining browser verification
+## Implemented operator UI and browser verification
 
-The draft UI shows the proof/history and a reviewed removal action. It explains that the
+The UI shows the proof/history and a reviewed removal action. It explains that the
 local copy becomes unavailable and future use requires a newly generated package;
 source files and historical evidence remain. Unknown responses preserve exact
 request bindings, offer explicit recovery and never imply completed removal.
 Historical download controls become unavailable after intent, with retirement
-state and audit visible to authorized operators. Component/client tests pass;
-fresh/retained real-browser verification is pending. A second real accepted copy
-will be removed while the original remains downloadable across restart.
+state and audit visible to authorized operators. Component/client tests and all
+23 fresh plus 23 retained real-browser scenarios passed. A second real accepted
+copy is removed while the original remains downloadable across restart. Lost
+committed replies recover by reading evidence; desktop/mobile layouts were inspected.
+Exact run and image identities are in the [checkpoint](autonomous-pbr-progress.md).
 
 ## Verification and rollout boundary
 

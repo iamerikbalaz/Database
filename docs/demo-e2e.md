@@ -34,6 +34,10 @@ publikované značky, projekt, procesora a osm materiálů a v Chromium provede:
 - serverový zákaz uploadu při vypnutém GCS bez vytvoření dispatch záznamu;
 - stažení skutečného ZIPu s kontrolou velikosti a SHA-256 před restartem i po něm,
   i po následné změně obsahu a ZIP pravidla;
+- samostatný druhý skutečný balíček, zákaz odstranění při aktivním stagingu,
+  potvrzené odstranění přes UI po ztrátě odpovědi a čtení potvrzení po restartu;
+- blokování dalších downloadů odstraněné kopie při zachování původního balíčku,
+  historického CSV, PACKAGED dokladu a uzavřené staging dávky;
 - klientské odmítnutí absolutní cesty a `..` bez preflight requestu;
 - kontrolu veřejných odpovědí, UI a browser console na únik raw obsahu, host path
   nebo neočekávanou chybu.
@@ -93,7 +97,10 @@ v `scripts/test-packaging-e2e-helpers.ps1`.
 
 Oba workery se restartují spolu s aplikací. Druhý browser průchod kontroluje
 zachovanou databázovou historii balení i skutečně stažené ZIP bajty proti uloženému
-hashi. Packaging volume se při cleanupu zachová,
+hashi. Odstranění je zapnuté pouze pro vlastní syntetický E2E backend a packaging
+službu; běžná konfigurace má `PACKAGING_RETIREMENT_ENABLED=false`. Druhý průchod
+rovněž kontroluje uchované potvrzení odstranění samostatné kopie a zákaz nového
+stahování této kopie. Packaging volume se při cleanupu zachová,
 stejně jako izolované identity source/journal volumes. Tyto prostředky nejsou
 produkční data a runner nemaže ani starší volumes svých předchozích běhů.
 
@@ -120,6 +127,8 @@ konkrétní GUID run adresář a nikdy nadřazené `.e2e-data`. Stav projektů `
 
 Při selhání zůstane screenshot a sanitizované syntetické logy v
 `<repo>/.e2e-artifacts/<run-guid>`; credentials ani raw metadata se neukládají.
+Obrazové výstupy mají podadresáře `playwright-results/fresh` a
+`playwright-results/retained`, takže druhý průchod nesmaže první potvrzovací formuláře.
 Playwright trace je vypnutý, protože obsahuje cookies a těla auth požadavků.
 Po úspěchu se tento konkrétní artifact adresář standardně odstraní. Pro vizuální
 kontrolu syntetického UI lze před během nastavit

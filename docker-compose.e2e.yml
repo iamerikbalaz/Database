@@ -21,6 +21,7 @@ services:
       SOURCE_MUTATIONS_ENABLED: true
       WORKER_MUTATION_TOKEN: ${E2E_WORKER_MUTATION_TOKEN:?E2E runner must provide an ephemeral worker credential}
       PACKAGING_ENABLED: true
+      PACKAGING_RETIREMENT_ENABLED: true
       PACKAGING_BASE_URL: http://packaging:8081
       PACKAGING_SERVICE_TOKEN: ${E2E_PACKAGING_TOKEN:?E2E runner must provide a separate ephemeral packaging credential}
       GCS_ENABLED: false
@@ -77,6 +78,7 @@ services:
       - /tmp:rw,nosuid,nodev,size=64m,mode=1777
     environment:
       PACKAGING_ENABLED: true
+      PACKAGING_RETIREMENT_ENABLED: true
       PACKAGING_SERVICE_TOKEN: ${E2E_PACKAGING_TOKEN:?E2E runner must provide a separate ephemeral packaging credential}
       MATERIALS_ROOT: /e2e-materials
       PACKAGING_WORKSPACE_ROOT: /e2e-packaging/workspace

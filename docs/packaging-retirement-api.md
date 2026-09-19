@@ -82,6 +82,22 @@ retries, cancellation, force-delete or bulk-delete shortcuts.
 5. A fixed unsafe/corrupt-history error needs operator investigation of the owned
    storage. Preserve all evidence; do not delete journals to make recovery pass.
 
+## Operator controls
+
+Open Material packaging on material detail or the selected material in a saved
+CSV batch, then open its PACKAGED job. The UI reads local-copy availability before
+offering file downloads. ADMIN sees the removal form only when the feature is
+enabled; reason and explicit acknowledgment of permanent removal are mandatory.
+Leadership can inspect history and copy availability but cannot remove it.
+
+An unknown write response freezes its exact packet and offers a read-only check
+or explicit same-request retry. There is no automatic resend. A known unfinished
+intent can be explicitly recovered with its existing identity and latest dispatch.
+Changing actor or selected proof retires late callbacks; verified removal cannot
+regress to available. Browser unload warns about a pending packet. After navigation
+or a new session, use the stored removal view/history for recovery; no credential
+or write packet is saved in localStorage. Downloads use browser-managed streams.
+
 The [UI integration plan](packaging-retirement-integration-plan.md) and
 [checkpoint](autonomous-pbr-progress.md) distinguish implementation and verified
 runtime evidence. Backend adapter tests use explicitly synthetic receipts; real

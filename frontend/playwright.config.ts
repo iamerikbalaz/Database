@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import path from "node:path";
 import { e2eOutputDirectory, runManifest } from "./e2e/run-manifest";
 
 export default defineConfig({
@@ -10,7 +11,8 @@ export default defineConfig({
   timeout: 45_000,
   expect: { timeout: 10_000 },
   forbidOnly: true,
-  outputDir: e2eOutputDirectory,
+  // Preserve fresh-pass screenshots when the retained pass starts.
+  outputDir: path.join(e2eOutputDirectory, process.env.E2E_RETAINED_PASS === "1" ? "retained" : "fresh"),
   reporter: "line",
   use: {
     baseURL: runManifest.frontendUrl,

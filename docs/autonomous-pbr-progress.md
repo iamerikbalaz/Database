@@ -1,10 +1,10 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-19, application retirement integration)
+## Latest checkpoint (2026-09-19, application retirement and browser verification)
 
 Owned worktree: `C:\Database\Database\tmp\autonomous-pbr-completion`.
 Branch: `codex/autonomous-pbr-completion`. Previous pushed checkpoint:
-`a8b44128bda0388b71eafd5ce0fae7baca833c66` (immutable retirement database evidence).
+`1ed3b44339b42558513ebdf19ddb32b8e52545e1` (authorized recoverable retirement API).
 API/migration 0024: `249b9e6e3a88495544b8eaaaf44c5ba50241972c`; Docker source
 mapping guard: `c3a0d1631f06e372284409da5fe003b472cd0b45`. Remote main last
 verified unchanged at `88a1f99d748d2a0edbb1fce509e13d18bfc03908` during that push.
@@ -13,7 +13,7 @@ Account profiles (`6c83a33`), temporary error cleanup (`7565a1c`), incomplete re
 copy cleanup (`e5679b6`) and reconciled docs have been pushed. Remote main remains
 unchanged at the stated base.
 
-### Application retirement API and UI draft
+### Application retirement API and operator controls
 
 The [application API](packaging-retirement-api.md) implements ADMIN/CSRF/proof-bound
 intent and recovery with dedicated execution leases and short transactions.
@@ -45,7 +45,7 @@ removed; test image/volume retained. Inspected image:
 `sha256:1674244796e07dd1a7e5c1c125182daaf6426f4f0fc5745813fc2eb06e5619cf`.
 Runner offline gates: **10 passed**, no skips.
 
-UI/client work is a separate draft: read availability before download controls,
+UI/client work is implemented: read availability before download controls,
 explicit ADMIN confirmation, exact unknown-response packet, read-only recovery,
 actor/proof-bound late-callback isolation, monotonic REMOVED display and history.
 The frontend suite passed **935 tests**, 27.19s; lint and E2E TypeScript passed.
@@ -54,8 +54,30 @@ affected client/component tests passed**, 3.72s; lint/E2E TypeScript passed agai
 The final build passed in 2.79s. Loading the copy controls only when needed moved
 11.36 kB into its own chunk and reduced the main bundle to 498.37 kB, eliminating
 the earlier 508 kB bundle warning without raising the warning threshold.
-Real-browser fresh/retained retirement coverage is running. All E2E helper safety
-cases passed; direct invocation failed closed with zero POSTs/fixture writes.
+The first browser run `f32051b5-4e0a-4eae-aa09-afa36b7c75f3` passed **22/23 fresh
+scenarios**; the new scenario searched compact packaging summaries for a reason
+that is only in job detail. The test now reads the real details before selecting
+its two accepted copies; application contracts remain unchanged. Retained tests
+did not run after that failure. Final run `d2817df1-6b1b-4262-a6b2-9eb6f9c682af`
+passed **23 fresh scenarios**, 1.7m, and **23 retained scenarios**, 58.6s, no skips.
+This uses the actual browser/backend/PostgreSQL/private packaging service. It
+creates two real accepted copies, rejects removal while staging owns one, retains
+the original download across restart, removes only the second copy, deliberately
+loses its committed response and recovers by GET without another POST. Removed
+downloads remain blocked after restart; PACKAGED proof, CSV and closed staging
+history remain unchanged. Four fresh and two retained desktop/mobile screenshots
+were visually inspected; 390px pages have no horizontal overflow.
+
+Inspected E2E images:
+
+- backend `sha256:04bd625f6776db51249fc095e88af20a59350e255da079753586267477023731`;
+- frontend `sha256:79f5e1e5afacb1a51c3075b2c2b9569eec13083403df6c5e943789453afde6ee`;
+- worker `sha256:00bf377a370e03245e0d230d013e91feb7ab5ebca6d9f10f02f56cb4ab3fd112`;
+- packaging `sha256:1d191b5d32de0472656d37ec0e468ce49b5187de83123392b0dc0bdd1d6cf11b`.
+
+The runner removed only its containers/network/run fixtures, retained its database
+and identity/packaging volumes, and confirmed protected regular/demo state unchanged.
+All E2E helper safety cases passed; direct invocation failed closed with zero POSTs/fixture writes.
 The browser's fresh/retained screenshot directories are now separate, preserving
 review evidence from both passes. No real cloud access is enabled.
 
@@ -277,21 +299,22 @@ Implemented and tested within documented contracts:
 - Atomic ordinary-write receipts and lost-response recovery in the shared record
   and account-profile forms; current-role/target checks apply to replay and read
   recovery. Account credentials keep their separate security contract.
+- Explicit proof-bound local-copy retirement, immutable schema 0025 evidence,
+  ADMIN controls, download/staging exclusion, restart recovery and retained receipts.
+  Removal stays disabled by default; it never marks a material published.
 
 These are bounded implementations, not a claim of production-ready completion.
 The README links the individual feature/operations contracts.
 
 ## Next work and real blockers
 
-1. Finish application retirement UI/browser integration. Storage, private service/
-   client, additive database evidence and application PostgreSQL gates are
-   verified. Temporary workspaces and proven incomplete retention have guarded
-   cleanup. Accepted output requires explicit proof-bound retirement.
-2. Complete operational/final review docs after the application boundary is tested.
-3. Verify actual importer contract, golden material outputs, manual publication
+1. Finalize the consolidated operational/review handoff and commit the verified UI.
+   Storage, private service/client, additive database evidence, application gates
+   and fresh/retained browser integration are verified.
+2. Verify actual importer contract, golden material outputs, manual publication
    confirmation and realistic historical workbook/source compatibility. Production
    inputs/importer fixtures are unavailable; do not invent live verification.
-4. Verify isolated live GCS/Notion/AI only after separately authorized targets and
+3. Verify isolated live GCS/Notion/AI only after separately authorized targets and
    access are supplied. Credential contract tests do not substitute for live checks.
 
 3D/HDRI remain later scope. Backups are unchanged; off-machine custody is unconfirmed.

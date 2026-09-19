@@ -1061,6 +1061,8 @@ a.button {
 .catalog-content .button { width: fit-content; margin: .5rem .5rem .5rem 0; }
 .catalog-content li { margin: .65rem 0; overflow-wrap: anywhere; }
 .catalog-content > details { margin-top: 1rem; }
+.packaged-copy p { overflow-wrap: anywhere; }
+.packaged-copy .button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .ai-content { margin-top: 1rem; overflow-wrap: anywhere; }
 .ai-content .ai-workspace { display: grid; gap: 1rem; }
 .ai-content details > summary { cursor: pointer; font-weight: 600; }

@@ -3,6 +3,7 @@ import App from "../App";
 import { authClient, AuthError, type AuthSession } from "./client";
 import { SessionContext } from "./context";
 import { setSessionToken, subscribeSessionInvalidation } from "./sessionTransport";
+import reawoteLogo from "../assets/brand/reawote-logo-long.png";
 
 function errorMessage(error: unknown) {
   return error instanceof AuthError ? error.message : "Could not reach the server. Check your connection and try again.";
@@ -92,7 +93,7 @@ export function AuthenticatedApp() {
   if (state === "loading") return <main className="auth-screen"><p role="status">Checking your session…</p></main>;
   if (state === "error") return <main className="auth-screen"><section className="auth-card"><h1>Connection unavailable</h1>{errorAlert}<button className="button" onClick={() => { setState("loading"); void bootstrap(); }}>Try again</button></section></main>;
   if (!session || passwordPage) return <main className="auth-screen"><section className="auth-card">
-    <a className="auth-brand" href="/">REAWOTE<span>Internal workspace</span></a>
+    <a className="auth-brand" href="/"><img className="brand-logo" src={reawoteLogo} alt="REAWOTE" width="191" height="42" /><span>Internal workspace</span></a>
     {session ? <>
       <h1>Change password</h1>
       <p>{session.must_change_password ? "Set a personal password before continuing." : "Changing your password signs out all your sessions."}</p>

@@ -1,6 +1,7 @@
 import { useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Icon } from "./Icon";
 import { useSession } from "../auth/context";
+import reawoteLogo from "../assets/brand/reawote-logo-long.png";
 
 const items = [
   ["Dashboard", "/dashboard", "dashboard"],
@@ -48,8 +49,7 @@ export function AppShell({
         onClick={(e) => go(e, "/dashboard")}
         aria-label="REAWOTE dashboard"
       >
-        <span className="brand-mark">R</span>
-        <span>REAWOTE</span>
+        <img className="brand-logo" src={reawoteLogo} alt="REAWOTE" width="191" height="42" />
       </a>
       <nav aria-label="Main navigation">
         {items.filter(([, href]) => (href !== "/imports" || account?.session.user.role === "ADMIN") &&
@@ -122,7 +122,7 @@ export function AppShell({
             Internal workspace
           </div>
           {account ? <details className="account-menu">
-            <summary aria-label="User menu">{account.session.user.display_name}</summary>
+            <summary aria-label="User menu" title={account.session.user.display_name}>{account.session.user.display_name}</summary>
             <div className="account-menu-items">
               <span>{account.session.user.email}</span>
               <button className="button" disabled={account.pending} onClick={account.changePassword}>Change password</button>

@@ -12,6 +12,11 @@ nejsou potvrzené. Žádný merge do main ani nasazení neproběhlo.
 
 ## Doplnění: test 100 skutečných materiálů (25. 9.)
 
+Rozhraní nově používá [dodanou vizuální identitu REAWOTE](brand-interface.md):
+originální logo, lokální Poppins, světlé panely a modro-levandulovou paletu.
+Změna zahrnuje celou společnou navigaci, formuláře, tabulky, galerii a přihlášení.
+Nejnovější testy této změny jsou v prvním checkpointu průběžného záznamu.
+
 Byla připravena podmnožina **100 položek, 18 výrobců a 7 kategorií** se shodou
 Excelu a složek na uživatelem určeném disku R:. V nové izolované databázi jsou
 jejich původní identity a cesty, bez projektu. Prošlo opakování importu bez

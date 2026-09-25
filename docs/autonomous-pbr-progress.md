@@ -1,5 +1,59 @@
 # Autonomous PBR completion
 
+## Latest checkpoint (2026-09-25, REAWOTE visual identity)
+
+Resumed from `72be535fd5735eb378ecd3ba7daf9c5b6c0b111c`. A fresh remote-main
+read and the clean original checkout both remain at
+`88a1f99d748d2a0edbb1fce509e13d18bfc03908`. The user requested the existing
+workspace to follow the supplied REAWOTE logo, Poppins archive, brand guidelines
+and the public website. See [the visual contract](brand-interface.md).
+
+- Replaced the placeholder letter mark with the supplied horizontal logo in
+  desktop/mobile navigation and authentication. The PNG keeps its aspect ratio.
+- Bundled Poppins Light/Regular/Medium/SemiBold/Bold with `font-display: swap`.
+  OFL is retained with the source and copied into the deployed assets. No external
+  font service or package dependency was added.
+- Centralized navy/lavender theme tokens and readable semantic status colors.
+  Shared headings, panels, pills, fields, tables, menus, dialogs, gallery and
+  empty/error states now use the same identity. Added visible keyboard focus and
+  reduced-motion handling; mobile account names truncate within the header.
+- Production frontend rebuilt for the existing private R: acceptance app. The
+  NAS source files, database schema, backend/worker logic and material data were
+  not changed by this presentation task. Only read-only inspection of supplied
+  brand assets and ordinary read-only acceptance navigation were performed.
+
+Verification:
+
+- Full frontend: **959 passed / 58 files**, 32.70s. Lint and production build
+  passed. Final build after mobile-header refinement: main JS 481.97 kB, CSS
+  31.36 kB; five font assets total 716,028 bytes. No test assertions were weakened.
+- Computer Use visual checks: actual R: catalog, dashboard, material form,
+  table, gallery and next-image control; small gallery and navigation at
+  390 × 844. No horizontal page overflow in checked mobile views. Confirmed
+  computed Poppins, heading weight 700 and `rgb(31,36,68)`. The final account
+  control is 41px high inside a 68px header. Viewport override was reset.
+- Initial guarded E2E run `706867f1-8fd3-42fe-b4a2-180c8866798b`:
+  **24 fresh passed**, 2.0m; **23 retained passed / 1 failed**, 1.1m.
+  `resource-history` failed in Chromium navigation with `net::ERR_NO_BUFFER_SPACE`
+  after its API history assertions passed, before rendering the brand page.
+  This is recorded as an intermittent browser failure, not a passing test or a
+  proven application defect. Gallery, catalog, auth and dashboard passed both
+  phases. Owned cleanup completed; diagnostics remain in ignored artifacts.
+- Final guarded run `dc832eb4-cccf-4ed4-9162-c57e8d89e7a8`, including the
+  mobile-header refinement and deployment font-license copy: **24 fresh + 24
+  retained passed**, 2.0m/1.1m. No simultaneous manual browser navigation was
+  performed during this rerun. This does not prove a cause for the earlier
+  intermittent error. The runner confirmed unchanged protected regular/demo
+  resources and removed only its owned containers/networks. Test volumes and
+  synthetic visual artifacts were retained.
+
+Final E2E image `.Id` values:
+
+- backend `sha256:13546d9aa9b51eaec40952c9a1cd94c449f0c4b8cce5828060b93ee6a81d9e01`;
+- frontend `sha256:6f34da2d49fd4c238974d194aa8453c7a08cfd21d637ac4b9afcf10832bb9861`;
+- worker `sha256:7dc3609a62258a5da6465e4f3bedb6cd1894db6d05c04be01002e1228d7a40b2`;
+- packaging `sha256:be4a2b0c4da128fec1390d6499cc60b969902f6c6a601b0f56a614b2b1ab341c`.
+
 ## Latest checkpoint (2026-09-25, Materials preview grid)
 
 Resumed from `2a5433a60e9abadaab7273c9a3692d43069857ab`. Fresh remote main and

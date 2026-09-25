@@ -1,6 +1,67 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-25, production dashboard)
+## Latest checkpoint (2026-09-25, historical R: sample)
+
+Resumed from `44fcb2673fd606290ec660536e06006c894bb2a1`; freshly read remote main
+still equals `88a1f99d748d2a0edbb1fce509e13d18bfc03908`. Original checkout remains
+clean. The user's latest direction narrows source operations: catalog references
+must preserve the existing tree, historical materials have no project, and any
+future material rename/new directory workflow must follow the manufacturer rules.
+See [the actual 100-row acceptance and remaining limits](historical-r100-acceptance.md).
+
+Implemented:
+
+- Four-part named identities across new record creation, historical import,
+  technical image proofs, packaging map names and controlled identity planning.
+  Exact historical spelling is retained; persisted three-part records remain
+  readable. Missing metadata remains nonblocking for catalog import.
+- Optional historical project and explicit relative folder references. No source
+  IO occurs during import. Catalog overlaps and active source ownership block a
+  batch; confirmation reacquires ownership before writing. New migration 0026
+  makes project nullable and refuses downgrade with unassigned records. Migrations
+  0001–0025 are unchanged.
+- Nullable project rendering, later assignment, optional import mappings and
+  folder paths directly in the material list. Imports page is loaded separately.
+- A private 100-row workbook and actual isolated API/browser acceptance. The app
+  and its PostgreSQL remain available locally for manual testing; source writes,
+  packaging and external integrations are disabled. No agent runs in the service.
+
+Verification for this increment:
+
+- Relevant backend/import/naming suite: **411 passed**, 170.28s. Final identity
+  protocol regression after the E2E-discovered base-name mismatch: **39 passed**,
+  61.00s. Late folder collision/active-owner tests: **4 passed**, 10.31s.
+- Full frontend: **951 passed**, 39.02s; lint/build, E2E TypeScript and direct
+  invocation guard passed. Main chunk 474.01 kB; no raised warning threshold.
+- Actual PostgreSQL: **464 passed**, 838.31s, auth **27/27**, no skips. Project
+  `reawote-test-45e8196aab7d4c3ab058c0cc1080f1ed`; owned containers/network cleaned,
+  database volume retained. An earlier run had 463 passed and one obsolete
+  three-part 9999 assertion, corrected before the full green rerun.
+- Full Linux worker/packaging image: **822 passed**, 586.23s, no skips. Image `.Id`
+  `sha256:460cc39264c882882d37f59023afc986d297b3b998791e06c1a11d290375a17b`.
+  The earlier thin-image run's 330 skipped packaging tests are not claimed as
+  acceptance; the full dependency image supplied the final result.
+- Guarded browser run `56a28942-2b11-4d69-8664-a94686fb8efd`: **24 fresh + 24
+  retained passed**, 2.2m/1.3m. Protected regular/demo resources unchanged; owned
+  containers/networks removed and volumes retained. The first browser run caught
+  backend proof validation missing the worker's base-name rename support. Fixed
+  strictly, with forged-prefix negative tests, then reran the complete browser suite.
+- Actual private R: subset: **100 records/100 exact paths/100 NULL projects**,
+  identical import replay, all API details verified after PostgreSQL restart and
+  actual UI search/detail/reload/mobile checks. No real NAS gallery/texture test
+  is claimed because Docker cannot currently mount that network drive.
+
+Inspected final E2E image `.Id` values:
+
+- backend `sha256:c48786de9a9b4c285e5127b3428d6934fbe39b42cea25151fd13cee32020e4c2`;
+- frontend `sha256:f4d3cb15b8d3afd36f0ea73fff5de2d7231cdb8e82f9d4d125d2612b234c96b3`;
+- worker `sha256:d09e268786889c69dc2572e538f04eea3a80bdefd319f42f6c0ce755836e1674`;
+- packaging `sha256:fd5ffa4da6824ffb70dad4e6b38b3d3dc02b6dc85080ac22aa89c14b90eda1e2`.
+
+Implementation checkpoint: `e590ada`. Private source values and credentials are excluded from git. No main merge,
+deployment, original database migration, NAS write or real cloud operation occurred.
+
+## Previous checkpoint (2026-09-25, production dashboard)
 
 Resumed the owned `codex/autonomous-pbr-completion` worktree from clean
 `8d86c72dc3beb12c472416a3746c4694b5bf2b9a`. Remote `origin/main` was read again and
@@ -337,8 +398,10 @@ Migrations through **0025 are immutable**.
 
 The adopted autonomous request authorizes this isolated branch, additive
 migrations, synthetic tests and own-branch pushes. Main, deleted `feature/auth-ui`,
-original checkout/work, NAS, backups/restore resources and production databases
-are excluded. No merge/deploy or real external write has been performed.
+original checkout/work, NAS writes, backups/restore resources and production
+databases are excluded. The current user separately authorized reading the R:
+copy and importing catalog references into a new isolated test DB. No merge/deploy
+or real external write has been performed.
 
 Implemented and tested within documented contracts:
 
@@ -373,12 +436,16 @@ The README links the individual feature/operations contracts.
 
 ## Next work and real blockers
 
-1. Verify actual importer contract, golden material outputs, manual publication
-   confirmation and realistic historical workbook/source compatibility. Production
-   inputs/importer fixtures are unavailable; do not invent live verification.
-2. Verify isolated live GCS/Notion/AI only after separately authorized targets and
+1. Finish the [real R: acceptance](historical-r100-acceptance.md): read-only NAS
+   worker access, actual gallery/texture checks and explicit mapping of remaining
+   Excel properties. The first 100 catalog records already exist. Implement the
+   new name/folder and manufacturer-directory rules before enabling source writes.
+2. Verify actual importer contract, golden material outputs and manual publication
+   confirmation. The later complete production workbook and importer fixtures
+   are unavailable; do not invent live verification.
+3. Verify isolated live GCS/Notion/AI only after separately authorized targets and
   access are supplied. Credential contract tests do not substitute for live checks.
-3. Review production topology, representative workload and backup custody before
+4. Review production topology, representative workload and backup custody before
    any separately approved deployment. Multi-gigabyte throughput remains unverified.
 
 3D/HDRI remain later scope. Backups are unchanged; off-machine custody is unconfirmed.

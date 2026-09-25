@@ -16,15 +16,20 @@ authenticated worker mutation route requires separate explicit configuration.
 
 ## Conservative rules
 
-- The current identity remains `<prefix>_<NNNN>_<category>`. Display-name edits
-  alone do not alter that identity. Plan targets use portable ASCII identity
-  components, sequence 0001–9999 and existing category character rules.
+- New identities use `<prefix>_<NNNN>_<material-name>_<category>`; persisted
+  three-part identities remain readable. Imported names retain exact spelling.
+  Rebrand/category proposals preserve an existing name component. Plan targets
+  use portable ASCII components, sequence 0001–9999 and existing category rules.
+  Ordinary display-name edits currently do not rename folders. The user's newer
+  name-and-folder workflow is still pending; keep source writes disabled for the
+  real-data catalog test until that narrower contract is implemented.
 - The destination parent must already exist under the allowed root on the same
   filesystem. No parent links, path traversal, nested self-moves or overwrite
   collisions are allowed. Case-folded collisions are rejected for portability.
-- Renaming applies to path components equal to the old identity or beginning
-  with that identity followed by `_` or `.`. Other source names are preserved.
-  The result lists inherited parent-directory changes too.
+- Renaming applies first to the full identity, then its base name without the
+  final category. A component must equal that prefix or continue with `_` or `.`;
+  unrelated substrings are preserved. Backend proof validation applies the same
+  strict mapping. The result lists inherited parent-directory changes too.
 - Root `metadata.txt` may contain the observed dimensions-only text format, which
   stays byte-exact, or strict source JSON. Only existing documented identity fields
   and source references are transformed. Unknown values remain unchanged and
@@ -80,8 +85,8 @@ Validate filesystem behavior exclusively with owned synthetic folders.
 ## Database coordination and UI (migration 0009)
 
 - `POST /api/materials/{id}/identity-plan` is a read-only observed proposal. It
-  derives the identity from the selected brand, next available four-digit number
-  and category. The destination parent must already exist. Its proposal hash binds
+  derives the identity from the selected brand, next available four-digit number,
+  preserved material-name component and category. The destination parent must already exist. Its proposal hash binds
   the entire worker plan, generation and old/new database contexts. Planning
   neither reserves a number nor creates an operation record.
 - `POST .../identity-confirm` requires a production lead/admin, the displayed

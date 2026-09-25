@@ -3,11 +3,12 @@
 The administrator-only `/imports` page and API provide inspection, preview,
 atomic confirmation and immutable batch history. Synthetic CSV/XLSX sources are
 tested, including actual browser uploads and a restart with retained data. This
-is not evidence that any real historical workbook or production NAS has migrated.
+is not evidence of a production migration. A separate 100-row real-data catalog
+acceptance is documented in [the R-drive test](historical-r100-acceptance.md).
 
 ## Browser workflow
 
-Choose a file and its explicit CSV delimiter or XLSX worksheet, select the five
+Choose a file and its explicit CSV delimiter or XLSX worksheet, select the source
 source columns, and map each literal label to an existing record. Review the
 preview, provide a reason and acknowledge that the imported records still need
 normal source checks and approval. Any source or mapping change invalidates the
@@ -24,24 +25,36 @@ import after such a navigation.
 ## Source and mapping
 
 See [source limits and unsupported workbook structures](historical-import-plan.md).
-Choose identity, name, project, brand and processor columns explicitly; five
-distinct headers are required. Map each literal project/brand/processor label to
-an existing UUID. No resources, companies, folders or online assets are inferred.
+Choose identity, name, brand and processor columns explicitly. A project column
+is optional for historical records; omit it and supply an empty project mapping
+to preserve an unassigned project. A project can subsequently be assigned through
+the ordinary audited material edit. New ordinary material creation still requires
+a project. Every selected column must have a distinct header. Map each literal
+project/brand/processor label to an existing UUID. No resources, companies,
+folders or online assets are inferred.
 Project company and brand company may differ and are shown separately in preview.
 Both associated companies, the brand and the assigned processor must be active;
 the selected processor must have the PROCESSOR role. Historical project status
 is not imported and does not itself prevent import into an existing project.
 
-The exact identity must have its selected brand's prefix, a four-digit number
-0001–9999 and the canonical uppercase category suffix. Prefixes may contain
+The exact identity uses `PREFIX_0001_MATERIAL-NAME_CATEGORY`: its selected brand's
+prefix, a four-digit number 0001–9999, the original name component and the
+canonical uppercase category suffix. Persisted three-part identities remain
+readable. Imports preserve the exact source spelling; new identities normalize
+spaces to hyphens and include the material name. Prefixes may contain
 underscores but cannot contain path separators, colons or control characters.
 The number must be absent from existing materials and the permanent reservation
 ledger. Duplicate brand numbers inside a file and active brand identity operations
 block the whole batch. Unused columns are identified but their values are ignored.
 
 Imported materials receive new UUIDs, preserve their historical identities and
-start IN_PROGRESS / NOT_CHECKED / NOT_PUBLISHED, with no linked folder and empty
-NOT_SCANNED metadata. Normal folder linking, inventory and approval remain required.
+start IN_PROGRESS / NOT_CHECKED / NOT_PUBLISHED, with empty NOT_SCANNED metadata.
+An optional `folder` column records an existing path relative to the configured
+library root. The final component must exactly match the identity. Absolute paths,
+traversal, overlapping catalog references and active source owners are rejected.
+The import does not read, create, rename or modify any source file, and therefore
+marks these references explicitly unverified. Missing metadata.txt does not block
+catalog import. Source inventory and approval remain separate operations.
 Numbers below a brand's counter may be imported only if never reserved or used.
 Each counter advances to max(current, highest imported number + 1); 9999 exhausts
 ordinary allocation at 10000. Counters never move backwards.
@@ -68,7 +81,8 @@ responses use no-store. The upload envelope is bounded before JSON/source parsin
 - `GET /api/material-imports/{batch_id}`: original batch context and created-row
   snapshots, even if materials have subsequently changed.
 
-Confirmation takes the exclusive application access gate and locks affected brands
+Confirmation takes the exclusive application access gate, the folder catalog lock
+when importing references, and locks affected brands
 in UUID order. Materials, metadata, reservations, counters and audit are committed
 together. No filesystem or external service is involved. Retrying the identical
 actor/key/payload returns the original result, including after later material edits.
@@ -78,6 +92,9 @@ must be retried using the original input and key, not a new key or a partial bat
 ## Audit and rollback
 
 Migration `20260917_0012` adds `material_import_batches` and `material_import_rows`.
+Migration `20260925_0026` makes the existing material project foreign key nullable;
+all earlier migrations remain unchanged. Its downgrade refuses while any material
+has no project, without deleting records or inventing an assignment.
 The batch records actor, request key/hash, source digest, preview hash, reason and
 explicit mappings/reference context. Row snapshots identify each new material and
 its physical source row. Unused cell values and original source files are not stored.

@@ -10,6 +10,28 @@ Jde o verzi pro review a ověření konkrétních PBR kontraktů v izolovaném p
 Produkční nasazení, živé integrace a správnost vůči skutečnému online importéru
 nejsou potvrzené. Žádný merge do main ani nasazení neproběhlo.
 
+## Doplnění: test 100 skutečných materiálů (25. 9.)
+
+Byla připravena podmnožina **100 položek, 18 výrobců a 7 kategorií** se shodou
+Excelu a složek na uživatelem určeném disku R:. V nové izolované databázi jsou
+jejich původní identity a cesty, bez projektu. Prošlo opakování importu bez
+duplicit, restart PostgreSQL a zobrazení/vyhledávání v prohlížeči. NAS se neměnil.
+Nové názvy zahrnují název materiálu; historické názvy zůstávají přesně zachovány.
+Migrace 0026 dovoluje historické záznamy bez projektu; pozdější přiřazení je možné.
+
+Plný frontend: **951 prošlo**, PostgreSQL: **464 prošlo** (auth 27/27), plný Linux
+worker/packaging: **822 prošlo**, browser: **24 + 24 po restartu**. Podrobný rozsah
+a opravované nálezy uvádí [checkpoint](autonomous-pbr-progress.md).
+
+**Omezení:** další vlastnosti Excelu dosud nejsou převzaté; Docker zatím nemá
+přístup k R: pro skutečnou galerii a kontrolu textur. Přejmenování názvu současně
+se složkou a vytváření fyzických složek u výrobce je další implementační úkol.
+Testovací aplikace proto nemá povolené zápisy do zdrojů. Aktuální stav,
+výběrová pravidla a následující kroky jsou v [přehledu testu](historical-r100-acceptance.md).
+
+Následující tabulka popisuje předchozí review kandidát; výše uvedené doplnění
+nahrazuje jeho dřívější tvrzení o chybějícím historickém testovacím datasetu.
+
 ## Co lze ověřit
 
 | Oblast | Implementované chování | Hranice ověření |
@@ -18,14 +40,14 @@ nejsou potvrzené. Žádný merge do main ani nasazení neproběhlo.
 | Účty a přístup | Session, CSRF, role/přidělení, povinná změna hesla, správa účtů a obnova přístupu, nové auth UI | Skutečné session a PostgreSQL souběhy; produkční HTTPS/reverse proxy není nasazená. |
 | Materiály a zdroje | Propojení složky, Done, inventář, technická kontrola, oddělená schválení, reopen a invalidace | Syntetické soubory a obrázky; reálný NAS se neměnil. |
 | Identita a historie | Řízené změny identity, obnova přerušených filesystemových operací, archivace/obnova, audit a stránkování | Izolované Linux roots, databázové závody a browser restart; produkční úložiště nebylo testovací cíl. |
-| Obsah a import | Kategorie, kolekce, verzovaný obsah, CSV/XLSX import, galerie a porovnání | Skutečné syntetické workbooky, PNG a browser; reprezentativní historická data chybějí. |
+| Obsah a import | Kategorie, kolekce, verzovaný obsah, CSV/XLSX import, galerie a porovnání | 100 skutečných historických záznamů a cest v izolované DB; jejich další Excel vlastnosti a NAS galerie se ještě ověřují. |
 | Publikační příprava | Schválené neměnné CSV, ZIP pravidla, lokální packaging, řízený start/obnova/uzavření a stahování podle proof | Skutečný converter, HTTP, Linux recovery a download SHA-256; skutečný online import není ověřen. |
 | Lokální úklid | Ověřený úklid dočasné práce/neúplných kopií, samostatné ADMIN odstranění přijaté kopie, trvalé potvrzení odstranění | Skutečný browser/worker, ztracená odpověď a restart; odstranění je ve výchozím stavu vypnuté. |
 | GCS | Konfigurovatelný transport, řízené staging joby, oprávnění, potvrzený obsah, obnovitelné požadavky a UI | Offline kontrakty; browser používá vypnuté GCS. Žádné skutečné cloudové objekty nebyly zapsané. |
 | Notion a AI | Konfigurovatelné čtení Notion, porovnání a selektivní místní převzetí, historie AI návrhů/adopce a oddělený volitelný generátor | Syntetické kontrakty; žádný živý Notion zápis ani skutečné volání AI poskytovatele. |
 | Obnova běžných formulářů | Atomický záznam úspěšného uložení, opakování stejného požadavku a čtení výsledku po ztrátě odpovědi | Reálné účty/role a browser scénáře; obnovu chrání aktuální serverové oprávnění. |
 
-## Poslední ověření
+## Předchozí ověření před importem R: vzorku
 
 - PostgreSQL, 19. 9.: **463 prošlo**, včetně **27/27 auth**, bez přeskočených testů.
 - API odstranění a stahování, 19. 9.: **48 prošlo**, včetně dokončení již otevřeného přenosu.
@@ -43,7 +65,7 @@ prostředků prošla, vlastní kontejnery a sítě byly odstraněny a volumes za
 API checkpoint je `1ed3b44`, odstranění lokální kopie/UI je v `776a36a`.
 Na předání `8d86c72` navazuje [Dashboard](production-dashboard.md); jde o frontendovou
 změnu bez nové migrace. Samostatné PostgreSQL/Linux sady se pro ni neopakovaly.
-Pro tuto verzi nyní neběží žádná testovací ani vývojová úloha na pozadí.
+Při uzavření tohoto dřívějšího checkpointu neběžely testovací ani vývojové úlohy.
 
 ## Doporučené pořadí review
 
@@ -93,7 +115,7 @@ skutečné vytvoření ani odstranění souboru a zelené testy neprokazují úp
 
 ## Migrace, provoz a návrat
 
-Main obsahuje migrace 0001–0006; pracovní větev přidává 0007–0025.
+Main obsahuje migrace 0001–0006; pracovní větev přidává 0007–0026.
 Existující migrace zůstávají neměnné. Čistý upgrade, upgrade z předchozího schématu,
 Alembic current/heads/check a relevantní souběhy ověřují izolované PostgreSQL testy.
 Nespouštět nový backend nad existující databází jen kvůli ukázce: startup provádí
@@ -120,15 +142,15 @@ nepoužívat plošný Docker prune ani hromadné mazání těchto prostředků.
 - Pravidla a ověřitelné potvrzení dokončeného online importu pro ruční potvrzení
   publikace a případný automatický úklid po importu. Lokální odstranění tuto
   informaci nenahrazuje.
-- Reprezentativní historický workbook a zdrojová složka pro porovnání skutečných
-  dat s implementovanými konzervativními importními pravidly.
+- Kompletní Excel pro pozdější ostrý import. Současný workbook už poskytl první
+  stovku skutečných záznamů; zbývá přístup workeru k R: a mapování dalších vlastností.
 - Samostatně povolené testovací cíle a přístupy pro živé GCS/Notion/AI ověření.
   Tajné údaje nepatří do chatu, fixture, manifestu, screenshotu ani commitu.
 - Produkční topologie, požadavky na výkon a samostatně schválený postup nasazení
   a obnovy. Vícegigabajtové přenosy a provozní objemy nejsou potvrzené.
 
-**První doporučený další úkol:** předat jeden referenční PBR materiál a konkrétní
-testovací importér, pak ověřit skutečný výstup od CSV/ZIP až po potvrzení importu.
+**První doporučený další úkol:** připojit izolovaný worker k R: pouze pro čtení
+a ověřit skutečnou galerii a textury u připravené stovky materiálů.
 3D modely a HDRI zůstávají mimo tento PBR rozsah. Draft PR nebyl vytvořen; GitHub
 CLI ani přímý GitHub konektor nebyly dostupné. Vlastní vzdálená větev slouží jako
 podklad k review.

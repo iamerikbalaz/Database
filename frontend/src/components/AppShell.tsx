@@ -8,7 +8,6 @@ const items = [
   ["Projects", "/projects", "projects"],
   ["Materials", "/materials", "materials"],
   ["Archived materials", "/material-archives", "materials"],
-  ["Compare", "/compare", "materials"],
   ["Catalog", "/catalog", "materials"],
   ["Imports", "/imports", "materials"],
   ["Publication", "/publication", "publication"],

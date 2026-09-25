@@ -13,7 +13,8 @@ MAX_OUTPUT_SIDE = 1024
 FORMATS = ("JPEG", "PNG", "TIFF", "WEBP")
 
 
-def decode(fd: int) -> dict:
+def decode(fd: int, size: int = 1024) -> dict:
+    if type(size) is not int or size not in {256, 512, 1024}: return {"error": "PREVIEW_SIZE_UNSUPPORTED"}
     import resource
     resource.setrlimit(resource.RLIMIT_AS, (768 * 1024**2, 768 * 1024**2))
     resource.setrlimit(resource.RLIMIT_CPU, (20, 20))
@@ -57,7 +58,7 @@ def decode(fd: int) -> dict:
             clean = Image.new("RGB", oriented.size, (255, 255, 255))
             rgba = oriented.convert("RGBA")
             clean.paste(rgba, mask=rgba.getchannel("A"))
-            clean.thumbnail((MAX_OUTPUT_SIDE, MAX_OUTPUT_SIDE), Image.Resampling.LANCZOS)
+            clean.thumbnail((size, size), Image.Resampling.LANCZOS)
             output = io.BytesIO()
             clean.save(output, format="JPEG", quality=85, optimize=False)
             data = output.getvalue()
@@ -71,8 +72,8 @@ def decode(fd: int) -> dict:
 
 def main():
     try:
-        if len(sys.argv) != 2 or not sys.argv[1].isdigit() or int(sys.argv[1]) < 3: raise ValueError()
-        result = decode(int(sys.argv[1]))
+        if len(sys.argv) not in {2, 3} or not sys.argv[1].isdigit() or int(sys.argv[1]) < 3: raise ValueError()
+        result = decode(int(sys.argv[1]), int(sys.argv[2]) if len(sys.argv) == 3 else 1024)
     except ImportError:
         result = {"error": "PREVIEW_DECODER_UNAVAILABLE"}
     except MemoryError:

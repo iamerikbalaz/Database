@@ -27,7 +27,7 @@ ERROR_CODES = frozenset({"PREVIEW_BUSY", "PREVIEW_UNSAFE_ENTRY", "PREVIEW_UNSAFE
     "PREVIEW_FILE_LIMIT", "PREVIEW_TOTAL_LIMIT", "PREVIEW_ENTRY_LIMIT", "PREVIEW_TIME_LIMIT", "PREVIEW_READ_FAILED",
     "PREVIEW_PIXEL_LIMIT", "PREVIEW_MULTIFRAME_UNSUPPORTED", "PREVIEW_MODE_UNSUPPORTED", "PREVIEW_OUTPUT_LIMIT",
     "PREVIEW_DECODER_UNAVAILABLE", "PREVIEW_RESOURCE_LIMIT", "PREVIEW_UNREADABLE", "PREVIEW_DECODER_FAILED",
-    "PREVIEW_TIMEOUT", "PREVIEW_NOT_FOUND", "PREVIEW_EXTENSION_MISMATCH"})
+    "PREVIEW_TIMEOUT", "PREVIEW_NOT_FOUND", "PREVIEW_EXTENSION_MISMATCH", "PREVIEW_SIZE_UNSUPPORTED"})
 
 
 class PreviewError(RuntimeError):
@@ -151,9 +151,9 @@ def _list_previews(root, parts):
     return {"schema_version": 1, "folder_name": parts[-1], "missing": False, "ignored_entries": ignored, "items": items}
 
 
-def _decode(fd):
+def _decode(fd, size=1024):
     try:
-        result = subprocess.run([sys.executable, "-m", "app.preview_decode", str(fd)], pass_fds=(fd,),
+        result = subprocess.run([sys.executable, "-m", "app.preview_decode", str(fd), *([str(size)] if size != 1024 else [])], pass_fds=(fd,),
             cwd=Path(__file__).resolve().parent.parent, env={"PATH": os.defpath, "PYTHONDONTWRITEBYTECODE": "1"},
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=25, check=False)
         if len(result.stdout) > MAX_WIRE_BYTES: raise ValueError()
@@ -162,7 +162,7 @@ def _decode(fd):
         if "error" in value: raise PreviewError(value["error"])
         if (result.returncode != 0 or set(value) != {"source_sha256", "source_format", "width", "height", "media_type", "sha256", "data"}
                 or value["source_format"] not in FORMATS or value["media_type"] != "image/jpeg"
-                or any(type(value[key]) is not int or not 1 <= value[key] <= MAX_OUTPUT_SIDE for key in ("width", "height"))
+                or any(type(value[key]) is not int or not 1 <= value[key] <= size for key in ("width", "height"))
                 or any(not isinstance(value[key], str) or re.fullmatch(r"[a-f0-9]{64}", value[key]) is None for key in ("sha256", "source_sha256"))):
             raise ValueError()
         data = base64.b64decode(value["data"], validate=True)
@@ -175,14 +175,15 @@ def _decode(fd):
         raise PreviewError("PREVIEW_DECODER_FAILED") from None
 
 
-def render_preview(root, parts, name, expected_sha256):
+def render_preview(root, parts, name, expected_sha256, size=1024):
+    if type(size) is not int or size not in {256, 512, 1024}: raise PreviewError("PREVIEW_SIZE_UNSUPPORTED")
     if not valid_preview_name(name): raise PreviewError("PREVIEW_UNSAFE_NAME")
     if not isinstance(expected_sha256, str) or re.fullmatch(r"[a-f0-9]{64}", expected_sha256) is None:
         raise PreviewError("PREVIEW_SOURCE_CHANGED")
-    return _bounded(_render_preview, root, parts, name, expected_sha256)
+    return _bounded(_render_preview, root, parts, name, expected_sha256, size)
 
 
-def _render_preview(root, parts, name, expected_sha256):
+def _render_preview(root, parts, name, expected_sha256, size=1024):
     with _preview_directory(root, parts) as directory_fd:
         if directory_fd is None: raise PreviewError("PREVIEW_NOT_FOUND")
         try: before = _regular_file(directory_fd, name, os.fstat(directory_fd).st_dev)
@@ -190,7 +191,7 @@ def _render_preview(root, parts, name, expected_sha256):
         fd = os.open(name, _metadata_flags(), dir_fd=directory_fd)
         try:
             _verify_file(directory_fd, name, fd, before)
-            value = _decode(fd)
+            value = _decode(fd) if size == 1024 else _decode(fd, size)
             _verify_file(directory_fd, name, fd, before)
             if value["source_sha256"] != expected_sha256: raise PreviewError("PREVIEW_SOURCE_CHANGED")
             if value["source_format"] != EXTENSIONS[name.rsplit(".", 1)[-1].lower()]:

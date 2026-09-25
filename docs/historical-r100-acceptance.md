@@ -55,9 +55,37 @@ historical done/checked/uploaded columns are retained in Excel but are not yet
 mapped to material content.** No historical status implies current approval.
 
 Windows can read R:, but Docker Desktop rejected the network drive bind mount.
-The acceptance app therefore has no NAS worker connection; gallery, source
-inventory and texture verification against these 100 real folders are pending.
-Synthetic Linux worker tests are a separate check and cannot replace this test.
+The acceptance app therefore still has no live NAS worker connection. For the
+Materials grid, a private one-shot Windows helper read only the selected folders'
+direct PREVIEW PNGs and generated a **dated local snapshot**: **280 PNGs from 95
+materials**, including a preferred FABRIC_1/SPHERE_1 image for 94 materials. One
+material falls back to its other PNG; four folders contain no PNG and one has no
+PREVIEW directory. No image decode failed in the completed snapshot. All **840
+derived JPEGs** (256/512/1024) passed the backend image contract and digest checks.
+
+The private acceptance-only adapter serves those copies through the normal
+authenticated material preview routes and cannot open arbitrary NAS paths. The
+page banner records the snapshot time. **Refresh previews** refreshes browser
+memory; it does not rebuild this private snapshot. New NAS changes require an
+explicit rerun of the private helper and restart of this owned acceptance app.
+Production code continues to use the secure Linux worker and contains neither
+this adapter nor copied source values/images. No originals, folders or timestamps
+were intentionally written; ordinary filesystem access-time behavior is OS-owned.
+
+Live NAS preview throughput, source inventory and texture verification against
+these 100 folders remain pending. Local snapshot performance and synthetic Linux
+worker tests do not prove a live NAS connection.
+
+Read-only browser acceptance rendered all **95 available primary previews** and
+the five honest empty states. It checked all four sizes, next/previous arrows,
+preserved filters between List/Gallery, preference after reload and mobile layout
+at 390 px. At 1440 × 1000, the first eight visible materials loaded in **1.586s**;
+only 12 near-viewport listings were requested initially (not all 100), with 338,641
+image bytes. Scrolling through all 100 cards took **8.669s**; a cached filtered
+List/Gallery switch took **0.123s**. The run transferred 2,635,636 image bytes across
+100 image responses including alternate/size checks. These are one-run local
+snapshot measurements, not production NAS benchmarks. No non-authentication
+writes were permitted. Desktop/mobile screenshots were visually reviewed locally.
 
 Physical creation inside manufacturer folders and a material-name edit that
 performs a coordinated folder rename remain follow-up work. The existing
@@ -68,8 +96,8 @@ and failure/recovery behavior have been implemented and reviewed.
 
 ## Next small increments
 
-1. Give an isolated worker read-only access to the R: copy and verify inventory,
-   preview gallery and missing-metadata behavior on the selected 100 materials.
+1. Give an isolated worker read-only access to the R: copy and verify live preview
+   refresh, inventory and missing-metadata behavior on the selected 100 materials.
 2. Review/import the remaining Excel properties with explicit mappings and
    immutable provenance, preserving unknown and conflicting values for review.
 3. Implement explicit name-and-folder rename and manufacturer-directory creation

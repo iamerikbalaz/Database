@@ -31,11 +31,12 @@ export function previewListingFromDto(input: unknown, materialId: string) {
 }
 export type PreviewEntry = ReturnType<typeof previewListingFromDto>["items"][number];
 export const previewClient = {
-  async listing(materialId: string) {
-    return previewListingFromDto(await request(`/materials/${uuid(materialId)}/previews`), materialId);
+  async listing(materialId: string, signal?: AbortSignal) {
+    return previewListingFromDto(await request(`/materials/${uuid(materialId)}/previews`, "GET", undefined, undefined, signal), materialId);
   },
-  async image(materialId: string, entry: PreviewEntry, signal: AbortSignal) {
+  async image(materialId: string, entry: PreviewEntry, signal: AbortSignal, size: 256 | 512 | 1024 = 1024) {
     const query = new URLSearchParams({ name: name(entry.name), expected_sha256: hash(entry.sha256) });
+    if (size !== 1024) query.set("size", String(size));
     const sentGeneration = sessionGeneration();
     const response = await fetch(apiUrl(`/materials/${uuid(materialId)}/preview?${query}`), {
       credentials: "same-origin", cache: "no-store", headers: { Accept: "image/jpeg" }, signal,
@@ -48,8 +49,8 @@ export const previewClient = {
     const declaredLength = response.headers.get("Content-Length");
     let width: number, height: number;
     try {
-      width = integer(Number(response.headers.get("X-Preview-Width")), 1024, 1);
-      height = integer(Number(response.headers.get("X-Preview-Height")), 1024, 1);
+      width = integer(Number(response.headers.get("X-Preview-Width")), size, 1);
+      height = integer(Number(response.headers.get("X-Preview-Height")), size, 1);
       hash(response.headers.get("X-Preview-Sha256"));
       if (response.headers.get("Content-Type") !== "image/jpeg" || !response.body ||
           (declaredLength !== null && (!/^\d+$/.test(declaredLength) || Number(declaredLength) > MAX_IMAGE_BYTES))) throw new Error("Invalid preview image");

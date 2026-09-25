@@ -73,6 +73,7 @@ class MaterialIdentityExecuteRequest(MaterialIdentityPlanRequest):
 class MaterialPreviewRequest(MaterialPreflightRequest):
     name: str
     expected_sha256: str
+    size: Literal[256, 512, 1024] = 1024
 
 
 class FindingResponse(StrictModel):
@@ -444,7 +445,7 @@ def create_app(
 
     @application.post("/internal/material-preview", tags=["internal"])
     def material_preview(request: MaterialPreviewRequest) -> dict:
-        return execute_source_inspection(request, lambda root, parts: render_preview(root, parts, request.name, request.expected_sha256))
+        return execute_source_inspection(request, lambda root, parts: render_preview(root, parts, request.name, request.expected_sha256, request.size))
 
     @application.post("/internal/material-inventory", response_model=InventoryResponse, tags=["internal"])
     def material_inventory(request: MaterialPreflightRequest) -> dict:

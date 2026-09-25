@@ -38,9 +38,39 @@ class PreviewStub:
     def listing(self, folder):
         self._read(folder)
         return PreviewListing.model_validate_json(json.dumps(listing_payload(folder.rsplit("/", 1)[-1])))
-    def image(self, folder, name, expected_sha256):
+    def image(self, folder, name, expected_sha256, size=1024):
         self._read(folder)
         return PreviewImage.model_validate_json(json.dumps(image_payload(folder.rsplit("/", 1)[-1])))
+
+
+@pytest.mark.parametrize("size", [256, 512])
+def test_thumbnail_route_uses_requested_size_and_retains_access_checks(preview_case, monkeypatch, size):
+    case, worker, path = preview_case
+    original = worker.image; sizes = []
+    def image(folder, name, expected_sha256, requested_size):
+        sizes.append(requested_size); return original(folder, name, expected_sha256, requested_size)
+    monkeypatch.setattr(worker, "image", image)
+    with case.client("ADMIN") as client:
+        response = client.get(path + "/preview", params={"name": "Synthetic preview.png", "expected_sha256": "a" * 64, "size": size})
+        assert response.status_code == 200 and response.content == PIXELS
+    assert sizes == [size]
+    with case.client("OTHER") as client:
+        assert client.get(path + "/preview", params={"name": "Synthetic preview.png", "expected_sha256": "a" * 64, "size": size}).status_code == 404
+    assert sizes == [size]
+
+
+def test_thumbnail_bounds_reject_oversized_worker_result_and_unsupported_request(monkeypatch, preview_case):
+    value = image_payload(); value["width"] = 512
+    def stream(method, url, **kwargs):
+        assert kwargs["json"]["size"] == 256
+        return StreamingResponse([json.dumps(value).encode()])
+    monkeypatch.setattr(httpx, "stream", stream)
+    with pytest.raises(PreviewClientError):
+        WorkerPreviewClient("http://worker").image("SAFE_0001_G03", "Synthetic preview.png", "a" * 64, 256)
+    case, worker, path = preview_case
+    with case.client("ADMIN") as client:
+        assert client.get(path + "/preview", params={"name": "Synthetic preview.png", "expected_sha256": "a" * 64, "size": 4096}).status_code == 422
+    assert worker.calls == []
 
 
 @pytest.fixture

@@ -48,12 +48,14 @@ export async function request(
   method = "GET",
   payload?: object,
   requestKey?: string,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   const sentGeneration = sessionGeneration();
   const response = await fetch(apiUrl(path), {
     method,
     credentials: "same-origin",
     cache: "no-store",
+    ...(signal ? { signal } : {}),
     body: payload === undefined ? undefined : JSON.stringify(payload),
     headers: {
       Accept: "application/json",

@@ -3,15 +3,15 @@ import { createHash } from "node:crypto";
 import { signInThroughApi } from "./auth-helpers";
 import { runManifest } from "./run-manifest";
 
-async function decoded(image: Locator) {
+async function decoded(image: Locator, width = 768, height = 432) {
   await expect(image).toBeVisible();
-  await expect.poll(() => image.evaluate((element) => {
+  await expect.poll(() => image.evaluate((element, dimensions) => {
     const image = element as HTMLImageElement;
-    return image.complete && image.naturalWidth === 768 && image.naturalHeight === 432;
-  })).toBe(true);
+    return image.complete && image.naturalWidth === dimensions.width && image.naturalHeight === dimensions.height;
+  }, { width, height })).toBe(true);
 }
 
-test("real preview gallery and comparison survive a retained-data restart", async ({ page }) => {
+test("materials grid, primary previews, sizes and cycling survive a retained-data restart", async ({ page }) => {
   await signInThroughApi(page);
   const failures: string[] = [], reads: Promise<void>[] = [];
   function previewLabel(value: string) {
@@ -20,7 +20,12 @@ test("real preview gallery and comparison survive a retained-data restart", asyn
   }
   page.on("pageerror", () => failures.push("browser error"));
   page.on("console", (message) => { if (["error", "warning"].includes(message.type())) failures.push("console diagnostic"); });
-  page.on("requestfailed", (request) => failures.push(`request failed: ${previewLabel(request.url())}: ${request.resourceType()}: ${request.failure()?.errorText ?? "unknown"}`));
+  const previewRead = (url: string) => /^\/api\/materials\/[^/]+\/previews?$/.test(new URL(url).pathname);
+  page.on("requestfailed", (request) => {
+    // Scrolling, resizing and switching views intentionally cancel preview reads.
+    if (request.method() === "GET" && previewRead(request.url()) && request.failure()?.errorText === "net::ERR_ABORTED") return;
+    failures.push(`request failed: ${previewLabel(request.url())}: ${request.resourceType()}: ${request.failure()?.errorText ?? "unknown"}`);
+  });
   page.on("response", (response) => {
     const path = new URL(response.url()).pathname;
     if (response.status() >= 400) failures.push(`HTTP ${response.status()}: ${path}`);
@@ -38,7 +43,10 @@ test("real preview gallery and comparison survive a retained-data restart", asyn
       const text = body.toString("utf8");
       expect(/raw_content|source_content|PRIVATE_SYNTHETIC|\/e2e-materials|[A-Za-z]:\\/i.test(text)).toBe(false);
       expect(text.includes(runManifest.materialsRoot)).toBe(false);
-    })().catch(() => { failures.push(`response contract failed: ${path}`); }));
+    })().catch(() => {
+      if (previewRead(response.url()) && response.request().failure()?.errorText === "net::ERR_ABORTED") return;
+      failures.push(`response contract failed: ${path}`);
+    }));
   });
   // Reconcile only these two owned fixtures so this test also works independently
   // of the Done scenario's execution order. Never relink an existing folder.
@@ -59,21 +67,30 @@ test("real preview gallery and comparison survive a retained-data restart", asyn
   await expect(page.getByRole("article", { name: "Publication content", exact: true }).getByText(/^Revision \d+ ·/)).toBeVisible();
   const gallery = page.getByRole("article", { name: "Preview gallery", exact: true });
   await gallery.getByRole("button", { name: "Open preview gallery" }).click();
+  await decoded(gallery.getByRole("img"));
+  await gallery.getByLabel("Preview image").selectOption("front.png");
   await decoded(gallery.getByRole("img", { name: "Preview: front.png" }));
   await gallery.getByLabel("Preview image").selectOption("side.png");
   await decoded(gallery.getByRole("img", { name: "Preview: side.png" }));
-  await page.getByRole("link", { name: "Compare", exact: true }).click();
-  await page.getByRole("combobox", { name: "Left material", exact: true }).selectOption(runManifest.state.valid.id);
-  await page.getByRole("combobox", { name: "Right material", exact: true }).selectOption(runManifest.state.approval.id);
-  const left = page.getByRole("region", { name: "Left material", exact: true }), right = page.getByRole("region", { name: "Right material", exact: true });
-  await decoded(left.getByRole("img")); await decoded(right.getByRole("img"));
-  await right.getByLabel("Preview image").selectOption("side.png"); await decoded(right.getByRole("img", { name: "Preview: side.png" }));
-  expect(await left.getByRole("img").getAttribute("src")).toMatch(/^blob:/);
-  await page.locator(".material-comparison").screenshot({ path: test.info().outputPath("preview-comparison.png") });
+  await page.getByRole("link", { name: "Materials", exact: true }).click();
+  await page.getByRole("button", { name: "Gallery", exact: true }).click();
+  const grid = page.getByRole("list", { name: "Material gallery", exact: true });
+  const tile = grid.locator("li").filter({ has: page.locator(`a[href="/materials/${runManifest.state.valid.id}"]`) });
+  await tile.scrollIntoViewIfNeeded();
+  await decoded(tile.getByRole("img", { name: /SPHERE_1.png/ }), 512, 288);
+  await tile.getByRole("button", { name: /Next preview/ }).click(); await decoded(tile.getByRole("img", { name: /front.png/ }), 512, 288);
+  await page.getByRole("combobox", { name: "Preview size" }).selectOption("small");
+  await decoded(tile.getByRole("img"), 256, 144);
+  await page.getByRole("combobox", { name: "Preview size" }).selectOption("large");
+  await tile.scrollIntoViewIfNeeded(); await decoded(tile.getByRole("img"), 512, 288);
+  await page.locator(".materials-view-toolbar").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath("materials-grid.png") });
   await page.setViewportSize({ width: 390, height: 844 });
-  await decoded(left.getByRole("img")); await decoded(right.getByRole("img"));
+  await tile.scrollIntoViewIfNeeded(); await decoded(tile.getByRole("img"), 512, 288);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.locator(".material-comparison").screenshot({ path: test.info().outputPath("preview-comparison-mobile.png") });
+  await page.screenshot({ path: test.info().outputPath("materials-grid-mobile.png") });
+  await page.getByRole("button", { name: "List", exact: true }).click();
+  await expect(page.getByRole("table")).toBeVisible();
   await Promise.all(reads);
   expect(failures).toEqual([]);
   expect(await page.locator("body").innerText()).not.toMatch(/raw_content|source_content|\/e2e-materials|[A-Za-z]:\\/i);

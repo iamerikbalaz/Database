@@ -46,10 +46,13 @@ def build_material_previews_router(database, client: PreviewClient):
             "ignored_entries": result.ignored_entries, "items": [item.model_dump(mode="json") for item in result.items]}
 
     @router.get("/{material_id}/preview")
-    def image(material_id: UUID, access: AccessDependency, name: Annotated[str, Query(min_length=1, max_length=255)], expected_sha256: Sha256):
+    def image(material_id: UUID, access: AccessDependency, name: Annotated[str, Query(min_length=1, max_length=255)], expected_sha256: Sha256,
+              size: Annotated[int, Query()] = 1024):
+        if size not in {256, 512, 1024}: raise HTTPException(422, {"code": "PREVIEW_SIZE_UNSUPPORTED"})
         try: validate_preview_name(name)
         except (ValueError, UnicodeError): raise HTTPException(422, {"code": "PREVIEW_UNSAFE_NAME"}) from None
-        result = read(material_id, access, lambda folder: client.image(folder, name, expected_sha256))
+        result = read(material_id, access, lambda folder: client.image(folder, name, expected_sha256) if size == 1024
+                      else client.image(folder, name, expected_sha256, size))
         return Response(result.image_bytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff", "Content-Disposition": 'inline; filename="preview.jpg"',
             "X-Preview-Width": str(result.width), "X-Preview-Height": str(result.height), "X-Preview-Sha256": result.sha256})

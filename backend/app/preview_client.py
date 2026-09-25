@@ -19,7 +19,7 @@ ERROR_CODES = frozenset({"PREVIEW_BUSY", "PREVIEW_UNSAFE_ENTRY", "PREVIEW_UNSAFE
     "PREVIEW_PIXEL_LIMIT", "PREVIEW_MULTIFRAME_UNSUPPORTED", "PREVIEW_MODE_UNSUPPORTED", "PREVIEW_OUTPUT_LIMIT",
     "PREVIEW_DECODER_UNAVAILABLE", "PREVIEW_RESOURCE_LIMIT", "PREVIEW_UNREADABLE", "PREVIEW_DECODER_FAILED",
     "PREVIEW_TIMEOUT", "PREVIEW_NOT_FOUND", "PREVIEW_EXTENSION_MISMATCH", "MATERIAL_FOLDER_NOT_FOUND",
-    "MATERIALS_ROOT_UNAVAILABLE", "SECURE_FILESYSTEM_ACCESS_UNAVAILABLE", "UNSAFE_MATERIAL_PATH"})
+    "MATERIALS_ROOT_UNAVAILABLE", "SECURE_FILESYSTEM_ACCESS_UNAVAILABLE", "UNSAFE_MATERIAL_PATH", "PREVIEW_SIZE_UNSUPPORTED"})
 
 
 class PreviewClientError(RuntimeError):
@@ -93,7 +93,7 @@ class PreviewImage(BaseModel):
 
 class PreviewClient(Protocol):
     def listing(self, folder_path: str) -> PreviewListing: ...
-    def image(self, folder_path: str, name: str, expected_sha256: str) -> PreviewImage: ...
+    def image(self, folder_path: str, name: str, expected_sha256: str, size: int = 1024) -> PreviewImage: ...
 
 
 class WorkerPreviewClient:
@@ -138,13 +138,16 @@ class WorkerPreviewClient:
         except (ValueError, TypeError, AttributeError, ArithmeticError):
             raise PreviewClientError() from None
 
-    def image(self, folder_path, name, expected_sha256):
+    def image(self, folder_path, name, expected_sha256, size=1024):
         try:
+            if type(size) is not int or size not in {256, 512, 1024}: raise ValueError()
             validate_preview_name(name)
             if not isinstance(expected_sha256, str) or re.fullmatch(r"[a-f0-9]{64}", expected_sha256) is None: raise ValueError()
             result = PreviewImage.model_validate_json(self._read("/internal/material-preview", {
-                "folder_path": folder_path, "name": name, "expected_sha256": expected_sha256}), strict=True)
-            if result.folder_name != folder_path.rsplit("/", 1)[-1] or result.name != name or result.source_sha256 != expected_sha256:
+                "folder_path": folder_path, "name": name, "expected_sha256": expected_sha256,
+                **({"size": size} if size != 1024 else {})}), strict=True)
+            if (result.folder_name != folder_path.rsplit("/", 1)[-1] or result.name != name or result.source_sha256 != expected_sha256
+                    or max(result.width, result.height) > size):
                 raise ValueError()
             return result
         except PreviewClientError:

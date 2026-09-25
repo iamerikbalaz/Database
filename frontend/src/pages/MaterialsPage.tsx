@@ -1,13 +1,26 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApiClient } from "../api/client";
 import { materialLoadError, type MaterialFilters } from "../api/materialClient";
 import { publicationStatuses, statusLabel, validationStatuses, workflowStatuses } from "../api/materialDto";
 import { useResource } from "../api/useResource";
 import { NavigationLink } from "../components/NavigationLink";
 import { EmptyState, ErrorState, LoadingState } from "../components/PageState";
+import { MaterialsGrid, type GallerySize } from "../components/MaterialsGrid";
+import { GalleryStore } from "../api/galleryStore";
+import { sessionGeneration } from "../auth/sessionTransport";
 
-export function MaterialsPage({ client, navigate }: { client: ApiClient; navigate: (path: string) => void }) {
+const sizes: GallerySize[] = ["small", "medium", "large", "extra-large"];
+function preference(key: string) { try { return localStorage.getItem(key); } catch { return null; } }
+function savePreference(key: string, value: string) { try { localStorage.setItem(key, value); } catch { /* The view also works with browser storage disabled. */ } }
+
+export function MaterialsPage({ client, navigate, initialView }: { client: ApiClient; navigate: (path: string) => void; initialView?: "gallery" }) {
   const [filters, setFilters] = useState<MaterialFilters>({});
+  const [view, setView] = useState<"list" | "gallery">(() => initialView ?? (preference("materials.view") === "gallery" ? "gallery" : "list"));
+  const [size, setSize] = useState<GallerySize>(() => { const saved = preference("materials.gallerySize"); return sizes.find(value => value === saved) ?? "medium"; });
+  const [previewEpoch, setPreviewEpoch] = useState(0);
+  const generation = sessionGeneration();
+  const store = useMemo(() => new GalleryStore(generation), [generation]);
+  useEffect(() => () => store.clear(), [store]);
   const load = useCallback(() => client.getMaterials(filters), [client, filters]);
   const result = useResource(load);
   const loadOptions = useCallback(() => Promise.all([
@@ -39,9 +52,20 @@ export function MaterialsPage({ client, navigate }: { client: ApiClient; navigat
       <button className="button" onClick={() => setFilters({})}>Clear filters</button>
     </div>
     {options.error && <div role="alert" className="form-error">Related names and filter options could not be loaded. IDs are shown instead. <button onClick={options.retry}>Retry related records</button></div>}
+    <div className="materials-view-toolbar">
+      <span className="materials-count" aria-live="polite">{result.data ? `${result.data.length} materials` : "Materials"}</span>
+      <div className="materials-view-controls" role="group" aria-label="Material display">
+        <button className="button" aria-pressed={view === "list"} onClick={() => { setView("list"); savePreference("materials.view", "list"); }}>List</button>
+        <button className="button" aria-pressed={view === "gallery"} onClick={() => { setView("gallery"); savePreference("materials.view", "gallery"); }}>Gallery</button>
+      </div>
+      {view === "gallery" && <><label className="gallery-size-control">Preview size<select value={size} onChange={event => { setSize(event.target.value as GallerySize); savePreference("materials.gallerySize", event.target.value); }}>
+        {sizes.map(value => <option key={value} value={value}>{value === "extra-large" ? "Extra large" : value[0].toUpperCase() + value.slice(1)}</option>)}
+      </select></label><button className="button gallery-refresh" onClick={() => { store.clear(); setPreviewEpoch(value => value + 1); }}>Refresh previews</button></>}
+    </div>
     {result.error ? <ErrorState message={materialLoadError(result.cause)} retry={result.retry} />
       : !result.data ? <LoadingState label="Loading materials…" />
       : !result.data.length ? <EmptyState title="No materials found" description="Clear the filters or add a material to get started." />
+      : view === "gallery" ? <MaterialsGrid key={`${generation}:${previewEpoch}`} materials={result.data} store={store} size={size} navigate={navigate} />
       : <div className="table-card material-table" role="region" aria-label="Material results" tabIndex={0}>
         <table><caption className="sr-only">Materials and production status</caption><thead><tr>
           {["Technical identity", "Material name", "Folder path", "Project", "Published brand", "Category", "Processor", "Workflow", "Validation", "Publication", "Published"].map((label) => <th scope="col" key={label}>{label}</th>)}

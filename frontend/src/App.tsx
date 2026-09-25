@@ -16,7 +16,6 @@ import { restrictedDestination } from "./auth/permissions";
 import { AccountsPage } from "./pages/AccountsPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { CatalogPage } from "./pages/CatalogPage";
-import { ComparePage } from "./pages/ComparePage";
 import { PublicationPage } from "./pages/PublicationPage";
 import { MaterialArchivesPage } from "./pages/MaterialArchivesPage";
 import { LoadingState } from "./components/PageState";
@@ -87,7 +86,7 @@ function App({ client = apiClient, initialPath }: AppProps) {
   else if (path === "/catalog")
     page = <CatalogPage client={client} />;
   else if (path === "/compare")
-    page = <ComparePage client={client} navigate={navigate} />;
+    page = <MaterialsPage client={client} navigate={navigate} initialView="gallery" />;
   else if (path === "/imports")
     page = <ImportsPage client={client} navigate={navigate} />;
   else if (path === "/publication")

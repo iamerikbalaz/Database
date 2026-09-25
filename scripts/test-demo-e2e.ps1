@@ -391,6 +391,10 @@ Path('/e2e-identity-journal/private').mkdir(mode=0o700)
             $previewDirectory = Join-Path (Join-Path $MaterialsRoot ($relativePath -replace '/', [IO.Path]::DirectorySeparatorChar)) 'PREVIEW'
             [void](New-E2eSafeDirectory $RepositoryRoot $RunRoot $previewDirectory)
             Write-E2eSafeBytes $RepositoryRoot $RunRoot (Join-Path $previewDirectory "$variant.png") $previewBytes
+            if ($variant -eq 'front') {
+                $primaryPreview = if ($relativePath -eq $validPath) { 'SPHERE_1.png' } else { 'FABRIC_1.png' }
+                Write-E2eSafeBytes $RepositoryRoot $RunRoot (Join-Path $previewDirectory $primaryPreview) $previewBytes
+            }
         }
     }
     $metadataPath = Join-Path (Join-Path $MaterialsRoot ($validPath -replace '/', [IO.Path]::DirectorySeparatorChar)) 'metadata.txt'

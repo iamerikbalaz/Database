@@ -1,6 +1,88 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-25, historical R: sample)
+## Latest checkpoint (2026-09-25, Materials preview grid)
+
+Resumed from `2a5433a60e9abadaab7273c9a3692d43069857ab`. Fresh remote main and
+the clean original checkout still equal `88a1f99d748d2a0edbb1fce509e13d18bfc03908`.
+The user clarified that visual comparison means a filtered gallery on Materials,
+not a separate two-material comparison tool.
+
+- Replaced Compare navigation/page with a List/Gallery switch under the existing
+  filters. Four regular tile sizes, small captions, direct detail links and corner
+  previous/next PNG controls. FABRIC_1 then SPHERE_1 are preferred; other PNGs use
+  natural filename order. Old `/compare` links open the gallery for compatibility.
+- Thumbnails request 256/512 pixels; detail retains 1024. The worker decoder and
+  backend transport validate the requested bound. Source/hash binding, no-follow
+  filesystem access, decode limits, before/after authorization and no-store
+  responses are preserved. No migrations or dependencies changed.
+- Near-viewport reads, a two-request queue, cancellation, revoked object URLs and
+  a session/page-owned 32 MiB/160-image memory cache bound browser work. Entries
+  expire after 60 seconds; explicit refresh discards them. Display preferences
+  alone persist. See [the loading and freshness contract](preview-gallery.md).
+- Private R: acceptance snapshot: 280 PNGs for 95/100 materials, 94 with a preferred
+  primary filename, four folders without PNG and one without PREVIEW. All 840
+  derived images passed schema/hash checks. No source writes. A private adapter
+  serves the dated snapshot through ordinary authenticated preview routes; it is
+  not production code and does not establish a live NAS worker connection.
+
+Verification:
+
+- Backend preview suite: **40 passed**, 25.76s; two dependency warnings.
+- Actual Linux worker preview suite: **51 passed**, 10.41s, no skips; nonroot,
+  read-only, no network, no host mounts. Inspected image `.Id`:
+  `sha256:d4b9e98bb13e9137ca057948f98f93f3c32e6f3200089254589b2c3201883a3a`.
+- Full frontend: **957 passed**, 31.21s. Two additional transport/cache-budget
+  cases were then added; their final overlapping suites passed **30 tests**, 3.02s.
+  Lint, production build and E2E TypeScript passed. Main bundle 479.47 kB.
+- Initial guarded browser run `338e8177-beaa-4825-8cf3-2091a574eaa4`: **24 fresh
+  passed**, 2.0m; retained **23 passed/1 failed**, 1.4m. The failure was Chromium
+  `net::ERR_NO_BUFFER_SPACE` on an existing Done-detail reload. The gallery passed
+  both phases. No assertion was weakened; a new isolated full rerun follows.
+  Desktop/mobile gallery screenshots were inspected, including arrow/caption
+  placement and no page overflow. Owned cleanup and protected-state checks passed.
+- Snapshot helper's first attempt rejected 272 images because Windows SMB `stat`
+  and `fstat` report different ctime semantics. The private helper now compares
+  identity/size/mtime across APIs and ctime before/after within each API. The full
+  completed read found zero failed files/folders. Linux production checks were
+  not relaxed. Private snapshots, workbook values and credentials are excluded
+  from git.
+
+- Second guarded run `fc0bd075-dc35-4464-b56a-023eba3f34d4`: **23 fresh passed/1
+  failed**, 2.6m, no retained pass. The existing archive scenario timed out while
+  the page showed Loading material lifecycle, after its API state/history checks
+  succeeded. Gallery passed again. This is recorded separately from the first
+  browser buffer error; its cause is unconfirmed. No tests were disabled or
+  given automatic retries. The final isolated whole-suite rerun below passed.
+- Actual R: snapshot browser acceptance: **95 decoded previews + 5 explicit empty
+  states**, four sizes, arrows, filters, cached mode toggle, reload and mobile
+  layout passed with zero non-auth writes. Eight initially visible materials:
+  **1586ms**, 12 near-viewport listings, 338,641 image bytes. All 100 cards scrolled
+  in **8669ms**; cached filtered List/Gallery toggle **123ms**. These local snapshot
+  timings do not measure live NAS performance. Private desktop/mobile screenshots
+  were inspected. The first private browser checker incorrectly counted the
+  expected unauthenticated session 401 as a failure; after allowing that specific
+  pre-login challenge, the unchanged application passed the complete checker.
+
+- Final guarded run `b3e50b9a-6805-473a-9738-efb14bfffd42`: **24 fresh + 24 retained
+  passed**, 2.0m/1.1m, with no concurrent NAS snapshot preparation or other browser
+  test. Existing Done/archive checks and the gallery all passed without assertion
+  changes. This does not establish a cause for the two earlier intermittent
+  failures. Protected regular/demo resources were unchanged; only owned containers
+  and networks were removed, and owned volumes/artifacts were preserved.
+
+Final E2E image `.Id` values:
+
+- backend `sha256:24a8aee33ed40e62b1b0f0a9948458466960ed83056a1390f3a90a3d4a34680e`;
+- frontend `sha256:e71261f1f8211501ad68b95664e4fb0429d87d0df2a3e5272c60f39eddace7bc`;
+- worker `sha256:ddc015271916de3b666e8327e0e490a645367522a84b986c2c32db8b22f2ba51`;
+- packaging `sha256:8fba62ceae73c66f84b0b0eb37d696e507e87c07598d8c3b412ad240553b5af3`.
+
+The existing PostgreSQL/full packaging baseline remains in the previous checkpoint;
+those unrelated broad suites are not claimed as rerun. All validation processes
+have finished; only the private 100-material app and its PostgreSQL are intentionally
+left running. No merge/deployment, source write or original database change occurred.
+
+## Previous checkpoint (2026-09-25, historical R: sample)
 
 Resumed from `44fcb2673fd606290ec660536e06006c894bb2a1`; freshly read remote main
 still equals `88a1f99d748d2a0edbb1fce509e13d18bfc03908`. Original checkout remains
@@ -423,7 +505,7 @@ Implemented and tested within documented contracts:
 - Source inventory, technical reports, technical/content approval, audited reopening
   and invalidation, controlled identity changes and filesystem recovery journals.
 - Catalog/content editing, historical CSV/XLSX import, bounded source discovery,
-  preview gallery/comparison, AI proposal provenance/adoption and scoped services.
+  material preview grid/detail gallery, AI proposal provenance/adoption and scoped services.
 - Publication preflight, immutable export batches and exact CSV; packaging planning,
   conversion/ZIP execution, durable reservations/dispatch/lease/recovery, accepted
   proof and authorized historical downloads.
@@ -449,7 +531,7 @@ The README links the individual feature/operations contracts.
 ## Next work and real blockers
 
 1. Finish the [real R: acceptance](historical-r100-acceptance.md): read-only NAS
-   worker access, actual gallery/texture checks and explicit mapping of remaining
+   worker access, live preview/texture checks and explicit mapping of remaining
    Excel properties. The first 100 catalog records already exist. Implement the
    new name/folder and manufacturer-directory rules before enabling source writes.
 2. Verify actual importer contract, golden material outputs and manual publication

@@ -37,7 +37,7 @@ opakování testů, migrační hranice a konkrétní zbývající vstupy. Kontra
 - [Řízené změny identity a obnova operace](docs/identity-operations.md).
 - [Kategorie, kolekce a verzovaný obsah](docs/catalog-content.md).
 - [Schválení uloženého obsahu](docs/content-approvals.md).
-- [Galerie a porovnání náhledů](docs/preview-gallery.md).
+- [Seznam materiálů a galerie náhledů](docs/preview-gallery.md).
 - [Schválené publikační dávky a uložené CSV](docs/publication-batches.md).
 - [Spouštění, obnova a uzavření ZIP packagingu](docs/packaging-actions.md).
 - [Ověřené stahování historických balíčků](docs/packaging-downloads.md).

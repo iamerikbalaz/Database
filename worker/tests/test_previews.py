@@ -18,6 +18,26 @@ POSIX = pytest.mark.skipif(not secure_filesystem_access_supported(), reason="sec
 IDENTITY = "SAFE_0001_G03"
 
 
+@POSIX
+@pytest.mark.parametrize("size", [256, 512, 1024])
+def test_gallery_thumbnail_sizes_preserve_square_preview_and_original_bytes(tmp_path, size):
+    from PIL import Image
+    path = make(tmp_path, size=(1200, 1200))
+    original = path.read_bytes(); before = path.stat().st_mtime_ns
+    value = render_preview(tmp_path, (IDENTITY,), path.name, hashlib.sha256(original).hexdigest(), size)
+    assert (value["width"], value["height"]) == (size, size)
+    with Image.open(io.BytesIO(base64.b64decode(value["data"]))) as image:
+        image.load(); assert image.size == (size, size)
+    assert path.read_bytes() == original and path.stat().st_mtime_ns == before
+
+
+@pytest.mark.parametrize("size", [0, 1200, 4096, True, "256"])
+def test_bad_thumbnail_sizes_fail_before_any_source_access(monkeypatch, size):
+    monkeypatch.setattr("app.previews._render_preview", lambda *_: pytest.fail("Unexpected source access"))
+    with pytest.raises(PreviewError, match="PREVIEW_SIZE_UNSUPPORTED"):
+        render_preview(Path("unused"), (IDENTITY,), "SPHERE_1.png", "a" * 64, size)
+
+
 def make(root, extension="png", *, size=(1600, 800), mode="RGB"):
     from PIL import Image
     directory = root / IDENTITY / "PREVIEW"; directory.mkdir(parents=True)

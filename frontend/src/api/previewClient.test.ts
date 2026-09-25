@@ -27,6 +27,14 @@ it("loads a bounded same-origin image through the authenticated API with an abor
   expect(fetch).toHaveBeenCalledWith(`/api/materials/${id}/preview?name=Sample+%26+view.png&expected_sha256=${entry.sha256}`,
     expect.objectContaining({ signal, credentials: "same-origin", cache: "no-store", headers: { Accept: "image/jpeg" } }));
 });
+it("requests a smaller thumbnail and rejects a response larger than that size", async () => {
+  const fetch = vi.fn(async () => new Response(bytes, { headers: { ...headers, "X-Preview-Width": "256" } })); vi.stubGlobal("fetch", fetch);
+  const signal = new AbortController().signal;
+  expect((await previewClient.image(id, entry, signal, 256)).width).toBe(256);
+  expect(fetch).toHaveBeenCalledWith(expect.stringContaining("&size=256"), expect.objectContaining({ signal }));
+  fetch.mockImplementation(async () => new Response(bytes, { headers }));
+  await expect(previewClient.image(id, entry, signal, 256)).rejects.toThrow();
+});
 it.each([
   { "Content-Type": "image/svg+xml" }, { "X-Preview-Width": "1025" }, { "X-Preview-Height": "0" }, { "X-Preview-Sha256": "bad" },
   { "Content-Length": "2097153" }, { "Content-Length": "8" }, { "Content-Length": "x" },

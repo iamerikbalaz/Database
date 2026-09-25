@@ -23,8 +23,17 @@ Plný frontend: **951 prošlo**, PostgreSQL: **464 prošlo** (auth 27/27), plný
 worker/packaging: **822 prošlo**, browser: **24 + 24 po restartu**. Podrobný rozsah
 a opravované nálezy uvádí [checkpoint](autonomous-pbr-progress.md).
 
+Galerie je nyní přímo v Materials: přepínání seznam/galerie, čtyři velikosti,
+malé popisky a šipky pro další PNG. Přednost má FABRIC_1.png, potom SPHERE_1.png.
+Samostatné porovnání dvou materiálů bylo odstraněno podle upřesnění uživatele.
+Testovací instance má 280 skutečných PNG v datované lokální kopii pro 95 materiálů;
+zbývajících pět nemá PNG/PREVIEW. To umožňuje vizuální ověření bez zápisu na NAS.
+Prošlo vykreslení všech 95 náhledů, šipky, čtyři velikosti, filtry i mobilní zobrazení.
+Závěrečný browser běh celé aplikace prošel **24 + 24 po restartu**; dvě dřívější
+nestabilní chyby mimo galerii a přesná měření lokální kopie zaznamenává checkpoint.
+
 **Omezení:** další vlastnosti Excelu dosud nejsou převzaté; Docker zatím nemá
-přístup k R: pro skutečnou galerii a kontrolu textur. Přejmenování názvu současně
+živý přístup k R: pro aktualizaci náhledů a kontrolu textur. Přejmenování názvu současně
 se složkou a vytváření fyzických složek u výrobce je další implementační úkol.
 Testovací aplikace proto nemá povolené zápisy do zdrojů. Aktuální stav,
 výběrová pravidla a následující kroky jsou v [přehledu testu](historical-r100-acceptance.md).
@@ -40,7 +49,7 @@ nahrazuje jeho dřívější tvrzení o chybějícím historickém testovacím d
 | Účty a přístup | Session, CSRF, role/přidělení, povinná změna hesla, správa účtů a obnova přístupu, nové auth UI | Skutečné session a PostgreSQL souběhy; produkční HTTPS/reverse proxy není nasazená. |
 | Materiály a zdroje | Propojení složky, Done, inventář, technická kontrola, oddělená schválení, reopen a invalidace | Syntetické soubory a obrázky; reálný NAS se neměnil. |
 | Identita a historie | Řízené změny identity, obnova přerušených filesystemových operací, archivace/obnova, audit a stránkování | Izolované Linux roots, databázové závody a browser restart; produkční úložiště nebylo testovací cíl. |
-| Obsah a import | Kategorie, kolekce, verzovaný obsah, CSV/XLSX import, galerie a porovnání | 100 skutečných historických záznamů a cest v izolované DB; jejich další Excel vlastnosti a NAS galerie se ještě ověřují. |
+| Obsah a import | Kategorie, kolekce, verzovaný obsah, CSV/XLSX import, seznam/galerie s filtry | 100 historických záznamů a cest v izolované DB; datované náhledy 95 materiálů. Další Excel vlastnosti a živé NAS připojení zbývají. |
 | Publikační příprava | Schválené neměnné CSV, ZIP pravidla, lokální packaging, řízený start/obnova/uzavření a stahování podle proof | Skutečný converter, HTTP, Linux recovery a download SHA-256; skutečný online import není ověřen. |
 | Lokální úklid | Ověřený úklid dočasné práce/neúplných kopií, samostatné ADMIN odstranění přijaté kopie, trvalé potvrzení odstranění | Skutečný browser/worker, ztracená odpověď a restart; odstranění je ve výchozím stavu vypnuté. |
 | GCS | Konfigurovatelný transport, řízené staging joby, oprávnění, potvrzený obsah, obnovitelné požadavky a UI | Offline kontrakty; browser používá vypnuté GCS. Žádné skutečné cloudové objekty nebyly zapsané. |
@@ -150,7 +159,7 @@ nepoužívat plošný Docker prune ani hromadné mazání těchto prostředků.
   a obnovy. Vícegigabajtové přenosy a provozní objemy nejsou potvrzené.
 
 **První doporučený další úkol:** připojit izolovaný worker k R: pouze pro čtení
-a ověřit skutečnou galerii a textury u připravené stovky materiálů.
+a ověřit živou aktualizaci náhledů a textury u připravené stovky materiálů.
 3D modely a HDRI zůstávají mimo tento PBR rozsah. Draft PR nebyl vytvořen; GitHub
 CLI ani přímý GitHub konektor nebyly dostupné. Vlastní vzdálená větev slouží jako
 podklad k review.

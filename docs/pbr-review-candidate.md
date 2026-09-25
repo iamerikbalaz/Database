@@ -14,6 +14,7 @@ nejsou potvrzené. Žádný merge do main ani nasazení neproběhlo.
 
 | Oblast | Implementované chování | Hranice ověření |
 | --- | --- | --- |
+| Úvodní přehled | Dashboard s počty dostupných materiálů, filtry stavů, hledáním, stránkováním a odkazy podle role | Jedno čtení současného seznamu; stav Done neznamená schválení/publikaci. Velké produkční objemy nejsou ověřené. |
 | Účty a přístup | Session, CSRF, role/přidělení, povinná změna hesla, správa účtů a obnova přístupu, nové auth UI | Skutečné session a PostgreSQL souběhy; produkční HTTPS/reverse proxy není nasazená. |
 | Materiály a zdroje | Propojení složky, Done, inventář, technická kontrola, oddělená schválení, reopen a invalidace | Syntetické soubory a obrázky; reálný NAS se neměnil. |
 | Identita a historie | Řízené změny identity, obnova přerušených filesystemových operací, archivace/obnova, audit a stránkování | Izolované Linux roots, databázové závody a browser restart; produkční úložiště nebylo testovací cíl. |
@@ -26,21 +27,23 @@ nejsou potvrzené. Žádný merge do main ani nasazení neproběhlo.
 
 ## Poslední ověření
 
-- PostgreSQL: **463 prošlo**, včetně **27/27 auth**, bez přeskočených testů.
-- API odstranění a stahování: **48 prošlo**, včetně dokončení již otevřeného přenosu.
-- Frontend: celá sada **935 prošlo**; po závěrečném oddělení načítání komponenty
-  **64 relevantních testů prošlo**, lint, build a kontrola E2E typů jsou zelené.
-- Skutečný browser: **23/23 na čistých datech + 23/23 po restartu**, bez přeskočení.
-  Šest snímků odstranění na desktopu/mobilu bylo zkontrolováno; na 390 px nic nepřetéká.
+- PostgreSQL, 19. 9.: **463 prošlo**, včetně **27/27 auth**, bez přeskočených testů.
+- API odstranění a stahování, 19. 9.: **48 prošlo**, včetně dokončení již otevřeného přenosu.
+- Frontend, 25. 9.: celá sada **949 prošlo**; po oddělení načítání Dashboardu
+  **53 relevantních testů prošlo**, lint, build a kontrola E2E typů jsou zelené.
+- Skutečný browser, 25. 9.: **24/24 na čistých datech + 24/24 po restartu**, bez přeskočení.
+  Čtyři nové snímky Dashboardu na desktopu/mobilu byly zkontrolovány; na 390 px nic nepřetéká.
 - Linux worker, jeho souběhy, skutečné pády procesů, HTTP a privátní runtime mají
   samostatně doložené běhy v [checkpointu](autonomous-pbr-progress.md). Rozsahy
   testů a opravená chybná očekávání jsou zaznamenané bez slučování do jednoho
   neověřitelného souhrnného počtu.
 
-Závěrečný browser běh: `d2817df1-6b1b-4262-a6b2-9eb6f9c682af`. Kontrola chráněných
+Závěrečný browser běh: `ae824fd0-546e-405c-aa80-75b66baec976`. Kontrola chráněných
 prostředků prošla, vlastní kontejnery a sítě byly odstraněny a volumes zachovány.
-API checkpoint je `1ed3b44`, UI/E2E checkpoint `776a36a`; tento dokument je navazující
-předávací záznam. Pro tuto verzi nyní neběží žádná testovací ani vývojová úloha na pozadí.
+API checkpoint je `1ed3b44`, odstranění lokální kopie/UI je v `776a36a`.
+Na předání `8d86c72` navazuje [Dashboard](production-dashboard.md); jde o frontendovou
+změnu bez nové migrace. Samostatné PostgreSQL/Linux sady se pro ni neopakovaly.
+Pro tuto verzi nyní neběží žádná testovací ani vývojová úloha na pozadí.
 
 ## Doporučené pořadí review
 
@@ -126,6 +129,6 @@ nepoužívat plošný Docker prune ani hromadné mazání těchto prostředků.
 
 **První doporučený další úkol:** předat jeden referenční PBR materiál a konkrétní
 testovací importér, pak ověřit skutečný výstup od CSV/ZIP až po potvrzení importu.
-3D modely a HDRI zůstávají mimo tento PBR rozsah. Draft PR nebyl vytvořen, protože
-v tomto prostředí není dostupný nástroj pro jeho vytvoření; vlastní vzdálená větev
-slouží jako podklad k review.
+3D modely a HDRI zůstávají mimo tento PBR rozsah. Draft PR nebyl vytvořen; GitHub
+CLI ani přímý GitHub konektor nebyly dostupné. Vlastní vzdálená větev slouží jako
+podklad k review.

@@ -7,7 +7,7 @@ describe("REAWOTE frontend", () => {
   it("navigates between primary sections", async () => {
     render(<App client={mockApiClient} initialPath="/dashboard" />);
     expect(
-      screen.getByRole("heading", { name: "Dashboard" }),
+      await screen.findByRole("heading", { name: "Dashboard" }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("link", { name: /Companies/ }));
     expect(

@@ -1,6 +1,63 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-19, verified PBR review candidate)
+## Latest checkpoint (2026-09-25, production dashboard)
+
+Resumed the owned `codex/autonomous-pbr-completion` worktree from clean
+`8d86c72dc3beb12c472416a3746c4694b5bf2b9a`. Remote `origin/main` was read again and
+remains `88a1f99d748d2a0edbb1fce509e13d18bfc03908`. The original checkout is clean.
+The removed experimental auth branch was not inspected or used.
+
+The remaining home-page placeholder is now a [production dashboard](production-dashboard.md):
+one authorized material-list snapshot, recorded status counts, filters/search,
+ten results per page, manual refresh and ordinary workflow links. Processor scope
+comes from the existing server endpoint. Account/role changes discard prior data
+and late responses; failed refreshes hide stale counts. DONE is explicitly separate
+from approval/publication. No new backend API, dependency, migration or external IO
+was introduced. Existing migrations 0001–0025 are unchanged. Browser pagination
+does not solve the existing full-list endpoint's unverified production scaling.
+
+Verification for this increment:
+
+- Before edits: **50 relevant existing frontend tests passed**, 8.37s.
+- Initial focused Dashboard/App/regression run: **36 passed**, 5.26s.
+- Initial lint/build found an unused predicate parameter and a possibly undefined
+  list in a callback; both were corrected without weakening checks.
+- Full frontend suite: **949 passed**, 33.37s, no skips. The initial build then
+  warned about a 502.68 kB main bundle; the dashboard is now loaded separately.
+- Final affected Dashboard/App/auth/regression suite: **53 passed**, 5.30s.
+  Lint, production build and E2E TypeScript check passed. Main chunk is 498.56 kB,
+  dashboard chunk 4.46 kB; no bundle-size warning or raised threshold.
+- Real browser run `ae824fd0-546e-405c-aa80-75b66baec976`: **24 fresh passed**, 1.8m,
+  and **24 retained passed**, 1.0m, no skips. Dashboard assertions compare real
+  API records, processor assignments and counts, navigate to actual details,
+  and recover an intentionally aborted read without any dashboard write.
+- Four dashboard screenshots (fresh/retained, desktop/390px) were inspected;
+  no horizontal overflow. Artifacts remain under the owned run's
+  `.e2e-artifacts/.../playwright-results/{fresh,retained}` directories.
+- Direct Playwright invocation safety check passed with zero POSTs/fixture writes.
+  The runner preserved protected regular/demo state and removed only its own
+  containers/network/run fixtures; owned database/identity/packaging volumes remain.
+
+Inspected E2E image `.Id` values, in component order:
+
+- backend `sha256:61d158e7a15efb11a03c8a4d0a48247476507c44ac1caaba065df6b73d53a411`;
+- frontend `sha256:9e4811c2adfa2a60e38e9a8a26db84985ce9e60195fb6b019e6a702e78093b6a`;
+- worker `sha256:f9ed13388c0d2b58dc727a46cfb1e2d623a118fab2ef13ca4422b720ba048ee9`;
+- packaging `sha256:e97940d101ef8dde218c5e9e796c38302f46ac5dce0f61e9b3201d4935670ec7`.
+
+The standalone PostgreSQL/concurrency and complete Linux worker suites below were
+not rerun for this frontend-only change; their dates and scopes remain explicit.
+The Docker browser run used its actual newly built backend/worker/packaging images.
+No test process remains running. No merge, production enablement or external write
+occurred. GitHub CLI and a direct GitHub connector remain unavailable; no draft PR
+was created. The remote branch and review handoff remain the review artifacts.
+
+The actual importer/golden PBR reference, representative historical inputs, live
+integration targets and deployment/backup decisions remain missing. The next
+acceptance task is still one real reference CSV/manifest/ZIP compared with the
+intended importer. Dashboard work does not remove these blockers.
+
+## Previous checkpoint (2026-09-19, verified PBR review candidate)
 
 Owned worktree: `C:\Database\Database\tmp\autonomous-pbr-completion`.
 Branch: `codex/autonomous-pbr-completion`. Implementation checkpoints:

@@ -1,0 +1,48 @@
+import { expect, test } from "@playwright/test";
+import { signInThroughApi } from "./auth-helpers";
+import { runManifest } from "./run-manifest";
+
+test("dashboard shows the current server records with filtering, refresh and responsive navigation", async ({ page }) => {
+  await signInThroughApi(page);
+  const response = await page.request.get("/api/materials");
+  expect(response.status()).toBe(200);
+  const materials: { id: string; technical_identity: string; material_name: string; workflow_status: string; validation_status: string }[] = await response.json();
+  const selected = materials.find((item) => item.id === runManifest.state.missing.id)!;
+  expect(selected).toBeTruthy();
+  const writes: string[] = [];
+  page.on("request", (request) => { if (!["GET", "HEAD"].includes(request.method())) writes.push(request.method()); });
+  await page.goto("/");
+  const dashboard = page.getByRole("region", { name: "Dashboard", exact: true });
+  const all = dashboard.getByRole("button", { name: `All materials ${materials.length}`, exact: true });
+  await expect(all).toBeVisible();
+  const done = materials.filter((item) => item.workflow_status === "DONE").length;
+  await expect(dashboard.getByRole("button", { name: `Done ${done}`, exact: true })).toBeVisible();
+  const findings = materials.filter((item) => ["WARNING", "ERROR", "METADATA_MISSING"].includes(item.validation_status)).length;
+  await expect(dashboard.getByRole("button", { name: `Validation findings ${findings}`, exact: true })).toBeVisible();
+  await dashboard.getByRole("button", { name: `Done ${done}`, exact: true }).click();
+  await expect(dashboard.getByRole("button", { name: `Done ${done}`, exact: true })).toHaveAttribute("aria-pressed", "true");
+  await all.click();
+  await dashboard.getByRole("searchbox", { name: "Find a material" }).fill(selected.technical_identity.toLowerCase());
+  await expect(dashboard.getByText("Showing 1–1 of 1", { exact: true })).toBeVisible();
+  const item = dashboard.getByRole("link", { name: selected.technical_identity, exact: true });
+  await expect(item).toHaveAttribute("href", `/materials/${selected.id}`);
+  await expect(dashboard.getByText(/Done does not mean approved or published/)).toBeVisible();
+  // Fail only the browser's next read. The backend and persisted data stay real.
+  await page.route("**/api/materials", (route) => route.abort());
+  await dashboard.getByRole("button", { name: "Refresh overview" }).click();
+  await expect(dashboard.getByRole("alert")).toBeVisible();
+  await expect(all).toHaveCount(0);
+  await page.unroute("**/api/materials");
+  await dashboard.getByRole("button", { name: "Try again" }).click();
+  await expect(all).toBeVisible();
+  await expect(item).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await dashboard.screenshot({ path: test.info().outputPath("dashboard-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await dashboard.screenshot({ path: test.info().outputPath("dashboard-mobile.png") });
+  expect(writes).toEqual([]);
+  await item.click();
+  await expect(page).toHaveURL(new RegExp(`/materials/${selected.id}$`));
+  await expect(page.getByRole("heading", { name: selected.material_name, exact: true })).toBeVisible();
+});

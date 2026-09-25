@@ -77,6 +77,8 @@ the NAS or claiming files are unchanged since that inventory. The implemented
 [packaging actions](packaging-actions.md) freshly revalidate source bytes and current
 approvals before execution and acceptance, then bind the proof to this batch.
 [GCS staging jobs](gcs-upload-jobs.md) add reviewed plans, ownership, guarded transfer
-and immutable receipts. Live importer verification, online-import confirmation and
-the retained-artifact cleanup lifecycle remain separate work. CSV preparation
-alone must never set `is_published` or report an upload.
+and immutable receipts. [Explicit local-copy retirement](packaging-retirement-api.md)
+implements proof-bound removal and recovery with a disabled-by-default ADMIN
+control. It does not confirm an online import or run automatically after one.
+Live importer verification and online-import confirmation remain separate work.
+CSV preparation alone must never set `is_published` or report an upload.

@@ -32,7 +32,8 @@ Writing is bounded before each write; reading limits central-directory memory
 and streams expanded files in chunks. Defaults are 8 GiB compressed, 16 GiB total
 expanded and 600 seconds. The enclosing runtime must still provide private storage
 and process limits. The caller owns output cleanup after failure and durable
-artifact retention after success. Full resolution assembly remains the next step.
+artifact retention after success. The implemented [resolution assembly](packaging-assembly.md)
+uses this writer inside the separate packaging runtime.
 
 The implementation uses the standard [Python 3.13 ZIP API](https://docs.python.org/3.13/library/zipfile.html).
 Tests cover streaming reads/writes, actual CRC/hash checks, both policies, explicit

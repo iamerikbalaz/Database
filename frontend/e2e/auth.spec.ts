@@ -101,6 +101,14 @@ test("forced password change, persisted login, role enforcement and logout use r
   const body = await auth.json();
   expect(body.must_change_password).toBe(false);
   expect(body.user.role).toBe("PROCESSOR");
+  const assigned = await (await page.request.get("/api/materials")).json();
+  expect(assigned.every((item: { assigned_processor_id: string }) => item.assigned_processor_id === body.user.id)).toBe(true);
+  await page.goto("/dashboard");
+  const dashboard = page.getByRole("region", { name: "Dashboard", exact: true });
+  await expect(dashboard.getByRole("button", { name: `All materials ${assigned.length}`, exact: true })).toBeVisible();
+  await expect(dashboard.getByText(/Your assigned materials/)).toBeVisible();
+  await expect(dashboard.getByRole("link", { name: "Add material", exact: true })).toHaveCount(0);
+  await expect(dashboard.getByRole("link", { name: "Prepare publication", exact: true })).toHaveCount(0);
   expect((await page.request.post("/api/companies", { headers: { Origin: runManifest.frontendUrl, "X-CSRF-Token": body.csrf_token }, data: { name: "Not allowed" } })).status()).toBe(403);
   expect((await page.request.post("/api/companies", { data: { name: "No CSRF" } })).status()).toBe(403);
   expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(0);

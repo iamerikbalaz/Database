@@ -4,7 +4,7 @@ import { MaterialDetailPage } from "./pages/MaterialDetailPage";
 import { MaterialEditorPage } from "./pages/MaterialEditorPage";
 import { isMaterialId } from "./api/materialDto";
 import { BrandDetailPage } from "./pages/BrandDetailPage";
-import { useEffect, useState, useRef } from "react";
+import { lazy, Suspense, useEffect, useState, useRef } from "react";
 import { apiClient, type ApiClient } from "./api/client";
 import { AppShell } from "./components/AppShell";
 import { CompanyDetailPage } from "./pages/CompanyDetailPage";
@@ -20,6 +20,9 @@ import { ComparePage } from "./pages/ComparePage";
 import { ImportsPage } from "./pages/ImportsPage";
 import { PublicationPage } from "./pages/PublicationPage";
 import { MaterialArchivesPage } from "./pages/MaterialArchivesPage";
+import { LoadingState } from "./components/PageState";
+
+const DashboardPage = lazy(() => import("./pages/DashboardPage").then((module) => ({ default: module.DashboardPage })));
 
 interface AppProps {
   client?: ApiClient;
@@ -181,12 +184,7 @@ function App({ client = apiClient, initialPath }: AppProps) {
       />
     );
   else if (path === "/" || path === "/dashboard")
-    page = (
-      <PlaceholderPage
-        title="Dashboard"
-        description="Your workspace overview is coming next."
-      />
-    );
+    page = <Suspense fallback={<LoadingState label="Loading overview…" />}><DashboardPage client={client} navigate={navigate} /></Suspense>;
   else if (path === "/companies")
     page = <CompaniesPage client={client} navigate={navigate} />;
   else if (companyMatch)

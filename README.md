@@ -31,6 +31,7 @@ Aktuální funkce a skutečně provedené testy shrnuje
 [Přehled verze k review](docs/pbr-review-candidate.md) uvádí rozsah, bezpečné
 opakování testů, migrační hranice a konkrétní zbývající vstupy. Kontrakty:
 
+- [Úvodní přehled materiálů a stavů](docs/production-dashboard.md).
 - [Inventář a znovuotevření materiálu](docs/source-inventory.md).
 - [Technická kontrola a schválení](docs/material-approvals.md).
 - [Řízené změny identity a obnova operace](docs/identity-operations.md).

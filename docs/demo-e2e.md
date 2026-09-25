@@ -16,6 +16,8 @@ publikované značky, projekt, procesora a osm materiálů a v Chromium provede:
 - rozměr nepodporovaný přesností databáze jako neblokující warning;
 - odmítnutí anonymních požadavků, vynucenou změnu hesla, skutečnou session,
   serverové oprávnění zpracovatele, CSRF a odhlášení s revokací;
+- Dashboard s počty podle skutečného API, přidělením zpracovatele, filtrováním,
+  obnovou po chybě čtení, odkazy na materiály a mobilním rozvržením;
 - administrátorské vytvoření účtu, vydání a reset přístupu, změnu role,
   deaktivaci a revokaci sessions přes skutečné UI;
 - uložení inventáře, invalidaci po změně materiálu, reopen s důvodem,

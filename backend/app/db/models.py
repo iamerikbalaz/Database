@@ -448,6 +448,7 @@ class Project(TimestampMixin, Base):
 class PBRMaterial(TimestampMixin, Base):
     __tablename__ = "pbr_materials"
     __table_args__ = (
+        CheckConstraint("checked_status IN ('no', 'OK', 'Correction')", name="ck_pbr_materials_checked_status"),
         CheckConstraint(
             "sequence_number BETWEEN 1 AND 9999",
             name="ck_pbr_materials_sequence_number_range",
@@ -499,6 +500,8 @@ class PBRMaterial(TimestampMixin, Base):
     )
     technical_identity: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
     folder_path: Mapped[str | None] = mapped_column(String(2048), unique=True)
+    checked_status: Mapped[str] = mapped_column(String(16), nullable=False, default="no", server_default=text("'no'"), index=True)
+    note: Mapped[str | None] = mapped_column(Text)
     workflow_status: Mapped[str] = mapped_column(
         String(32),
         nullable=False,

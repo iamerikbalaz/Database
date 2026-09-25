@@ -1,3 +1,4 @@
+import { categoryLabel, materialCategories } from "../data/materialCategories";
 import { useCallback } from "react";
 import type { ApiClient } from "../api/client";
 import { materialLoadError } from "../api/materialClient";
@@ -38,7 +39,7 @@ export function MaterialEditorPage({ id, client, navigate, onSaved }: {
       ...(!id ? [{ name: "publishedBrandId", apiName: "published_brand_id", label: "Published brand", type: "select" as const, required: true,
         options: brands.map((b) => ({ value: b.id, label: b.name })) }] : []),
       { name: "materialName", apiName: "material_name", label: "Material name", required: true, maxLength: 255 },
-      { name: "mainCategoryCode", apiName: "main_category_code", label: "Main category", required: true, maxLength: 100, pattern: /^[A-Za-z0-9-]+$/ },
+      { name: "mainCategoryCode", apiName: "main_category_code", label: "Main category", type: "select", required: true, options: [...materialCategories.map(c => ({ value: c.code, label: categoryLabel(c.code) })), ...(material && !materialCategories.some(c => c.code === material.mainCategoryCode) ? [{ value: material.mainCategoryCode, label: categoryLabel(material.mainCategoryCode) }] : [])] },
       { name: "assignedProcessorId", apiName: "assigned_processor_id", label: "Processor", type: "select", required: true, options: processorOptions },
     ];
     const definition: FormDefinition = {

@@ -7,6 +7,7 @@ import { materialBrand } from "../test/materialFixtures";
 afterEach(() => vi.unstubAllGlobals());
 it("validates and explicitly maps all material and user fields", () => {
   expect(materialFromDto(parseMaterial(materialDto))).toEqual({
+    checkedStatus: "no", note: null,
     id: materialDto.id, projectId: materialDto.project_id, publishedBrandId: materialDto.published_brand_id,
     assignedProcessorId: materialDto.assigned_processor_id, materialName: "Crystal surface", mainCategoryCode: "G03",
     technicalIdentity: "LASVIT_9999_G03", sequenceNumber: 9999, folderPath: null, workflowStatus: "IN_PROGRESS",

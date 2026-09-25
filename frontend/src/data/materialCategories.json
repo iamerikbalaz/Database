@@ -1,0 +1,452 @@
+[
+  {
+    "code": "A",
+    "name": "Artificial",
+    "parent_code": null,
+    "value": "Artificial"
+  },
+  {
+    "code": "A01",
+    "name": "Vinyl floors",
+    "parent_code": "A",
+    "value": "Artificial / Vinyl floors"
+  },
+  {
+    "code": "A02",
+    "name": "Laminate",
+    "parent_code": "A",
+    "value": "Artificial / Laminate"
+  },
+  {
+    "code": "A03",
+    "name": "Plastics",
+    "parent_code": "A",
+    "value": "Artificial / Plastics"
+  },
+  {
+    "code": "B",
+    "name": "Tiles",
+    "parent_code": null,
+    "value": "Tiles"
+  },
+  {
+    "code": "B01",
+    "name": "Rectangular",
+    "parent_code": "B",
+    "value": "Tiles / Rectangular"
+  },
+  {
+    "code": "B03",
+    "name": "Patterns",
+    "parent_code": "B",
+    "value": "Tiles / Patterns"
+  },
+  {
+    "code": "B02",
+    "name": "Terazzo",
+    "parent_code": "B",
+    "value": "Tiles / Terazzo"
+  },
+  {
+    "code": "B04",
+    "name": "Mosaics",
+    "parent_code": "B",
+    "value": "Tiles / Mosaics"
+  },
+  {
+    "code": "C",
+    "name": "Coatings",
+    "parent_code": null,
+    "value": "Coatings"
+  },
+  {
+    "code": "D",
+    "name": "Concrete",
+    "parent_code": null,
+    "value": "Concrete"
+  },
+  {
+    "code": "D01",
+    "name": "Bare",
+    "parent_code": "D",
+    "value": "Concrete / Bare"
+  },
+  {
+    "code": "D02",
+    "name": "Panels",
+    "parent_code": "D",
+    "value": "Concrete / Panels"
+  },
+  {
+    "code": "D03",
+    "name": "Pavement",
+    "parent_code": "D",
+    "value": "Concrete / Pavement"
+  },
+  {
+    "code": "D04",
+    "name": "Rough",
+    "parent_code": "D",
+    "value": "Concrete / Rough"
+  },
+  {
+    "code": "E",
+    "name": "Constructions",
+    "parent_code": null,
+    "value": "Constructions"
+  },
+  {
+    "code": "E01",
+    "name": "Corrugated sheets",
+    "parent_code": "E",
+    "value": "Constructions / Corrugated sheets"
+  },
+  {
+    "code": "E02",
+    "name": "Acoustic panels",
+    "parent_code": "E",
+    "value": "Constructions / Acoustic panels"
+  },
+  {
+    "code": "E03",
+    "name": "Fences",
+    "parent_code": "E",
+    "value": "Constructions / Fences"
+  },
+  {
+    "code": "E04",
+    "name": "Roads-Sidewalks",
+    "parent_code": "E",
+    "value": "Constructions / Roads-Sidewalks"
+  },
+  {
+    "code": "E05",
+    "name": "Nets",
+    "parent_code": "E",
+    "value": "Constructions / Nets"
+  },
+  {
+    "code": "F",
+    "name": "Fabrics",
+    "parent_code": null,
+    "value": "Fabrics"
+  },
+  {
+    "code": "F01",
+    "name": "Carpets",
+    "parent_code": "F",
+    "value": "Fabrics / Carpets"
+  },
+  {
+    "code": "F02",
+    "name": "Curtains",
+    "parent_code": "F",
+    "value": "Fabrics / Curtains"
+  },
+  {
+    "code": "F03",
+    "name": "Upholstery",
+    "parent_code": "F",
+    "value": "Fabrics / Upholstery"
+  },
+  {
+    "code": "F04",
+    "name": "Blinds",
+    "parent_code": "F",
+    "value": "Fabrics / Blinds"
+  },
+  {
+    "code": "F06",
+    "name": "Boucle",
+    "parent_code": "F",
+    "value": "Fabrics / Boucle"
+  },
+  {
+    "code": "F07",
+    "name": "Lace",
+    "parent_code": "F",
+    "value": "Fabrics / Lace"
+  },
+  {
+    "code": "F08",
+    "name": "Sheers",
+    "parent_code": "F",
+    "value": "Fabrics / Sheers"
+  },
+  {
+    "code": "F09",
+    "name": "Satin",
+    "parent_code": "F",
+    "value": "Fabrics / Satin"
+  },
+  {
+    "code": "F10",
+    "name": "Velour",
+    "parent_code": "F",
+    "value": "Fabrics / Velour"
+  },
+  {
+    "code": "F11",
+    "name": "Velvet",
+    "parent_code": "F",
+    "value": "Fabrics / Velvet"
+  },
+  {
+    "code": "F12",
+    "name": "Wool",
+    "parent_code": "F",
+    "value": "Fabrics / Wool"
+  },
+  {
+    "code": "G",
+    "name": "Facade",
+    "parent_code": null,
+    "value": "Facade"
+  },
+  {
+    "code": "G02",
+    "name": "Roof",
+    "parent_code": "G",
+    "value": "Facade / Roof"
+  },
+  {
+    "code": "G03",
+    "name": "Tiles",
+    "parent_code": "G",
+    "value": "Facade / Tiles"
+  },
+  {
+    "code": "G01",
+    "name": "Bricks",
+    "parent_code": "G",
+    "value": "Facade / Bricks"
+  },
+  {
+    "code": "H",
+    "name": "Glass",
+    "parent_code": null,
+    "value": "Glass"
+  },
+  {
+    "code": "I",
+    "name": "Gravel",
+    "parent_code": null,
+    "value": "Gravel"
+  },
+  {
+    "code": "J",
+    "name": "Leather",
+    "parent_code": null,
+    "value": "Leather"
+  },
+  {
+    "code": "K",
+    "name": "Metal",
+    "parent_code": null,
+    "value": "Metal"
+  },
+  {
+    "code": "K01",
+    "name": "Perforated",
+    "parent_code": "K",
+    "value": "Metal / Perforated"
+  },
+  {
+    "code": "K02",
+    "name": "Rust",
+    "parent_code": "K",
+    "value": "Metal / Rust"
+  },
+  {
+    "code": "K03",
+    "name": "Tiles",
+    "parent_code": "K",
+    "value": "Metal / Tiles"
+  },
+  {
+    "code": "K04",
+    "name": "Generic",
+    "parent_code": "K",
+    "value": "Metal / Generic"
+  },
+  {
+    "code": "L",
+    "name": "Miscellaneous",
+    "parent_code": null,
+    "value": "Miscellaneous"
+  },
+  {
+    "code": "L01",
+    "name": "Decals",
+    "parent_code": "L",
+    "value": "Miscellaneous / Decals"
+  },
+  {
+    "code": "M",
+    "name": "Natural",
+    "parent_code": null,
+    "value": "Natural"
+  },
+  {
+    "code": "M01",
+    "name": "Grass",
+    "parent_code": "M",
+    "value": "Natural / Grass"
+  },
+  {
+    "code": "M02",
+    "name": "Ground",
+    "parent_code": "M",
+    "value": "Natural / Ground"
+  },
+  {
+    "code": "M03",
+    "name": "Snow",
+    "parent_code": "M",
+    "value": "Natural / Snow"
+  },
+  {
+    "code": "N",
+    "name": "Plasters",
+    "parent_code": null,
+    "value": "Plasters"
+  },
+  {
+    "code": "N01",
+    "name": "Facade",
+    "parent_code": "N",
+    "value": "Plasters / Facade"
+  },
+  {
+    "code": "N02",
+    "name": "Decorative",
+    "parent_code": "N",
+    "value": "Plasters / Decorative"
+  },
+  {
+    "code": "N03",
+    "name": "Metallic",
+    "parent_code": "N",
+    "value": "Plasters / Metallic"
+  },
+  {
+    "code": "N04",
+    "name": "Brushed",
+    "parent_code": "N",
+    "value": "Plasters / Brushed"
+  },
+  {
+    "code": "N05",
+    "name": "Natural",
+    "parent_code": "N",
+    "value": "Plasters / Natural"
+  },
+  {
+    "code": "O",
+    "name": "Stones",
+    "parent_code": null,
+    "value": "Stones"
+  },
+  {
+    "code": "O01",
+    "name": "Artificial",
+    "parent_code": "O",
+    "value": "Stones / Artificial"
+  },
+  {
+    "code": "O02",
+    "name": "Natural",
+    "parent_code": "O",
+    "value": "Stones / Natural"
+  },
+  {
+    "code": "O03",
+    "name": "Pavement",
+    "parent_code": "O",
+    "value": "Stones / Pavement"
+  },
+  {
+    "code": "O04",
+    "name": "Wall",
+    "parent_code": "O",
+    "value": "Stones / Wall"
+  },
+  {
+    "code": "O05",
+    "name": "Gabions",
+    "parent_code": "O",
+    "value": "Stones / Gabions"
+  },
+  {
+    "code": "O06",
+    "name": "Onyx",
+    "parent_code": "O",
+    "value": "Stones / Onyx"
+  },
+  {
+    "code": "O07",
+    "name": "Travertine",
+    "parent_code": "O",
+    "value": "Stones / Travertine"
+  },
+  {
+    "code": "O09",
+    "name": "Marble",
+    "parent_code": "O",
+    "value": "Stones / Marble"
+  },
+  {
+    "code": "P",
+    "name": "Wallpapers",
+    "parent_code": null,
+    "value": "Wallpapers"
+  },
+  {
+    "code": "Q",
+    "name": "Wood",
+    "parent_code": null,
+    "value": "Wood"
+  },
+  {
+    "code": "Q01",
+    "name": "Floor",
+    "parent_code": "Q",
+    "value": "Wood / Floor"
+  },
+  {
+    "code": "Q02",
+    "name": "Planks",
+    "parent_code": "Q",
+    "value": "Wood / Planks"
+  },
+  {
+    "code": "Q03",
+    "name": "Others",
+    "parent_code": "Q",
+    "value": "Wood / Others"
+  },
+  {
+    "code": "Q04",
+    "name": "Veneers",
+    "parent_code": "Q",
+    "value": "Wood / Veneers"
+  },
+  {
+    "code": "Q05",
+    "name": "Rattan",
+    "parent_code": "Q",
+    "value": "Wood / Rattan"
+  },
+  {
+    "code": "Q06",
+    "name": "Edges",
+    "parent_code": "Q",
+    "value": "Wood / Edges"
+  },
+  {
+    "code": "R",
+    "name": "Free",
+    "parent_code": null,
+    "value": "Free"
+  }
+]

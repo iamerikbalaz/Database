@@ -48,6 +48,7 @@ from app.api.notion_adoption import build_notion_adoption_router
 from app.api.resource_history import build_resource_history_router
 from app.api.account_security import build_account_security_history_router
 from app.api.material_archives import build_material_archives_router
+from app.api.material_table import build_material_table_router
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -91,6 +92,7 @@ def create_app(
     application.include_router(build_account_router(app_database, app_settings))
     application.include_router(build_health_router(app_database))
     application.include_router(build_resources_router(app_database))
+    application.include_router(build_material_table_router(app_database, app_worker_client))
     application.include_router(build_catalog_router(app_database))
     application.include_router(build_material_imports_router(app_database))
     application.include_router(build_ai_content_router(app_database))

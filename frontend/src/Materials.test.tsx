@@ -59,13 +59,13 @@ function backend(options: {
   return { writes, queries, fetchMock };
 }
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
-const change = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+const change = (label: string, value: string) => fireEvent.change((screen.queryByRole("search", { name: "Material filters" }) ? within(screen.getByRole("search", { name: "Material filters" })) : screen).getByLabelText(label, { exact: true }), { target: { value } });
 async function fillCreate() {
   await screen.findByRole("form", { name: "Add material" });
   change("Project *", materialProject.id);
   change("Published brand *", materialBrand.id);
   change("Material name *", "  New surface  ");
-  change("Main category *", "g04");
+  change("Main category *", "G02");
   change("Processor *", processorDto.id);
 }
 const submit = () => fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -78,7 +78,7 @@ it("loads the material list, resolves names and opens detail via a native link",
   expect(link).toHaveAttribute("href", "/materials/" + materialDto.id);
   await waitFor(() => expect(within(screen.getByRole("table")).getByText(processorDto.display_name)).toBeInTheDocument());
   const table = within(screen.getByRole("table"));
-  for (const text of [materialDto.material_name, materialProject.name, materialBrand.name, "G03", "in progress", "not checked", "not published", "No"])
+  for (const text of [materialDto.material_name, materialProject.name, materialBrand.name, "G03 · Facade / Tiles", "In progress", "no"])
     expect(table.getByText(text)).toBeInTheDocument();
   link.focus();
   expect(link).toHaveFocus();
@@ -114,8 +114,8 @@ it.each([false, true])("handles API/network list failure (offline=%s) and retrie
 it.each([
   ["Search materials", "search", "Crystal"], ["Project", "project_id", materialProject.id],
   ["Published brand", "published_brand_id", materialBrand.id], ["Processor", "assigned_processor_id", processorDto.id],
-  ["Main category", "main_category_code", "G03"], ["Workflow status", "workflow_status", "IN_PROGRESS"],
-  ["Validation status", "validation_status", "NOT_CHECKED"], ["Publication status", "publication_status", "NOT_PUBLISHED"],
+  ["Main category", "main_category_code", "G03"], ["Status", "workflow_status", "IN_PROGRESS"],
+  ["Checked", "checked_status", "no"],
   ["Published", "is_published", "false"],
 ])("sends %s as the exact API query parameter", async (label, key, value) => {
   const { queries } = backend(); render(<App initialPath="/materials" />);
@@ -127,8 +127,8 @@ it.each([
 it("combines all filters, honors an empty response and clears filters", async () => {
   const { queries } = backend(); render(<App initialPath="/materials" />);
   await screen.findByRole("option", { name: processorDto.display_name });
-  for (const [label, value] of [["Search materials", "missing"], ["Project", materialProject.id], ["Published brand", materialBrand.id], ["Processor", processorDto.id], ["Main category", "G03"], ["Workflow status", "DONE"], ["Validation status", "VALID"], ["Publication status", "PUBLISHED_CURRENT"], ["Published", "true"]]) change(label, value);
-  await waitFor(() => expect(queries.at(-1)?.size).toBe(9));
+  for (const [label, value] of [["Search materials", "missing"], ["Project", materialProject.id], ["Published brand", materialBrand.id], ["Processor", processorDto.id], ["Main category", "G03"], ["Status", "DONE"], ["Checked", "OK"], ["Published", "true"]]) change(label, value);
+  await waitFor(() => expect(queries.at(-1)?.size).toBe(8));
   expect(await screen.findByText("No materials found")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
   await waitFor(() => expect(queries.at(-1)?.size).toBe(0));
@@ -137,7 +137,7 @@ it("combines all filters, honors an empty response and clears filters", async ()
 it("loads full detail including UUID, four-digit number, relations, path and states", async () => {
   backend(); render(<App initialPath={"/materials/" + materialDto.id} />);
   await screen.findByRole("heading", { name: materialDto.material_name });
-  for (const text of [materialDto.id, "9999", "G03", "in progress", "not checked", "not published", processorDto.display_name]) expect(screen.getByText(text)).toBeInTheDocument();
+  for (const text of [materialDto.id, "9999", "G03 · Facade / Tiles", "in progress", "no", processorDto.display_name]) expect(screen.getByText(text)).toBeInTheDocument();
   expect(screen.getAllByText("Not linked")).toHaveLength(2);
   expect(screen.getByRole("link", { name: materialProject.name })).toHaveAttribute("href", "/projects/" + materialProject.id);
   expect(screen.getByRole("link", { name: materialBrand.name })).toHaveAttribute("href", "/brands/" + materialBrand.id);
@@ -174,7 +174,7 @@ it("creates with independent owners, active processors, first-field focus and ex
   expect(fetchMock).toHaveBeenCalledWith("/api/internal-users?is_active=true", expect.any(Object));
   expect(writes).toEqual([{ path: "/api/materials", method: "POST", body: {
     project_id: materialProject.id, published_brand_id: materialBrand.id, material_name: "New surface",
-    main_category_code: "G04", assigned_processor_id: processorDto.id,
+    main_category_code: "G02", assigned_processor_id: processorDto.id,
   } }]);
 });
 it("edits with a minimal PATCH and shows managed fields read-only", async () => {
@@ -189,10 +189,10 @@ it("edits with a minimal PATCH and shows managed fields read-only", async () => 
 it("explains category conflict as a future rename and preserves input", async () => {
   backend({ write: async () => response({ detail: "main_category_code cannot be changed while folder_path is set." }, 409) });
   render(<App initialPath={"/materials/" + materialDto.id + "/edit"} />);
-  await screen.findByLabelText("Main category *"); change("Main category *", "G04"); submit();
+  await screen.findByLabelText("Main category *"); change("Main category *", "G02"); submit();
   expect(await screen.findByRole("alert")).toHaveTextContent("future rename operation");
   expect(screen.getByRole("alert")).toHaveFocus();
-  expect(screen.getByLabelText("Main category *")).toHaveValue("G04");
+  expect(screen.getByLabelText("Main category *")).toHaveValue("G02");
   expect(screen.getByLabelText("Main category *")).toHaveAttribute("aria-describedby", "field-mainCategoryCode-error");
 });
 it("maps 422 to labelled fields and focuses summary", async () => {

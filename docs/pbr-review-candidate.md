@@ -10,6 +10,20 @@ Jde o verzi pro review a ověření konkrétních PBR kontraktů v izolovaném p
 Produkční nasazení, živé integrace a správnost vůči skutečnému online importéru
 nejsou potvrzené. Žádný merge do main ani nasazení neproběhlo.
 
+## Nová verze: editovatelný seznam materiálů (25. 9.)
+
+Materials nyní obsahuje miniatury, přímé editace v řádku, volbu a šířky sloupců,
+výběr všech vyfiltrovaných záznamů a hromadné změny s výsledkem každé položky.
+Jednotný Status doplňuje Checked (no / OK / Correction), binární Published a Note.
+Kategorie mají názvy a kódy z dodaného Excelu. Podrobná pravidla a hranice popisuje
+[nový přehled tabulky](material-table.md); výsledky testů uvádí nejnovější checkpoint.
+
+Testovací databáze se 100 materiály byla před migrací zálohována. Kontrola otisků
+potvrdila zachování všech dřívějších řádků včetně uživatelských změn. Katalog má
+75 dodaných kategorií a jednu původní položku. Soubory na NAS se neměnily.
+Na R100 zatím chybí živý worker: běžné databázové editace fungují, ale přechod
+Done a plán změny identity propojené složky stále vyžadují jeho bezpečné připojení.
+
 ## Doplnění: test 100 skutečných materiálů (25. 9.)
 
 Rozhraní nově používá [dodanou vizuální identitu REAWOTE](brand-interface.md):

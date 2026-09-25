@@ -212,8 +212,7 @@ def test_postgresql_lifecycle_prior_schema_preserved_and_populated_downgrade_ref
         fixture = _review_pg_case(url); case = next(fixture)
         try:
             with case.database.session() as session:
-                material = session.get(PBRMaterial, case.material.id)
-                original = (material.technical_identity, material.sequence_number, material.folder_path, material.assigned_processor_id)
+                original = tuple(session.execute(text("SELECT technical_identity, sequence_number, folder_path, assigned_processor_id FROM pbr_materials WHERE id=:id"), {"id": case.material.id}).one())
             command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
             with case.database.session() as session:
                 assert not list(session.scalars(select(MaterialLifecycleEvent)))

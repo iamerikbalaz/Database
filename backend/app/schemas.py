@@ -287,6 +287,8 @@ class PBRMaterialUpdate(ApiSchema):
 
 
 class PBRMaterialRead(PBRMaterialFields):
+    checked_status: Literal["no", "OK", "Correction"] = "no"
+    note: str | None = None
     project_id: UUID | None
     id: UUID
     sequence_number: int = Field(ge=1, le=9999)
@@ -301,6 +303,7 @@ class PBRMaterialRead(PBRMaterialFields):
 
 
 class PBRMaterialListFilters(ApiSchema):
+    checked_status: Literal["no", "OK", "Correction"] | None = None
     project_id: UUID | None = None
     published_brand_id: UUID | None = None
     assigned_processor_id: UUID | None = None

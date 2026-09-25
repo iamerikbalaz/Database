@@ -1302,3 +1302,50 @@ a.button {
   *, *::before, *::after { transition: none !important; }
   .spinner { animation-duration: 1.5s; }
 }
+
+/* Material database table: compact cells, pinned identity and local display preferences. */
+.material-table-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin:16px 0; }
+.material-table--editable { max-height:70vh; overflow:auto; isolation:isolate; }
+.material-table--editable table { table-layout:fixed; border-collapse:separate; border-spacing:0; min-width:0; }
+.material-table--editable th, .material-table--editable td { padding:8px; border-bottom:1px solid var(--border, #dde0ed); overflow-wrap:anywhere; vertical-align:middle; }
+.material-table--editable thead th { position:sticky; top:0; z-index:4; background:#f2f3f9; font-size:11px; }
+.material-table--editable td { background:#fff; height:78px; font-size:12px; }
+.material-table--editable tr.is-selected td { background:#f2f3f9; }
+.material-table--editable th:nth-child(-n+3), .material-table--editable td:nth-child(-n+3) { position:sticky; z-index:2; }
+.material-table--editable th:first-child, .material-table--editable td:first-child { left:0; }
+.material-table--editable th:nth-child(2), .material-table--editable td:nth-child(2) { left:40px; }
+.material-table--editable th:nth-child(3), .material-table--editable td:nth-child(3) { left:116px; box-shadow:1px 0 #dde0ed; }
+.material-table--editable thead th:nth-child(-n+3) { z-index:5; }
+.material-table--editable select, .material-table--editable textarea { width:100%; min-width:0; padding:7px; font-size:12px; background:transparent; border:1px solid transparent; border-radius:6px; }
+.material-table--editable select:hover, .material-table--editable textarea:hover { border-color:#dde0ed; }
+.material-table--editable select:focus, .material-table--editable textarea:focus { background:white; border-color:#9093b9; }
+.material-table--editable input[type=checkbox] { width:16px; height:16px; accent-color:#394173; }
+.table-identity { display:block; color:#646a87; font-size:9px; line-height:1.5; margin-top:4px; }
+.material-thumbnail { width:60px; height:60px; border-radius:6px; background:#f2f3f9; overflow:hidden; display:grid; place-items:center; }
+.material-thumbnail img { width:60px; height:60px; object-fit:contain; }
+.material-thumbnail .gallery-placeholder { font-size:8px; text-align:center; padding:2px; min-height:0; }
+.material-thumbnail button { font-size:8px; padding:2px; }
+.table-note textarea { resize:vertical; min-height:55px; }
+.table-note .button { padding:3px 7px; font-size:10px; }
+.note-text { white-space:pre-wrap; }
+.table-properties { position:relative; }
+.table-properties summary { cursor:pointer; }
+.table-properties > .panel { position:absolute; top:100%; left:0; margin-top:8px; width:min(500px,80vw); max-height:65vh; overflow:auto; z-index:10; box-shadow:0 12px 36px #1f244422; }
+.column-setting { display:flex; gap:8px; align-items:center; padding:5px 0; }
+.column-setting label { flex:1; font-size:12px; display:flex; align-items:center; gap:8px; }
+.column-setting input[type=number] { width:70px; }
+.column-setting input[type=checkbox] { width:15px; height:15px; }
+.column-setting .button { padding:4px 9px; }
+.material-bulk-bar { display:flex; align-items:end; flex-wrap:wrap; gap:14px; border:1px solid #dde0ed; background:#f2f3f9; border-radius:12px; padding:14px; margin:12px 0; }
+.material-bulk-bar label { display:grid; gap:4px; font-size:12px; min-width:160px; }
+.material-bulk-dialog { max-width:720px; }
+.bulk-report { padding:0; list-style:none; max-height:38vh; overflow:auto; }
+.bulk-report li { display:flex; justify-content:space-between; gap:16px; padding:9px 0; border-bottom:1px solid #dde0ed; font-size:12px; }
+.bulk-report span { max-width:60%; }
+.material-identity-dialog { border:1px solid #dde0ed; border-radius:18px; width:min(1000px,95vw); max-height:90vh; padding:20px; color:#1f2444; }
+.material-identity-dialog::backdrop { background:#0a0d2777; }
+.material-facts dd { white-space:pre-wrap; }
+@media(max-width:650px) {
+ .material-table--editable td:nth-child(3), .material-table--editable th:nth-child(3) { position:static; box-shadow:none; }
+ .material-table--editable { max-height:65vh; }
+}

@@ -1,3 +1,4 @@
+import { categoryLabel } from "../data/materialCategories";
 import {
   useCallback,
   useEffect,
@@ -163,12 +164,11 @@ export function MaterialFacts({ material: m }: { material: Material }) {
   const fields = [
     ["Internal UUID", m.id], ["Technical identity", m.technicalIdentity],
     ["Sequence number", String(m.sequenceNumber).padStart(4, "0")],
-    ["Material name", m.materialName], ["Main category", m.mainCategoryCode],
+    ["Material name", m.materialName], ["Main category", categoryLabel(m.mainCategoryCode)],
     ["Folder status", m.folderPath ? "Linked" : "Not linked"],
     ["Folder path", visibleFolderPath ?? (m.folderPath ? "Unavailable (unsafe path hidden)" : "Not linked")],
-    ["Workflow status", statusLabel(m.workflowStatus)],
-    ["Validation status", statusLabel(m.validationStatus)],
-    ["Publication status", statusLabel(m.publicationStatus)],
+    ["Status", statusLabel(m.workflowStatus)],
+    ["Checked", m.checkedStatus], ["Note", m.note ?? "—"],
     ["Published", m.isPublished ? "Yes" : "No"], ["Created", m.createdAt], ["Updated", m.updatedAt],
   ];
   return <dl className="info-list material-facts">{fields.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>;

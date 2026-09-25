@@ -31,6 +31,7 @@ dev = [
 include = ["app*"]
 
 [tool.setuptools.package-data]
+"app" = ["texture_categories_2026.json"]
 "app.auth" = ["common_passwords.txt"]
 
 [tool.pytest.ini_options]

@@ -532,6 +532,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 "assigned_processor_id",
                 "main_category_code",
                 "workflow_status",
+                "checked_status",
                 "validation_status",
                 "publication_status",
                 "is_published",

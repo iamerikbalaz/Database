@@ -42,7 +42,7 @@ function containsPathLeak(value: string): boolean {
 }
 
 function materialFact(page: Page, label: string): Locator {
-  return page.locator("dt", { hasText: new RegExp(`^${label}$`) }).locator("..").locator("dd");
+  return page.locator("article").filter({ has: page.locator(".material-facts") }).locator("dt", { hasText: new RegExp(`^${label}$`) }).locator("..").locator("dd");
 }
 
 function panel(page: Page, heading: string): Locator {
@@ -58,7 +58,7 @@ async function openPreparedMaterial(page: Page, material: MaterialFixture): Prom
 }
 
 async function assertRetainedDone(page: Page, material: MaterialFixture, status: string) {
-  await expect(materialFact(page, "Workflow status")).toHaveText("done");
+  await expect(materialFact(page, "Status")).toHaveText("done");
   await expect(materialFact(page, "Folder path")).toHaveText(material.relativePath);
   const snapshots = await page.request.get(`/api/materials/${material.id}/metadata/snapshots`);
   expect(snapshots.status()).toBe(200);
@@ -124,6 +124,8 @@ test.beforeEach(async ({ page }) => {
   });
   page.on("pageerror", (error) => observed.consoleErrors.push(`pageerror: ${error.message}`));
   page.on("requestfailed", (request) => {
+    // Navigating away intentionally cancels near-viewport list thumbnails.
+    if (request.method() === "GET" && /^\/api\/materials\/[^/]+\/previews?$/.test(new URL(request.url()).pathname) && request.failure()?.errorText === "net::ERR_ABORTED") return;
     observed.requestFailures.push(`${request.method()} ${request.url()}: ${request.failure()?.errorText}`);
   });
   page.on("response", (response) => {
@@ -241,14 +243,14 @@ test("happy path persists Done metadata and snapshot after reload", async ({ pag
     metadata: { status: "VALID" },
     snapshot: { sequence_number: 1, status: "VALID" },
   });
-  await expect(materialFact(page, "Workflow status")).toHaveText("done");
+  await expect(materialFact(page, "Status")).toHaveText("done");
   await expect(panel(page, "Current metadata").getByText("valid", { exact: true })).toBeVisible();
   await expect(panel(page, "Current metadata").getByText("#A1B2C3", { exact: true })).toBeVisible();
   await expect(panel(page, "Snapshot history").getByText("Snapshot 1", { exact: true })).toBeVisible();
 
   await waitForMaterialReads(page);
   await page.reload();
-  await expect(materialFact(page, "Workflow status")).toHaveText("done");
+  await expect(materialFact(page, "Status")).toHaveText("done");
   await expect(materialFact(page, "Folder path")).toHaveText(state.valid.relativePath);
   await expect(panel(page, "Current metadata").getByText("valid", { exact: true })).toBeVisible();
   await expect(panel(page, "Snapshot history").getByText("Snapshot 1", { exact: true })).toBeVisible();
@@ -271,7 +273,7 @@ test("missing metadata remains non-blocking and its warning stays visible", asyn
   await expect(page.getByRole("button", { name: "Mark as Done", exact: true })).toBeEnabled();
   expect((await confirmOperation(page, "Mark as Done", "Mark this material as Done?", "/mark-done")).status()).toBe(200);
 
-  await expect(materialFact(page, "Workflow status")).toHaveText("done");
+  await expect(materialFact(page, "Status")).toHaveText("done");
   const currentMetadata = panel(page, "Current metadata");
   await expect(currentMetadata.getByText("missing", { exact: true })).toBeVisible();
   await expect(currentMetadata.getByText(/SOURCE_METADATA_MISSING/)).toBeVisible();

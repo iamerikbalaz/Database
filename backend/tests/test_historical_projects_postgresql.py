@@ -27,6 +27,9 @@ def test_upgrade_preserves_0025_records_and_refuses_loss_of_projectless_material
                     connection.rollback()
                 command.upgrade(config, "head")
                 command.current(config); command.heads(config); command.check(config)
+                # A clean database can still cross the historical nullable-FK boundary.
+                command.downgrade(config, "20260919_0025")
+                command.upgrade(config, "head")
                 with case.database.engine.begin() as connection:
                     connection.execute(text("UPDATE pbr_materials SET project_id=NULL WHERE id=:id"), {"id": case.material.id})
                 with case.client_for() as client:
@@ -40,7 +43,10 @@ def test_upgrade_preserves_0025_records_and_refuses_loss_of_projectless_material
                     restored = client.patch(case.path, json={"project_id": str(case.material.project_id)})
                     assert restored.status_code == 200
                     assert restored.json()["folder_path"] == original["folder_path"]
-                command.downgrade(config, "20260919_0025")
-                command.upgrade(config, "head"); command.check(config)
+                # The new API has now recorded an additive tracking snapshot.
+                # Rolling it back into an older history reader would lose meaning.
+                with pytest.raises(RuntimeError, match="Material tracking history"):
+                    command.downgrade(config, "20260919_0025")
+                command.check(config)
         finally:
             get_settings.cache_clear()

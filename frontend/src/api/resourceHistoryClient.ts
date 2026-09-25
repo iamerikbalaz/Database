@@ -17,7 +17,7 @@ export const resourceHistorySchema: Record<ResourceKind, Record<string, Field>> 
   MATERIAL: { project_id: ["Project ID", (value) => value === null ? null : uuid(value)], published_brand_id: ["Published brand ID", uuid], sequence_number: ["Sequence number", sequence],
     material_name: ["Material name", string], main_category_code: ["Main category", string], assigned_processor_id: ["Assigned processor ID", nullableUuid],
     technical_identity: ["Technical identity", string], folder_path: ["Folder path", nullable], workflow_status: ["Workflow status", string],
-    validation_status: ["Validation status", string], is_published: ["Published", boolean], publication_status: ["Publication status", string] },
+    validation_status: ["Validation status", string], is_published: ["Published", boolean], publication_status: ["Technical publication state", string], checked_status: ["Checked", string], note: ["Note", nullable] },
 };
 export type ResourceKind = "BRAND" | "PROJECT" | "USER" | "MATERIAL";
 export const resourceHistoryNames: Record<ResourceKind, string> = { BRAND: "Brand", PROJECT: "Project", USER: "Account profile", MATERIAL: "Material record" };
@@ -25,15 +25,16 @@ const segments: Record<ResourceKind, string> = { BRAND: "brands", PROJECT: "proj
 function digest(input: unknown) { const result = string(input); if (!/^[a-f0-9]{64}$/.test(result)) throw new Error("Invalid history digest"); return result; }
 function snapshot(input: unknown, kind: ResourceKind, id: string): Record<string, Value> {
   const value = record(input), schema = resourceHistorySchema[kind];
-  if (uuid(value.id) !== id || Object.keys(value).sort().join() !== ["id", ...Object.keys(schema)].sort().join()) throw new Error("Invalid history snapshot");
-  return { id, ...Object.fromEntries(Object.entries(schema).map(([field, [, parse]]) => [field, parse(value[field])])) };
+  const optional = kind === "MATERIAL" ? ["checked_status", "note"] : [];
+  if (uuid(value.id) !== id || Object.keys(value).some(key => key !== "id" && !(key in schema)) || Object.keys(schema).some(key => !(key in value) && !optional.includes(key))) throw new Error("Invalid history snapshot");
+  return { id, ...Object.fromEntries(Object.entries(schema).filter(([field]) => field in value).map(([field, [, parse]]) => [field, parse(value[field])])) };
 }
 function change(input: unknown, kind: ResourceKind, id: string) {
   const value = record(input), before = record(value.before), version = sequence(value.version);
   if (value.resource_kind !== kind || uuid(value.resource_id) !== id || !["CREATED", "UPDATED"].includes(string(value.action))) throw new Error("Invalid history event");
   if (value.action === "CREATED" && (version !== 1 || Object.keys(before).length)) throw new Error("Invalid creation history");
   const previous = value.action === "CREATED" ? null : snapshot(before, kind, id), current = snapshot(value.after, kind, id);
-  const changed = Object.keys(resourceHistorySchema[kind]).filter((field) => !previous || previous[field] !== current[field]);
+  const changed = Object.keys(resourceHistorySchema[kind]).filter((field) => field in current && (!previous || previous[field] !== current[field]));
   const createdAt = string(value.created_at);
   if (!changed.length || !/T.*(?:Z|[+-]\d\d:\d\d)$/.test(createdAt) || !Number.isFinite(Date.parse(createdAt))) throw new Error("Invalid history change");
   return { id: uuid(value.id), actorId: uuid(value.actor_id), version, action: value.action as "CREATED" | "UPDATED",

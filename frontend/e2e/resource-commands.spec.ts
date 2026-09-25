@@ -28,7 +28,7 @@ test("a lost material-create response recovers exactly once and survives restart
     await page.getByLabel("Project *", { exact: true }).selectOption(runManifest.state.projectId);
     await page.getByLabel("Published brand *", { exact: true }).selectOption(brandId);
     await page.getByLabel("Material name *", { exact: true }).fill(name);
-    await page.getByLabel("Main category *", { exact: true }).fill("G03");
+    await page.getByLabel("Main category *", { exact: true }).selectOption("G03");
     await page.getByLabel("Processor *", { exact: true }).selectOption(template.assigned_processor_id);
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("button", { name: "Check saved result" })).toBeVisible();

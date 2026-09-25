@@ -219,15 +219,17 @@ def test_0025_upgrade_preserves_0024_accepted_history_and_populated_downgrade_re
     with isolated_postgresql_database() as url, pytest.MonkeyPatch.context() as patch:
         patch.setenv("DATABASE_URL", url); get_settings.cache_clear()
         try:
-            config = Config("alembic.ini"); command.upgrade(config, "20260918_0024")
+            config = Config("alembic.ini"); command.upgrade(config, "head")
             with contextmanager(_review_pg_case)(url) as case:
-                # Seed a real accepted 0024 package without invoking the newer
-                # staging/download routes, which now require the 0025 fence.
+                # Prepare an accepted package using the current API, then restore
+                # the clean historical schema before exercising the upgrade.
+                # No table edits, retirement intents or newer receipts are seeded.
                 from test_packaging_reservations import close_body
                 package = _pg_dispatch_case(case)
                 with case.client_for() as client:
                     assert client.post(package.path + "/run", json=close_body()).json()["status"] == "PACKAGED"
                 intent = values(case, package)
+                command.downgrade(config, "20260918_0024")
                 with case.database.session() as session:
                     before = copy.deepcopy(session.get(MaterialPackagingObservation, intent["accepted_observation_id"]).worker_result)
                 command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)

@@ -41,6 +41,7 @@ def read_review(state: MaterialReviewState | None) -> dict:
 
 def invalidate_review(session: Session, material: PBRMaterial, actor_id: UUID,
                       reason: str, *, record_event: bool = True) -> MaterialReviewState | None:
+    material.checked_status = "no"
     state = session.get(MaterialReviewState, material.id)
     if state is None:
         return None  # No inventory or approval exists yet to invalidate.

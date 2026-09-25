@@ -27,6 +27,7 @@ export interface MaterialFilters {
   published_brand_id?: string;
   assigned_processor_id?: string;
   main_category_code?: string;
+  checked_status?: string;
   workflow_status?: string;
   validation_status?: string;
   publication_status?: string;

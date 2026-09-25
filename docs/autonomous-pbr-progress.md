@@ -1,6 +1,96 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-25, REAWOTE visual identity)
+## Latest checkpoint (2026-09-25, editable material table)
+
+Resumed from `9a40b825377307309b79fe438f62a29317241c99` on the existing
+`codex/autonomous-pbr-completion` worktree. A fresh remote read confirmed
+`origin/main` remains `88a1f99d748d2a0edbb1fce509e13d18bfc03908`.
+The deleted auth experiment was not used. The user's request to continue follows
+the agreed list editing, bulk changes and revised field/category requirements.
+See [the material table contract](material-table.md).
+
+- Added small lazy thumbnails and direct Project, Processor, Status, Checked,
+  Published and Note edits. Column visibility, order and width are persistent
+  display preferences. Existing list/gallery filters remain shared.
+- Bulk review freezes all selected IDs and their revisions, including offscreen
+  filtered results. Writes are sequential, individually receipted and audited.
+  Unknown outcomes pause and retry the exact key; partial successes are retained.
+  Closing/unmounting never starts later jobs. Notes support explicit multiline
+  saves and are not discarded when another cell is saved.
+- Done retains safe source preflight and metadata snapshots; missing metadata.txt
+  remains supported. Checked is human no/OK/Correction, with Correction reopening
+  production and a fresh Done transition clearing the previous check. Published
+  is manual boolean evidence. Existing technical pipeline histories remain intact.
+- Brand/category controls use the controlled identity planner for linked folders.
+  Unlinked unpublished materials in progress can use a database-only confirmation
+  with numbering reservations and history. No original NAS files were changed.
+- Read all 75 rows of TEXTURE-CATEGORIES_2026.xlsx (18 groups, 57 subcategories).
+  Backend and frontend vocabularies agree, retain exact codes/order and show full
+  paths for repeated names. Migration 0027 adds Checked/Note and seeds online
+  categories without guessing assignments or replacing legacy values.
+- Updated the exact private R100 acceptance app at port 58363 after a custom-format
+  PostgreSQL backup. Fingerprints proved every pre-existing database row unchanged
+  by migration, including user changes; all 100 materials remain, with 76 online
+  categories (75 supplied plus one existing custom value). Source writes remain
+  disabled. Private credentials, dump, preview copies and screenshots stay ignored.
+- Read-only R100 UI acceptance verified 100 rows, primary thumbnails, 75 category
+  choices, Properties, a 100-row bulk review and no page overflow at 390x844.
+  Zero record writes, blocked writes or HTTP/page errors. First visible preview
+  took about 3.9 seconds in that run with integration tests running concurrently;
+  this is a local snapshot observation, not a live NAS performance guarantee.
+
+Verification:
+
+- Full frontend: **968 passed / 59 files** (46.18s). TypeScript, ESLint and
+  production build passed. After the final human-readable confirmation labels,
+  all **10 table tests** passed again, followed by lint/types/build. Final main JS
+  504.40 kB (147.88 kB gzip), CSS 35.05 kB; Vite reports its 500 kB chunk advisory.
+- Full backend in an isolated read-only Linux container with no network/mounts:
+  **2098 passed**, **466 PostgreSQL cases skipped**, exit 0. Counts were checked
+  against pytest progress and skip summaries (double quiet mode omits its total).
+  PostgreSQL is covered separately below; no skipped case is counted as passing.
+- Final real PostgreSQL run `reawote-test-1d75f434d8be4367876e3378cf449b1b`:
+  **467 passed**, 799.83s; auth gate **27/27, zero skipped**. Includes historical
+  upgrades, clean/refused downgrades, exact history/receipt guards, old receipt
+  replay after migration, new tracking history and competing stale cell writes.
+  Owned containers/network were removed; its isolated volume was retained.
+- Final guarded Playwright run `d36dea75-3776-4840-a1c0-b0c07d32a82a`:
+  **25 fresh + 25 retained passed**. It exercises bulk Done using synthetic folders,
+  Checked OK/Correction/reopen, lost-response exact-key recovery, one Note audit,
+  metadata snapshot counts, Published and persistence after the service restart.
+  Protected regular/demo resources remained unchanged; only owned containers and
+  networks were removed. Successful synthetic screenshots/traces are retained.
+- R100 backup `before-material-table-20260925T152932Z.private.dump` is 384,021 bytes;
+  `pg_restore --list` verified its archive and material data entry. Migration row
+  fingerprints and the read-only 100-row UI acceptance both passed. No test batch
+  was applied to the actual R100 materials. The final confirmation-label refinement
+  affects presentation only and is covered by the final targeted frontend run.
+
+Earlier attempts and corrections:
+
+- The first PostgreSQL image omitted the vocabulary JSON from its installed wheel;
+  added package data and stopped that owned run. The next run had 459 passes and
+  seven historical-fixture failures because the current ORM tried to read new
+  columns before their migration. Historical setup now uses its actual schema;
+  none of the production migration guards was weakened. The final run above passed.
+- Earlier browser attempts exposed newly intentional preview aborts on navigation,
+  an asynchronous checkbox assertion and ambiguous Status selectors. Assertions now
+  ignore only exact cancelled preview GETs and scope facts to the material panel;
+  checkbox state waits for the real response. Final fresh/retained suites passed.
+- The full Windows backend attempt was stopped because platform/subprocess tests
+  need the canonical Linux environment. The full isolated Linux run above passed.
+
+
+### Remaining acceptance boundary
+
+R100 still uses the dated local preview snapshot. Its live source worker is not
+connected, so real Done preflight and linked identity planning cannot complete in
+that instance. The table reports the unavailable worker as a known no-write result
+and stops the remaining batch. Those transitions are exercised with real synthetic
+folders in the isolated E2E environment. No original/demo database, main merge,
+production deployment or live external integration is part of this change.
+
+## Previous checkpoint (2026-09-25, REAWOTE visual identity)
 
 Resumed from `72be535fd5735eb378ecd3ba7daf9c5b6c0b111c`. A fresh remote-main
 read and the clean original checkout both remain at

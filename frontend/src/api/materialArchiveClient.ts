@@ -33,8 +33,8 @@ function reason(input: unknown) {
 }
 export function archiveDetail(input: unknown, materialId?: string) {
   const value = record(input), raw = record(value.material), id = uuid(raw.id);
-  if (materialId && id !== uuid(materialId) || Object.keys(raw).sort().join() !== ["id", ...Object.keys(resourceHistorySchema.MATERIAL)].sort().join()) throw new Error("Invalid archived material");
-  for (const [field, [, parse]] of Object.entries(resourceHistorySchema.MATERIAL)) parse(raw[field]);
+  if (materialId && id !== uuid(materialId) || Object.keys(raw).some(k => k !== "id" && !(k in resourceHistorySchema.MATERIAL)) || Object.keys(resourceHistorySchema.MATERIAL).some(k => !(k in raw) && !["note", "checked_status"].includes(k))) throw new Error("Invalid archived material");
+  for (const [field, [, parse]] of Object.entries(resourceHistorySchema.MATERIAL)) if (field in raw) parse(raw[field]);
   const version = integer(value.version), isArchived = boolean(value.is_archived), changedAt = value.changed_at === null ? null : timestamp(value.changed_at);
   if (isArchived !== (version % 2 === 1) || (version === 0) !== (changedAt === null)
       || isArchived && (raw.is_published || raw.publication_status !== "NOT_PUBLISHED" || raw.workflow_status !== "IN_PROGRESS" || raw.validation_status !== "NOT_CHECKED")) throw new Error("Invalid archive state");

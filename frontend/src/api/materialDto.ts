@@ -1,5 +1,6 @@
 import { boolean, nullable, record, string, uuid } from "./dto";
 
+export const checkedStatuses = ["no", "OK", "Correction"] as const;
 export const workflowStatuses = ["IN_PROGRESS", "DONE"] as const;
 export const validationStatuses = ["NOT_CHECKED", "VALID", "WARNING", "ERROR", "METADATA_MISSING"] as const;
 export const publicationStatuses = ["NOT_PUBLISHED", "PREPARING", "UPLOADED_WAITING_FOR_IMPORT", "WAITING_FOR_VERIFICATION", "PUBLISHED_CURRENT", "PUBLISHED_UPDATE_REQUIRED", "PUBLICATION_ERROR"] as const;
@@ -18,6 +19,8 @@ export interface MaterialCreateDto {
 }
 export type MaterialPatchDto = Partial<Omit<MaterialCreateDto, "published_brand_id">>;
 export interface MaterialDto extends Omit<MaterialCreateDto, "project_id"> {
+  checked_status?: typeof checkedStatuses[number];
+  note?: string | null;
   project_id: string | null;
   id: string;
   sequence_number: number;
@@ -45,6 +48,8 @@ export function parseMaterial(input: unknown): MaterialDto {
   if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 9999)
     throw new Error("Invalid material sequence");
   return {
+    ...(v.checked_status !== undefined ? { checked_status: choice(v.checked_status, checkedStatuses) } : {}),
+    ...(v.note !== undefined ? { note: nullable(v.note) } : {}),
     id: uuid(v.id), project_id: v.project_id === null ? null : uuid(v.project_id), published_brand_id: uuid(v.published_brand_id),
     material_name: string(v.material_name), main_category_code: string(v.main_category_code),
     assigned_processor_id: uuid(v.assigned_processor_id), sequence_number: n,
@@ -57,6 +62,7 @@ export function parseMaterial(input: unknown): MaterialDto {
 }
 export function materialFromDto(v: MaterialDto) {
   return {
+    checkedStatus: v.checked_status ?? "no", note: v.note ?? null,
     id: v.id, projectId: v.project_id, publishedBrandId: v.published_brand_id,
     materialName: v.material_name, mainCategoryCode: v.main_category_code,
     assignedProcessorId: v.assigned_processor_id, sequenceNumber: v.sequence_number,

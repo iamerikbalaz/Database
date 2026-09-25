@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import { ApiError } from "../api/errors";
 import { identityClient, type IdentityConfirmation, type IdentityOperation, type IdentityPlan } from "../api/identityClient";
@@ -6,6 +6,7 @@ import type { Material } from "../api/materialDto";
 import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
 import { ErrorState, LoadingState } from "./PageState";
+import { categoryLabel, materialCategories } from "../data/materialCategories";
 import { HistoryPages } from "./HistoryPages";
 
 const labels: Record<string, string> = {
@@ -15,7 +16,7 @@ const labels: Record<string, string> = {
   METADATA_REWRITE_UNSUPPORTED: "Source metadata cannot be rewritten safely", METADATA_UNMAPPED_REFERENCE: "Metadata contains an unsupported identity reference",
 };
 
-export function MaterialIdentityPanel({ material, client, onChanged }: { material: Material; client: ApiClient; onChanged: () => Promise<boolean> }) {
+export function MaterialIdentityPanel({ material, client, onChanged, initialBrand, initialCategory, onBusyChange }: { material: Material; client: ApiClient; onChanged: () => Promise<boolean>; initialBrand?: string; initialCategory?: string; onBusyChange?: (busy: boolean) => void }) {
   const user = useSession()?.session.user, role = user?.role, actor = user?.id;
   const allowed = role === "ADMIN" || role === "PRODUCTION_LEAD";
   const load = useCallback(async () => {
@@ -24,14 +25,15 @@ export function MaterialIdentityPanel({ material, client, onChanged }: { materia
     return { operations, brands };
   }, [material.id, client, allowed, actor]);
   const resource = useResource(load);
-  const [targetBrand, setTargetBrand] = useState(material.publishedBrandId);
-  const [category, setCategory] = useState(material.mainCategoryCode);
+  const [targetBrand, setTargetBrand] = useState(initialBrand ?? material.publishedBrandId);
+  const [category, setCategory] = useState(initialCategory ?? material.mainCategoryCode);
   const [parent, setParent] = useState(material.folderPath?.split("/").slice(0, -1).join("/") ?? "");
   const [proposal, setProposal] = useState<IdentityPlan | null>(null);
   const [reason, setReason] = useState(""); const [acknowledged, setAcknowledged] = useState(false);
   const [pending, setPending] = useState(false); const sending = useRef(false);
   const [error, setError] = useState(""); const [notice, setNotice] = useState("");
   const [uncertain, setUncertain] = useState(false);
+  useEffect(() => { onBusyChange?.(pending || uncertain); return () => onBusyChange?.(false); }, [pending, uncertain, onBusyChange]);
   const confirmation = useRef<IdentityConfirmation | null>(null);
   const active = resource.data?.operations.items.find((item) => item.status === "RUNNING" || item.status === "RECOVERY_REQUIRED");
   const eligible = allowed && material.workflowStatus === "IN_PROGRESS" && !material.isPublished && Boolean(material.folderPath) && !active;
@@ -84,7 +86,7 @@ export function MaterialIdentityPanel({ material, client, onChanged }: { materia
           <label>Target brand<select value={targetBrand} onChange={(event) => { setTargetBrand(event.target.value); invalidate(); }}>
             {resource.data.brands.filter((brand) => brand.isActive).map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
           </select></label>
-          <label>Target category code<input value={category} maxLength={100} pattern="[A-Za-z0-9-]+" onChange={(event) => { setCategory(event.target.value); invalidate(); }} /></label>
+          <label>Target category code<select value={category} onChange={(event) => { setCategory(event.target.value); invalidate(); }}>{!materialCategories.some(c => c.code === category) && <option value={category}>{categoryLabel(category)}</option>}{materialCategories.map(c => <option key={c.code} value={c.code}>{categoryLabel(c.code)}</option>)}</select></label>
           <label>Destination parent folder<input value={parent} maxLength={1792} onChange={(event) => { setParent(event.target.value); invalidate(); }} /></label>
           <p>Use an existing relative parent folder. An empty value means the materials root.</p>
           <p>Remove collection assignments in Publication content before transferring to another brand.</p>

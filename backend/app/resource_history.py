@@ -16,7 +16,7 @@ KINDS = {
     "PROJECT": (Project, "project_id", "projects", ("company_id", "project_number", "name", "status", "due_date", "notes")),
     "USER": (InternalUser, "user_id", "internal-users", ("display_name", "email", "role", "is_active")),
     "MATERIAL": (PBRMaterial, "material_id", "materials", ("project_id", "published_brand_id", "sequence_number", "material_name",
-        "main_category_code", "assigned_processor_id", "technical_identity", "folder_path", "workflow_status", "validation_status", "is_published", "publication_status")),
+        "main_category_code", "assigned_processor_id", "technical_identity", "folder_path", "workflow_status", "validation_status", "is_published", "publication_status", "checked_status", "note")),
 }
 
 
@@ -34,7 +34,9 @@ def resource_snapshot(item):
 
 
 def valid_snapshot(value, kind, identifier):
-    return (isinstance(value, dict) and set(value) == {"id", *KINDS[kind][3]}
+    fields = {"id", *KINDS[kind][3]}
+    optional = {"checked_status", "note"} if kind == "MATERIAL" else set()
+    return (isinstance(value, dict) and fields - optional <= set(value) <= fields
         and value["id"] == str(identifier) and all(item is None or isinstance(item, (str, int, bool)) for item in value.values()))
 
 

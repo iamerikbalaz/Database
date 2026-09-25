@@ -20,7 +20,7 @@ function TileImage({ material, entry, store, size, failed }: { material: Materia
     : <span className="gallery-placeholder" role="status">Loading preview…</span>;
 }
 
-function TilePreview({ material, store, size, selectedName, select }: { material: Material; store: GalleryStore; size: 256 | 512; selectedName: string; select: (name: string) => void }) {
+function TilePreview({ material, store, size, selectedName, select, compact = false }: { material: Material; store: GalleryStore; size: 256 | 512; selectedName: string; select: (name: string) => void; compact?: boolean }) {
   const [listing, setListing] = useState<{ items: PreviewEntry[]; missing: boolean }>();
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -40,7 +40,7 @@ function TilePreview({ material, store, size, selectedName, select }: { material
   const selected = listing.items[index];
   return <>
     <TileImage key={`${selected.name}:${selected.sha256}:${size}:${attempt}`} material={material} entry={selected} store={store} size={size} failed={fail} />
-    {listing.items.length > 1 && <div className="gallery-arrows" aria-label={`Previews for ${material.materialName}`}>
+    {!compact && listing.items.length > 1 && <div className="gallery-arrows" aria-label={`Previews for ${material.materialName}`}>
       <button aria-label={`Previous preview of ${material.materialName}`} title="Previous preview" onClick={() => select(listing.items[(index - 1 + listing.items.length) % listing.items.length].name)}>‹</button>
       <span aria-live="polite">{index % listing.items.length + 1}/{listing.items.length}</span>
       <button aria-label={`Next preview of ${material.materialName}`} title="Next preview" onClick={() => select(listing.items[(index + 1) % listing.items.length].name)}>›</button>
@@ -72,4 +72,20 @@ function MaterialTile({ material, store, size, navigate }: { material: Material;
 
 export function MaterialsGrid({ materials, store, size, navigate }: { materials: Material[]; store: GalleryStore; size: GallerySize; navigate: (path: string) => void }) {
   return <ul className={`materials-grid materials-grid--${size}`} aria-label="Material gallery">{materials.map(material => <MaterialTile key={material.id} material={material} store={store} size={size} navigate={navigate} />)}</ul>;
+}
+
+export function MaterialThumbnail({ material, store }: { material: Material; store: GalleryStore }) {
+  const element = useRef<HTMLDivElement>(null);
+  const [near, setNear] = useState(false);
+  const select = useCallback(() => {}, []);
+  useEffect(() => {
+    if (!element.current) return;
+    if (typeof IntersectionObserver === "undefined") { const timer = setTimeout(() => setNear(true), 0); return () => clearTimeout(timer); }
+    const observer = new IntersectionObserver(entries => setNear(entries[0].isIntersecting), { rootMargin: "150px" });
+    observer.observe(element.current); return () => observer.disconnect();
+  }, []);
+  return <div className="material-thumbnail" ref={element} aria-label={`Preview of ${material.materialName}`}>
+    {!material.folderPath ? <span title="No folder linked">—</span> : near
+      ? <TilePreview key={`${material.id}:${material.folderPath}`} material={material} store={store} size={256} selectedName="" select={select} compact /> : null}
+  </div>;
 }

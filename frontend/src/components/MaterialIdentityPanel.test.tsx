@@ -10,14 +10,14 @@ import { materialBrand, materialDto, processorDto } from "../test/materialFixtur
 
 const id = "10000000-0000-4000-8000-000000000001";
 const source = { ...materialDto, material_id: materialDto.id, folder_path: "library/LASVIT_9999_G03" };
-const target = { ...source, technical_identity: "LASVIT_9999_G04", folder_path: "library/LASVIT_9999_G04", main_category_code: "G04" };
+const target = { ...source, technical_identity: "LASVIT_9999_G02", folder_path: "library/LASVIT_9999_G02", main_category_code: "G02" };
 function plan(warning = false, blocked = false) {
   return { source_context: source, target_context: target, generation: 4, reserves_number: false, proposal_hash: "b".repeat(64),
     worker_plan: { schema_version: 1, planner_version: "identity-plan-1", plan_hash: "a".repeat(64), source_revision_hash: "c".repeat(64),
       source_path: source.folder_path, target_path: target.folder_path, ready: !blocked,
       errors: blocked ? [{ code: "IDENTITY_TARGET_COLLISION", path: target.folder_path }] : [],
       warnings: warning ? [{ code: "SOURCE_METADATA_MISSING", path: "metadata.txt" }] : [],
-      changes: [{ kind: "file", source: "4K/LASVIT_9999_G03_COL_4K.png", target: "4K/LASVIT_9999_G04_COL_4K.png", sha256: "e".repeat(64) }],
+      changes: [{ kind: "file", source: "4K/LASVIT_9999_G03_COL_4K.png", target: "4K/LASVIT_9999_G02_COL_4K.png", sha256: "e".repeat(64) }],
       metadata: { before_hash: null, after_hash: null, changed_fields: [] } } };
 }
 function operation(status = "COMPLETED") {
@@ -44,7 +44,7 @@ function setup(options: { role?: Role; enabled?: boolean; warning?: boolean; blo
 }
 async function preview() {
   await screen.findByRole("button", { name: "Preview identity changes" });
-  fireEvent.change(screen.getByLabelText("Target category code"), { target: { value: "G04" } });
+  fireEvent.change(screen.getByLabelText("Target category code"), { target: { value: "G02" } });
   fireEvent.click(screen.getByRole("button", { name: "Preview identity changes" }));
   await screen.findByRole("region", { name: "Identity change preview" });
 }
@@ -71,7 +71,7 @@ it("shows exact paths and requires reason and warning acknowledgment before conf
   await screen.findByText("Identity updated.");
   const body = calls.find((call) => call.path.endsWith("/identity-confirm"))!;
   expect(JSON.parse(String(body.init?.body))).toEqual(expect.objectContaining({ expected_generation: 4,
-    expected_proposal_hash: "b".repeat(64), main_category_code: "G04", reason: "Correct category", warnings_acknowledged: true }));
+    expected_proposal_hash: "b".repeat(64), main_category_code: "G02", reason: "Correct category", warnings_acknowledged: true }));
   expect(body.init?.headers).toEqual(expect.objectContaining({ "X-CSRF-Token": "t".repeat(43) }));
   expect(changed).toHaveBeenCalledOnce();
 });

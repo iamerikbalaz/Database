@@ -54,7 +54,7 @@ def authorize_receipt(session, access, receipt):
 def saved_response(receipt):
     try:
         schema = KINDS[receipt.kind][1]
-        result = schema.model_validate(receipt.response_snapshot).model_dump(mode="json")
+        result = schema.model_validate(receipt.response_snapshot).model_dump(mode="json", exclude_unset=True)
         if result != receipt.response_snapshot or result["id"] != str(getattr(receipt, KINDS[receipt.kind][2])) or canonical_hash(result) != receipt.response_hash:
             raise ValueError("Invalid command receipt")
         return result
@@ -78,7 +78,7 @@ class ResourceWrite:
         self.request_hash = canonical_hash({"schema_version": 1, "kind": kind, "action": action,
             "target_id": str(target) if target is not None else None, "payload": raw_payload if raw_payload is not None else self.payload})
         self.privilege = ("ADMIN" if kind == "USER" else "MATERIAL_NAME" if kind == "MATERIAL" and
-            action == "UPDATED" and set(self.payload) <= {"material_name"} else "CATALOG")
+            action == "UPDATED" and set(self.payload) <= {"material_name", "note", "workflow_status", "expected_updated_at"} else "CATALOG")
 
     def replay(self, session):
         # The caller already holds the access gate, actor credential and session

@@ -12,10 +12,10 @@ test("confirmed rebrand renames real source files and survives backend and worke
   const panel = page.getByRole("article", { name: "Material identity" });
   if (!retainedPass) {
     await panel.getByRole("combobox", { name: "Target brand", exact: true }).selectOption(runManifest.state.identityBrandId);
-    await panel.getByLabel("Target category code").fill("G04");
+    await panel.getByLabel("Target category code").selectOption("G02");
     await panel.getByRole("button", { name: "Preview identity changes" }).click();
     await expect(panel.getByRole("region", { name: "Identity change preview" })).toBeVisible();
-    await expect(panel.getByText("E2E_NEXT_0001_E2E-CONTROLLED-IDENTITY_G04", { exact: true })).toBeVisible();
+    await expect(panel.getByText("E2E_NEXT_0001_E2E-CONTROLLED-IDENTITY_G02", { exact: true })).toBeVisible();
     await expect(panel.getByText(/Confirmation reserves number 1/)).toBeVisible();
     await panel.getByLabel("Reason for identity change").fill("Synthetic E2E rebrand and category correction");
     const response = page.waitForResponse((item) => item.request().method() === "POST" && new URL(item.url()).pathname === path + "/identity-confirm");
@@ -27,8 +27,8 @@ test("confirmed rebrand renames real source files and survives backend and worke
   const current = await (await page.request.get(path)).json();
   expect(current.id).toBe(fixture.id); expect(current.project_id).toBe(runManifest.state.projectId);
   expect(current.published_brand_id).toBe(runManifest.state.identityBrandId);
-  expect(current.technical_identity).toBe("E2E_NEXT_0001_E2E-CONTROLLED-IDENTITY_G04");
-  expect(current.folder_path).toBe("e2e-identity/E2E_NEXT_0001_E2E-CONTROLLED-IDENTITY_G04");
+  expect(current.technical_identity).toBe("E2E_NEXT_0001_E2E-CONTROLLED-IDENTITY_G02");
+  expect(current.folder_path).toBe("e2e-identity/E2E_NEXT_0001_E2E-CONTROLLED-IDENTITY_G02");
   expect(current.workflow_status).toBe("IN_PROGRESS");
   const operations = await (await page.request.get(path + "/identity-operations")).json();
   expect(operations.operations).toHaveLength(1); expect(operations.operations[0].status).toBe("COMPLETED");

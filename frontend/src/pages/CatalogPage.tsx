@@ -1,3 +1,4 @@
+import { catalogCategoryLabel, materialCategories } from "../data/materialCategories";
 import { useCallback, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import { catalogClient, type CatalogActivity, type CatalogCreate, type CatalogKind, type CatalogValue } from "../api/catalogClient";
@@ -43,7 +44,7 @@ export function CatalogPage({ client }: { client: ApiClient }) {
   };
   const renderList = (title: string, listKind: CatalogKind, items: CatalogValue[]) => <article className="panel" aria-label={title}><h2>{title}</h2>
     {items.length === 0 ? <p>No values yet.</p> : <ul>{items.map((item) => <li key={item.id}>
-      <strong>{item.value}</strong> · {item.active ? "Active" : "Inactive"}
+      <strong>{listKind === "online-categories" ? catalogCategoryLabel(item.value) : item.value}</strong> · {item.active ? "Active" : "Inactive"}
       {item.brandId && ` · ${resource.data?.brands.find((brand) => brand.id === item.brandId)?.name ?? "Brand unavailable"}`}
       {allowed && <button className="button" disabled={pending || uncertain} onClick={() => { setSelected({ kind: listKind, item }); setReason(""); setError(""); }}>
         {item.active ? "Deactivate" : "Reactivate"} {item.value}
@@ -51,6 +52,7 @@ export function CatalogPage({ client }: { client: ApiClient }) {
     </li>)}</ul>}
   </article>;
   return <section className="catalog-content"><div className="page-heading"><div><p className="eyebrow">Publication vocabulary</p><h1>Categories and collections</h1></div></div>
+    <p>The 2026 vocabulary contains {materialCategories.filter(c => c.parent_code === null).length} groups and {materialCategories.filter(c => c.parent_code !== null).length} subcategories from the supplied Excel. Codes accompany category names.</p>
     <p>Online categories can be shared across brands. Collections belong to one brand. Names remain stable; replace a name by deactivating it and creating a new value.</p>
     {error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status">{notice}</p>}
     {uncertain && <button className="button" disabled={pending} onClick={() => void run()}>Retry same catalog request</button>}

@@ -17,12 +17,12 @@ import { AccountsPage } from "./pages/AccountsPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { CatalogPage } from "./pages/CatalogPage";
 import { ComparePage } from "./pages/ComparePage";
-import { ImportsPage } from "./pages/ImportsPage";
 import { PublicationPage } from "./pages/PublicationPage";
 import { MaterialArchivesPage } from "./pages/MaterialArchivesPage";
 import { LoadingState } from "./components/PageState";
 
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then((module) => ({ default: module.DashboardPage })));
+const ImportsPage = lazy(() => import("./pages/ImportsPage").then((module) => ({ default: module.ImportsPage })));
 
 interface AppProps {
   client?: ApiClient;

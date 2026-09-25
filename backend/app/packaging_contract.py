@@ -261,6 +261,7 @@ def _fit(width, height, side):
 
 
 def _verify_layout(request, report, payload):
+    from app.material_naming import base_name
     inventory = report.inventory; identity = inventory.folder_name
     source_files = {entry.path: entry for entry in inventory.entries if entry.kind == "file"}
     images = sorted(report.images, key=lambda item: item.map)
@@ -297,7 +298,7 @@ def _verify_layout(request, report, payload):
         for offset, image in enumerate(images):
             item = bundle.maps[index * len(images) + offset]; operation = item.operation
             extension = image.path.rsplit(".", 1)[-1]
-            destination = resolution + "/" + identity + "_" + image.map + "_" + resolution + "." + extension
+            destination = resolution + "/" + base_name(identity) + "_" + image.map + "_" + resolution + "." + extension
             action = "COPY" if index == 0 and color.width == color.height == effective * 1024 else "RESIZE"
             _require(operation.model_dump() == {"source": image.path, "destination": destination, "source_sha256": image.sha256,
                 "shortcut": image.map, "format": image.format, "bits": image.bits, "width": width, "height": height,

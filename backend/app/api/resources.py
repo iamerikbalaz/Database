@@ -14,6 +14,7 @@ from app.company_history import append_company_change, company_snapshot
 from app.resource_history import append_resource_change, resource_snapshot
 from app.resource_commands import CommandInput, CommandKey, ResourceWrite, authorize_receipt, command_for_actor, receipt_view
 from app.material_identity import identity_context, require_brand_idle, require_material_idle
+from app.material_naming import build_identity
 
 from app.db.models import (
     Company,
@@ -92,8 +93,15 @@ def _technical_identity(
     brand: PublishedBrand,
     sequence_number: int,
     main_category_code: str,
+    material_name: str,
+    *, source_identity: str | None = None,
 ) -> str:
-    return f"{brand.folder_prefix}_{sequence_number:04d}_{main_category_code}"
+    try:
+        return build_identity(brand.folder_prefix, sequence_number, main_category_code,
+                              material_name, source_identity=source_identity)
+    except ValueError:
+        raise HTTPException(422, {"code": "MATERIAL_IDENTITY_INVALID",
+            "message": "The folder name must contain a usable material name and fit within 255 ASCII characters."}) from None
 
 
 def _ensure_unique(
@@ -584,6 +592,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                     brand,
                     sequence_number,
                     payload.main_category_code,
+                    payload.material_name,
                 ),
                 folder_path=None,
                 workflow_status=MaterialWorkflowStatus.IN_PROGRESS.value,
@@ -696,6 +705,8 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                     brand,
                     material.sequence_number,
                     values["main_category_code"],
+                    material.material_name,
+                    source_identity=material.technical_identity,
                 )
                 _ensure_unique(
                     session,

@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db.models import Company, InternalUser, MaterialFileOperation, MaterialNumberReservation, PBRMaterial, Project, PublishedBrand
 from app.db.models import MaterialImportBatch, MaterialImportRow, PBRMaterialMetadata
-from app.material_identity import ACTIVE_STATUSES
+from app.material_identity import ACTIVE_STATUSES, lock_folder_catalog, require_folder_idle
 from app.material_review import canonical_hash
 
 
@@ -27,16 +27,19 @@ def _load(session, model, identifiers):
 
 def source_context(payload, table):
     return {"source_sha256": table.source_sha256, "source": payload.source.options(),
-            "columns": payload.columns.model_dump(), "links": payload.links.model_dump(mode="json")}
+            "columns": payload.columns.model_dump(exclude_none=True), "links": payload.links.model_dump(mode="json")}
 
 
 def build_preview(session, payload, table, rows, findings):
     """Caller holds the exclusive application access gate for a consistent plan.
 
-    Only bounded input IDs/pairs are queried. No lookup per row and no traversal
-    of the material catalog or arbitrary source folders is required.
+    Reference and identity queries use bounded input IDs/pairs. Optional folder
+    links are checked against catalog paths and active source owners, without
+    accessing the filesystem.
     """
     findings = list(findings)
+    existing_paths = list(session.scalars(select(PBRMaterial.folder_path).where(PBRMaterial.folder_path.is_not(None)))) if any(row.folder_path for row in rows) else []
+    batch_paths = [row.folder_path for row in rows if row.folder_path]
     projects = _load(session, Project, set(payload.links.projects.values()))
     brands = _load(session, PublishedBrand, set(payload.links.brands.values()))
     processors = _load(session, InternalUser, set(payload.links.processors.values()))
@@ -64,7 +67,7 @@ def build_preview(session, payload, table, rows, findings):
         def issue(field, code):
             findings.append({"row": item.source_row, "field": field, "code": code})
         project, brand, processor = projects.get(item.project_id), brands.get(item.brand_id), processors.get(item.processor_id)
-        if project is None: issue("project", "IMPORT_PROJECT_MISSING")
+        if item.project_id is not None and project is None: issue("project", "IMPORT_PROJECT_MISSING")
         if brand is None: issue("brand", "IMPORT_BRAND_MISSING")
         elif not brand.is_active: issue("brand", "IMPORT_BRAND_INACTIVE")
         if brand is not None and brand.folder_prefix != item.prefix:
@@ -79,6 +82,15 @@ def build_preview(session, payload, table, rows, findings):
             issue("identity", "IMPORT_MATERIAL_EXISTS")
         if (item.brand_id, item.sequence_number) in reserved_numbers:
             issue("identity", "IMPORT_NUMBER_RESERVED")
+        if item.folder_path:
+            path = item.folder_path.casefold()
+            if any(path == other.casefold() or path.startswith(other.casefold() + "/") or other.casefold().startswith(path + "/")
+                   for other in [*existing_paths, *[value for value in batch_paths if value != item.folder_path]]):
+                issue("identity", "IMPORT_FOLDER_REFERENCE_CONFLICT")
+            try:
+                require_folder_idle(session, item.folder_path)
+            except HTTPException:
+                issue("identity", "IMPORT_FOLDER_REFERENCE_BUSY")
     references = {
         "projects": _snapshots(projects, ("name", "project_number", "company_id", "status")),
         "brands": _snapshots(brands, ("name", "folder_prefix", "brand_identifier", "company_id", "is_active", "next_sequence_number")),
@@ -93,7 +105,7 @@ def build_preview(session, payload, table, rows, findings):
     return {"can_confirm": not findings and len(rows) == len(table.rows),
             "preview_hash": canonical_hash(snapshot) if not findings and len(rows) == len(table.rows) else None,
             "row_count": len(table.rows), "findings": findings, "snapshot": snapshot,
-            "warnings": ["IMPORT_REQUIRES_NORMAL_REVIEW"]}
+            "warnings": ["IMPORT_REQUIRES_NORMAL_REVIEW", *(["IMPORT_FOLDER_REFERENCES_UNVERIFIED"] if batch_paths else [])]}
 
 
 def batch_summary(batch):
@@ -123,6 +135,8 @@ def confirm_import(session, actor_id, payload, table, rows, findings):
         if existing.request_hash != request_hash:
             raise HTTPException(409, {"code": "IMPORT_IDEMPOTENCY_CONFLICT"})
         return batch_result(session, existing)
+    if any(row.folder_path for row in rows):
+        lock_folder_catalog(session)
     brands = {brand.id: brand for brand in session.scalars(select(PublishedBrand).where(
         PublishedBrand.id.in_({row.brand_id for row in rows})).order_by(PublishedBrand.id).with_for_update())}
     preview = build_preview(session, payload, table, rows, findings)
@@ -142,7 +156,7 @@ def confirm_import(session, actor_id, payload, table, rows, findings):
             material = PBRMaterial(project_id=row.project_id, published_brand_id=row.brand_id,
                 assigned_processor_id=row.processor_id, technical_identity=row.technical_identity,
                 material_name=row.material_name, sequence_number=row.sequence_number, main_category_code=row.main_category_code,
-                **snapshot["initial_state"])
+                **{**snapshot["initial_state"], "folder_path": row.folder_path})
             material.metadata_state = PBRMaterialMetadata()
             session.add(material)
             materials.append((row, material))
@@ -152,7 +166,7 @@ def confirm_import(session, actor_id, payload, table, rows, findings):
             session.add(MaterialNumberReservation(brand_id=row.brand_id, sequence_number=row.sequence_number,
                 material_id=material.id, actor_id=actor_id))
             session.add(MaterialImportRow(batch_id=batch.id, source_row=row.source_row, material_id=material.id,
-                snapshot={**row.public_values(), **snapshot["initial_state"]}))
+                snapshot={**snapshot["initial_state"], **row.public_values()}))
         session.flush()
         result = batch_result(session, batch)
         session.commit()

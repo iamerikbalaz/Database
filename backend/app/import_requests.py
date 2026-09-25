@@ -1,7 +1,6 @@
 """Explicit import mapping and strict source request models; no writes or guesses."""
 import base64
 from dataclasses import dataclass, field
-import re
 from typing import Annotated, Literal
 import unicodedata
 from uuid import UUID
@@ -10,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapte
 
 from app.import_sources import ImportSourceError, MAX_UPLOAD_BYTES, SourceTable, check_upload, read_csv
 from app.import_workbooks import read_xlsx, xlsx_sheets
+from app.material_naming import match_identity
+from app.inventory_client import validate_relative_path
 from app.schemas import Name, CategoryCode, Sha256
 
 MAX_REFERENCE_VALUES = 64
@@ -54,14 +55,16 @@ class ImportSource(ImportModel):
 class ImportColumns(ImportModel):
     identity: Column
     name: Column
-    project: Column
+    project: Column | None = None
     brand: Column
     processor: Column
+    folder: Column | None = None
 
     @model_validator(mode="after")
     def distinct(self):
-        if len(set(self.model_dump().values())) != 5:
-            raise ValueError("Choose five distinct source columns")
+        headers = [value for value in self.model_dump().values() if value is not None]
+        if len(set(headers)) != len(headers):
+            raise ValueError("Choose distinct source columns")
         return self
 
 
@@ -97,6 +100,12 @@ class PlanImport(ImportModel):
     columns: ImportColumns
     links: ImportLinks
 
+    @model_validator(mode="after")
+    def no_unused_project_mapping(self):
+        if self.columns.project is None and self.links.projects:
+            raise ValueError("An import without a project column must not map projects")
+        return self
+
 
 class ConfirmImport(PlanImport):
     idempotency_key: UUID
@@ -122,6 +131,8 @@ class ConfirmImport(PlanImport):
 def column_indices(table, columns):
     positions = {}
     for name, header in columns.model_dump().items():
+        if header is None:
+            continue
         if header not in table.headers:
             raise ImportSourceError("IMPORT_COLUMN_MAPPING")
         positions[name] = table.headers.index(header)
@@ -139,7 +150,7 @@ def inspect_source(payload: InspectImport):
               "sample": [{"row": row.number, "values": row.values} for row in table.rows[:10]]}
     if payload.columns is not None:
         positions = column_indices(table, payload.columns)
-        values = {name: sorted({mapping_key(row.values[positions[name]]) for row in table.rows})
+        values = {name: sorted({mapping_key(row.values[positions[name]]) for row in table.rows}) if name in positions else []
                   for name in ("project", "brand", "processor")}
         if any(len(group) > MAX_REFERENCE_VALUES for group in values.values()):
             raise ImportSourceError("IMPORT_REFERENCE_LIMIT")
@@ -158,15 +169,17 @@ class PreparedImportRow:
     prefix: str = field(repr=False)
     sequence_number: int
     main_category_code: str
-    project_id: UUID
+    project_id: UUID | None
     brand_id: UUID
     processor_id: UUID
+    folder_path: str | None = field(default=None, repr=False)
 
     def public_values(self):
         return {"source_row": self.source_row, "technical_identity": self.technical_identity,
                 "material_name": self.material_name, "sequence_number": self.sequence_number,
-                "main_category_code": self.main_category_code, "project_id": str(self.project_id),
-                "published_brand_id": str(self.brand_id), "assigned_processor_id": str(self.processor_id)}
+                "main_category_code": self.main_category_code, "project_id": str(self.project_id) if self.project_id is not None else None,
+                "published_brand_id": str(self.brand_id), "assigned_processor_id": str(self.processor_id),
+                "folder_path": self.folder_path}
 
 
 def prepare_rows(table: SourceTable, columns: ImportColumns, links: ImportLinks):
@@ -179,11 +192,9 @@ def prepare_rows(table: SourceTable, columns: ImportColumns, links: ImportLinks)
         def issue(field, code):
             findings.append({"row": row.number, "field": field, "code": code})
         identity = row.values[positions["identity"]].strip()
-        parts = identity.rsplit("_", 2)
-        prefix, number, category = parts if len(parts) == 3 else ("", "", "")
-        if not prefix or len(identity) > 512 or not re.fullmatch(r"[0-9]{4}", number) or int(number) == 0:
-            issue("identity", "IMPORT_IDENTITY_FORMAT")
-        if any(char in "/\\:" or unicodedata.category(char).startswith("C") for char in prefix):
+        match = match_identity(identity)
+        prefix, number, category = (match["prefix"], match["number"], match["category"]) if match else ("", "", "")
+        if match is None:
             issue("identity", "IMPORT_IDENTITY_FORMAT")
         try:
             if CATEGORY.validate_python(category) != category:
@@ -196,7 +207,21 @@ def prepare_rows(table: SourceTable, columns: ImportColumns, links: ImportLinks)
             name = ""
             issue("name", "IMPORT_MATERIAL_NAME")
         references = {}
+        folder = None
+        if "folder" in positions:
+            folder = row.values[positions["folder"]].strip()
+            try:
+                if len(folder) > 2048:
+                    raise ValueError()
+                validate_relative_path(folder)
+                if folder.rsplit("/", 1)[-1] != identity:
+                    raise ValueError()
+            except ValueError:
+                issue("identity", "IMPORT_FOLDER_REFERENCE_INVALID")
         for group, mapping in (("project", links.projects), ("brand", links.brands), ("processor", links.processors)):
+            if group == "project" and group not in positions:
+                references[group] = None
+                continue
             key = mapping_key(row.values[positions[group]])
             identifier = mapping.get(key)
             if identifier is None:
@@ -206,7 +231,7 @@ def prepare_rows(table: SourceTable, columns: ImportColumns, links: ImportLinks)
         if len(findings) != start:
             continue
         item = PreparedImportRow(row.number, identity, name, prefix, int(number), category,
-                                 references["project"], references["brand"], references["processor"])
+                                 references["project"], references["brand"], references["processor"], folder)
         if identity in seen_identities or (item.brand_id, item.sequence_number) in seen_numbers:
             issue("identity", "IMPORT_DUPLICATE_IDENTITY_OR_NUMBER")
             continue

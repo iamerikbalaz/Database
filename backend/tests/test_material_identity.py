@@ -74,7 +74,7 @@ def test_read_only_plan_does_not_reserve_number_or_create_operation(identity_cas
     case, worker, path, target = identity_case
     with case.client("PRODUCTION_LEAD") as client:
         plan = client.post(path + "/identity-plan", json=target).json()
-        assert plan["reserves_number"] and plan["target_context"]["technical_identity"] == "NEXT_0001_G04"
+        assert plan["reserves_number"] and plan["target_context"]["technical_identity"] == "NEXT_0001_MATERIAL-1_G04"
         assert plan["generation"] == 0 and plan["worker_plan"]["ready"]
     with case.database.session() as session:
         assert session.get(PublishedBrand, UUID(target["target_brand_id"])).next_sequence_number == 1
@@ -107,7 +107,7 @@ def test_confirm_preserves_uuid_and_history_burns_only_rebrand_number(identity_c
         after = client.get(path).json()
         for key in ("id", "project_id", "assigned_processor_id", "material_name"):
             assert after[key] == before[key]
-        assert after["technical_identity"] == ("SAFE" if same_brand else "NEXT") + "_0001_G04"
+        assert after["technical_identity"] == ("SAFE" if same_brand else "NEXT") + "_0001_MATERIAL-1_G04"
         assert len(client.get(path + "/identity-history").json()) == 1
         assert client.post(path + "/identity-confirm", json={**payload, "reason": "Different request"}).status_code == 409
     assert len(worker.executions) == 1
@@ -207,7 +207,7 @@ def test_authorized_operation_finalizes_even_if_initiator_is_disabled_during_io(
         assert result.status_code == 200 and result.json()["status"] == "COMPLETED"
         assert client.patch(path, json={"material_name": "No"}).status_code == 401
     with case.database.session() as session:
-        assert session.get(PBRMaterial, case.materials[0].id).technical_identity == "NEXT_0001_G04"
+        assert session.get(PBRMaterial, case.materials[0].id).technical_identity == "NEXT_0001_MATERIAL-1_G04"
         assert session.scalar(select(MaterialIdentityHistory)).actor_id == case.users["PRODUCTION_LEAD"].id
 
 

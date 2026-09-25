@@ -1798,7 +1798,8 @@ def _assert_prefix_race_database_state(
         )
         assert len(materials) == 1
         assert materials[0].sequence_number == 1
-        assert materials[0].technical_identity == f"{expected_prefix}_0001_G03"
+        name = "MATERIAL-AFTER-PREFIX-UPDATE" if expected_prefix == context["new_prefix"] else "MATERIAL-BEFORE-PREFIX-UPDATE"
+        assert materials[0].technical_identity == f"{expected_prefix}_0001_{name}_G03"
     setup_engine.dispose()
 
 
@@ -1851,7 +1852,7 @@ def test_prefix_patch_first_serializes_material_creation(
     assert patch_result[1]["folder_prefix"] == context["new_prefix"]
     assert post_result[0] == 201
     assert post_result[1]["technical_identity"] == (
-        f"{context['new_prefix']}_0001_G03"
+        f"{context['new_prefix']}_0001_MATERIAL-AFTER-PREFIX-UPDATE_G03"
     )
     _assert_prefix_race_database_state(
         migrated_postgresql_url,
@@ -1907,7 +1908,7 @@ def test_material_creation_first_blocks_prefix_patch_and_returns_conflict(
 
     assert post_result[0] == 201
     assert post_result[1]["technical_identity"] == (
-        f"{context['old_prefix']}_0001_G03"
+        f"{context['old_prefix']}_0001_MATERIAL-BEFORE-PREFIX-UPDATE_G03"
     )
     assert patch_result == (
         409,
@@ -2182,7 +2183,7 @@ def test_sequence_9999_is_allocated_then_returns_controlled_conflict(
 
     assert created_response.status_code == 201
     assert created_response.json()["sequence_number"] == 9999
-    assert created_response.json()["technical_identity"].endswith("_9999_G03")
+    assert created_response.json()["technical_identity"].endswith("_9999_FINAL-SEQUENCE-MATERIAL_G03")
     assert brand_response.status_code == 200
     assert brand_response.json()["next_sequence_number"] == 10000
     assert exhausted_response.status_code == 409

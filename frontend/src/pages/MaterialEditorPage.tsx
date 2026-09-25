@@ -33,7 +33,7 @@ export function MaterialEditorPage({ id, client, navigate, onSaved }: {
     const unavailableProcessor = material && !active.some((u) => u.id === material.assignedProcessorId);
     if (unavailableProcessor) processorOptions.push({ value: material.assignedProcessorId, label: "Current processor (inactive or unavailable): " + material.assignedProcessorId, disabled: true });
     const fields: Field[] = [
-      { name: "projectId", apiName: "project_id", label: "Project", type: "select", required: true,
+      { name: "projectId", apiName: "project_id", label: "Project", type: "select", required: !id || Boolean(material?.projectId),
         options: projects.map((p) => ({ value: p.id, label: p.name })) },
       ...(!id ? [{ name: "publishedBrandId", apiName: "published_brand_id", label: "Published brand", type: "select" as const, required: true,
         options: brands.map((b) => ({ value: b.id, label: b.name })) }] : []),
@@ -54,12 +54,14 @@ export function MaterialEditorPage({ id, client, navigate, onSaved }: {
       },
     };
     return { definition, material, brands, unavailableProcessor,
-      missingChoices: !projects.length || (!id && !brands.length) || (!material && !active.length) };
+      missingChoices: !id && (!projects.length || !brands.length || !active.length) };
   }, [id, client, canAssign, actor]);
   const { data, error, cause, retry } = useResource(load);
   if (error) return <ErrorState message={materialLoadError(cause)} retry={retry} />;
   if (!data) return <LoadingState label="Loading material form…" />;
   return <>
+    <p>{id ? "Editing the display name does not rename the recorded folder. Linked folder changes use the controlled identity workflow."
+      : "Folder names use BRAND_0001_MATERIAL-NAME_CATEGORY. New name components use uppercase letters and hyphens instead of spaces; the display name is kept."}</p>
     {data.missingChoices && <p role="alert" className="form-error">A project, published brand and active processor must be available before creating a material.</p>}
     {data.unavailableProcessor && <p role="status">The current processor is inactive or unavailable. Only active processors can be selected as a replacement.</p>}
     <RecordForm key={id ?? "new"} definition={data.definition} navigate={navigate} onSaved={onSaved} />

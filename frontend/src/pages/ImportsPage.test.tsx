@@ -24,7 +24,7 @@ function setup(role: Role = "ADMIN") {
       state.inspections++; state.format = body.source.format; state.selectedSheet = body.source.sheet ?? "";
       if (body.source.format === "XLSX" && !body.source.sheet) return json({ format: "XLSX", sheets: ["Materials", "Archive"], requires_sheet: true });
       return json({ ...importInspection, format: body.source.format, sheets: body.source.format === "XLSX" ? ["Materials", "Archive"] : [],
-        ...(body.columns ? { mapping_values: importMappings } : {}) });
+        ...(body.columns ? { mapping_values: { ...importMappings, project: body.columns.project === null ? [] : importMappings.project } } : {}) });
     }
     if (path.endsWith("/preview")) return json(state.preview);
     if (path.endsWith("/confirm")) {
@@ -67,6 +67,19 @@ function acknowledge() {
   fireEvent.change(screen.getByLabelText("Reason for historical import"), { target: { value: "Reviewed synthetic history" } });
   fireEvent.click(screen.getByRole("checkbox", { name: /I checked the identities/ }));
 }
+it("explicitly omits historical project mapping instead of inventing a project", async () => {
+  const { fetch } = setup();
+  await inspect();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Import historical materials without a project" }));
+  for (const [label, value] of [["Technical identity", "Identity"], ["Material name", "Name"], ["Brand label", "Brand"], ["Processor label", "Processor"]])
+    fireEvent.change(screen.getByLabelText(label + " column"), { target: { value } });
+  expect(screen.queryByLabelText("Project label column")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Load source labels" }));
+  await screen.findByRole("button", { name: "Prepare import preview" });
+  expect(screen.queryByLabelText("Project: Project A")).not.toBeInTheDocument();
+  const request = fetch.mock.calls.filter(([path]) => path.endsWith("/inspect")).at(-1)!;
+  expect(JSON.parse(String(request[1]?.body)).columns.project).toBeNull();
+});
 it("requires explicit options, five columns, existing IDs and acknowledgment before creating a batch", async () => {
   const { fetch, navigate } = setup();
   expect(screen.getByRole("button", { name: "Inspect source" })).toBeDisabled();

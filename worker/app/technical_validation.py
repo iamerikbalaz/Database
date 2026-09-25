@@ -11,6 +11,7 @@ from threading import BoundedSemaphore
 
 from app.inventory import InventoryError, InventoryLimits, inventory_material
 from app.image_probe import MAX_PIXELS, MAX_SIDE
+from app.material_naming import map_bases
 from app.secure_filesystem import _metadata_flags, inspect_material_secure, open_material_directory
 
 MAPS = frozenset({"AO", "COL", "DISP16", "DISP", "GLOSS", "NRM16", "NRM", "ROUGH"})
@@ -72,7 +73,7 @@ def _validate_material(root: Path, parts: tuple[str, ...]) -> dict:
         if len(entries) > 64:
             errors.append(finding("MASTER_ENTRY_LIMIT", master))
         else:
-            pattern = re.compile(re.escape(parts[-1]) + r"_([A-Z0-9]+)_" + re.escape(master) + r"\.([a-zA-Z]+)$")
+            pattern = re.compile("(?:" + "|".join(re.escape(base) for base in map_bases(parts[-1])) + r")_([A-Z0-9]+)_" + re.escape(master) + r"\.([a-zA-Z]+)$")
             seen = set()
             with open_material_directory(root, (*parts, master)) as directory_fd:
                 for entry in entries:

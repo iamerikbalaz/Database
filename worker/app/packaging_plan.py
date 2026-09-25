@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 
-from app.identity_plan import IDENTITY
+from app.material_naming import base_name, map_bases, match_identity
 from app.image_probe import MAX_PIXELS, MAX_SIDE
 from app.inventory import _safe_name
 from app.preflight import MAX_METADATA_BYTES, ZipPolicy
@@ -126,7 +126,7 @@ def _build(report, expected, policy):
     bound = {key: inventory[key] for key in ("schema_version", "folder_name", "master_resolution", "policy", "entries")}
     _require(_digest(bound) == expected, "PACKAGING_SOURCE_CHANGED")
     identity, master = inventory["folder_name"], inventory["master_resolution"]
-    _require(isinstance(identity, str) and _safe_name(identity) and IDENTITY.fullmatch(identity) is not None and int(IDENTITY.fullmatch(identity)["number"]) > 0)
+    _require(isinstance(identity, str) and _safe_name(identity) and match_identity(identity) is not None)
     _require(isinstance(master, str) and re.fullmatch(r"[1-9][0-9]{0,2}K", master) is not None)
     _require(1 <= int(master[:-1]) <= 32, "PACKAGING_MASTER_UNSUPPORTED")
     entries = inventory["entries"]
@@ -147,7 +147,7 @@ def _build(report, expected, policy):
     images = report["images"]
     _require(isinstance(images, list) and 1 <= len(images) <= len(MAPS))
     parsed = []; seen = set()
-    pattern = re.compile(re.escape(identity) + r"_([A-Z0-9]+)_" + re.escape(master) + r"\.([a-zA-Z]+)$")
+    pattern = re.compile("(?:" + "|".join(re.escape(base) for base in map_bases(identity)) + r")_([A-Z0-9]+)_" + re.escape(master) + r"\.([a-zA-Z]+)$")
     for image in images:
         path = image["path"]; match = pattern.fullmatch(path.removeprefix(master + "/"))
         _require(path.startswith(master + "/") and match is not None)
@@ -184,7 +184,7 @@ def _build(report, expected, policy):
         target_width, target_height = _fit(effective_width, effective_height, number * 1024)
         operations = []
         for shortcut, extension, image in parsed:
-            destination = f"{name}/{identity}_{shortcut}_{name}.{extension}"
+            destination = f"{name}/{base_name(identity)}_{shortcut}_{name}.{extension}"
             _require(_relative(destination), "PACKAGING_OUTPUT_NAME_LIMIT")
             # Historical scripts copy only an exact square master; rectangles
             # are re-encoded even when their longest side already matches.

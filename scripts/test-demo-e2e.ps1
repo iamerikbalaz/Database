@@ -336,8 +336,10 @@ function New-E2eSeedManifestData {
 import json, os, sys
 from pathlib import Path
 from PIL import Image
+from app.material_naming import base_name, match_identity
 value = json.load(sys.stdin)
 name = value['identity']
+base = base_name(name)
 assert name.startswith('E2E_SAFE_') and '/' not in name and '\\' not in name
 root = Path('/e2e-materials/e2e-identity')
 assert root.is_dir() and not root.is_symlink()
@@ -346,9 +348,9 @@ source.mkdir()
 (source / '1K').mkdir()
 (source / 'SOURCE').mkdir()
 for shortcut in ('COL', 'NRM', 'ROUGH'):
-    Image.new('RGB', (1024,1024), '#607080').save(source / '1K' / f'{name}_{shortcut}_1K.png')
-(source / 'SOURCE' / f'{name}.sbs').write_bytes(b'Synthetic E2E source only')
-(source / 'metadata.txt').write_text(json.dumps({'FOLDER': name, 'PRODUCT_NAME': value['name'], 'MANUFACTURER': 'E2E Published Brand', 'CATEGORY': 'G03', 'PRODUCT_NUMBER': name.rsplit('_',2)[1], 'COLOR': {'hex':'#607080'}, 'TEXTURE_SIZE': {'cm': {'width':12.5,'height':34}}, 'SOURCE': {'SBS': f'SOURCE/{name}.sbs'}}), encoding='utf-8')
+    Image.new('RGB', (1024,1024), '#607080').save(source / '1K' / f'{base}_{shortcut}_1K.png')
+(source / 'SOURCE' / f'{base}.sbs').write_bytes(b'Synthetic E2E source only')
+(source / 'metadata.txt').write_text(json.dumps({'FOLDER': name, 'BASE_NAME': base, 'PRODUCT_NAME': value['name'], 'MANUFACTURER': 'E2E Published Brand', 'CATEGORY': 'G03', 'PRODUCT_NUMBER': match_identity(name)['number'], 'COLOR': {'hex':'#607080'}, 'TEXTURE_SIZE': {'cm': {'width':12.5,'height':34}}, 'SOURCE': {'SBS': f'SOURCE/{base}.sbs'}}), encoding='utf-8')
 Path('/e2e-identity-journal/private').mkdir(mode=0o700)
 '@
     Invoke-E2eComposeWithStandardInput -StandardInput (@{ identity = $identity.technical_identity; name = $identity.material_name } | ConvertTo-Json -Compress) -Arguments @('exec', '--no-TTY', 'worker', 'python', '-c', $identityCode) -Step 'Create synthetic identity fixtures only in verified fresh Linux volumes' -Mutation
@@ -378,7 +380,7 @@ Path('/e2e-identity-journal/private').mkdir(mode=0o700)
     }
     Write-E2eSafeTextFile $RepositoryRoot $RunRoot (Join-Path $publicationDirectory 'metadata.txt') (@{
         FOLDER = $publication.technical_identity; PRODUCT_NAME = $publication.material_name; MANUFACTURER = 'E2E Published Brand'
-        CATEGORY = 'G03'; PRODUCT_NUMBER = ($publication.technical_identity -split '_')[-2]
+        CATEGORY = 'G03'; PRODUCT_NUMBER = ('{0:D4}' -f [int]$publication.sequence_number)
         COLOR = @{ hex = '#A1B2C3' }; TEXTURE_SIZE = @{ cm = @{ width = 12.5; height = 34 } }
     } | ConvertTo-Json -Depth 10 -Compress)
     foreach ($variant in @('front', 'side')) {

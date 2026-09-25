@@ -846,6 +846,7 @@ a.button {
 .material-table { overflow-x: auto; }
 .material-table table { min-width: 1300px; }
 .material-table:focus-visible { outline: 3px solid #a3c440; }
+.material-folder-path { min-width: 220px; max-width: 340px; overflow-wrap: anywhere; }
 .material-facts dd { overflow-wrap: anywhere; }
 
 .material-operation,

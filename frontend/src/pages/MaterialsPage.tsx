@@ -44,10 +44,10 @@ export function MaterialsPage({ client, navigate }: { client: ApiClient; navigat
       : !result.data.length ? <EmptyState title="No materials found" description="Clear the filters or add a material to get started." />
       : <div className="table-card material-table" role="region" aria-label="Material results" tabIndex={0}>
         <table><caption className="sr-only">Materials and production status</caption><thead><tr>
-          {["Technical identity", "Material name", "Project", "Published brand", "Category", "Processor", "Workflow", "Validation", "Publication", "Published"].map((label) => <th scope="col" key={label}>{label}</th>)}
+          {["Technical identity", "Material name", "Folder path", "Project", "Published brand", "Category", "Processor", "Workflow", "Validation", "Publication", "Published"].map((label) => <th scope="col" key={label}>{label}</th>)}
         </tr></thead><tbody>{result.data.map((m) => <tr key={m.id}>
           <td><NavigationLink className="table-link" href={"/materials/" + m.id} navigate={navigate}>{m.technicalIdentity}</NavigationLink></td>
-          <td>{m.materialName}</td><td>{projects.find((p) => p.id === m.projectId)?.name ?? m.projectId}</td>
+          <td>{m.materialName}</td><td className="material-folder-path">{m.folderPath ?? "No folder linked"}</td><td>{m.projectId === null ? "No project assigned" : projects.find((p) => p.id === m.projectId)?.name ?? m.projectId}</td>
           <td>{brands.find((b) => b.id === m.publishedBrandId)?.name ?? m.publishedBrandId}</td>
           <td>{m.mainCategoryCode}</td><td>{users.find((u) => u.id === m.assignedProcessorId)?.displayName ?? m.assignedProcessorId}</td>
           <td>{statusLabel(m.workflowStatus)}</td><td>{statusLabel(m.validationStatus)}</td><td>{statusLabel(m.publicationStatus)}</td><td>{m.isPublished ? "Yes" : "No"}</td>

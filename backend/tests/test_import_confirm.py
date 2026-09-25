@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import event, func, select
 from sqlalchemy.exc import IntegrityError
 
-from app.db.models import MaterialImportBatch, MaterialImportRow, MaterialNumberReservation, PBRMaterial, PBRMaterialMetadata, PublishedBrand
+from app.db.models import MaterialFileOperation, MaterialImportBatch, MaterialImportRow, MaterialNumberReservation, PBRMaterial, PBRMaterialMetadata, PublishedBrand
 from test_application_access import access_case
 from test_import_preview import plan_payload
 
@@ -18,6 +18,38 @@ def confirmation(client, body):
     assert result.status_code == 200 and result.json()["can_confirm"]
     return {**body, "expected_preview_hash": result.json()["preview_hash"], "idempotency_key": str(uuid4()),
             "acknowledge_unverified": True, "reason": "Verified synthetic historical import mapping"}
+
+
+@pytest.mark.parametrize("collision", ["same_casefold", "parent", "child", "active_operation"])
+def test_folder_reference_conflict_after_preview_blocks_atomic_confirmation(access_case, collision):
+    case = access_case; material = case.materials[0]
+    identity = "SAFE_0007_PRODUCT_G03"; folder = "manufacturer/archive/" + identity
+    body = plan_payload(case, (identity,))
+    source = base64.b64decode(body["source"]["data"]).decode().splitlines()
+    body["source"]["data"] = base64.b64encode((source[0] + ";Folder\n" + source[1] + ";" + folder).encode()).decode()
+    body["columns"] = {**body["columns"], "folder": "Folder"}
+    with case.client("ADMIN") as client:
+        confirmed = confirmation(client, body)
+        with case.database.session() as session:
+            if collision == "active_operation":
+                session.add(MaterialFileOperation(material_id=material.id, actor_id=case.users["ADMIN"].id,
+                    source_brand_id=material.published_brand_id, target_brand_id=material.published_brand_id,
+                    request_key=uuid4(), request_hash="a" * 64, proposal_hash="b" * 64, request_payload={},
+                    source_context={"folder_path": "elsewhere/SAFE_0001_G03"},
+                    target_context={"folder_path": folder}, worker_plan={}, status="RUNNING"))
+            else:
+                session.get(PBRMaterial, material.id).folder_path = {"same_casefold": folder.upper(),
+                    "parent": "manufacturer/archive", "child": folder + "/nested"}[collision]
+            session.commit()
+        response = client.post(ROOT + "/confirm", json=confirmed)
+        assert response.status_code == 409 and response.json()["detail"]["code"] == "IMPORT_BLOCKED"
+        code = "IMPORT_FOLDER_REFERENCE_BUSY" if collision == "active_operation" else "IMPORT_FOLDER_REFERENCE_CONFLICT"
+        assert code in {item["code"] for item in response.json()["detail"]["findings"]}
+        assert case.worker.calls == []
+    with case.database.session() as session:
+        assert session.scalar(select(func.count()).select_from(PBRMaterial)) == 2
+        assert session.scalar(select(func.count()).select_from(MaterialImportBatch)) == 0
+        assert session.get(PublishedBrand, material.published_brand_id).next_sequence_number == 3
 
 
 def test_confirm_preserves_exact_identity_advances_counter_and_replays_original_snapshot(access_case):
@@ -51,7 +83,51 @@ def test_confirm_preserves_exact_identity_advances_counter_and_replays_original_
         normal = client.post("/api/materials", json={"project_id": str(case.materials[0].project_id),
             "published_brand_id": str(brand_id), "assigned_processor_id": str(case.materials[0].assigned_processor_id),
             "material_name": "Subsequent ordinary creation", "main_category_code": "G03"})
-        assert normal.status_code == 201 and normal.json()["technical_identity"] == "SAFE_0008_G03"
+        assert normal.status_code == 201 and normal.json()["technical_identity"] == "SAFE_0008_SUBSEQUENT-ORDINARY-CREATION_G03"
+
+
+def test_named_historical_identity_survives_confirmation_read_and_retry_without_metadata(access_case):
+    case = access_case
+    identity = "SAFE_0021_03.Brushed-Gold_K03"
+    with case.client("ADMIN") as client:
+        body = confirmation(client, plan_payload(case, (identity,)))
+        result = client.post(ROOT + "/confirm", json=body)
+        assert result.status_code == 200
+        row = result.json()["rows"][0]
+        assert row["technical_identity"] == identity
+        material = client.get("/api/materials/" + row["material_id"]).json()
+        assert material["technical_identity"] == identity and material["sequence_number"] == 21
+        assert material["main_category_code"] == "K03" and material["folder_path"] is None
+        assert client.get("/api/materials/" + row["material_id"] + "/metadata").json()["status"] == "NOT_SCANNED"
+        assert client.post(ROOT + "/confirm", json=body).json() == result.json()
+
+
+def test_historical_reference_import_has_no_project_or_source_io_and_can_be_assigned_later(access_case):
+    case = access_case
+    identity = "SAFE_0021_03-BRUSHED-GOLD_K03"
+    source = ("Identity;Name;Brand;Processor;Folder\n" + identity + ";Historical gold;Brand;Processor;manufacturer/archive/" + identity).encode()
+    body = plan_payload(case, (identity,))
+    body["source"]["data"] = base64.b64encode(source).decode()
+    body["columns"] = {"identity": "Identity", "name": "Name", "brand": "Brand", "processor": "Processor", "project": None, "folder": "Folder"}
+    body["links"] = {"projects": {}, "brands": {"Brand": str(case.materials[0].published_brand_id)},
+                     "processors": {"Processor": str(case.materials[0].assigned_processor_id)}}
+    with case.client("ADMIN") as client:
+        preview = client.post(ROOT + "/preview", json=body).json()
+        assert preview["can_confirm"]
+        assert "IMPORT_FOLDER_REFERENCES_UNVERIFIED" in preview["warnings"]
+        confirmed = client.post(ROOT + "/confirm", json=confirmation(client, body))
+        assert confirmed.status_code == 200
+        row = confirmed.json()["rows"][0]
+        path = "/api/materials/" + row["material_id"]
+        material = client.get(path).json()
+        assert material["project_id"] is None and material["folder_path"] == "manufacturer/archive/" + identity
+        assert material["validation_status"] == "NOT_CHECKED" and material["workflow_status"] == "IN_PROGRESS"
+        assert client.get(path + "/metadata").json()["status"] == "NOT_SCANNED"
+        assert case.worker.calls == []
+        assigned = client.patch(path, json={"project_id": str(case.materials[0].project_id)})
+        assert assigned.status_code == 200 and assigned.json()["project_id"] == str(case.materials[0].project_id)
+        assert assigned.json()["technical_identity"] == identity and assigned.json()["folder_path"] == material["folder_path"]
+        assert case.worker.calls == []
 
 
 @pytest.mark.parametrize("change", ["reason", "expected_preview_hash", "source", "idempotency_key"])

@@ -2,9 +2,9 @@ import { request } from "./client";
 import { boolean, record, uuid } from "./dto";
 import { ApiError } from "./errors";
 
-export type ImportField = "identity" | "name" | "project" | "brand" | "processor";
+export type ImportField = "identity" | "name" | "project" | "brand" | "processor" | "folder";
 export type ImportGroup = "project" | "brand" | "processor";
-export type ImportColumns = Record<ImportField, string>;
+export type ImportColumns = Record<Exclude<ImportField, "project" | "folder">, string> & { project: string | null; folder?: string | null };
 export interface ImportSource { format: "CSV" | "XLSX"; data: string; delimiter?: "," | ";"; sheet?: string; }
 export interface ImportLinks { projects: Record<string, string>; brands: Record<string, string>; processors: Record<string, string>; }
 export interface ImportPlanRequest { source: ImportSource; columns: ImportColumns; links: ImportLinks; }
@@ -52,6 +52,9 @@ const findingMessages: Record<string, string> = {
   IMPORT_BRAND_OPERATION_ACTIVE: "Finish or reconcile the brand's identity operation first.",
   IMPORT_PROCESSOR_UNAVAILABLE: "Choose an active processor.", IMPORT_COMPANY_UNAVAILABLE: "The associated company is unavailable or inactive.",
   IMPORT_MATERIAL_EXISTS: "A material already uses this identity or brand number.", IMPORT_NUMBER_RESERVED: "This brand number is permanently reserved.",
+  IMPORT_FOLDER_REFERENCE_INVALID: "Use a relative folder path ending with the exact material identity.",
+  IMPORT_FOLDER_REFERENCE_CONFLICT: "Another material already references this folder or an overlapping folder.",
+  IMPORT_FOLDER_REFERENCE_BUSY: "An active operation owns this folder. Finish or reconcile it before import.",
 };
 export const importFindingMessage = (code: string): string => Object.hasOwn(findingMessages, code)
   ? findingMessages[code] : "This row needs correction before import.";
@@ -65,7 +68,7 @@ const sourceMessages: Record<string, string> = {
   IMPORT_COLUMN_LIMIT: "Use between 1 and 32 source columns.", IMPORT_ROW_LIMIT: "Split the source into batches of at most 2,000 data records.",
   IMPORT_ROW_WIDTH: "Every CSV record must have the same number of columns as the header.", IMPORT_HEADER: "Use nonempty, single-line column headers.",
   IMPORT_DUPLICATE_HEADER: "Give each column a distinct header.", IMPORT_EMPTY_TABLE: "The selected source has no material records.",
-  IMPORT_COLUMN_MAPPING: "Select five distinct columns that exist in the source.", IMPORT_REFERENCE_LABEL: "Correct blank or multiline project, brand or processor labels.",
+  IMPORT_COLUMN_MAPPING: "Select distinct source columns; historical records may have no project column.", IMPORT_REFERENCE_LABEL: "Correct blank or multiline project, brand or processor labels.",
   IMPORT_REFERENCE_LIMIT: "Split the source so each reference group has at most 64 distinct labels.",
   IMPORT_SHEET_REQUIRED: "Select the worksheet that contains the material table.", IMPORT_SHEET_LIMIT: "Use a workbook with at most 16 worksheets.",
   IMPORT_XLSX_CELL: "Correct this workbook cell or save the reviewed literal table as UTF-8 CSV.",
@@ -115,14 +118,16 @@ export function parseImportInspection(value: unknown) {
 }
 function row(value: unknown) {
   const data = record(value);
+  const folderPath = data.folder_path === null || data.folder_path === undefined ? null : text(data.folder_path, 2048);
+  if (folderPath !== null && (folderPath.split("/").some((part) => !part || part === "." || part === "..") || [...folderPath].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 || "\\:".includes(char)) || folderPath.split("/").at(-1) !== data.technical_identity)) throw new Error("Invalid import folder reference");
   return { sourceRow: integer(data.source_row, 1, 4194304), identity: text(data.technical_identity, 512), name: text(data.material_name, 255),
-    number: integer(data.sequence_number, 1, 9999), category: text(data.main_category_code, 100), projectId: uuid(data.project_id),
-    brandId: uuid(data.published_brand_id), processorId: uuid(data.assigned_processor_id) };
+    number: integer(data.sequence_number, 1, 9999), category: text(data.main_category_code, 100), projectId: data.project_id === null ? null : uuid(data.project_id),
+    brandId: uuid(data.published_brand_id), processorId: uuid(data.assigned_processor_id), folderPath };
 }
-function initialState(value: unknown) {
+function initialState(value: unknown, allowFolder = false) {
   const data = record(value);
   if (data.workflow_status !== "IN_PROGRESS" || data.validation_status !== "NOT_CHECKED" || data.publication_status !== "NOT_PUBLISHED" ||
-      data.is_published !== false || data.folder_path !== null) throw new Error("Unsafe import initial state");
+      data.is_published !== false || (!allowFolder && data.folder_path !== null)) throw new Error("Unsafe import initial state");
 }
 function referenceContext(value: unknown) {
   const data = record(value);
@@ -149,7 +154,7 @@ export function parseImportPreview(value: unknown) {
   unique(rows.map((row) => String(row.sourceRow)));
   unique(rows.map((row) => row.identity));
   unique(rows.map((row) => `${row.brandId}:${row.number}`));
-  if (ready && rows.some((row) => !references.projects.some((item) => item.id === row.projectId) ||
+  if (ready && rows.some((row) => (row.projectId !== null && !references.projects.some((item) => item.id === row.projectId)) ||
       !references.brands.some((item) => item.id === row.brandId) || !references.processors.some((item) => item.id === row.processorId))) throw new Error("Unresolved import references");
   return { ready, hash: ready ? hash(data.preview_hash) : null, sourceHash: hash(snapshot.source_sha256), rowCount, rows, findings, references,
     ignoredColumns: list(snapshot.ignored_columns, 32, (item) => text(item)) };
@@ -164,7 +169,7 @@ export function parseImportResult(value: unknown) {
   const result = summary(value); const data = record(value); const snapshot = record(data.snapshot);
   if (snapshot.schema_version !== 1 || hash(snapshot.source_sha256) !== result.sourceHash) throw new Error("Invalid import audit");
   initialState(snapshot.initial_state);
-  const rows = list(data.rows, 2000, (value) => { initialState(value); return { ...row(value), materialId: uuid(record(value).material_id) }; });
+  const rows = list(data.rows, 2000, (value) => { initialState(value, true); return { ...row(value), materialId: uuid(record(value).material_id) }; });
   if (rows.length !== result.rowCount) throw new Error("Incomplete import result");
   unique(rows.map((row) => row.materialId)); unique(rows.map((row) => String(row.sourceRow)));
   return { ...result, rows, references: referenceContext(snapshot.references) };

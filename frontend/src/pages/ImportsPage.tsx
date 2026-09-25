@@ -13,10 +13,11 @@ import { ErrorState, LoadingState } from "../components/PageState";
 const fields: { key: ImportField; label: string }[] = [
   { key: "identity", label: "Technical identity" }, { key: "name", label: "Material name" },
   { key: "project", label: "Project label" }, { key: "brand", label: "Brand label" }, { key: "processor", label: "Processor label" },
+  { key: "folder", label: "Existing folder path" },
 ];
 const groups: ImportGroup[] = ["project", "brand", "processor"];
 const groupKeys = { project: "projects", brand: "brands", processor: "processors" } as const;
-const blankColumns = (): ImportColumns => ({ identity: "", name: "", project: "", brand: "", processor: "" });
+const blankColumns = (): ImportColumns => ({ identity: "", name: "", project: "", brand: "", processor: "", folder: null });
 const blankLinks = (): ImportLinks => ({ projects: {}, brands: {}, processors: {} });
 
 export function ImportsPage(props: { client: ApiClient; navigate: (path: string) => void }) {
@@ -75,7 +76,8 @@ function ImportWorkspace({ client, navigate }: { client: ApiClient; navigate: (p
     setSource(body); setInspection(value); setColumns(blankColumns()); setLinks(blankLinks()); invalidatePreview();
   });
   const mapColumns = () => void run(async () => {
-    if (!source || new Set(Object.values(columns)).size !== 5 || Object.values(columns).some((value) => !value)) return;
+    const selected = Object.values(columns).filter((value) => value !== null);
+    if (!source || selected.some((value) => !value) || new Set(selected).size !== selected.length) return;
     const value = await importClient.inspect(source, columns);
     if (!mounted.current) return;
     if (value.requiresSheet || !value.mappingValues) throw new Error("Missing source mappings");
@@ -113,7 +115,7 @@ function ImportWorkspace({ client, navigate }: { client: ApiClient; navigate: (p
   const company = (id: string) => references.data?.companies.find((item) => item.id === id)?.name ?? "Unavailable company";
   const activeCompany = (id: string) => references.data?.companies.some((item) => item.id === id && item.status === "active");
   return <section className="imports-page"><div className="page-heading"><div><p className="eyebrow">Historical PBR records</p><h1>Import materials</h1></div></div>
-    <p>Keep historical identities and explicitly select the existing project, brand and processor for each source label. Imported materials start in progress and require normal source checks and approval.</p>
+    <p>Keep historical identities and select the existing brand and processor for each source label. Historical materials can have no project; a project can be assigned later. Imported materials start in progress and require normal source checks and approval.</p>
     {error && <p className="field-error" role="alert">{error}</p>}
     {pending && <p role="status">{confirming ? "Confirming import…" : "Checking import…"}</p>}
     {uncertain && <button className="button button--primary" disabled={pending} onClick={confirm}>Retry same import confirmation</button>}
@@ -139,11 +141,18 @@ function ImportWorkspace({ client, navigate }: { client: ApiClient; navigate: (p
           <tbody>{inspection.sample.map((row) => <tr key={row.row}><td>{row.row}</td>{row.values.map((value, index) => <td key={index}>{value}</td>)}</tr>)}</tbody></table></div></>}
     </article>
     {inspection?.requiresSheet === false && <article className="panel"><h2>2. Map source columns</h2>
-      <form onSubmit={(event) => { event.preventDefault(); mapColumns(); }}><fieldset disabled={locked}><legend>Choose five distinct columns</legend>
-        {fields.map(({ key, label }) => <label key={key}>{label} column<select required value={columns[key]} onChange={(event) => {
+      <form onSubmit={(event) => { event.preventDefault(); mapColumns(); }}><fieldset disabled={locked}><legend>Choose distinct source columns</legend>
+        <label><input type="checkbox" checked={columns.project === null} onChange={(event) => {
+          setColumns({ ...columns, project: event.target.checked ? null : "" }); setInspection({ ...inspection, mappingValues: undefined }); setLinks(blankLinks()); invalidatePreview();
+        }} />Import historical materials without a project</label>
+        <label><input type="checkbox" checked={columns.folder !== null} onChange={(event) => {
+          setColumns({ ...columns, folder: event.target.checked ? "" : null }); setInspection({ ...inspection, mappingValues: undefined }); setLinks(blankLinks()); invalidatePreview();
+        }} />Record existing folder references without creating or changing folders</label>
+        {columns.folder !== null && <p>Use paths relative to the configured material library. References remain unverified until a source check succeeds.</p>}
+        {fields.filter(({ key }) => (key !== "project" || columns.project !== null) && (key !== "folder" || columns.folder !== null)).map(({ key, label }) => <label key={key}>{label} column<select required value={columns[key] ?? ""} onChange={(event) => {
           setColumns({ ...columns, [key]: event.target.value }); setInspection({ ...inspection, mappingValues: undefined }); setLinks(blankLinks()); invalidatePreview();
         }}><option value="">Choose column</option>{inspection.headers.map((header) => <option key={header} disabled={Object.entries(columns).some(([field, value]) => field !== key && value === header)}>{header}</option>)}</select></label>)}
-        <button className="button" disabled={Object.values(columns).some((value) => !value) || new Set(Object.values(columns)).size !== 5}>Load source labels</button>
+        <button className="button" disabled={Object.values(columns).some((value) => value !== null && !value) || new Set(Object.values(columns).filter((value) => value !== null)).size !== Object.values(columns).filter((value) => value !== null).length}>Load source labels</button>
       </fieldset></form>
     </article>}
     {mappedValues && <article className="panel"><h2>3. Select existing records</h2>

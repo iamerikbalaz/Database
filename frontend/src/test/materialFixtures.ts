@@ -18,7 +18,7 @@ export const processorDto: InternalUserDto = {
 export const inactiveDto: InternalUserDto = {
   ...processorDto, id: "40000000-0000-4000-8000-000000000002", display_name: "Inactive Processor", is_active: false,
 };
-export const materialDto: MaterialDto = {
+export const materialDto: MaterialDto & { project_id: string } = {
   id: "50000000-0000-4000-8000-000000000001", project_id: materialProject.id,
   published_brand_id: materialBrand.id, assigned_processor_id: processorDto.id,
   sequence_number: 9999, technical_identity: "LASVIT_9999_G03", material_name: "Crystal surface",

@@ -287,6 +287,7 @@ class PBRMaterialUpdate(ApiSchema):
 
 
 class PBRMaterialRead(PBRMaterialFields):
+    project_id: UUID | None
     id: UUID
     sequence_number: int = Field(ge=1, le=9999)
     technical_identity: str

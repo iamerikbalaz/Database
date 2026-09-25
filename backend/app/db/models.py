@@ -476,10 +476,10 @@ class PBRMaterial(TimestampMixin, Base):
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    project_id: Mapped[UUID] = mapped_column(
+    project_id: Mapped[UUID | None] = mapped_column(
         Uuid,
         ForeignKey("projects.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     published_brand_id: Mapped[UUID] = mapped_column(

@@ -79,8 +79,11 @@ class TechnicalReport(BaseModel):
             if master_paths - {master + "/metadata.txt"} != expected_paths:
                 raise ValueError("Master entries are not fully verified")
             for image in self.images:
-                prefix = f"{master}/{inventory.folder_name}_{image.map}_{master}."
-                if (not image.path.startswith(prefix) or FORMATS.get(image.path[len(prefix):].lower()) != image.format
+                from app.material_naming import map_bases
+                prefixes = (f"{master}/{base}_{image.map}_{master}." for base in map_bases(inventory.folder_name))
+                filename_matches = any(image.path.startswith(prefix) and FORMATS.get(image.path[len(prefix):].lower()) == image.format
+                                       for prefix in prefixes)
+                if (not filename_matches
                         or (image.width, image.height) != (color.width, color.height)
                         or (image.map.endswith("16") and image.bits != 16)):
                     raise ValueError("Inconsistent successful image proof")

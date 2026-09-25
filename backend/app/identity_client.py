@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.inventory_client import INVENTORY_CODES, WorkerInventoryClient, validate_relative_path
 from app.material_review import canonical_hash
+from app.material_naming import base_name
 from app.schemas import FolderPath, Sha256
 
 IDENTITY_CODES = INVENTORY_CODES | frozenset({
@@ -97,9 +98,13 @@ class IdentityPlan(StrictModel):
         sources = [item.source for item in self.changes]
         if sources != sorted(set(sources)): raise ValueError("Duplicate or unsorted renames")
         old = self.source_path.rsplit("/", 1)[-1]; new = self.target_path.rsplit("/", 1)[-1]
+        def renamed_component(part):
+            for before, after in ((old, new), (base_name(old), base_name(new))):
+                if part == before or part.startswith((before + "_", before + ".")):
+                    return after + part[len(before):]
+            return part
         for item in self.changes:
-            mapped = "/".join(new + part[len(old):] if part == old or part.startswith((old + "_", old + ".")) else part
-                              for part in item.source.split("/"))
+            mapped = "/".join(renamed_component(part) for part in item.source.split("/"))
             if item.target != mapped: raise ValueError("Unexpected rename")
         if self.ready and self.metadata.before_hash is not None:
             if self.metadata.after_hash is None or bool(self.metadata.changed_fields) != (self.metadata.before_hash != self.metadata.after_hash):

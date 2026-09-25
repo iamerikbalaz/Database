@@ -42,7 +42,7 @@ def test_mapping_does_not_guess_from_names_prefixes_or_another_resource_group():
     assert all(item["code"] == "IMPORT_REFERENCE_UNMAPPED" and item["row"] == 2 for item in findings)
 
 
-@pytest.mark.parametrize("identity", ["RWT_7_G03", "RWT_0000_G03", "RWT_0007_g03", "RWT_0007_G_03", "RWT_0007_", "PRIVATE_SYNTHETIC",
+@pytest.mark.parametrize("identity", ["RWT_7_G03", "RWT_0000_G03", "RWT_0007_g03", "RWT_0007_G__03", "RWT_0007_", "PRIVATE_SYNTHETIC",
     "../RWT_0007_G03", "nested/RWT_0007_G03", "nested\\RWT_0007_G03", "C:RWT_0007_G03", "RWT\tTEST_0007_G03"])
 def test_invalid_historical_identity_is_not_silently_renumbered_or_reflected(identity):
     rows, findings = prepare_rows(read_csv(source(identity + ";Dub;Project A;Brand A;Processor A"), delimiter=";"), ImportColumns(**COLUMNS), mapping())
@@ -60,6 +60,23 @@ def test_duplicate_numbers_are_detected_even_with_different_category_suffixes():
     rows, findings = prepare_rows(read_csv(data, delimiter=";"), ImportColumns(**COLUMNS), mapping())
     assert len(rows) == 1
     assert findings == [{"row": 3, "field": "identity", "code": "IMPORT_DUPLICATE_IDENTITY_OR_NUMBER"}]
+
+
+def test_named_folder_import_keeps_exact_name_and_still_blocks_brand_number_collisions():
+    data = source("RWT_0021_03.Brushed-Gold_K03;Display name;Project A;Brand A;Processor A\nRWT_0021_OTHER_K04;Other;Project A;Brand A;Processor A")
+    rows, findings = prepare_rows(read_csv(data, delimiter=";"), ImportColumns(**COLUMNS), mapping())
+    assert len(rows) == 1
+    assert rows[0].technical_identity == "RWT_0021_03.Brushed-Gold_K03"
+    assert (rows[0].prefix, rows[0].sequence_number, rows[0].main_category_code) == ("RWT", 21, "K03")
+    assert rows[0].material_name == "Display name"
+    assert findings == [{"row": 3, "field": "identity", "code": "IMPORT_DUPLICATE_IDENTITY_OR_NUMBER"}]
+
+
+@pytest.mark.parametrize("folder", ["../RWT_0021_GOLD_K03", "R:/library/RWT_0021_GOLD_K03", "/library/RWT_0021_GOLD_K03", "library/OTHER_0021_GOLD_K03", "library\\RWT_0021_GOLD_K03", "", "library//RWT_0021_GOLD_K03"])
+def test_import_folder_references_must_be_relative_and_bound_to_the_exact_identity(folder):
+    data = source("RWT_0021_GOLD_K03;Gold;Project A;Brand A;Processor A;" + folder, extra=";Folder")
+    rows, findings = prepare_rows(read_csv(data, delimiter=";"), ImportColumns(**COLUMNS, folder="Folder"), mapping())
+    assert not rows and findings == [{"row": 2, "field": "identity", "code": "IMPORT_FOLDER_REFERENCE_INVALID"}]
 
 
 def test_blank_or_overlong_names_block_the_row():

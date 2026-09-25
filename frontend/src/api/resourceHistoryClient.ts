@@ -14,7 +14,7 @@ export const resourceHistorySchema: Record<ResourceKind, Record<string, Field>> 
   PROJECT: { company_id: ["Company ID", uuid], project_number: ["Project number", string], name: ["Name", string],
     status: ["Status", string], due_date: ["Deadline", nullable], notes: ["Notes", nullable] },
   USER: { display_name: ["Display name", string], email: ["Email", string], role: ["Role", string], is_active: ["Active", boolean] },
-  MATERIAL: { project_id: ["Project ID", uuid], published_brand_id: ["Published brand ID", uuid], sequence_number: ["Sequence number", sequence],
+  MATERIAL: { project_id: ["Project ID", (value) => value === null ? null : uuid(value)], published_brand_id: ["Published brand ID", uuid], sequence_number: ["Sequence number", sequence],
     material_name: ["Material name", string], main_category_code: ["Main category", string], assigned_processor_id: ["Assigned processor ID", nullableUuid],
     technical_identity: ["Technical identity", string], folder_path: ["Folder path", nullable], workflow_status: ["Workflow status", string],
     validation_status: ["Validation status", string], is_published: ["Published", boolean], publication_status: ["Publication status", string] },

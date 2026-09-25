@@ -15,6 +15,7 @@ from app.identity_client import IdentityClientError
 from app.inventory_client import validate_relative_path
 from app.material_identity import ACTIVE_STATUSES, identity_context, require_material_idle, lock_folder_catalog, require_folder_idle
 from app.material_review import canonical_hash, invalidate_review
+from app.material_naming import build_identity
 from app.schemas import ApiSchema, CategoryCode, Sha256
 from app.history_pagination import HistoryLimit, history_window
 
@@ -71,7 +72,11 @@ def _contexts(session, material, payload, *, lock=False):
         _conflict("IDENTITY_COLLECTIONS_ASSIGNED", "Remove the old brand's collection assignments before planning a rebrand.")
     number = target.next_sequence_number if rebrand else material.sequence_number
     if number > 9999: _conflict("IDENTITY_SEQUENCE_EXHAUSTED", "The target brand has no unused four-digit numbers.")
-    identity = f"{target.folder_prefix}_{number:04d}_{payload.main_category_code}"
+    try:
+        identity = build_identity(target.folder_prefix, number, payload.main_category_code,
+                                  material.material_name, source_identity=material.technical_identity)
+    except ValueError:
+        _conflict("MATERIAL_IDENTITY_INVALID", "The proposed folder identity is unsupported or exceeds 255 ASCII characters.")
     parent = payload.target_parent if payload.target_parent is not None else material.folder_path.rpartition("/")[0]
     folder = (parent + "/" if parent else "") + identity
     require_folder_idle(session, material.folder_path)

@@ -237,7 +237,8 @@ def test_0025_upgrade_preserves_0024_accepted_history_and_populated_downgrade_re
                 save_intent(case, intent)
                 with pytest.raises(DBAPIError, match="Retirement evidence exists"): command.downgrade(config, "20260918_0024")
                 with case.database.session() as session:
-                    assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20260919_0025"
+                    from alembic.script import ScriptDirectory
+                    assert session.scalar(text("SELECT version_num FROM alembic_version")) == ScriptDirectory.from_config(config).get_current_head()
                     assert session.get(MaterialPackagingState, package.id).status == "PACKAGED"
                     assert session.get(MaterialPackagingObservation, intent["accepted_observation_id"]).worker_result == before
         finally: get_settings.cache_clear()

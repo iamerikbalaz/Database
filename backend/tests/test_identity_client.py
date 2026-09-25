@@ -6,10 +6,42 @@ from pydantic import SecretStr
 import pytest
 
 from app.identity_client import IdentityClientError, WorkerIdentityClient
+from app.material_review import canonical_hash
 from test_material_identity import plan_payload
 from test_material_operations import StreamingResponse
 
 REQUEST = {"folder_path": "old/SAFE_0001_G03", "target_path": "new/NEXT_0007_G04", "brand_name": "Synthetic", "material_name": "Fixture"}
+
+
+@pytest.mark.parametrize("corrupt", [False, True])
+def test_named_folder_plan_checks_base_prefixed_files_and_directory_components(monkeypatch, corrupt):
+    request = {**REQUEST, "folder_path": "old/SAFE_0001_PRODUCT_G03", "target_path": "new/NEXT_0007_PRODUCT_G04"}
+    result = plan_payload(request)
+    result["changes"] = [
+        {"kind": "file", "source": "4K/SAFE_0001_PRODUCT_COL_4K.png", "target": "4K/NEXT_0007_PRODUCT_COL_4K.png", "sha256": "a" * 64},
+        {"kind": "directory", "source": "SAFE_0001_PRODUCT_G03", "target": "NEXT_0007_PRODUCT_G04", "sha256": None},
+        {"kind": "file", "source": "SOURCE/SAFE_0001_PRODUCT.sbs", "target": "SOURCE/NEXT_0007_PRODUCT.sbs", "sha256": "b" * 64},
+    ]
+    if corrupt:
+        result["changes"][0]["target"] = "4K/NEXT_0007_OTHER_COL_4K.png"
+    result["plan_hash"] = canonical_hash({"plan": {k: v for k, v in result.items() if k != "plan_hash"},
+        "brand_name": request["brand_name"], "material_name": request["material_name"]})
+    monkeypatch.setattr(httpx, "stream", lambda *a, **k: StreamingResponse([json.dumps(result).encode()]))
+    if corrupt:
+        with pytest.raises(IdentityClientError): WorkerIdentityClient("http://worker").plan(request)
+    else:
+        assert WorkerIdentityClient("http://worker").plan(request).ready
+
+
+@pytest.mark.parametrize("source", ["4K/SAFE_0001_PRODUCTIVE_COL.png", "4K/OTHER_SAFE_0001_PRODUCT_COL.png"])
+def test_named_folder_plan_rejects_renaming_unrelated_prefixes(monkeypatch, source):
+    request = {**REQUEST, "folder_path": "old/SAFE_0001_PRODUCT_G03", "target_path": "new/NEXT_0007_PRODUCT_G04"}
+    result = plan_payload(request)
+    result["changes"][0].update(source=source, target=source.replace("SAFE_0001_PRODUCT", "NEXT_0007_PRODUCT"))
+    result["plan_hash"] = canonical_hash({"plan": {k: v for k, v in result.items() if k != "plan_hash"},
+        "brand_name": request["brand_name"], "material_name": request["material_name"]})
+    monkeypatch.setattr(httpx, "stream", lambda *a, **k: StreamingResponse([json.dumps(result).encode()]))
+    with pytest.raises(IdentityClientError): WorkerIdentityClient("http://worker").plan(request)
 
 
 def test_plan_transport_checks_hash_and_never_uses_proxies_or_redirects(monkeypatch):

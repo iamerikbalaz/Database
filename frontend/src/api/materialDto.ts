@@ -17,7 +17,8 @@ export interface MaterialCreateDto {
   assigned_processor_id: string;
 }
 export type MaterialPatchDto = Partial<Omit<MaterialCreateDto, "published_brand_id">>;
-export interface MaterialDto extends MaterialCreateDto {
+export interface MaterialDto extends Omit<MaterialCreateDto, "project_id"> {
+  project_id: string | null;
   id: string;
   sequence_number: number;
   technical_identity: string;
@@ -44,7 +45,7 @@ export function parseMaterial(input: unknown): MaterialDto {
   if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 9999)
     throw new Error("Invalid material sequence");
   return {
-    id: uuid(v.id), project_id: uuid(v.project_id), published_brand_id: uuid(v.published_brand_id),
+    id: uuid(v.id), project_id: v.project_id === null ? null : uuid(v.project_id), published_brand_id: uuid(v.published_brand_id),
     material_name: string(v.material_name), main_category_code: string(v.main_category_code),
     assigned_processor_id: uuid(v.assigned_processor_id), sequence_number: n,
     technical_identity: string(v.technical_identity), folder_path: nullable(v.folder_path),

@@ -7,11 +7,9 @@ from pathlib import Path
 import re
 
 from app.inventory import InventoryError, _safe_name, inventory_material
+from app.material_naming import base_name, match_identity
 from app.preflight import MAX_METADATA_BYTES, _reject_constant, _unique_object
 from app.secure_filesystem import _metadata_bytes, open_material_directory
-
-IDENTITY = re.compile(r"(?P<prefix>[A-Za-z0-9_-]+)_(?P<number>[0-9]{4})_(?P<category>[A-Z0-9-]+)$")
-
 
 class IdentityPlanError(ValueError):
     """A fixed code, without filenames, document contents or parser diagnostics."""
@@ -27,7 +25,7 @@ class IdentityTarget:
         parts = tuple(self.path.split("/"))
         if len(self.path) > 2048 or not parts or any(not _safe_name(part) for part in parts):
             raise IdentityPlanError("IDENTITY_TARGET_INVALID")
-        match = IDENTITY.fullmatch(parts[-1])
+        match = match_identity(parts[-1])
         if match is None or int(match["number"]) == 0:
             raise IdentityPlanError("IDENTITY_TARGET_INVALID")
         for text in (self.brand_name, self.material_name):
@@ -51,15 +49,16 @@ def _encode(value, depth=0):
 
 
 def renamed_component(name, old_identity, new_identity):
-    if name == old_identity or name.startswith((old_identity + "_", old_identity + ".")):
-        return new_identity + name[len(old_identity):]
+    for old, new in ((old_identity, new_identity), (base_name(old_identity), base_name(new_identity))):
+        if name == old or name.startswith((old + "_", old + ".")):
+            return new + name[len(old):]
     return name
 
 
 def rewrite_metadata(raw: bytes, old_identity: str, target: IdentityTarget) -> tuple[bytes, list[str]]:
     """Pure transform; bytes stay internal and are never part of a plan response."""
     target_parts = target.parts(); new_identity = target_parts[-1]
-    old_match = IDENTITY.fullmatch(old_identity); new_match = IDENTITY.fullmatch(new_identity)
+    old_match = match_identity(old_identity); new_match = match_identity(new_identity)
     if old_match is None: raise IdentityPlanError("IDENTITY_SOURCE_UNSUPPORTED")
     try:
         if len(raw) > MAX_METADATA_BYTES: raise ValueError()
@@ -105,12 +104,15 @@ def rewrite_metadata(raw: bytes, old_identity: str, target: IdentityTarget) -> t
             if depth > 64: raise ValueError()
             if isinstance(value, dict):
                 for key, item in value.items():
-                    if old_identity != new_identity and old_identity in key: raise ValueError()
+                    if any(old != new and old in key for old, new in (
+                            (old_identity, new_identity), (base_name(old_identity), base_name(new_identity)))): raise ValueError()
                     ensure_no_old_reference(item, depth + 1)
             elif isinstance(value, list):
                 for item in value: ensure_no_old_reference(item, depth + 1)
-            elif type(value) is str and old_identity != new_identity and old_identity in value:
-                raise IdentityPlanError("METADATA_UNMAPPED_REFERENCE")
+            elif type(value) is str:
+                if any(old != new and old in value for old, new in (
+                        (old_identity, new_identity), (base_name(old_identity), base_name(new_identity)))):
+                    raise IdentityPlanError("METADATA_UNMAPPED_REFERENCE")
         ensure_no_old_reference(data)
         rewritten = (_encode(data) + "\n").encode("utf-8") if changes else raw
         if len(rewritten) > MAX_METADATA_BYTES: raise ValueError()
@@ -123,7 +125,7 @@ def rewrite_metadata(raw: bytes, old_identity: str, target: IdentityTarget) -> t
 def plan_identity_change(root: Path, source_parts: tuple[str, ...], target: IdentityTarget) -> dict:
     destination = target.parts()
     if (not source_parts or any(not _safe_name(part) for part in source_parts)
-            or IDENTITY.fullmatch(source_parts[-1]) is None):
+            or match_identity(source_parts[-1]) is None):
         raise IdentityPlanError("IDENTITY_SOURCE_UNSUPPORTED")
     if destination[:len(source_parts)] == source_parts:
         raise IdentityPlanError("IDENTITY_TARGET_INSIDE_SOURCE")

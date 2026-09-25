@@ -39,7 +39,7 @@ export function archiveDetail(input: unknown, materialId?: string) {
   if (isArchived !== (version % 2 === 1) || (version === 0) !== (changedAt === null)
       || isArchived && (raw.is_published || raw.publication_status !== "NOT_PUBLISHED" || raw.workflow_status !== "IN_PROGRESS" || raw.validation_status !== "NOT_CHECKED")) throw new Error("Invalid archive state");
   return { id, name: string(raw.material_name), technicalIdentity: string(raw.technical_identity), folderPath: nullable(raw.folder_path),
-    assignedProcessorId: uuid(raw.assigned_processor_id), projectId: uuid(raw.project_id), brandId: uuid(raw.published_brand_id),
+    assignedProcessorId: uuid(raw.assigned_processor_id), projectId: raw.project_id === null ? null : uuid(raw.project_id), brandId: uuid(raw.published_brand_id),
     sequenceNumber: integer(raw.sequence_number, 1, 9999), isArchived, version, changedAt };
 }
 export type ArchiveDetail = ReturnType<typeof archiveDetail>;

@@ -150,7 +150,7 @@ def test_create_material_assigns_first_number_and_defaults(
     assert material["project_id"] == project["id"]
     assert material["published_brand_id"] == brand["id"]
     assert material["sequence_number"] == 1
-    assert material["technical_identity"] == "ACME_0001_G03"
+    assert material["technical_identity"] == "ACME_0001_REFLEX-CRYSTAL_G03"
     assert "folder_path" in material
     assert material["folder_path"] is None
     assert material["workflow_status"] == "IN_PROGRESS"
@@ -181,9 +181,9 @@ def test_sequences_are_per_brand(material_client: tuple[TestClient, Database]) -
     other_brand = create_material(client, project["id"], second_brand["id"])
 
     assert (first["sequence_number"], second["sequence_number"]) == (1, 2)
-    assert second["technical_identity"] == "ACME_0002_G03"
+    assert second["technical_identity"] == "ACME_0002_REFLEX-CRYSTAL_G03"
     assert other_brand["sequence_number"] == 1
-    assert other_brand["technical_identity"] == "SECOND_0001_G03"
+    assert other_brand["technical_identity"] == "SECOND_0001_REFLEX-CRYSTAL_G03"
     identities = {
         first["technical_identity"],
         second["technical_identity"],
@@ -263,7 +263,7 @@ def test_sequence_9999_is_allocated_before_exhaustion(
     conflict = client.post("/api/materials", json=material_payload(project["id"], brand["id"]))
 
     assert material["sequence_number"] == 9999
-    assert material["technical_identity"] == "ACME_9999_G03"
+    assert material["technical_identity"] == "ACME_9999_REFLEX-CRYSTAL_G03"
     assert conflict.status_code == 409
 
 
@@ -329,7 +329,7 @@ def test_folder_path_cannot_be_supplied_on_create(
         json=material_payload(
             project["id"],
             brand["id"],
-            folder_path="materials/ACME_0001_G03",
+            folder_path="materials/ACME_0001_REFLEX-CRYSTAL_G03",
         ),
     )
 
@@ -457,7 +457,7 @@ def test_patch_updates_allowed_metadata(
     assert response.status_code == 200
     updated = response.json()
     assert updated["project_id"] == other_project["id"]
-    assert updated["technical_identity"] == "ACME_0001_G03"
+    assert updated["technical_identity"] == "ACME_0001_REFLEX-CRYSTAL_G03"
     assert updated["assigned_processor_id"] == processor["id"]
     assert updated["workflow_status"] == "IN_PROGRESS"
     assert updated["validation_status"] == "NOT_CHECKED"
@@ -465,7 +465,7 @@ def test_patch_updates_allowed_metadata(
     assert updated["publication_status"] == "NOT_PUBLISHED"
 
 
-@pytest.mark.parametrize("folder_path", [None, "materials/ACME_0001_G03"])
+@pytest.mark.parametrize("folder_path", [None, "materials/ACME_0001_REFLEX-CRYSTAL_G03"])
 def test_folder_path_cannot_be_patched(
     material_client: tuple[TestClient, Database],
     folder_path: str | None,
@@ -498,7 +498,7 @@ def test_category_change_without_folder_path_regenerates_identity(
 
     assert response.status_code == 200
     assert response.json()["main_category_code"] == "G04"
-    assert response.json()["technical_identity"] == "ACME_0001_G04"
+    assert response.json()["technical_identity"] == "ACME_0001_REFLEX-CRYSTAL_G04"
 
 
 def test_category_change_with_folder_path_returns_conflict(
@@ -510,7 +510,7 @@ def test_category_change_with_folder_path_returns_conflict(
     with database.session() as session:
         stored_material = session.get(PBRMaterial, UUID(str(material["id"])))
         assert stored_material is not None
-        stored_material.folder_path = "materials/ACME_0001_G03"
+        stored_material.folder_path = "materials/ACME_0001_REFLEX-CRYSTAL_G03"
         session.commit()
 
     response = client.patch(
@@ -524,8 +524,8 @@ def test_category_change_with_folder_path_returns_conflict(
     )
     stored = client.get(f"/api/materials/{material['id']}").json()
     assert stored["main_category_code"] == "G03"
-    assert stored["technical_identity"] == "ACME_0001_G03"
-    assert stored["folder_path"] == "materials/ACME_0001_G03"
+    assert stored["technical_identity"] == "ACME_0001_REFLEX-CRYSTAL_G03"
+    assert stored["folder_path"] == "materials/ACME_0001_REFLEX-CRYSTAL_G03"
 
 
 def test_brand_prefix_cannot_change_after_material_allocation(
@@ -575,7 +575,7 @@ def test_material_search_matches_technical_identity(
     first = create_material(client, project["id"], brand["id"])
     match = create_material(client, project["id"], brand["id"])
 
-    response = client.get("/api/materials", params={"search": "0002_G03"})
+    response = client.get("/api/materials", params={"search": "0002_REFLEX-CRYSTAL_G03"})
 
     assert response.status_code == 200
     assert response.json() == [match]

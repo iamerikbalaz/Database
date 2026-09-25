@@ -587,7 +587,7 @@ function MaterialDetailContent({
   navigate,
 }: {
   initialMaterial: Material;
-  project: PromiseSettledResult<Awaited<ReturnType<ApiClient["getProjectRecord"]>>>;
+  project: PromiseSettledResult<Awaited<ReturnType<ApiClient["getProjectRecord"]>> | null>;
   brand: PromiseSettledResult<Awaited<ReturnType<ApiClient["getBrand"]>>>;
   processor: PromiseSettledResult<Awaited<ReturnType<ApiClient["getInternalUser"]>>>;
   retryRelated: () => void;
@@ -606,7 +606,7 @@ function MaterialDetailContent({
     </div>
     <article className="panel"><MaterialFacts material={material} />
       <dl className="info-list">
-        <div><dt>Project</dt><dd>{project.status === "fulfilled" ? <NavigationLink href={`/projects/${material.projectId}`} navigate={navigate}>{project.value.name}</NavigationLink> : <span role="alert">Project could not be loaded ({material.projectId}).</span>}</dd></div>
+        <div><dt>Project</dt><dd>{material.projectId === null ? "No project assigned" : project.status === "fulfilled" && project.value ? <NavigationLink href={`/projects/${material.projectId}`} navigate={navigate}>{project.value.name}</NavigationLink> : <span role="alert">Project could not be loaded ({material.projectId}).</span>}</dd></div>
         <div><dt>Published brand</dt><dd>{brand.status === "fulfilled" ? <NavigationLink href={`/brands/${material.publishedBrandId}`} navigate={navigate}>{brand.value.name}</NavigationLink> : <span role="alert">Published brand could not be loaded ({material.publishedBrandId}).</span>}</dd></div>
         <div><dt>Processor</dt><dd>{processor.status === "fulfilled" ? processor.value.displayName + (processor.value.isActive ? "" : " (inactive)") : <span role="alert">Processor could not be loaded ({material.assignedProcessorId}).</span>}</dd></div>
       </dl>
@@ -655,7 +655,7 @@ export function MaterialDetailPage({ id, client, navigate }: { id: string; clien
   const load = useCallback(async () => {
     const material = await client.getMaterial(id);
     const [project, brand, processor] = await Promise.allSettled([
-      client.getProjectRecord(material.projectId), client.getBrand(material.publishedBrandId), client.getInternalUser(material.assignedProcessorId),
+      material.projectId === null ? Promise.resolve(null) : client.getProjectRecord(material.projectId), client.getBrand(material.publishedBrandId), client.getInternalUser(material.assignedProcessorId),
     ]);
     return { material, project, brand, processor };
   }, [id, client]);

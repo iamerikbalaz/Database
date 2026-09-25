@@ -28,6 +28,13 @@ Implemented:
 
 Verification for this increment:
 
+- Broad Windows backend run: **2066 passed**, 1701.82s; **14 setup errors** were
+  exclusively access denied to the default Windows `pytest-of-Admin` temp root.
+  Every one of those exact 14 cases passed in a fresh owned worktree temp root
+  (**14 passed**, 12.76s). No test assertion failed and none was skipped. This
+  broad process collected before the final proof/collision cases were added;
+  the separately listed final 39/4 runs cover those changes. Do not describe the
+  first invocation as a clean full run or collapse overlapping runs into a total.
 - Relevant backend/import/naming suite: **411 passed**, 170.28s. Final identity
   protocol regression after the E2E-discovered base-name mismatch: **39 passed**,
   61.00s. Late folder collision/active-owner tests: **4 passed**, 10.31s.
@@ -60,6 +67,11 @@ Inspected final E2E image `.Id` values:
 
 Implementation checkpoint: `e590ada`. Private source values and credentials are excluded from git. No main merge,
 deployment, original database migration, NAS write or real cloud operation occurred.
+All validation processes have finished. Only the owned local 100-material app and
+its database remain intentionally running for manual testing. The private access
+file, short Czech checklist and ownership-checked restart script are next to the
+sample workbook in the ignored acceptance folder. Documentation checkpoint
+`e4872f4` was pushed with the implementation; this final verification note follows it.
 
 ## Previous checkpoint (2026-09-25, production dashboard)
 

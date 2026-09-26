@@ -5,6 +5,7 @@ import { packagingPolicyClient, policyLabel } from "../api/packagingPolicyClient
 import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
 import { ErrorState, LoadingState } from "./PageState";
+import { useNavigationGuard } from "../navigationGuard";
 
 const PackagedCopy = lazy(() => import("./PackagedCopy").then((module) => ({ default: module.PackagedCopy })));
 
@@ -25,6 +26,7 @@ function PackagingWork({ materialId, batch, onChanged }: Props) {
   const [uncertain, setUncertain] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
   const [readBusy, setReadBusy] = useState(false);
   const packet = useRef<Packet | null>(null), sending = useRef(false), mounted = useRef(true), reading = useRef(false);
+  useNavigationGuard(() => packet.current !== null);
   useEffect(() => {
     mounted.current = true;
     const prevent = (event: BeforeUnloadEvent) => { if (packet.current) { event.preventDefault(); event.returnValue = ""; } };
@@ -70,7 +72,7 @@ function PackagingWork({ materialId, batch, onChanged }: Props) {
         setNotice(pending.kind === "reserve" ? "Job reserved. Start packaging when ready." : "Packaging progress updated."); onChanged?.();
       }
     } catch (cause) {
-      if (cause instanceof ApiError && cause.status >= 400 && cause.status < 500) {
+      if (!uncertain && cause instanceof ApiError && cause.status >= 400 && cause.status < 500) {
         packet.current = null;
         if (mounted.current) {
           setUncertain(false); setAck(false);
@@ -113,7 +115,7 @@ function PackagingWork({ materialId, batch, onChanged }: Props) {
       {batch && !archived && policy.data && <p>Saved ZIP rule: {policyLabel(policy.data.policy)} · {policy.data.storageTimezone}.</p>}
       {batch && !archived && !policy.data && !policy.error && <p>Save the first ZIP policy on the material detail before reserving a job.</p>}
       {owned && <p>An active job owns this material. Open it below to finish or close it.</p>}
-      {!batch && !archived && <p>Create a new reservation from a material in a saved CSV batch on the Publication page.</p>}
+      {!batch && !archived && <p>Create a new reservation from a material in a saved CSV batch in Materials → Publication batches.</p>}
       <h3>Packaging history</h3>
       {!page?.items.length && <p>No packaging jobs.</p>}
       <ul>{page?.items.map((value) => <li key={value.id}><button className="button" disabled={frozen} onClick={() => void openJob(value.id)}>

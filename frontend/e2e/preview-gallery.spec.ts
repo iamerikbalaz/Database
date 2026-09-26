@@ -66,7 +66,7 @@ test("materials grid, primary previews, sizes and cycling survive a retained-dat
     await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
   await expect(page.getByRole("article", { name: "Publication content", exact: true }).getByText(/^Revision \d+ ·/)).toBeVisible();
   const gallery = page.getByRole("article", { name: "Preview gallery", exact: true });
-  await gallery.getByRole("button", { name: "Open preview gallery" }).click();
+  await expect(gallery.getByRole("button", { name: "Close preview gallery" })).toBeVisible();
   await decoded(gallery.getByRole("img"));
   await gallery.getByLabel("Preview image").selectOption("front.png");
   await decoded(gallery.getByRole("img", { name: "Preview: front.png" }));

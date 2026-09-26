@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { PublicationPage } from "./PublicationPage";
 import { mockApiClient } from "../api/client";
 import { materialFromDto } from "../api/materialDto";
+import { requestNavigation } from "../navigationGuard";
 import { ApiError } from "../api/errors";
 import { publicationBatchFromDto, publicationClient, publicationPreviewFromDto } from "../api/publicationClient";
 import { publicationBatchDto, publicationId, publicationPreviewDto } from "../test/publicationFixtures";
@@ -55,12 +56,14 @@ it("requires an explicit warning acknowledgment and displays formula-like text g
   expect(create.mock.calls[0][0].warnings_acknowledged).toBe(true);
 });
 it("freezes uncertain writes and retries the same key and exact payload", async () => {
-  const { create } = setup(); create.mockRejectedValueOnce(new TypeError("Synthetic timeout")); await inspect(); review();
+  const { create } = setup(); create.mockImplementationOnce(async () => { expect(requestNavigation("/companies")).toBe(false); throw new TypeError("Synthetic timeout"); }); await inspect(); review();
   fireEvent.click(screen.getByRole("button", { name: "Save CSV batch" })); await screen.findByText(/The outcome is unknown/);
+  expect(requestNavigation("/companies")).toBe(false);
   for (const name of ["Find materials", "Load latest batches", "Save CSV batch"]) expect(screen.getByRole("button", { name })).toBeDisabled();
   expect(screen.getByLabelText("Reason for preparing this batch")).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Retry same batch request" })); await screen.findByText(/CSV batch saved/);
   expect(create.mock.calls[0]).toEqual(create.mock.calls[1]);
+  expect(requestNavigation("/companies")).toBe(true);
 });
 it("requires a new preview after the server rejects stale approval inputs", async () => {
   const { create } = setup(); create.mockRejectedValueOnce(new ApiError(409, "Conflict")); await inspect(); review();
@@ -68,6 +71,16 @@ it("requires a new preview after the server rejects stale approval inputs", asyn
   expect(screen.queryByRole("button", { name: "Save CSV batch" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Retry same batch request" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Review selected materials" })).toBeEnabled();
+});
+it("retains an uncertain batch after a later access rejection instead of risking a duplicate", async () => {
+  const { create } = setup();
+  create.mockRejectedValueOnce(new TypeError("Connection lost")).mockRejectedValueOnce(new ApiError(403, "Access changed"));
+  await inspect(); review(); fireEvent.click(screen.getByRole("button", { name: "Save CSV batch" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Retry same batch request" }));
+  await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+  expect(create.mock.calls[0]).toEqual(create.mock.calls[1]);
+  expect(screen.getByRole("button", { name: "Save CSV batch" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Retry same batch request" })).toBeVisible();
 });
 it("invalidates preview and review acknowledgments when selection changes", async () => {
   setup(); await inspect(); review(); fireEvent.click(screen.getByRole("button", { name: `Remove ${materialDto.technical_identity}` }));

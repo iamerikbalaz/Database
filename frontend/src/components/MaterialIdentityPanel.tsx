@@ -7,6 +7,7 @@ import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
 import { ErrorState, LoadingState } from "./PageState";
 import { categoryLabel, materialCategories } from "../data/materialCategories";
+import { useNavigationGuard } from "../navigationGuard";
 import { HistoryPages } from "./HistoryPages";
 
 const labels: Record<string, string> = {
@@ -35,6 +36,7 @@ export function MaterialIdentityPanel({ material, client, onChanged, initialBran
   const [uncertain, setUncertain] = useState(false);
   useEffect(() => { onBusyChange?.(pending || uncertain); return () => onBusyChange?.(false); }, [pending, uncertain, onBusyChange]);
   const confirmation = useRef<IdentityConfirmation | null>(null);
+  useNavigationGuard(() => sending.current || confirmation.current !== null);
   const active = resource.data?.operations.items.find((item) => item.status === "RUNNING" || item.status === "RECOVERY_REQUIRED");
   const eligible = allowed && material.workflowStatus === "IN_PROGRESS" && !material.isPublished && Boolean(material.folderPath) && !active;
   const target = () => ({ target_brand_id: targetBrand, main_category_code: category.trim().toUpperCase(), target_parent: parent.trim() });

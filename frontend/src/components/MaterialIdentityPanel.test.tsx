@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import { requestNavigation } from "../navigationGuard";
 import { MaterialIdentityPanel } from "./MaterialIdentityPanel";
 import { SessionContext } from "../auth/context";
 import { setSessionToken } from "../auth/sessionTransport";
@@ -98,15 +99,17 @@ it("blocks confirmation of a colliding plan and invalidates preview after an inp
 it("retries an unknown confirmation with the identical key and immutable payload", async () => {
   const { fetch } = setup(); await preview();
   fireEvent.change(screen.getByLabelText("Reason for identity change"), { target: { value: "Correct category" } });
-  fetch.mockRejectedValueOnce(new TypeError("Network interrupted"));
+  fetch.mockImplementationOnce(async () => { expect(requestNavigation("/projects")).toBe(false); throw new TypeError("Network interrupted"); });
   fireEvent.click(screen.getByRole("button", { name: "Confirm identity change" }));
   await screen.findByRole("alert");
+  expect(requestNavigation("/projects")).toBe(false);
   expect(screen.getByLabelText("Target category code")).toBeDisabled();
   expect(screen.getByLabelText("Reason for identity change")).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Retry same confirmation" }));
   await screen.findByText("Identity updated.");
   const confirmations = fetch.mock.calls.filter(([path]) => path.endsWith("/identity-confirm"));
   expect(confirmations).toHaveLength(2); expect(confirmations[0][1]?.body).toBe(confirmations[1][1]?.body);
+  expect(requestNavigation("/projects")).toBe(true);
 });
 
 it.each(["RUNNING", "RECOVERY_REQUIRED"])("shows and reconciles durable %s operation", async (outcome) => {

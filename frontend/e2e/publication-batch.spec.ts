@@ -41,11 +41,15 @@ test("approved CSV, downloads and proof-bound local removal survive retained res
     await expect(policy.getByText("ZIP policy saved.", { exact: true })).toBeVisible();
     await expect(policy.getByText("Current · retain packaging dates", { exact: true })).toBeVisible();
   }
-  await page.goto("/publication");
+  await page.goto("/materials");
   if (!retainedPass) {
-    await page.getByRole("searchbox", { name: "Search materials", exact: true }).fill(fixture.material_name);
-    await page.getByRole("button", { name: "Find materials", exact: true }).click();
-    await page.getByRole("checkbox", { name: `${fixture.material_name} ${fixture.technical_identity}`, exact: true }).check();
+    const tagged = await (await page.request.get(path)).json();
+    expect((await page.request.patch(path + "/table", { headers: { ...headers, "Idempotency-Key": crypto.randomUUID() }, data: {
+      expected_updated_at: tagged.updated_at, note: "#E2E-publication-ready",
+    } })).status()).toBe(200);
+    await page.getByRole("searchbox", { name: "Search materials", exact: true }).fill("#E2E-publication-ready");
+    await page.getByRole("button", { name: "Prepare filtered for publication (1)", exact: true }).click();
+    await expect(page.getByRole("searchbox", { name: "Search materials", exact: true })).toBeDisabled();
     await page.getByRole("button", { name: "Review selected materials", exact: true }).click();
     await expect(page.getByText("All selected materials passed the current approval checks.", { exact: true })).toBeVisible();
     const previewPanel = page.getByRole("group", { name: "2. Review export values", exact: true });
@@ -204,7 +208,8 @@ test("approved CSV, downloads and proof-bound local removal survive retained res
   expect(staging.importer_compatible).toBe(false); expect(staging.materials).toHaveLength(1);
   expect(staging.materials[0].packaging_proof_sha256).toBe(completedJob.proof_sha256);
   expect(staging.close.reason).toBe("Close synthetic staging before dispatch");
-  await page.goto("/publication");
+  await page.goto("/materials");
+  await page.getByRole("button", { name: "Publication batches", exact: true }).click();
   const storageHistory = page.getByRole("article", { name: "Storage uploads", exact: true });
   await storageHistory.locator("summary").click();
   await storageHistory.getByRole("button", { name: /^Open Closed ·/ }).click();

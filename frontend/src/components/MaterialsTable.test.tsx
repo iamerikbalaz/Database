@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MaterialsTable } from "./MaterialsTable";
 import { MaterialThumbnail } from "./MaterialsGrid";
 import { mockApiClient } from "../api/client";
+import { requestNavigation } from "../navigationGuard";
 import { ApiError } from "../api/errors";
 import { GalleryStore } from "../api/galleryStore";
 import { materialFromDto, internalUserFromDto } from "../api/materialDto";
@@ -51,14 +52,16 @@ it("freezes all filtered IDs, shows individual failures, and never retries succe
   expect(within(dialog).queryByRole("button", { name: "Apply change" })).not.toBeInTheDocument();
 });
 it("pauses on an unknown outcome and retries the exact packet before continuing", async () => {
-  const update = vi.spyOn(materialTableClient, "update").mockRejectedValueOnce(new TypeError("Connection lost"))
+  const update = vi.spyOn(materialTableClient, "update").mockImplementationOnce(async () => { expect(requestNavigation("/projects")).toBe(false); throw new TypeError("Connection lost"); })
     .mockResolvedValueOnce({ ...first, workflowStatus: "DONE" }).mockResolvedValueOnce({ ...second, workflowStatus: "DONE" });
   setup(); const dialog = bulk(); fireEvent.click(within(dialog).getByRole("button", { name: "Apply change" }));
   const retry = await within(dialog).findByRole("button", { name: "Retry same request and continue" });
+  expect(requestNavigation("/projects")).toBe(false);
   expect(update).toHaveBeenCalledTimes(1); expect(within(dialog).getByRole("button", { name: "Close report" })).toBeDisabled();
   fireEvent.click(retry); await within(dialog).findByText(/2 saved · 0 rejected/);
   expect(update.mock.calls[1]).toEqual(update.mock.calls[0]);
   expect(update.mock.calls[2][0].id).toBe(second.id);
+  expect(requestNavigation("/projects")).toBe(true);
 });
 it("does not reinterpret a later 403 as proof that an unknown write was rejected", async () => {
   const update = vi.spyOn(materialTableClient, "update").mockRejectedValueOnce(new TypeError("Lost"))

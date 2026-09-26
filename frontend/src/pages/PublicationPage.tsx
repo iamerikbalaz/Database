@@ -8,6 +8,7 @@ import { useSession } from "../auth/context";
 import { NavigationLink } from "../components/NavigationLink";
 import { PackagingJobsPanel } from "../components/PackagingJobsPanel";
 import { StagingPanel } from "../components/StagingPanel";
+import { useNavigationGuard } from "../navigationGuard";
 
 function Warnings({ items }: { items: PublicationWarning[] }) {
   return items.length ? <ul className="publication-warnings">{items.map((warning, index) => <li key={index}>
@@ -30,18 +31,23 @@ export function PublicationPage({ client, navigate }: { client: ApiClient; navig
     {role === "ADMIN" || role === "LEADERSHIP" ? <PublicationWorkspace client={client} navigate={navigate} /> : <p>Your role does not allow publication preparation.</p>}
   </section>;
 }
-function PublicationWorkspace({ client, navigate }: { client: ApiClient; navigate: (path: string) => void }) {
+export function PublicationWorkspace({ client, navigate, initialSelection, onBusyChange }: {
+  client: ApiClient; navigate: (path: string) => void; initialSelection?: Material[];
+  onBusyChange?: (busy: boolean) => void;
+}) {
   const [materials, setMaterials] = useState<Material[] | null>(null), [offset, setOffset] = useState(0);
   const [search, setSearch] = useState(""), [projectId, setProjectId] = useState("");
-  const [selected, setSelected] = useState<Material[]>([]), [preview, setPreview] = useState<PublicationPreview | null>(null);
+  const [selected, setSelected] = useState<Material[]>(() => initialSelection?.map(item => ({ ...item })) ?? []), [preview, setPreview] = useState<PublicationPreview | null>(null);
   const [reason, setReason] = useState(""), [reviewed, setReviewed] = useState(false), [acknowledged, setAcknowledged] = useState(false);
   const [batch, setBatch] = useState<PublicationBatch | null>(null), [history, setHistory] = useState<Awaited<ReturnType<typeof publicationClient.history>> | null>(null);
   const [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
   const pending = useRef<PublicationCreate | null>(null), operating = useRef(false), mounted = useRef(true), download = useRef<AbortController | null>(null);
   const frozen = busy || uncertain;
+  useNavigationGuard(() => pending.current !== null);
+  useEffect(() => { onBusyChange?.(frozen); return () => onBusyChange?.(false); }, [frozen, onBusyChange]);
   useEffect(() => { mounted.current = true; const prevent = (event: BeforeUnloadEvent) => { if (pending.current) { event.preventDefault(); event.returnValue = ""; } }; window.addEventListener("beforeunload", prevent);
     return () => { mounted.current = false; download.current?.abort(); window.removeEventListener("beforeunload", prevent); }; }, []);
-  const loadProjects = useCallback(() => client.getProjects(), [client]);
+  const loadProjects = useCallback(() => initialSelection ? Promise.resolve([]) : client.getProjects(), [client, initialSelection]);
   const projects = useResource(loadProjects);
   const resetPreview = () => { setPreview(null); setReviewed(false); setAcknowledged(false); setNotice(""); };
   const run = async (action: () => Promise<void>, message: string) => {
@@ -60,7 +66,7 @@ function PublicationWorkspace({ client, navigate }: { client: ApiClient; navigat
       pending.current = null;
       if (mounted.current) { setBatch(saved); setPreview(null); setReviewed(false); setAcknowledged(false); setUncertain(false); setHistory(null); setNotice("CSV batch saved. Packaging, upload and online publication are still pending."); }
     } catch (cause) {
-      if (cause instanceof ApiError && cause.status >= 400 && cause.status < 500) {
+      if (!uncertain && cause instanceof ApiError && cause.status >= 400 && cause.status < 500) {
         pending.current = null;
         if (mounted.current) { setUncertain(false); resetPreview(); setError(cause.status === 409 ? "Inputs or approvals changed, or this request conflicts with an earlier batch. Review history and load a new preview." : "The batch was rejected. Check your access, selection and acknowledgments, then load a new preview."); }
       } else if (mounted.current) { setUncertain(true); setError("The outcome is unknown. Stay on this page and retry the same request to recover its saved result without creating a duplicate batch."); }
@@ -91,7 +97,8 @@ function PublicationWorkspace({ client, navigate }: { client: ApiClient; navigat
     {error && <p role="alert" className="form-error">{error}</p>}{notice && <p role="status" className="success-notice">{notice}</p>}
     {uncertain && <button className="button" disabled={busy} onClick={() => void send()}>Retry same batch request</button>}
     <fieldset className="panel" disabled={frozen}><legend>1. Select materials</legend>
-      <p>Only DONE materials are listed. Each selected material must also pass the current technical and content approvals. Select up to 100.</p>
+      {initialSelection ? <p>This selection is fixed from Materials. Review all findings before preparing CSV and ZIP files. Return to the list to choose a different set; each batch supports up to 100 materials.</p> : <p>Only DONE materials are listed. Each selected material must also pass the current technical and content approvals. Select up to 100.</p>}
+      {!initialSelection && <>
       <div className="publication-filters"><label>Search materials<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
         <label>Project<select value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="">All projects</option>{projects.data?.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
         <button className="button" onClick={() => void find()}>Find materials</button></div>
@@ -100,8 +107,9 @@ function PublicationWorkspace({ client, navigate }: { client: ApiClient; navigat
         <input type="checkbox" checked={selected.some((item) => item.id === material.id)} disabled={selected.length >= 100 && !selected.some((item) => item.id === material.id)} onChange={(event) => { setSelected(event.target.checked ? [...selected, material] : selected.filter((item) => item.id !== material.id)); resetPreview(); }} />
         <span>{material.materialName}<small>{material.technicalIdentity}</small></span></label></li>)}</ul>
         <div className="publication-actions"><button className="button" disabled={offset === 0} onClick={() => setOffset(offset - 50)}>Previous materials</button><button className="button" disabled={offset + 50 >= materials.length} onClick={() => setOffset(offset + 50)}>Next materials</button></div></>}
-      <h2>Selected materials ({selected.length}/100)</h2><ul>{selected.map((item) => <li key={item.id}>{item.materialName} — {item.technicalIdentity} <button className="button" aria-label={`Remove ${item.technicalIdentity}`} onClick={() => { setSelected(selected.filter((entry) => entry.id !== item.id)); resetPreview(); }}>Remove</button></li>)}</ul>
-      <button className="button button--primary" disabled={!selected.length} onClick={() => void inspect()}>Review selected materials</button>
+      </>}
+      <h2>Selected materials ({selected.length}/100)</h2><ul>{selected.map((item) => <li key={item.id}>{item.materialName} — {item.technicalIdentity} {!initialSelection && <button className="button" aria-label={`Remove ${item.technicalIdentity}`} onClick={() => { setSelected(selected.filter((entry) => entry.id !== item.id)); resetPreview(); }}>Remove</button>}</li>)}</ul>
+      <button className="button button--primary" disabled={!selected.length || selected.length > 100} onClick={() => void inspect()}>Review selected materials</button>
     </fieldset>
     {preview && <fieldset className="panel" disabled={frozen}><legend>2. Review export values</legend>
       <p>{preview.canPrepare ? "All selected materials passed the current approval checks." : "Preparation is blocked. Resolve the listed findings and load a new preview."}</p>

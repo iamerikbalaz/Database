@@ -11,6 +11,7 @@ import type { Project, PublishedBrand } from "../types";
 import { MaterialIdentityPanel } from "./MaterialIdentityPanel";
 import { MaterialThumbnail } from "./MaterialsGrid";
 import { NavigationLink } from "./NavigationLink";
+import { useNavigationGuard } from "../navigationGuard";
 
 const columns = [
   ["project", "Project", 180], ["brand", "Published brand", 180], ["category", "Category", 225],
@@ -32,7 +33,8 @@ function readLayout(): Layout {
 type EditField = "workflow_status" | "checked_status" | "is_published" | "project_id" | "assigned_processor_id" | "note";
 type Job = { material: Material; change: TableChange; key: string; status: "waiting" | "saved" | "failed" | "unknown" | "stopped"; message?: string };
 type Props = { materials: Material[]; store: GalleryStore; client: ApiClient; projects: Project[]; brands: PublishedBrand[]; users: InternalUser[];
-  navigate: (path: string) => void; refresh: () => void; onBusyChange: (busy: boolean) => void };
+  navigate: (path: string) => void; refresh: () => void; onBusyChange: (busy: boolean) => void;
+  onPreparePublication?: (materials: Material[]) => void };
 
 function NoteCell({ material, disabled, save }: { material: Material; disabled: boolean; save: (change: TableChange) => void }) {
   const [draft, setDraft] = useState(material.note ?? "");
@@ -41,10 +43,12 @@ function NoteCell({ material, disabled, save }: { material: Material; disabled: 
     {draft !== (material.note ?? "") && <button className="button" disabled={disabled} onClick={() => save({ note: draft || null })}>Save note</button>}</div>;
 }
 
-export function MaterialsTable({ materials, store, client, projects, brands, users, navigate, refresh, onBusyChange }: Props) {
+export function MaterialsTable({ materials, store, client, projects, brands, users, navigate, refresh, onBusyChange, onPreparePublication }: Props) {
   const role = useSession()?.session.user.role;
   const manager = role === "ADMIN" || role === "PRODUCTION_LEAD";
   const editor = manager || role === "PROCESSOR";
+  const publisher = role === "ADMIN" || role === "LEADERSHIP";
+  const selectable = editor || (publisher && Boolean(onPreparePublication));
   const [layout, setLayout] = useState(readLayout);
   const [overrides, setOverrides] = useState<Record<string, Material>>({});
   const rows = materials.map(row => overrides[row.id] ?? row);
@@ -64,6 +68,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
   const returnFocus = useRef<HTMLElement | null>(null);
   const alive = useRef(true), sending = useRef(false), stop = useRef(false);
   const generation = sessionGeneration();
+  useNavigationGuard(() => sending.current || jobsRef.current.some(job => job.status === "unknown") || identityBusy);
   useEffect(() => { alive.current = true; return () => { alive.current = false; stop.current = true; }; }, []);
   useEffect(() => {
     onBusyChange(active || Boolean(identity));
@@ -186,8 +191,9 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
         <button className="button" onClick={() => configure(defaultLayout())}>Reset columns</button>
       </div></details>
       <button className="button" disabled={active || Boolean(identity)} onClick={refresh}>Refresh materials</button>
-      {editor && <><button className="button" disabled={active} onClick={() => setSelected(new Set(rows.map(r => r.id)))}>Select all filtered ({rows.length})</button>
+      {selectable && <><button className="button" disabled={active} onClick={() => setSelected(new Set(rows.map(r => r.id)))}>Select all filtered ({rows.length})</button>
         <button className="button" disabled={active || !selectedRows.length} onClick={() => setSelected(new Set())}>Clear selection</button><span>{selectedRows.length} selected</span></>}
+      {publisher && onPreparePublication && <button className="button" disabled={active || Boolean(identity) || !selectedRows.length || selectedRows.length > 100} onClick={() => onPreparePublication(selectedRows.map(row => ({ ...row })))}>Prepare selected for publication ({selectedRows.length})</button>}
     </div>
     {editor && selectedRows.length > 0 && <fieldset className="material-bulk-bar" disabled={active}><legend>Apply to {selectedRows.length} selected materials</legend>
       <label>Property<select value={bulkField} onChange={e => { const field = e.target.value as EditField; setBulkField(field); setBulkValue(bulkChoices(field)[0]?.value ?? ""); }}>
@@ -203,9 +209,9 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     <div className="table-card material-table material-table--editable" role="region" aria-label="Material results" tabIndex={0}>
       <table style={{ width: 356 + visible.reduce((n, c) => n + c.width, 0) }}><caption className="sr-only">Materials and production status</caption>
         <colgroup><col style={{ width: 40 }} /><col style={{ width: 76 }} /><col style={{ width: 240 }} />{visible.map(c => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
-        <thead><tr><th scope="col">{editor && <input type="checkbox" aria-label="Select all visible materials" disabled={active} checked={rows.length > 0 && selectedRows.length === rows.length} onChange={e => setSelected(new Set(e.target.checked ? rows.map(r => r.id) : []))} />}</th><th scope="col">Preview</th><th scope="col">Material</th>{visible.map(c => <th key={c.key} scope="col">{title(c.key)}</th>)}</tr></thead>
+        <thead><tr><th scope="col">{selectable && <input type="checkbox" aria-label="Select all visible materials" disabled={active} checked={rows.length > 0 && selectedRows.length === rows.length} onChange={e => setSelected(new Set(e.target.checked ? rows.map(r => r.id) : []))} />}</th><th scope="col">Preview</th><th scope="col">Material</th>{visible.map(c => <th key={c.key} scope="col">{title(c.key)}</th>)}</tr></thead>
         <tbody>{rows.map(row => <tr key={row.id} className={selected.has(row.id) ? "is-selected" : ""}>
-          <td>{editor && <input type="checkbox" aria-label={`Select ${row.materialName}`} disabled={active} checked={selected.has(row.id)} onChange={e => setSelected(old => { const next = new Set(old); if (e.target.checked) next.add(row.id); else next.delete(row.id); return next; })} />}</td>
+          <td>{selectable && <input type="checkbox" aria-label={`Select ${row.materialName}`} disabled={active} checked={selected.has(row.id)} onChange={e => setSelected(old => { const next = new Set(old); if (e.target.checked) next.add(row.id); else next.delete(row.id); return next; })} />}</td>
           <td><MaterialThumbnail material={row} store={store} /></td><td><NavigationLink className="table-link" href={`/materials/${row.id}`} navigate={navigate}>{row.materialName}</NavigationLink><NavigationLink className="table-identity" href={`/materials/${row.id}`} navigate={navigate}>{row.technicalIdentity}</NavigationLink></td>
           {visible.map(c => <td key={c.key}>{renderCell(c.key, row)}</td>)}</tr>)}</tbody>
       </table>

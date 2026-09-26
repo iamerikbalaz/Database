@@ -32,6 +32,7 @@ export interface Project {
   status: ProjectStatus;
   dueDate: string | null;
   description: string | null;
+  folderPath?: string | null;
   createdAt: string;
   updatedAt: string;
 }

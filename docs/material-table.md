@@ -24,6 +24,32 @@
   replacement is stated explicitly in the review. Identity changes need their
   individual source plans.
 
+## Search, previews and publication preparation (2026-09-26)
+
+The shared search matches material name, technical identity and Note. Matching
+is case-insensitive and literal, so a note such as `#Autumn #Review_100%` can be
+found using either tag without treating `_` or `%` as wildcards. Existing filters
+and processor assignment restrictions still apply.
+
+Material detail opens the preview gallery immediately below the title, selecting
+FABRIC_1.png, then SPHERE_1.png, then the first available supported image. The
+image selector, reload action, bounded image conversion and object URL cleanup
+remain available.
+
+Administrators and leadership can start publication preparation from the current
+filtered list/gallery or a selected list subset. The IDs are frozen when the
+workspace opens; changing filters or selecting a different set requires returning
+to Materials. Batches support at most 100 records and never silently truncate a
+larger selection. Preview reports the existing technical/content approval
+requirements before immutable CSV creation. Saved batches expose their existing
+per-material ZIP jobs, accepted artifact downloads and storage preparation.
+Batch history also opens directly from Materials with no selected records.
+
+The human Published checkbox remains manual evidence. Preparing ZIP/CSV does not
+mark it published, upload files or approve material content. CSV writes preserve
+their request after an unknown outcome, including after a later access rejection,
+so recovery resends the same payload/key instead of creating another batch.
+
 ## Meaning of the fields
 
 | Field | Values / behavior |

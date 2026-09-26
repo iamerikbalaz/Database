@@ -19,6 +19,7 @@ import { CatalogPage } from "./pages/CatalogPage";
 import { PublicationPage } from "./pages/PublicationPage";
 import { MaterialArchivesPage } from "./pages/MaterialArchivesPage";
 import { LoadingState } from "./components/PageState";
+import { navigationBlocked, navigationRecoveryMessage, requestNavigation } from "./navigationGuard";
 
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then((module) => ({ default: module.DashboardPage })));
 const ImportsPage = lazy(() => import("./pages/ImportsPage").then((module) => ({ default: module.ImportsPage })));
@@ -33,25 +34,41 @@ const normalizePath = (path: string) =>
 function App({ client = apiClient, initialPath }: AppProps) {
   const role = useSession()?.session.user.role;
   const [notice, setNotice] = useState("");
+  const [navigationError, setNavigationError] = useState("");
   const [path, setPath] = useState(() =>
     normalizePath(initialPath ?? window.location.pathname),
   );
   useEffect(() => {
+    const blocked = () => setNavigationError(navigationRecoveryMessage);
+    window.addEventListener(navigationBlocked, blocked);
+    return () => window.removeEventListener(navigationBlocked, blocked);
+  }, []);
+  useEffect(() => {
     if (initialPath) return;
     const handlePopState = () => {
+      const destination = normalizePath(window.location.pathname);
+      if (!requestNavigation(destination)) {
+        // The browser has already moved its cursor; restore the current URL
+        // while retaining the mounted request and its exact recovery packet.
+        window.history.pushState({}, "", path);
+        return;
+      }
+      setNavigationError("");
       setNotice("");
-      setPath(normalizePath(window.location.pathname));
+      setPath(destination);
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [initialPath]);
+  }, [initialPath, path]);
   const noticeRef = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
     if (notice) noticeRef.current?.focus();
   }, [notice, path]);
   const navigate = (destination: string, message = "") => {
-    setNotice(message);
     const nextPath = normalizePath(destination);
+    if (!requestNavigation(nextPath)) return;
+    setNavigationError("");
+    setNotice(message);
     if (!initialPath) window.history.pushState({}, "", nextPath);
     setPath(nextPath);
     if (!initialPath) window.scrollTo({ top: 0, behavior: "smooth" });
@@ -222,6 +239,7 @@ function App({ client = apiClient, initialPath }: AppProps) {
   }
   return (
     <AppShell currentPath={path} navigate={navigate}>
+      {navigationError && <p role="alert" className="form-error">{navigationError}</p>}
       {notice && (
         <p
           ref={noticeRef}

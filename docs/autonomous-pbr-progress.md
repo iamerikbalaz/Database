@@ -1,5 +1,88 @@
 # Autonomous PBR completion
 
+## Latest checkpoint (2026-09-26, database tables and project import)
+
+Continued the existing `codex/autonomous-pbr-completion` worktree from
+`cd698f47c29240ed843cdd56aaa7a3fa40c20316`. Main remains the verified
+`88a1f99d748d2a0edbb1fce509e13d18bfc03908`; no removed auth branch was used.
+
+- Materials search includes Note with literal escaping and processor scope intact.
+  Material detail opens its preview, preferring FABRIC_1 then SPHERE_1.
+- Publication preparation/history now lives in Materials over frozen filtered or
+  selected IDs (maximum 100; larger sets require narrower filters). The old URL
+  remains compatible but its navigation item is removed. CSV/ZIP retain existing
+  source, technical and content approval checks; manual Published is separate.
+- Projects/Companies have filters, search, inline edits, visible columns and
+  reviewed bulk changes with per-row outcomes, version checks and exact-key
+  recovery. Pending/unknown writes block SPA, Back and native leave navigation.
+- Projects store copyable NAS folder references. Read-only planning preserves
+  folder names, four-digit numbers and paths. Legacy missing specifiers are
+  marked; ambiguous numbers/invalid names are quarantined. No inferred Done,
+  deadlines or historical material/project assignments.
+- Catalog has fixed type tabs, name/code/date/activity filters and editable codes
+  and Active. Names and collection ownership remain immutable publication
+  identities; explicit replacement creates a separate value, without silently
+  moving assignments. See [catalog contract](catalog-database.md) and
+  [project/company contract](project-company-tables.md).
+- Migrations 0028/0029 preserve old audit/receipt schemas and publication hashes;
+  downgrade refuses populated folder references or non-reconstructible history.
+
+### Owned local acceptance environment
+
+The existing loopback R100 instance was backed up before migration. Per-table
+fingerprints confirmed all previous rows unchanged (ignoring only added fields),
+including 100 material records. `alembic check` found no schema drift. Private
+backup: `before-project-catalog-20260925T223620Z.private.dump` in the ignored
+acceptance directory. No production/demo database or NAS source was modified.
+
+Read 265 immediate project directories. Imported **251** unambiguous projects,
+including **25** legacy names without a material specifier. Quarantined **14**
+folders: 10 invalid names, 4 folders sharing duplicate project numbers. Private
+plan, journal and exception CSV remain under ignored `tmp/pbr-acceptance-20260925`.
+Created 109 manufacturer-labelled test companies, preserving the original company,
+and moved 18 existing brands to matching company entries. These labels do not
+assert legal corporate relationships; no addresses, tax data or websites invented.
+All original material fields and historical null project assignments were preserved.
+
+Added one explicitly synthetic ZIP/CSV material (`#zip-test`) and its own supporting
+company/brand/project. Current totals: 101 materials, 252 projects, 111 companies.
+The fixture uses generated real PNGs and an actual read-only Linux worker plus
+packaging runtime; source/workspace are local owned paths, with no NAS mount.
+The worker and packaging service are on an internal network, exposed only through
+an owned localhost relay with fixed targets. Source mutation, GCS, Notion and
+local-copy retirement stay disabled. Historical previews remain dated local
+snapshots. Done/ZIP for real NAS materials still needs a validated live read-only
+worker path; the synthetic fixture does not establish real-source readiness.
+
+ZIP exercise passed: one CSV row, one ZIP, three downloaded artifacts, SHA/ZIP CRC
+checks, unchanged source bytes, unchanged 100 original material records and
+Published=false. No upload was dispatched. Private exact-request journal supports
+resume without duplicate records or duplicate packaging execution.
+
+### Validation
+
+- Linux backend: **2,109 passed**, 470 PostgreSQL-gated skipped in this no-DB run.
+- Full isolated PostgreSQL: 469 passed, one old-schema fixture failed because it
+  selected the new column before its migration. Fixed that fixture; targeted rerun
+  **31 passed**, including the former failure, new migrations/concurrency and all
+  27 auth checks with zero skips. Thus all 470 distinct PG cases are covered.
+- Frontend full suite: **990 passed**; added navigation coverage and related
+  regression set: **63 passed**. Lint, TypeScript and production build pass.
+- Full E2E: **25 fresh + 25 retained passed**, run
+  `c5fab549-9ae8-472b-95b2-60143af51363`, project
+  `reawote-e2e-project-catalog-v3`. Owned containers/networks removed; synthetic
+  volumes/artifacts retained; protected original/demo state unchanged.
+- Read-only browser checks on the actual R100 instance: note tag search, original
+  and synthetic material previews, 251 linked projects, 111 companies, 76 catalog
+  rows and code filtering passed. All four list pages fit the 390 px viewport;
+  no browser errors or non-auth writes. Visual review corrected long-option
+  mobile overflow and condensed/styled catalog filters and tabs.
+- Final CSS-only adjustments rebuilt successfully. Artifact values remain local
+  and private; no customer data or credentials entered tracked documentation.
+
+Build advisory: main JS remains slightly above Vite's 500 kB warning threshold.
+No live importer compatibility or multi-gigabyte performance claim is made.
+
 ## Latest checkpoint (2026-09-25, editable material table)
 
 Resumed from `9a40b825377307309b79fe438f62a29317241c99` on the existing

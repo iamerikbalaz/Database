@@ -8,20 +8,25 @@ test("catalog values, material drafts and revision history persist through resta
   if (!retainedPass) {
     await page.goto("/catalog");
     await page.getByLabel("Catalog value", { exact: true }).fill("E2E Natural Stone");
+    await page.getByLabel("New abbreviation", { exact: true }).fill("E2E_STONE");
     await page.getByRole("button", { name: "Create catalog value" }).click();
-    await expect(page.getByRole("article", { name: "Online categories" }).getByText("E2E Natural Stone", { exact: true })).toBeVisible();
+    await expect(page.getByRole("table").getByText("E2E Natural Stone", { exact: true })).toBeVisible();
+    await page.getByRole("searchbox", { name: "Search catalog" }).fill("E2E_STONE");
+    await expect(page.getByRole("table").getByRole("row")).toHaveCount(2);
+    await page.getByRole("searchbox", { name: "Search catalog" }).fill("");
     await page.getByRole("combobox", { name: "Value type", exact: true }).selectOption("collections");
     await page.getByRole("combobox", { name: "Collection brand", exact: true }).selectOption(runManifest.state.brandId);
     await page.getByLabel("Catalog value", { exact: true }).fill("E2E Architectural Series");
+    await page.getByLabel("New abbreviation", { exact: true }).fill("E2E_SERIES");
     await page.getByRole("button", { name: "Create catalog value" }).click();
-    await expect(page.getByRole("article", { name: "Brand collections" }).getByText("E2E Architectural Series", { exact: true })).toBeVisible();
+    await expect(page.getByRole("table").getByText("E2E Architectural Series", { exact: true })).toBeVisible();
     await page.goto(`/materials/${fixture.id}`);
     let panel = page.getByRole("article", { name: "Publication content", exact: true });
     await panel.getByRole("textbox", { name: "Description", exact: true }).fill("Synthetic material for catalog verification.");
     await panel.getByRole("spinbutton", { name: "Credits", exact: true }).fill("8");
     await panel.getByRole("textbox", { name: "Tags, one per line", exact: true }).fill("matte\nMatte\nstone");
-    await panel.getByRole("checkbox", { name: "E2E Natural Stone", exact: true }).check();
-    await panel.getByRole("checkbox", { name: "E2E Architectural Series", exact: true }).check();
+    await panel.getByRole("checkbox", { name: "E2E_STONE · E2E Natural Stone", exact: true }).check();
+    await panel.getByRole("checkbox", { name: "E2E_SERIES · E2E Architectural Series", exact: true }).check();
     await panel.getByLabel("Reason for content change").fill("Classify synthetic E2E material");
     await panel.getByRole("button", { name: "Save publication draft" }).click();
     await expect(panel.getByText(/Revision 1 · Saved content/)).toBeVisible();
@@ -32,10 +37,10 @@ test("catalog values, material drafts and revision history persist through resta
     await expect(panel.getByText(/Revision 2 · Saved content/)).toBeVisible();
     await page.goto("/catalog");
     for (const action of ["Deactivate", "Reactivate"]) {
-      await page.getByRole("button", { name: `${action} E2E Natural Stone`, exact: true }).click();
       await page.getByLabel("Reason for catalog change").fill(`${action} synthetic category`);
-      await page.getByRole("button", { name: "Confirm availability change", exact: true }).click();
-      await expect(page.getByRole("button", { name: `${action === "Deactivate" ? "Reactivate" : "Deactivate"} E2E Natural Stone`, exact: true })).toBeVisible();
+      await page.getByRole("combobox", { name: "Active for E2E Natural Stone", exact: true }).selectOption(action === "Deactivate" ? "false" : "true");
+      await expect(page.getByRole("combobox", { name: "Active for E2E Natural Stone", exact: true })).toHaveValue(action === "Deactivate" ? "false" : "true");
+      await expect(page.getByLabel("Reason for catalog change")).toBeEnabled();
     }
     await page.goto(`/materials/${fixture.id}`);
     const approval = page.getByRole("article", { name: "Content approval", exact: true });
@@ -61,8 +66,8 @@ test("catalog values, material drafts and revision history persist through resta
   await expect(panel.getByRole("textbox", { name: "Description", exact: true })).toHaveValue("Synthetic material for catalog verification.");
   await expect(panel.getByRole("spinbutton", { name: "Credits", exact: true })).toHaveValue("13");
   await expect(panel.getByRole("textbox", { name: "Tags, one per line", exact: true })).toHaveValue("matte\nstone");
-  await expect(panel.getByRole("checkbox", { name: "E2E Natural Stone", exact: true })).toBeChecked();
-  await expect(panel.getByRole("checkbox", { name: "E2E Architectural Series", exact: true })).toBeChecked();
+  await expect(panel.getByRole("checkbox", { name: "E2E_STONE · E2E Natural Stone", exact: true })).toBeChecked();
+  await expect(panel.getByRole("checkbox", { name: "E2E_SERIES · E2E Architectural Series", exact: true })).toBeChecked();
   await panel.getByText("Content history", { exact: true }).click();
   await panel.getByRole("button", { name: "Load content history" }).click();
   await expect(panel.getByText("Revision 1", { exact: true })).toBeVisible();
@@ -81,4 +86,8 @@ test("catalog values, material drafts and revision history persist through resta
   const audit = await (await page.request.get("/api/catalog-audit")).json();
   const ownedIds = [current.categories[0].id, current.collections[0].id];
   expect(audit.filter((item: { resource_id: string }) => ownedIds.includes(item.resource_id))).toHaveLength(4);
+  const vocabulary = await (await page.request.get("/api/online-categories")).json();
+  expect(vocabulary.find((item: { id: string }) => item.id === current.categories[0].id)).toMatchObject({ abbreviation: "E2E_STONE", created_at: expect.any(String) });
+  const collections = await (await page.request.get("/api/collections")).json();
+  expect(collections.find((item: { id: string }) => item.id === current.collections[0].id)).toMatchObject({ abbreviation: "E2E_SERIES", created_at: expect.any(String) });
 });

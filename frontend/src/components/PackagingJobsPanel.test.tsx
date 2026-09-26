@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { requestNavigation } from "../navigationGuard";
 import { afterEach, expect, it, vi } from "vitest";
 import { PackagingJobsPanel } from "./PackagingJobsPanel";
 import { packagingClient, packagingJobFromDto } from "../api/packagingClient";
@@ -94,7 +95,7 @@ it("recovers the exact lost reservation request after collapsing the panel", asy
   vi.stubGlobal("fetch", vi.fn(async (path: string, options?: RequestInit) => {
     if (options?.method === "POST") {
       bodies.push(String(options.body)); current = job();
-      if (bodies.length === 1) throw new TypeError("Synthetic response loss");
+      if (bodies.length === 1) { expect(requestNavigation("/projects")).toBe(false); throw new TypeError("Synthetic response loss"); }
       return json(current);
     }
     return json(path.endsWith("/packaging-policy") ? { current: policy } : { enabled: true, archived: false, items: current ? [current] : [], next_cursor: null });
@@ -102,11 +103,33 @@ it("recovers the exact lost reservation request after collapsing the panel", asy
   mount(); const details = open(); await screen.findByRole("button", { name: "Reserve packaging job" }); confirm();
   fireEvent.click(screen.getByRole("button", { name: "Reserve packaging job" }));
   await screen.findByText(/The outcome is unknown/);
+  expect(requestNavigation("/projects")).toBe(false);
   expect(screen.getByLabelText("Reason for packaging action")).toBeDisabled();
   details.open = false; fireEvent(details, new Event("toggle")); open();
   fireEvent.click(screen.getByRole("button", { name: "Recover same packaging request" }));
   await screen.findByText("Job reserved. Start packaging when ready.");
   expect(bodies).toHaveLength(2); expect(bodies[0]).toBe(bodies[1]);
+  expect(requestNavigation("/projects")).toBe(true);
+});
+
+it("keeps a lost packaging request recoverable after a later conflict", async () => {
+  const mocked = server(), original = mocked.fetch.getMockImplementation()!;
+  const packets: string[] = [];
+  mocked.fetch.mockImplementation(async (path, options) => {
+    if (options?.method === "POST") {
+      packets.push(String(options.body));
+      if (packets.length === 1) throw new TypeError("Lost response");
+      return json({ detail: "Changed" }, 409);
+    }
+    return original(path, options);
+  });
+  mount(); open(); await screen.findByRole("button", { name: "Reserve packaging job" }); confirm();
+  fireEvent.click(screen.getByRole("button", { name: "Reserve packaging job" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Recover same packaging request" }));
+  await waitFor(() => expect(packets).toHaveLength(2));
+  expect(packets[0]).toBe(packets[1]);
+  expect(screen.getByRole("button", { name: "Reserve packaging job" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Recover same packaging request" })).toBeVisible();
 });
 
 it("polls the known job during a pending start without sending another command", async () => {

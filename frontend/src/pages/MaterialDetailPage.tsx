@@ -604,6 +604,7 @@ function MaterialDetailContent({
     <div className="page-heading"><div><p className="eyebrow">{material.technicalIdentity}</p><h1>{material.materialName}</h1></div>
       <NavigationLink className="button" href={`/materials/${material.id}/edit`} navigate={navigate}>Edit material</NavigationLink>
     </div>
+    {role && <MaterialGallery key={`gallery-${material.id}-${material.folderPath}-${data.reviewRefreshVersion}`} materialId={material.id} linked={Boolean(material.folderPath)} initiallyOpen />}
     <article className="panel"><MaterialFacts material={material} />
       <dl className="info-list">
         <div><dt>Project</dt><dd>{material.projectId === null ? "No project assigned" : project.status === "fulfilled" && project.value ? <NavigationLink href={`/projects/${material.projectId}`} navigate={navigate}>{project.value.name}</NavigationLink> : <span role="alert">Project could not be loaded ({material.projectId}).</span>}</dd></div>
@@ -637,7 +638,6 @@ function MaterialDetailContent({
     {role && <MaterialContentPanel key={`content-${material.id}-${material.publishedBrandId}`} material={material} onChanged={retryRelated} />}
     {role && <MaterialAiPanel key={`ai-${material.id}`} materialId={material.id} onAdopted={retryRelated} onSourcesChanged={() => void data.refreshAll(undefined, undefined)} />}
     {role && <AiServicePanel materialId={material.id} />}
-    {role && <MaterialGallery key={`gallery-${material.id}-${material.folderPath}-${data.reviewRefreshVersion}`} materialId={material.id} linked={Boolean(material.folderPath)} />}
     {role && <ContentApprovalPanel key={`content-approval-${material.id}`} materialId={material.id} refreshVersion={data.reviewRefreshVersion} onChanged={retryRelated} />}
     {role && <PackagingPolicyPanel key={`policy-${material.id}`} materialId={material.id} workflowStatus={material.workflowStatus} refreshVersion={data.reviewRefreshVersion} onChanged={() => void data.refreshAll(undefined, undefined)} />}
     <PackagingJobsPanel key={`packaging-${material.id}`} materialId={material.id} onChanged={() => void data.refreshAll(undefined, undefined)} />

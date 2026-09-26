@@ -6,6 +6,7 @@ import type { ProjectDetail } from "../types";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { Icon } from "../components/Icon";
 import { StatusBadge } from "../components/StatusBadge";
+import { NasFolderReference } from "../components/NasFolderReference";
 import { ResourceHistoryPanel } from "../components/ResourceHistoryPanel";
 
 export function ProjectDetailPage({
@@ -78,6 +79,7 @@ export function ProjectDetailPage({
           </div>
         </div>
         <dl className="info-list info-list--columns">
+          <div><dt>NAS folder</dt><dd><NasFolderReference path={item.folderPath} /></dd></div>
           <div>
             <dt>Client</dt>
             <dd>{item.clientName}</dd>

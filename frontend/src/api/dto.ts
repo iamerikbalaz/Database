@@ -118,6 +118,7 @@ export interface ProjectDto {
   status: ProjectStatusDto;
   due_date: string | null;
   notes: string | null;
+  folder_path?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -130,6 +131,7 @@ export function projectFromDto(dto: ProjectDto): Project {
     status: statusFromDto(dto.status),
     dueDate: dto.due_date,
     description: dto.notes,
+    ...(dto.folder_path === undefined ? {} : { folderPath: dto.folder_path }),
     createdAt: dto.created_at,
     updatedAt: dto.updated_at,
   };
@@ -143,6 +145,7 @@ export function projectToDto(value: Project): ProjectDto {
     status: statusToDto(value.status),
     due_date: value.dueDate,
     notes: value.description,
+    ...(value.folderPath === undefined ? {} : { folder_path: value.folderPath }),
     created_at: value.createdAt,
     updated_at: value.updatedAt,
   };
@@ -157,6 +160,7 @@ export function parseProject(input: unknown): ProjectDto {
     status: projectStatus(value["status"]),
     due_date: nullable(value["due_date"]),
     notes: nullable(value["notes"]),
+    ...("folder_path" in value ? { folder_path: nullable(value["folder_path"]) } : {}),
     created_at: string(value["created_at"]),
     updated_at: string(value["updated_at"]),
   };

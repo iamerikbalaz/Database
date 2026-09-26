@@ -6,7 +6,7 @@ export type CompanyWriteDto = Omit<
 >;
 export type CompanyCreateDto = Pick<CompanyWriteDto, "name"> &
   Partial<Omit<CompanyWriteDto, "name">>;
-export type CompanyPatchDto = Partial<CompanyWriteDto>;
+export type CompanyPatchDto = Partial<CompanyWriteDto> & { expected_updated_at?: string };
 export type BrandWriteDto = Omit<
   PublishedBrandDto,
   "id" | "created_at" | "updated_at" | "next_sequence_number"
@@ -23,7 +23,7 @@ export type ProjectCreateDto = Pick<
   "company_id" | "name" | "project_number"
 > &
   Partial<Omit<ProjectWriteDto, "company_id" | "name" | "project_number">>;
-export type ProjectPatchDto = Partial<ProjectWriteDto>;
+export type ProjectPatchDto = Partial<ProjectWriteDto> & { expected_updated_at?: string };
 
 export function changedFields<T extends object>(
   current: T,

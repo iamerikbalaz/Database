@@ -12,7 +12,7 @@ export const resourceHistorySchema: Record<ResourceKind, Record<string, Field>> 
   BRAND: { company_id: ["Company ID", uuid], name: ["Name", string], folder_prefix: ["Folder prefix", string],
     brand_identifier: ["Brand identifier", string], is_active: ["Active", boolean] },
   PROJECT: { company_id: ["Company ID", uuid], project_number: ["Project number", string], name: ["Name", string],
-    status: ["Status", string], due_date: ["Deadline", nullable], notes: ["Notes", nullable] },
+    status: ["Status", string], due_date: ["Deadline", nullable], notes: ["Notes", nullable], folder_path: ["NAS folder", nullable] },
   USER: { display_name: ["Display name", string], email: ["Email", string], role: ["Role", string], is_active: ["Active", boolean] },
   MATERIAL: { project_id: ["Project ID", (value) => value === null ? null : uuid(value)], published_brand_id: ["Published brand ID", uuid], sequence_number: ["Sequence number", sequence],
     material_name: ["Material name", string], main_category_code: ["Main category", string], assigned_processor_id: ["Assigned processor ID", nullableUuid],
@@ -25,7 +25,7 @@ const segments: Record<ResourceKind, string> = { BRAND: "brands", PROJECT: "proj
 function digest(input: unknown) { const result = string(input); if (!/^[a-f0-9]{64}$/.test(result)) throw new Error("Invalid history digest"); return result; }
 function snapshot(input: unknown, kind: ResourceKind, id: string): Record<string, Value> {
   const value = record(input), schema = resourceHistorySchema[kind];
-  const optional = kind === "MATERIAL" ? ["checked_status", "note"] : [];
+  const optional = kind === "MATERIAL" ? ["checked_status", "note"] : kind === "PROJECT" ? ["folder_path"] : [];
   if (uuid(value.id) !== id || Object.keys(value).some(key => key !== "id" && !(key in schema)) || Object.keys(schema).some(key => !(key in value) && !optional.includes(key))) throw new Error("Invalid history snapshot");
   return { id, ...Object.fromEntries(Object.entries(schema).filter(([field]) => field in value).map(([field, [, parse]]) => [field, parse(value[field])])) };
 }

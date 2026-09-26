@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApiClient } from "../api/client";
 import { materialLoadError, type MaterialFilters } from "../api/materialClient";
-import { checkedStatuses, statusLabel, workflowStatuses } from "../api/materialDto";
+import { checkedStatuses, statusLabel, workflowStatuses, type Material } from "../api/materialDto";
 import { useResource } from "../api/useResource";
 import { NavigationLink } from "../components/NavigationLink";
 import { EmptyState, ErrorState, LoadingState } from "../components/PageState";
@@ -10,6 +10,9 @@ import { MaterialsTable } from "../components/MaterialsTable";
 import { categoryLabel, materialCategories } from "../data/materialCategories";
 import { GalleryStore } from "../api/galleryStore";
 import { sessionGeneration } from "../auth/sessionTransport";
+import { useSession } from "../auth/context";
+import { PublicationWorkspace } from "./PublicationPage";
+import { requestNavigation } from "../navigationGuard";
 
 const sizes: GallerySize[] = ["small", "medium", "large", "extra-large"];
 function preference(key: string) { try { return localStorage.getItem(key); } catch { return null; } }
@@ -17,6 +20,11 @@ function savePreference(key: string, value: string) { try { localStorage.setItem
 
 export function MaterialsPage({ client, navigate, initialView }: { client: ApiClient; navigate: (path: string) => void; initialView?: "gallery" }) {
   const [tableBusy, setTableBusy] = useState(false);
+  const [publicationSelection, setPublicationSelection] = useState<Material[] | null>(null);
+  const [publicationBusy, setPublicationBusy] = useState(false);
+  const role = useSession()?.session.user.role;
+  const canPublish = role === "ADMIN" || role === "LEADERSHIP";
+  const busy = tableBusy || publicationSelection !== null;
   const [filters, setFilters] = useState<MaterialFilters>({});
   const [view, setView] = useState<"list" | "gallery">(() => initialView ?? (preference("materials.view") === "gallery" ? "gallery" : "list"));
   const [size, setSize] = useState<GallerySize>(() => { const saved = preference("materials.gallerySize"); return sizes.find(value => value === saved) ?? "medium"; });
@@ -31,6 +39,10 @@ export function MaterialsPage({ client, navigate, initialView }: { client: ApiCl
   ]), [client]);
   const options = useResource(loadOptions);
   const [projects = [], brands = [], users = []] = options.data ?? [];
+  const preparePublication = (materials: Material[]) => {
+    if (tableBusy || !canPublish || materials.length > 100) return;
+    setPublicationSelection(materials.map(material => ({ ...material })));
+  };
   const selectors: { key: keyof MaterialFilters; label: string; options: { value: string; label: string }[] }[] = [
     { key: "project_id", label: "Project", options: projects.map((p) => ({ value: p.id, label: p.name })) },
     { key: "published_brand_id", label: "Published brand", options: brands.map((b) => ({ value: b.id, label: b.name })) },
@@ -43,8 +55,8 @@ export function MaterialsPage({ client, navigate, initialView }: { client: ApiCl
     <div className="page-heading"><div><p className="eyebrow">Production</p><h1>Materials</h1><p>Manage material records and their production status.</p></div>
       <NavigationLink className="button button--primary" href="/materials/new" navigate={navigate}>Add material</NavigationLink>
     </div>
-    <fieldset disabled={tableBusy} className="panel material-filters" role="search" aria-label="Material filters">
-      <label className="form-field">Search materials<input type="search" value={filters.search ?? ""} onChange={(e) => setFilters({ ...filters, search: e.target.value })} /></label>
+    <fieldset disabled={busy} className="panel material-filters" role="search" aria-label="Material filters">
+      <label className="form-field">Search materials<input type="search" placeholder="Name, identity or note / #tag" value={filters.search ?? ""} onChange={(e) => setFilters({ ...filters, search: e.target.value })} /></label>
       <label className="form-field">Main category<select value={filters.main_category_code ?? ""} onChange={(e) => setFilters({ ...filters, main_category_code: e.target.value })}><option value="">All</option>{materialCategories.map(c => <option key={c.code} value={c.code}>{categoryLabel(c.code)}</option>)}{(result.data ?? []).filter((m, i, all) => !materialCategories.some(c => c.code === m.mainCategoryCode) && all.findIndex(x => x.mainCategoryCode === m.mainCategoryCode) === i).map(m => <option key={m.mainCategoryCode} value={m.mainCategoryCode}>{categoryLabel(m.mainCategoryCode)}</option>)}</select></label>
       {selectors.map((s) => <label className="form-field" key={s.key}>{s.label}
         <select value={filters[s.key] ?? ""} onChange={(e) => setFilters({ ...filters, [s.key]: e.target.value })}>
@@ -57,18 +69,28 @@ export function MaterialsPage({ client, navigate, initialView }: { client: ApiCl
     <div className="materials-view-toolbar">
       <span className="materials-count" aria-live="polite">{result.data ? `${result.data.length} materials` : "Materials"}</span>
       <div className="materials-view-controls" role="group" aria-label="Material display">
-        <button disabled={tableBusy} className="button" aria-pressed={view === "list"} onClick={() => { setView("list"); savePreference("materials.view", "list"); }}>List</button>
-        <button disabled={tableBusy} className="button" aria-pressed={view === "gallery"} onClick={() => { setView("gallery"); savePreference("materials.view", "gallery"); }}>Gallery</button>
+        <button disabled={busy} className="button" aria-pressed={view === "list"} onClick={() => { setView("list"); savePreference("materials.view", "list"); }}>List</button>
+        <button disabled={busy} className="button" aria-pressed={view === "gallery"} onClick={() => { setView("gallery"); savePreference("materials.view", "gallery"); }}>Gallery</button>
       </div>
       {view === "gallery" && <><label className="gallery-size-control">Preview size<select value={size} onChange={event => { setSize(event.target.value as GallerySize); savePreference("materials.gallerySize", event.target.value); }}>
         {sizes.map(value => <option key={value} value={value}>{value === "extra-large" ? "Extra large" : value[0].toUpperCase() + value.slice(1)}</option>)}
       </select></label><button className="button gallery-refresh" onClick={() => { store.clear(); setPreviewEpoch(value => value + 1); }}>Refresh previews</button></>}
     </div>
-    {result.error ? <ErrorState message={materialLoadError(result.cause)} retry={result.retry} />
+    {canPublish && publicationSelection === null && <div className="publication-actions">
+      <button className="button" disabled={tableBusy || Boolean(result.error) || !result.data?.length || result.data.length > 100} onClick={() => preparePublication(result.data ?? [])}>Prepare filtered for publication ({result.data?.length ?? 0})</button>
+      <button className="button" disabled={tableBusy} onClick={() => preparePublication([])}>Publication batches</button>
+      {(result.data?.length ?? 0) > 100 && <p>Each publication batch supports up to 100 materials. Narrow the filters or select up to 100 rows.</p>}
+    </div>}
+    {publicationSelection !== null ? <section aria-label="Material publication preparation">
+      <div className="page-heading"><div><h2>Prepare publication</h2><p>Review materials, prepare ZIP files and export CSV for the library.</p></div>
+        <button className="button" disabled={publicationBusy} onClick={() => { if (requestNavigation("/materials")) setPublicationSelection(null); }}>Back to material list</button>
+      </div>
+      <PublicationWorkspace client={client} navigate={navigate} initialSelection={publicationSelection} onBusyChange={setPublicationBusy} />
+    </section> : result.error ? <ErrorState message={materialLoadError(result.cause)} retry={result.retry} />
       : !result.data ? <LoadingState label="Loading materials…" />
       : !result.data.length ? <EmptyState title="No materials found" description="Clear the filters or add a material to get started." />
       : view === "gallery" ? <MaterialsGrid key={`${generation}:${previewEpoch}`} materials={result.data} store={store} size={size} navigate={navigate} />
       : <MaterialsTable materials={result.data} store={store} client={client} projects={projects} brands={brands} users={users}
-          navigate={navigate} refresh={result.retry} onBusyChange={setTableBusy} />}
+          navigate={navigate} refresh={result.retry} onBusyChange={setTableBusy} onPreparePublication={preparePublication} />}
   </section>;
 }

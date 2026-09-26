@@ -11,7 +11,6 @@ const items = [
   ["Archived materials", "/material-archives", "materials"],
   ["Catalog", "/catalog", "materials"],
   ["Imports", "/imports", "materials"],
-  ["Publication", "/publication", "publication"],
   ["Settings", "/settings", "settings"],
 ];
 export function AppShell({
@@ -53,8 +52,7 @@ export function AppShell({
       </a>
       <nav aria-label="Main navigation">
         {items.filter(([, href]) => (href !== "/imports" || account?.session.user.role === "ADMIN") &&
-          (href !== "/material-archives" || account?.session.user.role === "ADMIN") &&
-          (href !== "/publication" || !account || ["ADMIN", "LEADERSHIP"].includes(account.session.user.role))).map(([label, href, icon]) => {
+          (href !== "/material-archives" || account?.session.user.role === "ADMIN")).map(([label, href, icon]) => {
           const active =
             currentPath === href ||
             (href === "/dashboard" && currentPath === "/") ||

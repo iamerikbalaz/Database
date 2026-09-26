@@ -13,7 +13,9 @@ function list<T>(value: unknown, parse: (item: unknown) => T, maximum = 100): T[
 export function catalogValue(input: unknown) {
   const item = record(input);
   return { id: uuid(item.id), value: string(item.value), version: integer(item.version, 1), active: boolean(item.is_active),
-    brandId: item.brand_id === undefined ? null : uuid(item.brand_id) };
+    brandId: item.brand_id === undefined ? null : uuid(item.brand_id),
+    abbreviation: item.abbreviation === undefined ? null : nullable(item.abbreviation),
+    createdAt: item.created_at === undefined ? null : nullable(item.created_at) };
 }
 export type CatalogValue = ReturnType<typeof catalogValue>;
 export function contentFromDto(input: unknown) {
@@ -33,14 +35,17 @@ export interface ContentPayload {
   idempotency_key: string; expected_revision: number; description: string | null; credits: number | null;
   tags: string[]; category_ids: string[]; collection_ids: string[]; reason: string;
 }
-export interface CatalogCreate { idempotency_key: string; value: string; brand_id?: string; }
+export interface CatalogCreate { idempotency_key: string; value: string; brand_id?: string; abbreviation?: string | null; }
 export interface CatalogActivity { idempotency_key: string; expected_version: number; is_active: boolean; reason: string; }
+export type CatalogTableUpdate = { idempotency_key: string; expected_version: number; reason: string } &
+  ({ is_active: boolean } | { abbreviation: string | null });
 export type CatalogKind = "online-categories" | "collections";
 export const catalogClient = {
   async categories() { return list(await request("/online-categories"), catalogValue, 10000); },
   async collections(brandId?: string) { return list(await request("/collections" + (brandId ? `?brand_id=${uuid(brandId)}` : "")), catalogValue, 10000); },
   async create(kind: CatalogKind, payload: CatalogCreate) { return catalogValue(await request(`/${kind}`, "POST", payload)); },
   async activity(kind: CatalogKind, id: string, payload: CatalogActivity) { return catalogValue(await request(`/${kind}/${uuid(id)}`, "PATCH", payload)); },
+  async table(kind: CatalogKind, id: string, payload: CatalogTableUpdate) { return catalogValue(await request(`/${kind}/${uuid(id)}/table`, "PATCH", payload)); },
   async content(id: string) { return contentFromDto(await request(`/materials/${uuid(id)}/content`)); },
   async save(id: string, payload: ContentPayload) { return contentFromDto(await request(`/materials/${uuid(id)}/content`, "POST", payload)); },
   async history(id: string, after: string | null = null) { return historyPage(await request(`/materials/${uuid(id)}/content-history${historyQuery(after)}`), after, (input) => {

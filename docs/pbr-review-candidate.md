@@ -10,6 +10,25 @@ Jde o verzi pro review a ověření konkrétních PBR kontraktů v izolovaném p
 Produkční nasazení, živé integrace a správnost vůči skutečnému online importéru
 nejsou potvrzené. Žádný merge do main ani nasazení neproběhlo.
 
+## Nová verze: projekty, firmy, katalog a ZIP/CSV (26. 9.)
+
+Materials vyhledává i poznámky, detail rovnou ukazuje náhled a nabídka publikace
+pracuje s aktuálně filtrovanými nebo vybranými materiály přímo v Materials.
+Projects a Companies mají filtry, přímé editace a potvrzované hromadné změny.
+Catalog má taby kategorií/kolekcí, zkratky, data vytvoření a filtry; přímo lze měnit
+zkratku a Active. Stabilní názvy mají výslovnou akci vytvoření náhradního záznamu.
+
+Do vlastní testovací databáze je importováno **251 projektů s cestami na R:**.
+**14 složek** vyžaduje ruční kontrolu názvu/duplicit. Původní materiály zůstaly bez
+projektu. Vzniklo 109 firem podle výrobců pro testování rozhraní a 18 značek je mezi
+nimi rozděleno; právní údaje nejsou doplněné odhadem.
+
+ZIP/CSV lze zkoušet na odděleném materiálu vyhledatelném přes **#zip-test**.
+Jeho skutečně vytvořený ZIP a CSV prošly kontrolou obsahu a otisků. Historie dávky
+je v Materials → Publication history. Toto ověřuje lokální syntetické zdroje;
+napojení živého read-only workeru na skutečná NAS data a finální online importér
+zbývá ověřit. Nahrávání je vypnuté. NAS ani původních 100 materiálů se neměnily.
+
 ## Nová verze: editovatelný seznam materiálů (25. 9.)
 
 Materials nyní obsahuje miniatury, přímé editace v řádku, volbu a šířky sloupců,

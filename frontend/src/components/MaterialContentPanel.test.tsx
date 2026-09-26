@@ -112,6 +112,18 @@ it("offers leadership read-only content and audit history", async () => {
   expect(screen.queryByRole("button", { name: "Save publication draft" })).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Description")).not.toBeInTheDocument();
 });
+it.each(["METAL", null])("uses the persisted category abbreviation %s instead of the bundled workbook code", async abbreviation => {
+  vi.stubGlobal("fetch", vi.fn(async (path: string) => {
+    if (path.endsWith("/online-categories")) return json([{ ...category, value: "Metal / Tiles", abbreviation }]);
+    if (path.includes("/collections")) return json([]);
+    return json(empty);
+  }));
+  render(<SessionContext.Provider value={{ session: { user: { ...processorDto, role: "ADMIN" }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}>
+    <MaterialContentPanel material={materialFromDto(materialDto)} onChanged={vi.fn()} />
+  </SessionContext.Provider>);
+  expect(await screen.findByRole("checkbox", { name: abbreviation ? "METAL · Metal / Tiles" : "Metal / Tiles" })).toBeVisible();
+  expect(screen.queryByRole("checkbox", { name: "K03 · Metal / Tiles" })).not.toBeInTheDocument();
+});
 it.each([{ revision: -1 }, { credits: 1.5 }, { tags: "a:b" }, { content_status: "UNKNOWN" }, { categories: [{ ...category, id: "invalid" }] }])(
   "fails closed on a malformed content response %j", (change) => { expect(() => contentFromDto({ ...empty, ...change })).toThrow(); },
 );

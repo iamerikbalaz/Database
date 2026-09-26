@@ -27,7 +27,10 @@ function GalleryContents({ materialId }: { materialId: string }) {
   const load = useCallback(() => previewClient.listing(materialId), [materialId]);
   const resource = useResource(load), selectId = useId();
   const [selectedName, setSelectedName] = useState("");
-  const selected = resource.data?.items.find((item) => item.name === selectedName) ?? resource.data?.items[0];
+  const selected = resource.data?.items.find((item) => item.name === selectedName)
+    ?? resource.data?.items.find((item) => item.name.toUpperCase() === "FABRIC_1.PNG")
+    ?? resource.data?.items.find((item) => item.name.toUpperCase() === "SPHERE_1.PNG")
+    ?? resource.data?.items[0];
   return <>
     {resource.error ? <ErrorState message="The preview gallery could not be loaded. Check access, the source folder and any active identity operation." retry={resource.retry} /> : !resource.data ? <LoadingState label="Loading gallery…" /> : <>
       {resource.data.missing ? <p>The linked material has no PREVIEW folder.</p> : resource.data.items.length === 0 ? <p>No supported preview images were found.</p> : <>

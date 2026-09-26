@@ -1349,3 +1349,46 @@ a.button {
  .material-table--editable td:nth-child(3), .material-table--editable th:nth-child(3) { position:static; box-shadow:none; }
  .material-table--editable { max-height:65vh; }
 }
+.resource-table-toolbar { flex-wrap: wrap; align-items: end; gap: .65rem; }
+.resource-table-toolbar > input, .resource-table-toolbar > textarea, .resource-table-toolbar > select { max-width: 260px; }
+.resource-table-toolbar > * { max-width: 100%; }
+.resource-table-toolbar label { display: grid; grid-template-columns: minmax(0, 1fr); gap: .25rem; font-size: .8rem; min-width: 0; max-width: 100%; }
+.resource-table-toolbar select, .resource-table-toolbar input, .resource-table-toolbar textarea { min-width: 0; max-width: 100%; }
+.resource-table-scroll { overflow-x: auto; max-width: 100%; }
+.resource-table-scroll table { min-width: 1100px; }
+.resource-table-scroll td { vertical-align: top; min-width: 155px; max-width: 380px; overflow-wrap: anywhere; }
+.resource-table-scroll td:first-child:has(input[type="checkbox"]) { min-width: 36px; }
+.resource-table-cell input, .resource-table-cell select, .resource-table-cell textarea { width: 100%; min-width: 150px; }
+.resource-table-cell input, .resource-table-cell select, .resource-table-cell textarea { font: inherit; font-size: 12px; color: inherit; padding: 7px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; }
+.resource-table-cell input:hover, .resource-table-cell select:hover, .resource-table-cell textarea:hover { border-color: #dde0ed; }
+.resource-table-cell input:focus, .resource-table-cell select:focus, .resource-table-cell textarea:focus { border-color: #9093b9; background: white; }
+.resource-table-toolbar > input, .resource-table-toolbar > textarea, .resource-table-toolbar > select { font: inherit; font-size: 12px; padding: 8px 10px; color: #1f2444; background: white; border: 1px solid #dde0ed; border-radius: 8px; }
+.resource-table-cell textarea { min-width: 220px; }
+.resource-table-cell .button { margin-top: .3rem; padding: .35rem .5rem; font-size: .72rem; }
+.resource-properties { position: relative; min-width: 125px; }
+.resource-properties[open] { background: var(--surface, #fff); border: 1px solid #dde0ed; border-radius: 12px; padding: .7rem; }
+.resource-properties label { display: flex; align-items: center; gap: .5rem; padding: .2rem; }
+.resource-properties input { width: auto; }
+.resource-bulk-dialog { width: min(680px, calc(100vw - 2rem)); max-height: 85vh; overflow: auto; border: 1px solid #dde0ed; border-radius: 18px; padding: 1.5rem; color: #1f2444; }
+.resource-bulk-dialog::backdrop { background: #0a0d2760; }
+.resource-bulk-dialog .button { margin: .5rem .4rem 0 0; }
+.resource-table-results { max-height: 260px; overflow: auto; }
+.resource-folder { display: grid; gap: .4rem; min-width: 260px; max-width: 380px; overflow-wrap: anywhere; }
+.resource-folder code { white-space: normal; }
+
+.resource-filters { min-width: 0; flex-wrap: wrap; gap: .75rem; border: 0; padding: 0; }
+.resource-filters label { display: grid; grid-template-columns: minmax(0, 1fr); gap: .25rem; min-width: 0; max-width: 100%; font-size: .8rem; }
+.resource-filters .search { display: flex; }
+.resource-filters select { min-width: 0; max-width: 100%; }
+.resource-database { min-width: 0; }
+.catalog-database .view-switch { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 5px; margin-bottom: 18px; border-radius: 24px; background: #dde0ed; }
+.catalog-database .view-switch button { border: 0; border-radius: 20px; padding: 9px 18px; background: transparent; color: #394173; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.catalog-database .view-switch button[aria-selected="true"] { background: #1f2444; color: white; }
+.catalog-database .view-switch button:disabled { cursor: default; opacity: .6; }
+.catalog-database .filters { grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); align-items: end; gap: 12px; padding: 12px 16px 16px; background: white; border-radius: 14px; }
+.catalog-database .filters legend { font-size: 12px; font-weight: 600; color: #394173; padding: 0 6px; }
+.catalog-database .filters label { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 5px; font-size: 12px; }
+.catalog-database .filters .button { margin: 0; }
+.catalog-database .resource-table-toolbar label { display: grid; }
+.catalog-database .resource-table-scroll td > strong { display: block; }
+@media (min-width: 1100px) { .catalog-database .filters label:first-of-type { grid-column: span 2; } }

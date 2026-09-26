@@ -39,6 +39,15 @@ it("does not request an unlinked source", async () => {
   mount(false, true); expect(screen.getByText(/Link a material folder/)).toBeVisible();
   expect(previewClient.listing).not.toHaveBeenCalled(); expect(previewClient.image).not.toHaveBeenCalled();
 });
+it("opens the primary material preview before other alphabetically listed images", async () => {
+  const sphere = { ...entries[1], name: "SPHERE_1.png" }, fabric = { ...entries[0], name: "FABRIC_1.png" };
+  vi.mocked(previewClient.listing).mockResolvedValue({ items: [...entries, sphere, fabric], missing: false, ignoredEntries: 0 });
+  mount(true, true);
+  await screen.findByRole("img", { name: "Preview: FABRIC_1.png" });
+  expect(previewClient.image).toHaveBeenCalledWith(materialDto.id, fabric, expect.any(AbortSignal));
+  fireEvent.change(screen.getByLabelText("Preview image"), { target: { value: sphere.name } });
+  await screen.findByRole("img", { name: "Preview: SPHERE_1.png" });
+});
 it("changes selection without keeping the previous image alive", async () => {
   mount(true, true); await screen.findByRole("img");
   fireEvent.change(screen.getByLabelText("Preview image"), { target: { value: "Side.png" } });

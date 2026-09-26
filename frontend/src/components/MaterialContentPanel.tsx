@@ -1,4 +1,3 @@
-import { catalogCategoryLabel } from "../data/materialCategories";
 import { useCallback, useRef, useState } from "react";
 import { catalogClient, type CatalogValue, type ContentPayload, type MaterialContent } from "../api/catalogClient";
 import { ApiError } from "../api/errors";
@@ -7,6 +6,8 @@ import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
 import { ErrorState, LoadingState } from "./PageState";
 import { HistoryPages } from "./HistoryPages";
+
+const vocabularyLabel = (item: CatalogValue) => item.abbreviation ? `${item.abbreviation} · ${item.value}` : item.value;
 
 function ContentEditor({ content, categories, collections, onSaved, reload }: {
   content: MaterialContent; categories: CatalogValue[]; collections: CatalogValue[]; onSaved: () => void; reload: () => void;
@@ -47,7 +48,7 @@ function ContentEditor({ content, categories, collections, onSaved, reload }: {
   const choices = (label: string, items: CatalogValue[], selected: string[], change: (value: string[]) => void) => <fieldset>
     <legend>{label}</legend>{items.length === 0 && <p>No values available.</p>}
     {items.map((item) => <label key={item.id}><input type="checkbox" checked={selected.includes(item.id)} disabled={!item.active && !selected.includes(item.id)}
-      onChange={(event) => change(event.target.checked ? [...selected, item.id] : selected.filter((id) => id !== item.id))} />{label === "Online categories" ? catalogCategoryLabel(item.value) : item.value}{!item.active && " (inactive; remove before saving)"}</label>)}
+      onChange={(event) => change(event.target.checked ? [...selected, item.id] : selected.filter((id) => id !== item.id))} />{vocabularyLabel(item)}{!item.active && " (inactive; remove before saving)"}</label>)}
   </fieldset>;
   return <>
     <p>Revision {content.revision} · {content.status === "EMPTY" ? "Empty" : "Saved content"}. Saving a change invalidates technical checks and publication approvals.</p>
@@ -67,8 +68,8 @@ function ContentEditor({ content, categories, collections, onSaved, reload }: {
       </fieldset>
       <button className="button button--primary" disabled={pending || !reason.trim()}>{uncertain ? "Retry same content save" : "Save publication draft"}</button>
     </form> : <dl><dt>Description</dt><dd>{description || "Not entered"}</dd><dt>Credits</dt><dd>{credits || "Not entered"}</dd>
-      <dt>Tags</dt><dd>{content.tags.join(", ") || "None"}</dd><dt>Online categories</dt><dd>{content.categories.map((item) => catalogCategoryLabel(item.value)).join(", ") || "None"}</dd>
-      <dt>Brand collections</dt><dd>{content.collections.map((item) => item.value).join(", ") || "None"}</dd></dl>}
+      <dt>Tags</dt><dd>{content.tags.join(", ") || "None"}</dd><dt>Online categories</dt><dd>{content.categories.map(item => vocabularyLabel(categories.find(current => current.id === item.id) ?? item)).join(", ") || "None"}</dd>
+      <dt>Brand collections</dt><dd>{content.collections.map(item => vocabularyLabel(collections.find(current => current.id === item.id) ?? item)).join(", ") || "None"}</dd></dl>}
     <button className="button" disabled={pending || uncertain} onClick={reload}>Reload content and discard local edits</button>
     {(role === "ADMIN" || role === "PRODUCTION_LEAD") && <p><a href="/catalog">Manage categories and brand collections</a></p>}
     <details><summary>Content history</summary>

@@ -48,7 +48,7 @@ describe("frontend regression coverage", () => {
       await screen.findByRole("link", { name: "Swisspearl facade collection" }),
     ).toBeInTheDocument();
     for (const label of ["Not started", "In progress", "Done"])
-      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(screen.getByRole("cell", { name: label })).toBeInTheDocument();
   });
   it("shows full company detail and related records", async () => {
     render(

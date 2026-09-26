@@ -8,10 +8,15 @@ from app.db.models import (OnlineCategory, BrandCollection, MaterialContent, Mat
 from app.material_review import canonical_hash, material_context
 
 
-def catalog_view(item):
+def catalog_view(item, *, details=False):
     result = {"id": str(item.id), "value": item.value, "version": item.version, "is_active": item.is_active}
     if isinstance(item, BrandCollection):
         result["brand_id"] = str(item.brand_id)
+    # Administrative metadata must not change immutable content snapshots or
+    # invalidate existing approval hashes merely because a column was added.
+    if details:
+        created = item.created_at if item.created_at.tzinfo else item.created_at.replace(tzinfo=UTC)
+        result.update(abbreviation=item.abbreviation, created_at=created.isoformat())
     return result
 
 

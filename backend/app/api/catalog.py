@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.material_review import _material
 from app.auth.access import AccessDependency, CATALOG_MANAGERS
-from app.catalog import CategoryCreate, CollectionCreate, CatalogActivityUpdate, ContentUpdate, value_key
+from app.catalog import CategoryCreate, CollectionCreate, CatalogActivityUpdate, CatalogTableUpdate, ContentUpdate, value_key
 from app.db.models import (OnlineCategory, BrandCollection, CatalogAuditEvent,
     MaterialOnlineCategory, MaterialCollection, MaterialContentRevision, PBRMaterial, PublishedBrand)
 from app.material_identity import require_material_idle
@@ -30,7 +30,7 @@ def build_catalog_router(database):
     def categories(access: AccessDependency):
         with database.session() as session:
             access.check(session)
-            return [catalog_view(item) for item in session.scalars(select(OnlineCategory).order_by(OnlineCategory.normalized_key, OnlineCategory.id))]
+            return [catalog_view(item, details=True) for item in session.scalars(select(OnlineCategory).order_by(OnlineCategory.normalized_key, OnlineCategory.id))]
 
     @router.get("/collections")
     def collections(access: AccessDependency, brand_id: UUID | None = None):
@@ -39,11 +39,15 @@ def build_catalog_router(database):
             query = select(BrandCollection).order_by(BrandCollection.normalized_key, BrandCollection.id)
             if brand_id is not None:
                 query = query.where(BrandCollection.brand_id == brand_id)
-            return [catalog_view(item) for item in session.scalars(query)]
+            return [catalog_view(item, details=True) for item in session.scalars(query)]
 
-    def change_catalog(kind, payload, access, item_id=None):
+    def change_catalog(kind, payload, access, item_id=None, *, details=False):
         model = OnlineCategory if kind == "CATEGORY" else BrandCollection
-        request_hash = canonical_hash({"kind": kind, "id": str(item_id) if item_id else None, "payload": payload.model_dump(mode="json")})
+        # Omitted new fields preserve the hash of pre-upgrade create requests.
+        request_data = {"kind": kind, "id": str(item_id) if item_id else None, "payload": payload.model_dump(mode="json", exclude_unset=True)}
+        if details:
+            request_data["details"] = True
+        request_hash = canonical_hash(request_data)
         with database.session() as session:
             # Rare vocabulary changes serialize with domain writes. This lets a
             # deactivation invalidate every current user of that value atomically.
@@ -61,7 +65,7 @@ def build_catalog_router(database):
                         raise HTTPException(404, "Published brand not found.")
                     if not brand.is_active:
                         _conflict("CATALOG_BRAND_INACTIVE")
-                item = model(value=payload.value, normalized_key=value_key(payload.value))
+                item = model(value=payload.value, normalized_key=value_key(payload.value), abbreviation=payload.abbreviation)
                 if kind == "COLLECTION":
                     item.brand_id = payload.brand_id
                 session.add(item)
@@ -72,19 +76,23 @@ def build_catalog_router(database):
                     raise HTTPException(404, "Catalog value not found.")
                 if item.version != payload.expected_version:
                     _conflict("CATALOG_VERSION_CHANGED")
-                if item.is_active != payload.is_active:
+                property_name = "abbreviation" if "abbreviation" in payload.model_fields_set else "is_active"
+                next_value = getattr(payload, property_name)
+                previous_value = getattr(item, property_name)
+                if previous_value != next_value:
                     link = MaterialOnlineCategory if kind == "CATEGORY" else MaterialCollection
                     column = link.category_id if kind == "CATEGORY" else link.collection_id
                     for material in session.scalars(select(PBRMaterial).join(link).where(column == item.id)
                             .order_by(PBRMaterial.id).with_for_update(of=PBRMaterial)):
                         require_material_idle(session, material.id)
-                        invalidate_review(session, material, actor.id, "CATALOG_ACTIVITY_CHANGED")
-                    item.is_active = payload.is_active
+                        invalidate_review(session, material, actor.id, "CATALOG_ACTIVITY_CHANGED" if property_name == "is_active" else "CATALOG_ABBREVIATION_CHANGED")
+                    setattr(item, property_name, next_value)
                     item.version += 1
-                audit = {"action": "ACTIVITY_CHANGED", "reason": payload.reason}
+                audit = {"action": "ACTIVITY_CHANGED" if property_name == "is_active" else "ABBREVIATION_CHANGED", "reason": payload.reason,
+                         "property": property_name, "before": previous_value, "after": next_value}
             try:
                 session.flush()
-                body = catalog_view(item); code = 201 if item_id is None else 200
+                body = catalog_view(item, details=details); code = 201 if item_id is None else 200
                 session.add(CatalogAuditEvent(resource_id=item.id, resource_kind=kind, actor_id=actor.id,
                     request_key=payload.idempotency_key, request_hash=request_hash,
                     result={"status_code": code, "body": body, "audit": audit}))
@@ -109,6 +117,14 @@ def build_catalog_router(database):
     @router.patch("/collections/{item_id}")
     def update_collection(item_id: UUID, payload: CatalogActivityUpdate, access: AccessDependency):
         return change_catalog("COLLECTION", payload, access, item_id)
+
+    @router.patch("/online-categories/{item_id}/table")
+    def update_category_table(item_id: UUID, payload: CatalogTableUpdate, access: AccessDependency):
+        return change_catalog("CATEGORY", payload, access, item_id, details=True)
+
+    @router.patch("/collections/{item_id}/table")
+    def update_collection_table(item_id: UUID, payload: CatalogTableUpdate, access: AccessDependency):
+        return change_catalog("COLLECTION", payload, access, item_id, details=True)
 
     @router.get("/catalog-audit")
     def catalog_audit(access: AccessDependency, after: UUID | None = None, limit: HistoryLimit = 100):

@@ -267,7 +267,8 @@ def _review_pg_case(migrated_postgresql_url):
         company = Company(name="Review company " + suffix); session.add(company); session.flush()
         project = Project(company_id=company.id, project_number=suffix, name="Review fixture")
         brand = PublishedBrand(company_id=company.id, name="Review brand", folder_prefix="RV" + suffix[:8], brand_identifier=suffix)
-        session.add_all([project, brand]); session.flush()
+        _persist_project_at_schema(session, project)
+        session.add(brand); session.flush()
         material = PBRMaterial(project_id=project.id, published_brand_id=brand.id, sequence_number=1,
             assigned_processor_id=users[1].id, material_name="Review material", main_category_code="G03",
             technical_identity=f"{brand.folder_prefix}_0001_G03", folder_path=f"library/{brand.folder_prefix}_0001_G03")
@@ -2248,6 +2249,18 @@ def test_postgresql_metadata_schema_uses_exact_and_structured_types(
     engine.dispose()
 
 
+def _persist_project_at_schema(session, project):
+    from sqlalchemy import Table, MetaData
+    if "folder_path" in {column["name"] for column in inspect(session.connection()).get_columns("projects")}:
+        session.add(project)
+    else:
+        legacy = Table("projects", MetaData(), autoload_with=session.connection())
+        project.id = uuid4()
+        session.execute(legacy.insert().values(id=project.id, company_id=project.company_id,
+            project_number=project.project_number, name=project.name))
+    session.flush()
+
+
 def _persist_material_at_schema(session, material):
     # Older migration fixtures use their historical schema, before the current
     # ORM's additive tracking columns exist.
@@ -2286,7 +2299,8 @@ def _create_postgresql_material_with_metadata(database_url: str, suffix: str) ->
             email=f"metadata-pg-{suffix}@example.com",
             role="PROCESSOR",
         )
-        session.add_all([project, brand, processor])
+        _persist_project_at_schema(session, project)
+        session.add_all([brand, processor])
         session.flush()
         material = PBRMaterial(
             project_id=project.id,
@@ -4767,19 +4781,29 @@ def test_postgresql_resource_history_0021_preserves_0020_records_and_refuses_his
         fixture = _review_pg_case(database_url); case = next(fixture)
         try:
             with case.database.session() as session:
-                frozen = {kind: resource_snapshot(session.get(model, _resource_target(case, kind))) for kind, (model, *_) in KINDS.items() if kind != "MATERIAL"}
+                # The fixture inserts projects using _persist_project_at_schema.
+                # Read their old physical columns too: the current ORM includes
+                # folder_path, which did not exist at revision 0020.
+                frozen = {kind: resource_snapshot(session.get(model, _resource_target(case, kind))) for kind, (model, *_) in KINDS.items() if kind not in {"MATERIAL", "PROJECT"}}
+                project_before = dict(session.execute(text("SELECT * FROM projects WHERE id=:id"), {"id": case.material.project_id}).mappings().one())
                 material_before = dict(session.execute(text("SELECT * FROM pbr_materials WHERE id=:id"), {"id": case.material.id}).mappings().one())
             command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
             with case.database.session() as session:
                 assert not list(session.scalars(select(ResourceChangeEvent)))
-                assert frozen == {kind: resource_snapshot(session.get(model, _resource_target(case, kind))) for kind, (model, *_) in KINDS.items() if kind != "MATERIAL"}
+                assert frozen == {kind: resource_snapshot(session.get(model, _resource_target(case, kind))) for kind, (model, *_) in KINDS.items() if kind not in {"MATERIAL", "PROJECT"}}
+                project = session.get(Project, case.material.project_id)
+                assert project.folder_path is None
+                assert all(getattr(project, field) == value for field, value in project_before.items())
                 material = session.get(PBRMaterial, case.material.id)
                 assert all(getattr(material, field) == value for field, value in material_before.items())
             command.downgrade(config, "20260918_0020")
             assert not inspect(case.database.engine).has_table("resource_change_events")
             command.upgrade(config, "head")
             with case.client_for() as client:
-                assert client.patch(f"/api/projects/{case.material.project_id}", json={"notes": "First audited change"}).status_code == 200
+                # A current project write is protected earlier by migration
+                # 0028's folder-history guard. A brand write exercises this
+                # test's original 0021 resource-history downgrade boundary.
+                assert client.patch(f"/api/brands/{case.material.published_brand_id}", json={"name": "First audited brand change"}).status_code == 200
             with pytest.raises(DBAPIError, match="Resource history exists"):
                 command.downgrade(config, "20260918_0020")
             with case.database.engine.connect() as connection:

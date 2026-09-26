@@ -103,6 +103,7 @@ class CompanyCreate(CompanyFields):
 
 
 class CompanyUpdate(ApiSchema):
+    expected_updated_at: datetime | None = None
     name: Name | None = None
     legal_name: Name | None = None
     country: ShortText | None = None
@@ -114,7 +115,7 @@ class CompanyUpdate(ApiSchema):
 
     @model_validator(mode="after")
     def required_fields_cannot_be_null(self) -> Self:
-        for field_name in ("name", "is_active"):
+        for field_name in ("name", "is_active", "expected_updated_at"):
             if field_name in self.model_fields_set and getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} cannot be null")
         return self
@@ -178,6 +179,7 @@ class PublishedBrandListFilters(ApiSchema):
 
 
 class ProjectFields(ApiSchema):
+    folder_path: FolderPath | None = None
     company_id: UUID
     project_number: ShortText
     name: Name
@@ -191,6 +193,8 @@ class ProjectCreate(ProjectFields):
 
 
 class ProjectUpdate(ApiSchema):
+    expected_updated_at: datetime | None = None
+    folder_path: FolderPath | None = None
     company_id: UUID | None = None
     project_number: ShortText | None = None
     name: Name | None = None
@@ -200,7 +204,7 @@ class ProjectUpdate(ApiSchema):
 
     @model_validator(mode="after")
     def required_fields_cannot_be_null(self) -> Self:
-        for field_name in ("company_id", "project_number", "name", "status"):
+        for field_name in ("company_id", "project_number", "name", "status", "expected_updated_at"):
             if field_name in self.model_fields_set and getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} cannot be null")
         return self

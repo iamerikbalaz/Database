@@ -53,10 +53,10 @@ try {
     $started = $true
     Invoke-TestCompose @('up', '-d', '--wait', 'database') 'PostgreSQL startup'
     if (-not $PostgresqlOnly) {
-        Invoke-TestCompose @('run', '--rm', '--no-deps', 'backend', 'pytest', '--ignore=tests/test_materials_postgresql.py', '--ignore=tests/test_auth_postgresql.py', '--ignore=tests/test_packaging_dispatch_lease_postgresql.py', '--ignore=tests/test_material_lifecycle_postgresql.py', '--ignore=tests/test_packaging_retirement_postgresql.py', '--ignore=tests/test_historical_projects_postgresql.py', '--ignore=tests/test_material_table_postgresql.py') 'Backend unit tests'
+        Invoke-TestCompose @('run', '--rm', '--no-deps', 'backend', 'pytest', '--ignore=tests/test_materials_postgresql.py', '--ignore=tests/test_auth_postgresql.py', '--ignore=tests/test_packaging_dispatch_lease_postgresql.py', '--ignore=tests/test_material_lifecycle_postgresql.py', '--ignore=tests/test_packaging_retirement_postgresql.py', '--ignore=tests/test_historical_projects_postgresql.py', '--ignore=tests/test_material_table_postgresql.py', '--ignore=tests/test_project_table_postgresql.py', '--ignore=tests/test_catalog_table_postgresql.py') 'Backend unit tests'
     }
     Write-Host 'PostgreSQL integration tests: auth and materials (auth skips fail the run).'
-    Invoke-TestCompose @('run', '--rm', '--no-deps', '-e', 'RUN_POSTGRES_TESTS=1', 'backend', 'pytest', '--require-auth-postgresql', 'tests/test_auth_postgresql.py', 'tests/test_materials_postgresql.py', 'tests/test_packaging_dispatch_lease_postgresql.py', 'tests/test_material_lifecycle_postgresql.py', 'tests/test_packaging_retirement_postgresql.py', 'tests/test_historical_projects_postgresql.py', 'tests/test_material_table_postgresql.py') 'PostgreSQL integration tests'
+    Invoke-TestCompose @('run', '--rm', '--no-deps', '-e', 'RUN_POSTGRES_TESTS=1', 'backend', 'pytest', '--require-auth-postgresql', 'tests/test_auth_postgresql.py', 'tests/test_materials_postgresql.py', 'tests/test_packaging_dispatch_lease_postgresql.py', 'tests/test_material_lifecycle_postgresql.py', 'tests/test_packaging_retirement_postgresql.py', 'tests/test_historical_projects_postgresql.py', 'tests/test_material_table_postgresql.py', 'tests/test_project_table_postgresql.py', 'tests/test_catalog_table_postgresql.py') 'PostgreSQL integration tests'
     if (-not $PostgresqlOnly) {
         Invoke-TestCompose @('run', '--rm', '--no-deps', 'worker', 'pytest') 'Worker tests'
         Invoke-TestCompose @('run', '--rm', '--no-deps', 'frontend', 'npm', 'run', 'lint') 'Frontend lint'

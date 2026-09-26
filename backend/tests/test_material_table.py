@@ -12,6 +12,24 @@ def write(client, material, change, key=None):
         json={"expected_updated_at": material["updated_at"], **change}, headers={"Idempotency-Key": str(key or uuid4())})
 
 
+def test_note_tags_search_is_literal_case_insensitive_and_keeps_assignment_scope(access_case):
+    case = access_case
+    with case.client("ADMIN") as client:
+        first, second = [client.get(f"/api/materials/{row.id}").json() for row in case.materials]
+        assert write(client, first, {"note": "Review\n#Release_100% #Autumn"}).status_code == 200
+        assert write(client, second, {"note": "#ReleaseX100Y #Autumn"}).status_code == 200
+        exact = client.get("/api/materials", params={"search": "#release_100%"})
+        assert exact.status_code == 200
+        assert [row["id"] for row in exact.json()] == [first["id"]]
+        assert len(client.get("/api/materials", params={"search": "#autumn"}).json()) == 2
+        assert client.get("/api/materials", params={"search": "%' OR 1=1 --"}).json() == []
+        assert client.get("/api/materials", params={"search": "#autumn", "workflow_status": "DONE"}).json() == []
+    with case.client("PROCESSOR") as client:
+        own = client.get("/api/materials", params={"search": "#autumn"})
+        assert own.status_code == 200
+        assert [row["id"] for row in own.json()] == [first["id"]]
+
+
 def test_checked_is_human_and_correction_reopens_without_publishing(access_case):
     case = access_case
     with case.client("ADMIN") as client:

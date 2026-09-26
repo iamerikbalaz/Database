@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from contextlib import AbstractContextManager
 from typing import Annotated, Any, Protocol, TypeVar
 from uuid import UUID
@@ -15,6 +16,7 @@ from app.resource_history import append_resource_change, resource_snapshot
 from app.resource_commands import CommandInput, CommandKey, ResourceWrite, authorize_receipt, command_for_actor, receipt_view
 from app.material_identity import identity_context, require_brand_idle, require_material_idle
 from app.material_naming import build_identity
+from app.material_table import utc
 
 from app.db.models import (
     Company,
@@ -187,7 +189,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             access.check(session)
             statement = select(Company)
             if filters.search is not None:
-                statement = statement.where(Company.name.icontains(filters.search, autoescape=True))
+                statement = statement.where(or_(*(field.icontains(filters.search, autoescape=True) for field in (Company.name, Company.legal_name, Company.country, Company.address, Company.website, Company.vat_id))))
             if filters.is_active is not None:
                 statement = statement.where(Company.is_active == filters.is_active)
             return list(session.scalars(statement.order_by(Company.created_at, Company.id)))
@@ -223,6 +225,8 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
 
     @router.patch("/companies/{company_id}", response_model=CompanyRead, tags=["companies"])
     def update_company(company_id: UUID, payload: CompanyUpdate, access: AccessDependency, submitted: CommandInput, request_key: CommandKey = None) -> Company:
+        if payload.expected_updated_at is not None and request_key is None:
+            raise HTTPException(422, "Idempotency-Key is required for table edits.")
         with database.session() as session:
             actor = access.check(session, CATALOG_MANAGERS)
             command = ResourceWrite(access, "COMPANY", "UPDATED", payload, request_key, company_id, raw_payload=submitted)
@@ -231,6 +235,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             if company is None: raise HTTPException(404, "Company not found.")
             before = company_snapshot(company)
             values = _values(payload, exclude_unset=True)
+            values.pop("expected_updated_at", None)
+            if payload.expected_updated_at is not None and utc(company.updated_at) != utc(payload.expected_updated_at):
+                raise HTTPException(409, "This company changed. Reload it before editing again.")
+            if any(getattr(company, field) != value for field, value in values.items()):
+                company.updated_at = datetime.now(UTC)
             if values.get("notion_page_id") is not None:
                 _ensure_unique(
                     session,
@@ -365,6 +374,8 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                     or_(
                         Project.project_number.icontains(filters.search, autoescape=True),
                         Project.name.icontains(filters.search, autoescape=True),
+                        Project.notes.icontains(filters.search, autoescape=True),
+                        Project.folder_path.icontains(filters.search, autoescape=True),
                     )
                 )
             return list(session.scalars(statement.order_by(Project.created_at, Project.id)))
@@ -400,6 +411,8 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
 
     @router.patch("/projects/{project_id}", response_model=ProjectRead, tags=["projects"])
     def update_project(project_id: UUID, payload: ProjectUpdate, access: AccessDependency, submitted: CommandInput, request_key: CommandKey = None) -> Project:
+        if payload.expected_updated_at is not None and request_key is None:
+            raise HTTPException(422, "Idempotency-Key is required for table edits.")
         with database.session() as session:
             actor = access.check(session, CATALOG_MANAGERS)
             command = ResourceWrite(access, "PROJECT", "UPDATED", payload, request_key, project_id, raw_payload=submitted)
@@ -408,6 +421,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             if project is None: raise HTTPException(404, "Project not found.")
             before = resource_snapshot(project)
             values = _values(payload, exclude_unset=True)
+            values.pop("expected_updated_at", None)
+            if payload.expected_updated_at is not None and utc(project.updated_at) != utc(payload.expected_updated_at):
+                raise HTTPException(409, "This project changed. Reload it before editing again.")
+            if any(getattr(project, field) != value for field, value in values.items()):
+                project.updated_at = datetime.now(UTC)
             if "company_id" in values:
                 _require_company(session, values["company_id"])
             if "project_number" in values:
@@ -544,6 +562,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 statement = statement.where(
                     or_(
                         PBRMaterial.material_name.icontains(filters.search, autoescape=True),
+                        PBRMaterial.note.icontains(filters.search, autoescape=True),
                         PBRMaterial.technical_identity.icontains(
                             filters.search,
                             autoescape=True,

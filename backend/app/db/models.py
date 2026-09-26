@@ -440,6 +440,7 @@ class Project(TimestampMixin, Base):
     )
     due_date: Mapped[date | None] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text)
+    folder_path: Mapped[str | None] = mapped_column(String(2048))
 
     company: Mapped[Company] = relationship(back_populates="projects")
     materials: Mapped[list["PBRMaterial"]] = relationship(back_populates="project")
@@ -817,12 +818,23 @@ def _reject_review_history_mutation(*_: object) -> None:
     raise ImmutableAuditSnapshotError("Material inventory and audit history are append-only.")
 
 
+def _catalog_abbreviation_constraint(name):
+    remainder = "abbreviation"
+    for character in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-":
+        remainder = f"replace({remainder}, '{character}', '')"
+    return CheckConstraint(f"abbreviation IS NULL OR (length(abbreviation) BETWEEN 1 AND 32 AND {remainder} = '' "
+                           "AND substr(abbreviation, 1, 1) NOT IN ('_', '-'))", name=name)
+
+
 class OnlineCategory(TimestampMixin, Base):
     __tablename__ = "online_categories"
-    __table_args__ = (CheckConstraint("version >= 1", name="ck_online_categories_version"),)
+    __table_args__ = (CheckConstraint("version >= 1", name="ck_online_categories_version"),
+                     UniqueConstraint("abbreviation", name="uq_online_categories_abbreviation"),
+                     _catalog_abbreviation_constraint("ck_online_categories_abbreviation"))
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     value: Mapped[str] = mapped_column(String(255), nullable=False)
     normalized_key: Mapped[str] = mapped_column(String(765), unique=True, nullable=False)
+    abbreviation: Mapped[str | None] = mapped_column(String(32))
     version: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
 
@@ -831,12 +843,15 @@ class BrandCollection(TimestampMixin, Base):
     __tablename__ = "brand_collections"
     __table_args__ = (
         UniqueConstraint("brand_id", "normalized_key", name="uq_brand_collections_brand_key"),
+        UniqueConstraint("brand_id", "abbreviation", name="uq_brand_collections_brand_abbreviation"),
         CheckConstraint("version >= 1", name="ck_brand_collections_version"),
+        _catalog_abbreviation_constraint("ck_brand_collections_abbreviation"),
     )
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     brand_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("published_brands.id", ondelete="RESTRICT"), index=True)
     value: Mapped[str] = mapped_column(String(255), nullable=False)
     normalized_key: Mapped[str] = mapped_column(String(765), nullable=False)
+    abbreviation: Mapped[str | None] = mapped_column(String(32))
     version: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
 

@@ -3,7 +3,7 @@ import unicodedata
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BeforeValidator, Field, StringConstraints, field_validator
+from pydantic import BeforeValidator, Field, StringConstraints, field_validator, model_validator
 
 from app.schemas import ApiSchema
 
@@ -24,11 +24,13 @@ def value_key(value):
 CatalogValue = Annotated[str, StringConstraints(min_length=1, max_length=255), BeforeValidator(normalize_value)]
 TagValue = Annotated[str, StringConstraints(min_length=1, max_length=100), BeforeValidator(normalize_value)]
 Reason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+Abbreviation = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=32, pattern=r"^[A-Z0-9][A-Z0-9_-]*$")]
 
 
 class CategoryCreate(ApiSchema):
     idempotency_key: UUID
     value: CatalogValue
+    abbreviation: Abbreviation | None = None
 
 
 class CollectionCreate(CategoryCreate):
@@ -40,6 +42,21 @@ class CatalogActivityUpdate(ApiSchema):
     expected_version: Annotated[int, Field(strict=True, ge=1)]
     is_active: Annotated[bool, Field(strict=True)]
     reason: Reason
+
+
+class CatalogTableUpdate(ApiSchema):
+    idempotency_key: UUID
+    expected_version: Annotated[int, Field(strict=True, ge=1)]
+    reason: Reason
+    is_active: Annotated[bool, Field(strict=True)] | None = None
+    abbreviation: Abbreviation | None = None
+
+    @model_validator(mode="after")
+    def one_property(self):
+        fields = self.model_fields_set & {"is_active", "abbreviation"}
+        if len(fields) != 1 or ("is_active" in fields and self.is_active is None):
+            raise ValueError("Change exactly one catalog property.")
+        return self
 
 
 class ContentUpdate(ApiSchema):

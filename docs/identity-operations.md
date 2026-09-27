@@ -1,5 +1,9 @@
 # Controlled identity operations: current implementation checkpoint
 
+The current native Windows adapter and its operator setup are documented in
+[Windows desktop material library](desktop-material-library.md). The worker
+filesystem details below describe the separate Linux executor.
+
 The worker's `POST /internal/material-identity-plan` is read-only. It accepts
 `folder_path`, `target_path`, `brand_name` and `material_name`, inspects the complete
 source tree and target parent, and returns the old/new root paths, every affected
@@ -20,9 +24,10 @@ authenticated worker mutation route requires separate explicit configuration.
   three-part identities remain readable. Imported names retain exact spelling.
   Rebrand/category proposals preserve an existing name component. Plan targets
   use portable ASCII components, sequence 0001–9999 and existing category rules.
-  Ordinary display-name edits currently do not rename folders. The user's newer
-  name-and-folder workflow is still pending; keep source writes disabled for the
-  real-data catalog test until that narrower contract is implemented.
+  The optional `material_name` proposal field changes the display name and
+  technical name together. Ordinary linked-name PATCH is blocked so it cannot
+  bypass source changes. Display-only changes that normalize to the existing
+  folder name remain unavailable through this workflow.
 - The destination parent must already exist under the allowed root on the same
   filesystem. No parent links, path traversal, nested self-moves or overwrite
   collisions are allowed. Case-folded collisions are rejected for portability.
@@ -100,9 +105,12 @@ Validate filesystem behavior exclusively with owned synthetic folders.
   A separate folder-catalog lock prevents a new folder link from racing ownership
   of an overlapping source/destination tree. Read-only database detail/history
   remain accessible. Other materials may still reserve subsequent brand numbers.
-- Verified COMPLETED results atomically update brand/number/category/identity/path,
-  preserve UUID/project/name/assignment, clear current metadata and append identity
-  history. Historical metadata and approvals remain intact. The material remains
+- Verified COMPLETED results atomically update brand/number/category/identity/path
+  and an explicitly requested material name, preserve UUID/project/assignment,
+  and append identity history. Recorded color and sample dimensions remain
+  available as fallback values. Current snapshot linkage, source bytes/hash,
+  filename, load time and master resolution are cleared; metadata becomes
+  NOT_SCANNED until fresh observation. Historical metadata and approvals remain intact. The material remains
   IN_PROGRESS and requires fresh technical checks. Once authorized source work has
   started, consistency finalization completes even if the initiating account is
   later disabled; this does not authorize any new user action.

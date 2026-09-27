@@ -1,5 +1,20 @@
 # Editable source metadata
 
+## Current library editor
+
+The material card now saves root `metadata.json` through the explicitly selected
+source adapter. A request may include publication content, which is finalized
+with the metadata snapshot in the same database completion transaction after
+verified source success. The native Windows adapter supports this workflow;
+its installation, filesystem boundary and recovery procedure are documented in
+[Windows desktop material library](desktop-material-library.md).
+
+The `metadata.txt`, Linux-only writer and separate-content details below describe
+the earlier worker contract retained for compatibility. They do not restrict the
+current native JSON editor.
+
+## Earlier worker contract
+
 Material detail edits the existing metadata properties: Color HEX, sample width
 in centimeters, and sample height in centimeters. Saving updates or creates only
 the linked material folder's root `metadata.txt`. Identity, master resolution and

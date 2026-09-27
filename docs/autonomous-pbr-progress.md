@@ -1,6 +1,104 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-27, material properties and source metadata)
+## Latest checkpoint (2026-09-28, material card and local file editing)
+
+Continued `codex/autonomous-pbr-completion` from `29473b3`. A fresh fetch confirmed
+`origin/main` remains `88a1f99d748d2a0edbb1fce509e13d18bfc03908`; the original
+main checkout is unchanged. No schema migration, production deployment or merge.
+
+### Delivered
+
+- The material card combines publication content and editable metadata in
+  **Material data for library**. One durable save writes root `metadata.json`
+  before finalizing the content and metadata in the database. Unknown JSON fields
+  and precise numbers survive edits. Missing files can be created from imported
+  values; legacy text is a fallback only when JSON is absent.
+- Color choices match the 18 HEX values read from the live REAWOTE texture filter.
+  Existing custom values are retained. Dimensions use decimal spinboxes with a
+  0.1 cm step. The main category is required and follows controlled identity
+  changes; catalog changes cannot invalidate an active source-save request.
+- One paginated material history combines record, content, metadata, identity,
+  workflow and archive events with the recorded actor. Unknown historical authors
+  stay explicitly unknown. Processor assignment is separate from change authorship.
+- **Edit Name** and destination changes preview and confirm folder, matching map
+  names and JSON updates. Ordinary linked-name writes are rejected. Brand renames
+  that would leave linked JSON manufacturer values stale are also rejected.
+- **Material data folder** shows an expandable file tree, absolute path, Explorer
+  opening and a native destination picker. Previews have arrows, source filename,
+  original dimensions and reload. Separate metadata/packaging/history panels are
+  removed; the card ends with a provisional material-data check and report.
+- Dirty library drafts block conflicting property edits and navigation until saved
+  or discarded. History refreshes after content-only saves too.
+
+### Local acceptance and source safety
+
+An independent owned PostgreSQL instance serves **50 copied materials** from the
+approved Desktop `Test_data` directory at `http://127.0.0.1:53033/materials`.
+The previous R100 instance remains separate. The private bootstrap, restart script,
+credentials, backups, manifests and test guide are in the ignored
+`tmp/local-materials-v5-20260928` directory; none belongs in Git.
+
+Created **50 metadata.json files** from imported values. Verified SHA-256 for all
+**937 original copied files** after creation; original NAS data was not changed.
+The set spans 18 brands and 7 categories; 46 materials have previews and 4 do not.
+A real HTTP/PostgreSQL/NTFS acceptance round trip saved JSON and content, retried
+the exact request, verified authorship, moved a material and moved it back, restored
+the original values and rechecked original file hashes. An ordinary Note edit and
+restore also verified replayable resource history in the copied database.
+
+The opt-in Windows adapter holds and verifies file handles, rejects unsafe links,
+uses no-replace renames and retains persistent recovery receipts/backups outside
+the source tree. It is bound to this loopback instance and local library only.
+See [desktop library](desktop-material-library.md),
+[metadata contract](editable-source-metadata.md) and
+[identity changes](identity-operations.md).
+
+### Verification
+
+- Frontend full suite: **1001 passed**. Subsequent dirty-draft/history focused
+  checks: **56 passed**; final lint and production build pass.
+- E2E: **25 fresh + 25 retained**, including dirty-draft protection, source save,
+  previews and publication/ZIP regression checks. Owned test containers/networks
+  cleaned; volumes and diagnostics retained.
+- Linux worker: **876 passed, 0 skipped**, with real ImageMagick/ZIP enabled.
+- Backend non-PostgreSQL full run: **2320 passed, 12 failed**. One AI-adoption
+  provenance regression was fixed; eleven old mutation probes now use permitted
+  processor changes instead of bypassing confirmed source renames. A fresh
+  follow-up ran **all 12 former failures successfully**. New identity-value and
+  catalog-reservation regressions are included in the focused counts below.
+- PostgreSQL full run: **460 passed, 20 failed** on previous mutation/category
+  assumptions. Updated tests use permitted project/processor changes without
+  weakening locks or source guards. Follow-up **93 passed**, covering former
+  failures plus source/identity/concurrency tests and all **27 auth checks** with
+  no skips. Fresh/historical migrations and schema checks passed in the full run.
+- Native Windows/API/metadata focused suite: **100 passed**. Preview contracts:
+  **45 passed**; category/source reservation checks: **56 passed**. Identity
+  completion retains display values while clearing stale source proof: **27 passed**.
+- Live browser: combined editor, required category, preview arrows/resolution,
+  file tree/path, author history and basic check report verified. Explorer/native
+  picker launch is covered by API tests, not an interactive OS-dialog acceptance.
+
+### Remaining boundaries and restart
+
+The basic check currently inspects files, metadata and preview availability. Final
+map/ZIP validation rules await the next product decision. The local adapter does
+not replace production inventory/technical/packaging workers: local50 external
+publishing and packaging are disabled. Final NAS acceptance still needs a correctly
+mounted worker. AI CSV exchange and live Notion/GCS remain deferred.
+
+Confirmed identity operations retain ADMIN/PRODUCTION_LEAD, unpublished and
+In-progress requirements. Destination parents must be inside the approved root.
+Display-only capitalization changes that normalize to the same technical identity
+and coordinated multi-material brand renames are not implemented.
+
+Use the ignored local50 `start-test.ps1` to start the existing instance, or
+`start-test.ps1 -Restart` to load code changes without resetting data. Keep its
+journal and database volume. No migration rollback is needed for this version;
+do not roll back source-changing operations by manually deleting journal entries.
+Preserve the source/database pair and restore backups into an isolated instance
+if an operator needs to investigate recovery.
+
+## Previous checkpoint (2026-09-27, material properties and source metadata)
 
 Continued `codex/autonomous-pbr-completion` from `00f4467`. A fresh remote read
 confirmed main remains `88a1f99d748d2a0edbb1fce509e13d18bfc03908`; main checkout

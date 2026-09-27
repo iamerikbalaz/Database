@@ -35,6 +35,7 @@ opakování testů, migrační hranice a konkrétní zbývající vstupy. Kontra
 - [Inventář a znovuotevření materiálu](docs/source-inventory.md).
 - [Technická kontrola a schválení](docs/material-approvals.md).
 - [Řízené změny identity a obnova operace](docs/identity-operations.md).
+- [Lokální Windows knihovna, výběr složky a obnova desktopových operací](docs/desktop-material-library.md).
 - [Kategorie, kolekce a verzovaný obsah](docs/catalog-content.md).
 - [Schválení uloženého obsahu](docs/content-approvals.md).
 - [Seznam materiálů a galerie náhledů](docs/preview-gallery.md).

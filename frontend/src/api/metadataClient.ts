@@ -1,5 +1,6 @@
 import { request } from "./client";
 import { boolean, nullable, record, string, uuid } from "./dto";
+import type { ContentPayload } from "./catalogClient";
 
 function hash(value: unknown) {
   if (value === null) return null;
@@ -24,7 +25,7 @@ function operation(input: unknown) {
   return { id: uuid(data.id), status, failure: result ? nullable(result.failure_code) : null };
 }
 export type MetadataOperation = ReturnType<typeof operation>;
-export interface MetadataSave { idempotency_key: string; expected_updated_at: string; expected_sha256: string | null; values: MetadataValues; }
+export interface MetadataSave { idempotency_key: string; expected_updated_at: string; expected_sha256: string | null; values: MetadataValues; content?: ContentPayload; }
 function observation(input: unknown) {
   const data = record(input);
   return { available: boolean(data.available), writesEnabled: boolean(data.writes_enabled), editable: boolean(data.editable),

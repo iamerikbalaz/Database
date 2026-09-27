@@ -8,7 +8,6 @@ import { useSession } from "../auth/context";
 import { ErrorState, LoadingState } from "./PageState";
 import { categoryLabel, materialCategories } from "../data/materialCategories";
 import { useNavigationGuard } from "../navigationGuard";
-import { HistoryPages } from "./HistoryPages";
 
 const labels: Record<string, string> = {
   COMPLETED: "Identity updated", RUNNING: "Outcome pending", ROLLED_BACK: "Source restored", REJECTED: "Rejected before source changes",
@@ -116,13 +115,6 @@ export function MaterialIdentityPanel({ material, client, onChanged, initialBran
           </>}
         </section>}
       </>}
-      <details><summary>Recorded identity operations</summary>
-        <HistoryPages scope={material.id} label="identity history" initial={resource.data.operations.items} load={async (after) => (await identityClient.operations(material.id, after)).items}>
-          {(items) => <ul>{items.map((item) => <li key={item.id}>
-            <strong>{labels[item.status]}</strong> · {item.source.identity} → {item.target.identity} · {item.reason} · <time dateTime={item.createdAt}>{item.createdAt}</time>
-          </li>)}</ul>}
-        </HistoryPages>
-      </details>
       <button className="button" disabled={pending} onClick={() => { resource.retry(); void onChanged(); }}>Reload identity status</button>
     </>}
   </article>;

@@ -48,7 +48,7 @@ function plan(value: unknown) {
   };
 }
 export type IdentityPlan = ReturnType<typeof plan>;
-export interface IdentityTarget { target_brand_id: string; main_category_code: string; target_parent: string; }
+export interface IdentityTarget { target_brand_id: string; main_category_code: string; target_parent: string; material_name?: string; }
 export interface IdentityConfirmation extends IdentityTarget {
   idempotency_key: string; expected_generation: number; expected_proposal_hash: string; reason: string; warnings_acknowledged: boolean;
 }

@@ -63,8 +63,10 @@ test("approved sources and human-reviewed AI proposals retain provenance after r
   const proposals = await (await page.request.get(api + "/content-drafts")).json(); expect(proposals.items).toHaveLength(1);
   expect(proposals.items[0].context_is_current).toBe(false); expect(proposals.items[0].description).toBe("Original AI proposal text");
   const saved = await (await page.request.get(api + "/content")).json();
-  expect(saved).toMatchObject({ revision: 2, content_status: "APPROVED", credits: 7, tags: ["matte", "stone"], categories: [{ value: "E2E AI Stone" }], collections: [],
+  expect(saved).toMatchObject({ revision: 2, content_status: "APPROVED", credits: 7, tags: ["matte", "stone"], collections: [],
     ai_provenance: { draft_id: proposals.items[0].id, edited: true, provider: "Synthetic test provider", model: "fixture-v1", prompt_version: "pbr-1" } });
+  expect(saved.categories).toContainEqual(expect.objectContaining({ value: "E2E AI Stone" }));
+  expect(saved.categories.find((item: { id: string }) => item.id === saved.required_category_id)).toMatchObject({ is_required: true, source: "MAIN_CATEGORY" });
   const history = await (await page.request.get(api + "/content-history")).json(); expect(history).toHaveLength(2);
   expect(history[0].snapshot.ai_provenance).toEqual(saved.ai_provenance);
   const decisions = await (await page.request.get(api + "/content-approvals")).json(); expect(decisions).toHaveLength(2);

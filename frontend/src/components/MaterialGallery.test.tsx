@@ -18,6 +18,13 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 const mount = (linked = true, initiallyOpen = false) => render(<MaterialGallery materialId={materialDto.id} linked={linked} initiallyOpen={initiallyOpen} />);
 
+it("labels the actual original resolution instead of the thumbnail resolution", async () => {
+  vi.mocked(previewClient.image).mockResolvedValue({ ...image(), originalWidth: 1200, originalHeight: 1200 });
+  mount(true, true);
+  expect(await screen.findByText("Front.png · 1200 × 1200 px (original)")).toBeVisible();
+  expect(screen.getByRole("img")).toHaveAttribute("width", "512");
+});
+
 it("does not duplicate source reads or consume extra decoder slots in StrictMode", async () => {
   render(<StrictMode><MaterialGallery materialId={materialDto.id} linked initiallyOpen /></StrictMode>);
   await screen.findByRole("img");
@@ -45,12 +52,12 @@ it("opens the primary material preview before other alphabetically listed images
   mount(true, true);
   await screen.findByRole("img", { name: "Preview: FABRIC_1.png" });
   expect(previewClient.image).toHaveBeenCalledWith(materialDto.id, fabric, expect.any(AbortSignal));
-  fireEvent.change(screen.getByLabelText("Preview image"), { target: { value: sphere.name } });
+  fireEvent.click(screen.getByRole("button", { name: "Previous preview" }));
   await screen.findByRole("img", { name: "Preview: SPHERE_1.png" });
 });
 it("changes selection without keeping the previous image alive", async () => {
   mount(true, true); await screen.findByRole("img");
-  fireEvent.change(screen.getByLabelText("Preview image"), { target: { value: "Side.png" } });
+  fireEvent.click(screen.getByRole("button", { name: "Next preview" }));
   expect(await screen.findByRole("img", { name: "Preview: Side.png" })).toHaveAttribute("width", "512");
   expect(revokeUrl).toHaveBeenCalledWith("blob:synthetic-1");
 });
@@ -60,7 +67,7 @@ it("ignores an old image response after a newer selection and aborts its request
   mount(true, true); await screen.findByLabelText("Preview image");
   await waitFor(() => expect(previewClient.image).toHaveBeenCalledOnce());
   const oldSignal = vi.mocked(previewClient.image).mock.calls[0][2];
-  fireEvent.change(screen.getByLabelText("Preview image"), { target: { value: "Side.png" } });
+  fireEvent.click(screen.getByRole("button", { name: "Next preview" }));
   await screen.findByRole("img", { name: "Preview: Side.png" }); expect(oldSignal.aborted).toBe(true);
   await act(async () => resolve(image())); expect(createUrl).toHaveBeenCalledOnce();
   expect(screen.getByRole("img")).toHaveAttribute("alt", "Preview: Side.png");

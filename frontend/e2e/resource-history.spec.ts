@@ -47,10 +47,12 @@ test("ordinary resource histories retain their actor and before/after values aft
     const scope = kind === "USER" ? page.locator(".account-list > div").filter({ has: page.getByRole("form", { name: `Manage ${name} revised`, exact: true }) }) : page.locator("main");
     const panel = scope.locator("details").filter({ has: page.getByText(label, { exact: true }) });
     await panel.locator(":scope > summary").click();
-    await panel.getByText(/^Change 2 · Record updated/).click();
-    const entry = panel.locator("details").filter({ has: page.getByText(/^Change 2 · Record updated/) });
+    const title = kind === "MATERIAL" ? /^Properties updated/ : /^Change 2 · Record updated/;
+    await panel.getByText(title).click();
+    const entry = panel.locator("details").filter({ has: page.getByText(title) });
     await expect(entry.getByText(expected, { exact: true })).toBeVisible();
-    await expect(entry.getByText(`Actor: ${auth.user.id}`, { exact: true })).toBeVisible();
+    if (kind === "MATERIAL") await expect(entry.getByText(`Author: ${auth.user.display_name}`, { exact: true })).toBeVisible();
+    else await expect(entry.getByText(`Actor: ${auth.user.id}`, { exact: true })).toBeVisible();
     if (kind !== "PROJECT") await expect(entry.getByText(name, { exact: true })).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

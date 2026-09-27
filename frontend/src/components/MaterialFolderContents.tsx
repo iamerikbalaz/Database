@@ -22,30 +22,31 @@ function parse(value: unknown, id: string, path: string) {
 }
 
 export function MaterialFolderContents({ materialId, folderPath }: { materialId: string; folderPath: string | null }) {
+  const [revision, setRevision] = useState(0);
+  return <div className="material-file-tree" aria-label="Material folder contents">
+    {!folderPath ? <p>No source folder linked.</p> : <><FolderBranch key={revision} materialId={materialId} path="" />
+      <button type="button" className="button" onClick={() => setRevision(value => value + 1)}>Refresh contents</button></>}
+  </div>;
+}
+
+function Directory({ materialId, entry }: { materialId: string; entry: Entry }) {
   const [open, setOpen] = useState(false);
-  return <details className="panel" onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary>Folder contents</summary>
-    {open && (!folderPath ? <p>No source folder linked.</p> : <FolderBrowser materialId={materialId} folderPath={folderPath} />)}
+  return <details onToggle={event => { if (event.target === event.currentTarget) setOpen(event.currentTarget.open); }}>
+    <summary>{entry.name}</summary>{open && <FolderBranch materialId={materialId} path={entry.path} />}
   </details>;
 }
 
-function FolderBrowser({ materialId, folderPath }: { materialId: string; folderPath: string }) {
-  const [path, setPath] = useState("");
+function FolderBranch({ materialId, path }: { materialId: string; path: string }) {
   const load = useCallback(async () => parse(await request(`/materials/${materialId}/folder-contents?path=${encodeURIComponent(path)}`), materialId, path), [materialId, path]);
   const { data, error, cause, retry } = useResource(load);
   const loading = !data && !error;
   return <>
-      <p className="muted">{folderPath}{path && "/" + path}</p>
-      <div className="button-row"><button type="button" className="button" disabled={loading || !path} onClick={() => setPath(path.split("/").slice(0, -1).join("/"))}>Parent folder</button>
-        <button type="button" className="button" disabled={loading} onClick={retry}>Refresh contents</button></div>
       {loading && <p role="status">Loading folder contents…</p>}
       {error && <p role="alert">{cause instanceof ApiError && cause.status === 404
         ? "The linked folder is unavailable. Check the NAS connection and folder reference."
-        : "Folder contents are unavailable. The source connection may be offline; database properties can still be edited."}</p>}
-      {data && <><div className="table-scroll"><table aria-label="Material folder contents"><thead><tr><th>Name</th><th>Type</th><th>Size</th></tr></thead>
-        <tbody>{data.entries.map((entry) => <tr key={entry.path}><td>{entry.kind === "directory"
-          ? <button type="button" className="button" onClick={() => setPath(entry.path)}>{entry.name}</button> : entry.name}</td>
-          <td>{entry.kind === "directory" ? "Folder" : "File"}</td><td>{entry.kind === "file" ? `${Math.ceil(entry.size / 1024).toLocaleString()} KB` : "—"}</td></tr>)}</tbody></table></div>
+        : "Folder contents are unavailable. The source connection may be offline; database properties can still be edited."}<button type="button" className="button" onClick={retry}>Retry folder</button></p>}
+      {data && <><ul>{data.entries.map((entry) => <li key={entry.path}>{entry.kind === "directory"
+        ? <Directory materialId={materialId} entry={entry} /> : <span className="material-file-tree__file">{entry.name}<small>{Math.ceil(entry.size / 1024).toLocaleString()} KB</small></span>}</li>)}</ul>
         {!data.entries.length && <p>This folder is empty.</p>}{data.omitted > 0 && <p>{data.omitted} unsupported entries omitted.</p>}</>}
     </>;
 }

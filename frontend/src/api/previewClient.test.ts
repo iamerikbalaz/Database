@@ -35,9 +35,14 @@ it("requests a smaller thumbnail and rejects a response larger than that size", 
   fetch.mockImplementation(async () => new Response(bytes, { headers }));
   await expect(previewClient.image(id, entry, signal, 256)).rejects.toThrow();
 });
+it("preserves original resolution separately from the resized preview", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(bytes, { headers: { ...headers, "X-Preview-Original-Width": "1200", "X-Preview-Original-Height": "1200" } })));
+  expect(await previewClient.image(id, entry, new AbortController().signal)).toMatchObject({ width: 512, height: 256, originalWidth: 1200, originalHeight: 1200 });
+});
 it.each([
   { "Content-Type": "image/svg+xml" }, { "X-Preview-Width": "1025" }, { "X-Preview-Height": "0" }, { "X-Preview-Sha256": "bad" },
   { "Content-Length": "2097153" }, { "Content-Length": "8" }, { "Content-Length": "x" },
+  { "X-Preview-Original-Width": "1200" }, { "X-Preview-Original-Width": "0", "X-Preview-Original-Height": "1200" },
 ])("rejects invalid image headers or length (%j)", async (change) => {
   const changedHeaders = new Headers(headers);
   for (const [key, value] of Object.entries(change)) if (value !== undefined) changedHeaders.set(key, value);

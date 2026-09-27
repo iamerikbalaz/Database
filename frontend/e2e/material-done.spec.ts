@@ -4,6 +4,7 @@ import {
   type Locator,
   type Page,
   type Response,
+  type APIResponse,
 } from "@playwright/test";
 import { runManifest, type MaterialFixture } from "./run-manifest";
 import { retainedPass, signInThroughApi } from "./auth-helpers";
@@ -66,7 +67,7 @@ async function assertRetainedDone(page: Page, material: MaterialFixture, status:
 
 async function waitForMaterialReads(page: Page): Promise<void> {
   await expect(page.getByRole("article", { name: "Publication content", exact: true }).getByText(/^Revision \d+ ·/)).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Color HEX", exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Color HEX", exact: true })).toBeVisible();
   await expect(page.getByRole("article", { name: "Material properties" })).toBeVisible();
 }
 
@@ -85,31 +86,18 @@ async function savedMetadata(page: Page, id: string, status: string) {
   return metadata;
 }
 
-async function checkFolder(page: Page, relativePath: string): Promise<Response> {
-  await page.getByLabel("Relative folder path").fill(relativePath);
-  const responsePromise = page.waitForResponse((response) =>
-    response.request().method() === "POST" &&
-    new URL(response.url()).pathname.endsWith("/folder-preflight"),
-  );
-  await page.getByRole("button", { name: "Check folder", exact: true }).click();
-  return responsePromise;
+async function folderRequest(page: Page, material: MaterialFixture, action: "folder-preflight" | "folder-link", relativePath = material.relativePath): Promise<APIResponse> {
+  const session = await (await page.request.get("/api/auth/session")).json();
+  return page.request.post(`/api/materials/${material.id}/${action}`, {
+    headers: { Origin: runManifest.frontendUrl, "X-CSRF-Token": session.csrf_token }, data: { folder_path: relativePath },
+  });
 }
 
-async function confirmOperation(
-  page: Page,
-  trigger: string,
-  dialogName: string,
-  responseSuffix: string,
-): Promise<Response> {
-  await page.getByRole("button", { name: trigger, exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: dialogName, exact: true });
-  await expect(dialog).toBeVisible();
-  const responsePromise = page.waitForResponse((response) =>
-    response.request().method() === "POST" &&
-    new URL(response.url()).pathname.endsWith(responseSuffix),
-  );
-  await dialog.getByRole("button", { name: trigger, exact: true }).click();
-  return responsePromise;
+async function linkFixture(page: Page, material: MaterialFixture): Promise<void> {
+  expect((await folderRequest(page, material, "folder-link")).status()).toBe(200);
+  await waitForMaterialReads(page);
+  await page.reload();
+  await expect(materialFact(page, "Folder path")).toHaveText(material.relativePath);
 }
 
 test.beforeEach(async ({ page }) => {
@@ -191,56 +179,29 @@ test("happy path persists Done metadata and snapshot after reload", async ({ pag
   await expect(materialFact(page, "Project")).toContainText("E2E Disposable Project");
   await expect(materialFact(page, "Published brand")).toContainText("E2E Published Brand");
 
-  // Explicit one-level source discovery is a read-only aid. Verify both the
-  // fresh and retained-data passes before using the normal preflight/link flow.
-  await page.getByRole("button", { name: "Browse source folders", exact: true }).click();
-  await page.getByRole("button", { name: "List folders", exact: true }).click();
-  const discovery = page.getByRole("region", { name: "Browse source folders", exact: true });
-  await expect(discovery.getByRole("status")).toContainText("source root");
-  const parentParts = state.valid.relativePath.split("/").slice(0, -1);
-  for (const part of parentParts) {
-    await discovery.getByRole("button", { name: `Open folder ${part}`, exact: true }).click();
-    await expect(discovery.getByRole("status")).toContainText("folders in");
-  }
-  await expect(discovery.getByRole("listitem").filter({ hasText: state.valid.technical_identity })).toContainText("Exact identity match");
+  await expect(page.getByRole("heading", { name: "Material data folder", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Browse source folders", exact: true })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await discovery.screenshot({ path: test.info().outputPath("folder-discovery-mobile.png") });
+  await page.screenshot({ path: test.info().outputPath("material-card-mobile.png") });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await discovery.screenshot({ path: test.info().outputPath("folder-discovery.png") });
-  await discovery.getByRole("button", { name: "Use this folder", exact: true }).click();
-  await expect(page.getByLabel("Relative folder path", { exact: true })).toHaveValue(state.valid.relativePath);
-  const afterBrowse = await page.request.get(`/api/materials/${state.valid.id}`);
-  expect(afterBrowse.status()).toBe(200);
-  expect((await afterBrowse.json()).folder_path).toBe(retainedPass ? state.valid.relativePath : null);
 
   if (retainedPass) { await assertRetainedDone(page, state.valid, "VALID"); return; }
-  const preflightResponse = await checkFolder(page, state.valid.relativePath);
+  const preflightResponse = await folderRequest(page, state.valid, "folder-preflight");
   expect(preflightResponse.status()).toBe(200);
   expect(await preflightResponse.json()).toMatchObject({
     identity_matches: true,
     can_continue: true,
     metadata_status: "VALID",
   });
-  const preflight = page.getByLabel("Folder check result");
-  await expect(preflight).toBeVisible();
-  await expect(preflight.getByText("Yes", { exact: true })).toHaveCount(2);
-
-  const linkResponse = await confirmOperation(
-    page,
-    "Link folder",
-    "Link this folder?",
-    "/folder-link",
-  );
-  expect(linkResponse.status()).toBe(200);
-  await expect(materialFact(page, "Folder path")).toHaveText(state.valid.relativePath);
+  await linkFixture(page, state.valid);
 
   const doneResponse = await setDone(page);
   expect(doneResponse.status()).toBe(200);
   expect(await doneResponse.json()).toMatchObject({ workflow_status: "DONE" });
   expect(await savedMetadata(page, state.valid.id, "VALID")).toMatchObject({ hex_color: "#A1B2C3" });
   await expect(materialFact(page, "Status").getByRole("combobox")).toHaveValue("DONE");
-  await expect(page.getByRole("textbox", { name: "Color HEX", exact: true })).toHaveValue("#A1B2C3");
+  await expect(page.getByRole("combobox", { name: "Color HEX", exact: true })).toHaveValue("#A1B2C3");
 
   await waitForMaterialReads(page);
   await page.reload();
@@ -250,35 +211,32 @@ test("happy path persists Done metadata and snapshot after reload", async ({ pag
   await expect(page.getByRole("heading", { name: "Snapshot history", exact: true })).toHaveCount(0);
 });
 
-test("missing metadata remains non-blocking and its warning stays visible", async ({ page }) => {
+test("missing metadata remains non-blocking and its warning persists", async ({ page }) => {
   await openPreparedMaterial(page, state.missing);
   if (retainedPass) { await assertRetainedDone(page, state.missing, "MISSING"); return; }
-  const preflightResponse = await checkFolder(page, state.missing.relativePath);
+  const preflightResponse = await folderRequest(page, state.missing, "folder-preflight");
   expect(preflightResponse.status()).toBe(200);
   expect(await preflightResponse.json()).toMatchObject({
     identity_matches: true,
     can_continue: true,
     metadata_status: "MISSING",
   });
-  await expect(page.getByLabel("Folder check result").getByText("missing", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Link folder", exact: true })).toBeEnabled();
-
-  expect((await confirmOperation(page, "Link folder", "Link this folder?", "/folder-link")).status()).toBe(200);
+  await linkFixture(page, state.missing);
   expect((await setDone(page)).status()).toBe(200);
 
   await expect(materialFact(page, "Status").getByRole("combobox")).toHaveValue("DONE");
   const metadata = await savedMetadata(page, state.missing.id, "MISSING");
   expect(metadata.warnings.some((item: { code: string }) => item.code === "SOURCE_METADATA_MISSING")).toBe(true);
-  await expect(page.getByText("Saving creates the missing root metadata.txt.")).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Color HEX", exact: true })).toHaveValue("");
 });
 
 test("unsupported metadata dimensions stay nonblocking across worker, API and PostgreSQL", async ({ page }) => {
   await openPreparedMaterial(page, state.dimensions);
   if (retainedPass) { await assertRetainedDone(page, state.dimensions, "WARNING"); return; }
-  const preflight = await checkFolder(page, state.dimensions.relativePath);
+  const preflight = await folderRequest(page, state.dimensions, "folder-preflight");
   expect(preflight.status()).toBe(200);
   expect(await preflight.json()).toMatchObject({ metadata_status: "WARNING", width_cm: null, height_cm: "2", can_continue: true });
-  expect((await confirmOperation(page, "Link folder", "Link this folder?", "/folder-link")).status()).toBe(200);
+  await linkFixture(page, state.dimensions);
   const done = await setDone(page); expect(done.status()).toBe(200);
   expect(await done.json()).toMatchObject({ workflow_status: "DONE" });
   const metadata = await savedMetadata(page, state.dimensions.id, "WARNING");
@@ -288,16 +246,18 @@ test("unsupported metadata dimensions stay nonblocking across worker, API and Po
 
 test("identity mismatch cannot be linked or marked Done", async ({ page }) => {
   await openPreparedMaterial(page, state.mismatch);
-  const preflightResponse = await checkFolder(page, state.mismatch.relativePath);
+  const preflightResponse = await folderRequest(page, state.mismatch, "folder-preflight");
   expect(preflightResponse.status()).toBe(200);
   expect(await preflightResponse.json()).toMatchObject({
     identity_matches: false,
     can_continue: false,
   });
-  const preflight = page.getByLabel("Folder check result");
-  await expect(preflight.getByText("No", { exact: true })).toHaveCount(2);
-  await expect(preflight.getByText(/TECHNICAL_IDENTITY_MISMATCH/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Link folder", exact: true })).toBeDisabled();
+  expect((await preflightResponse.json()).errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "TECHNICAL_IDENTITY_MISMATCH" })]));
+  expect((await folderRequest(page, state.mismatch, "folder-link")).status()).toBe(409);
+  const session = await (await page.request.get("/api/auth/session")).json();
+  expect((await page.request.post(`/api/materials/${state.mismatch.id}/mark-done`, {
+    headers: { Origin: runManifest.frontendUrl, "X-CSRF-Token": session.csrf_token },
+  })).status()).toBe(409);
   await expect(page.getByRole("button", { name: "Mark as Done", exact: true })).toHaveCount(0);
 
   const materialResponse = await page.request.get(`/api/materials/${state.mismatch.id}`);
@@ -308,28 +268,16 @@ test("identity mismatch cannot be linked or marked Done", async ({ page }) => {
   });
 });
 
-test("client validation rejects absolute and traversal paths without HTTP", async ({ page }) => {
+test("folder API rejects absolute and traversal paths before linking", async ({ page }) => {
   await openPreparedMaterial(page, state.mismatch);
-  let preflightRequests = 0;
-  page.on("request", (request) => {
-    if (
-      request.method() === "POST" &&
-      new URL(request.url()).pathname.endsWith("/folder-preflight")
-    ) {
-      preflightRequests += 1;
+  for (const path of ["C:/host/materials/secret", "library/../secret"]) {
+    for (const action of ["folder-preflight", "folder-link"] as const) {
+      const response = await folderRequest(page, state.mismatch, action, path);
+      expect(response.status()).toBe(422);
+      expect(await response.text()).not.toContain(runManifest.materialsRoot);
     }
-  });
-  const input = page.getByLabel("Relative folder path");
-
-  await input.fill("C:/host/materials/secret");
-  await page.getByRole("button", { name: "Check folder", exact: true }).click();
-  await expect(input).toHaveAttribute("aria-invalid", "true");
-  await expect(page.getByText(/Drive paths, URLs and other URI-style paths/)).toBeVisible();
-  expect(preflightRequests).toBe(0);
-
-  await input.fill("library/../secret");
-  await page.getByRole("button", { name: "Check folder", exact: true }).click();
-  await expect(input).toHaveAttribute("aria-invalid", "true");
-  await expect(page.getByText(/must not contain/)).toBeVisible();
-  expect(preflightRequests).toBe(0);
+  }
+  const material = await (await page.request.get(`/api/materials/${state.mismatch.id}`)).json();
+  expect(material).toMatchObject({ folder_path: null, workflow_status: "IN_PROGRESS" });
+  await expect(page.getByLabel("Relative folder path")).toHaveCount(0);
 });

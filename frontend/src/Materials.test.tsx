@@ -89,19 +89,14 @@ it("handles an empty material list", async () => {
   backend({ items: [] }); render(<App initialPath="/materials" />);
   expect(await screen.findByText("No materials found")).toBeInTheDocument();
 });
-it("opens a historical material without a project and assigns an existing project later", async () => {
-  const fixture = backend({ projectless: true });
+it("opens a historical material without requiring a project", async () => {
+  backend({ projectless: true });
   render(<App initialPath="/materials" />);
   expect(await screen.findByText("No project assigned")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("link", { name: materialDto.technical_identity }));
   await screen.findByRole("heading", { name: materialDto.material_name });
   expect(screen.getByText("No project assigned")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("link", { name: "Edit material" }));
-  await screen.findByRole("form", { name: "Edit material" });
-  change("Project", materialProject.id);
-  submit();
-  await screen.findByRole("heading", { name: materialDto.material_name });
-  expect(fixture.writes.map((write) => write.body)).toEqual([{ project_id: materialProject.id }]);
+  expect(screen.queryByRole("link", { name: "Edit material" })).not.toBeInTheDocument();
 });
 it.each([false, true])("handles API/network list failure (offline=%s) and retries", async (offline) => {
   backend({ failed: "/api/materials", failureStatus: 503, offline });

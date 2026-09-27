@@ -63,14 +63,14 @@ test("materials grid, primary previews, sizes and cycling survive a retained-dat
   await page.goto(`/materials/${runManifest.state.valid.id}`);
   // Finish all independent detail reads before navigating away.
   await expect(page.getByRole("article", { name: "Material properties" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Color HEX", exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Color HEX", exact: true })).toBeVisible();
   await expect(page.getByRole("article", { name: "Publication content", exact: true }).getByText(/^Revision \d+ ·/)).toBeVisible();
   const gallery = page.getByRole("article", { name: "Preview gallery", exact: true });
   await expect(gallery.getByRole("button", { name: "Close preview gallery" })).toBeVisible();
   await decoded(gallery.getByRole("img"));
-  await gallery.getByLabel("Preview image").selectOption("front.png");
+  await gallery.getByRole("button", { name: "Next preview" }).click();
   await decoded(gallery.getByRole("img", { name: "Preview: front.png" }));
-  await gallery.getByLabel("Preview image").selectOption("side.png");
+  await gallery.getByRole("button", { name: "Next preview" }).click();
   await decoded(gallery.getByRole("img", { name: "Preview: side.png" }));
   await page.getByRole("link", { name: "Materials", exact: true }).click();
   await page.getByRole("button", { name: "Gallery", exact: true }).click();

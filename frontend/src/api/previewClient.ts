@@ -78,6 +78,10 @@ export const previewClient = {
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (bytes.length !== length || length < 5 || bytes[0] !== 255 || bytes[1] !== 216 || bytes[2] !== 255 || bytes[length - 2] !== 255 || bytes[length - 1] !== 217 ||
         (declaredLength !== null && Number(declaredLength) !== length)) throw new Error("Invalid preview image");
-    return { blob: new Blob([bytes], { type: "image/jpeg" }), width, height };
+    const sourceWidth = response.headers.get("X-Preview-Original-Width"), sourceHeight = response.headers.get("X-Preview-Original-Height");
+    const originalWidth = sourceWidth === null ? undefined : integer(Number(sourceWidth), 100000, 1);
+    const originalHeight = sourceHeight === null ? undefined : integer(Number(sourceHeight), 100000, 1);
+    if ((originalWidth === undefined) !== (originalHeight === undefined)) throw new Error("Incomplete original preview dimensions");
+    return { blob: new Blob([bytes], { type: "image/jpeg" }), width, height, ...(originalWidth === undefined ? {} : { originalWidth, originalHeight }) };
   },
 };

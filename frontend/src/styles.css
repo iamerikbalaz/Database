@@ -1399,3 +1399,26 @@ a.button {
 .material-property-editor .table-note { width:100%; }
 .material-archive-control p { white-space:normal; font-size:12px; }
 .material-archive-control input[type=checkbox] { width:16px; height:16px; }
+.preview-navigation { display:flex; justify-content:center; align-items:center; gap:1rem; margin-bottom:1rem; }
+.material-file-tree { margin-bottom:1.5rem; max-height:28rem; overflow:auto; background:var(--surface, #f2f3f9); padding:1rem; border-radius:12px; }
+.material-file-tree ul { list-style:none; padding-left:1.15rem; margin:.35rem 0; }
+.material-file-tree > ul { padding-left:0; }
+.material-file-tree li { padding:.2rem 0; }
+.material-file-tree summary { cursor:pointer; }
+.material-file-tree__file { display:flex; justify-content:space-between; gap:1rem; overflow-wrap:anywhere; }
+.material-file-tree__file small { color:var(--muted); white-space:nowrap; }
+.material-data-folder > label { display:grid; gap:.5rem; }
+.folder-absolute-path { width:100%; min-width:0; overflow-wrap:anywhere; padding:.7rem; border:1px solid var(--border); border-radius:10px; font:inherit; }
+.material-color-input { display:flex; gap:.5rem; align-items:center; }
+.material-color-input select { min-width:0; flex:1; padding:.7rem; border:1px solid var(--border); border-radius:10px; background:white; font:inherit; }
+.material-color-swatch { width:28px; height:28px; flex:0 0 28px; border:1px solid var(--border); border-radius:7px; }
+.catalog-content .checkbox-label, .checkbox-label { display:flex; align-items:center; gap:.6rem; }
+.checkbox-label input[type=checkbox], .material-property-editor input[type=checkbox], .material-archive-control input[type=checkbox] { width:16px; height:16px; min-width:16px; min-height:16px; margin:0; padding:0; flex:0 0 16px; }
+.material-name-dialog { width:min(720px, calc(100vw - 2rem)); max-height:90vh; overflow:auto; }
+.material-name-dialog label { display:grid; gap:.5rem; }
+.material-name-dialog .checkbox-label { display:flex; margin-top:1rem; }
+.material-check-report { display:grid; gap:.5rem; margin-top:1rem; }
+.material-check-report textarea { width:100%; padding:1rem; border:1px solid var(--border); border-radius:10px; font:inherit; }
+.company-history-list pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; }
+.material-properties-fieldset { border:0; padding:0; margin:0; min-width:0; }
+.material-properties-fieldset > legend { font-weight:600; margin-bottom:.75rem; }

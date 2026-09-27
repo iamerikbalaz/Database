@@ -33,7 +33,14 @@ test("source inventory, revision invalidation and reopen persist with audit hist
     const inventory = await (await page.request.get(path + "/inventory")).json();
     expect(inventory.inventory.entries).toEqual([{ path: "16K", kind: "directory", size: 0, sha256: null }]);
     expect(JSON.stringify(inventory)).not.toMatch(/raw_content|source_content|e2e-materials/);
-    expect((await page.request.patch(path, { headers, data: { material_name: "E2E Reviewed Revision" } })).status()).toBe(200);
+    // A linked name change must use the controlled filesystem plan. Verify
+    // review invalidation with a project reassignment instead.
+    expect((await page.request.patch(path, { headers, data: { material_name: "E2E Reviewed Revision" } })).status()).toBe(409);
+    const project = await page.request.post("/api/projects", { headers, data: {
+      company_id: runManifest.state.companyId, project_number: "REVIEW-" + runManifest.runGuid, name: "E2E review reassignment",
+    } });
+    expect(project.status()).toBe(201);
+    expect((await page.request.patch(path, { headers, data: { project_id: (await project.json()).id } })).status()).toBe(200);
     await page.reload();
     expect((await (await page.request.get(path + "/review")).json()).failure_code).toBe("MATERIAL_FIELDS_CHANGED");
     const changed = await scan();
@@ -41,7 +48,7 @@ test("source inventory, revision invalidation and reopen persist with audit hist
     const response = await page.request.post(path + "/reopen", { headers, data: { idempotency_key: randomUUID(), expected_generation: changed.generation, reason: "Correct the source before technical review" } });
     expect(response.status()).toBe(200);
     await page.reload();
-    await expect(page.getByRole("combobox", { name: "Status for E2E Reviewed Revision" })).toHaveValue("IN_PROGRESS");
+    await expect(page.getByRole("combobox", { name: `Status for ${fixture.material_name}` })).toHaveValue("IN_PROGRESS");
     expect((await (await page.request.get(path + "/review")).json()).failure_code).toBe("REOPENED");
     const reopened = await scan();
     expect(reopened.generation).toBeGreaterThan(changed.generation);

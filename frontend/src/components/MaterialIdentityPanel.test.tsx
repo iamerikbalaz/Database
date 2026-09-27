@@ -50,17 +50,12 @@ async function preview() {
   await screen.findByRole("region", { name: "Identity change preview" });
 }
 
-it("keeps the current active operation while browsing an older finished page", async () => {
-  const rows = [operation("RUNNING"), ...Array.from({ length: 99 }, (_, index) => ({ ...operation(), id: `20000000-0000-4000-8000-${String(index).padStart(12, "0")}` }))];
-  const { fetch, changed } = setup({ history: rows });
+it("keeps an active operation visible for recovery without a second history panel", async () => {
+  const { changed } = setup({ history: [operation("RUNNING")] });
   await screen.findByRole("button", { name: "Reconcile recorded operation" });
-  fetch.mockResolvedValueOnce(json({ mutations_enabled: false, operations: [{ ...operation(), reason: "Older completed operation" }] }));
-  fireEvent.click(screen.getByRole("button", { name: "Older identity history" }));
-  await screen.findByText(/Older completed operation/);
-  expect(screen.getByRole("button", { name: "Reconcile recorded operation" })).toBeEnabled();
+  expect(screen.queryByText("Recorded identity operations")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Preview identity changes" })).not.toBeInTheDocument();
   expect(changed).not.toHaveBeenCalled();
-  expect(fetch.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
 });
 
 it("shows exact paths and requires reason and warning acknowledgment before confirmation", async () => {

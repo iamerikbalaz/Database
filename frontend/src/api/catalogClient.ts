@@ -28,6 +28,7 @@ export function contentFromDto(input: unknown) {
   return { materialId: uuid(item.material_id), revision: integer(item.revision), description: nullable(item.description),
     credits: item.credits === null ? null : integer(item.credits), tags: list(item.tags, string),
     categories: list(item.categories, catalogValue), collections: list(item.collections, catalogValue), status: item.content_status,
+    ...(item.required_category_id === undefined ? {} : { requiredCategoryId: uuid(item.required_category_id), requiredCategoryCode: string(item.required_category_code) }),
     ...(aiProvenance ? { aiProvenance } : {}) };
 }
 export type MaterialContent = ReturnType<typeof contentFromDto>;

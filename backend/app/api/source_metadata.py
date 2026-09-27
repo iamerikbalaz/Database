@@ -1,5 +1,6 @@
 """Authorized root metadata edits with durable exact-request recovery."""
 from datetime import datetime
+import json
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException
@@ -9,11 +10,14 @@ from sqlalchemy.exc import IntegrityError
 from app.api.material_review import _material, _state
 from app.auth.access import AccessDependency, MATERIAL_EDITORS
 from app.auth.service import _aware
+from app.catalog import ContentUpdate
+from app.content_saves import apply_material_content, validate_material_content
 from app.db.models import MaterialAuditEvent, MaterialMetadataOperation, PBRMaterial, PBRMaterialMetadata
 from app.material_identity import lock_folder_catalog, require_folder_idle, require_material_idle
 from app.material_review import canonical_hash, invalidate_review
 from app.metadata_client import MetadataClientError, MetadataValues
 from app.metadata_saves import persist_metadata_snapshot
+from app.metadata_document import _unique, _invalid
 from app.schemas import ApiSchema, Sha256
 
 
@@ -22,6 +26,19 @@ class MetadataSaveRequest(ApiSchema):
     expected_updated_at: datetime
     expected_sha256: Sha256 | None
     values: MetadataValues
+    content: ContentUpdate | None = None
+
+
+def metadata_identity(material):
+    """Only identity values backed by the current database row, never a template."""
+    return {"FOLDER": material.technical_identity, "MANUFACTURER": material.published_brand.name,
+        "PRODUCT_NUMBER": f"{material.sequence_number:04d}", "PRODUCT_NAME": material.material_name,
+        "CATEGORY": material.main_category_code, "BASE_NAME": material.technical_identity.rsplit("_", 1)[0]}
+
+
+def _request_data(payload):
+    # Preserve the original hash shape for pre-JSON metadata request replay.
+    return payload.model_dump(mode="json", exclude={"content"} if payload.content is None else set())
 
 
 def _operation_view(operation):
@@ -40,6 +57,8 @@ def _finish(database, operation_id, worker):
         request = {"operation_id": str(operation.id), "folder_path": operation.folder_path,
                    "expected_sha256": operation.request_payload["expected_sha256"],
                    "values": operation.request_payload["values"]}
+        for name in ("source_filename", "identity"):
+            if name in operation.request_payload: request[name] = operation.request_payload[name]
     try: outcome = worker.execute(request)
     except MetadataClientError:
         # Even a worker 409/503 can follow source mutation; keep durable ownership.
@@ -50,19 +69,34 @@ def _finish(database, operation_id, worker):
         if operation.status != "RUNNING": return _operation_view(operation)
         if material.folder_path != operation.folder_path or outcome.operation_id != str(operation.id):
             return _operation_view(operation)
+        snapshot_id = None; content_revision = None
         if outcome.status == "COMPLETED":
             source = outcome.metadata
             if (source is None or source.folder_name != material.technical_identity
+                    or source.status not in {"VALID", "WARNING"}
+                    or source.source_filename != operation.request_payload.get("source_filename", "metadata.txt")
                     or MetadataValues(**_values(source)).model_dump() != operation.request_payload["values"]):
                 return _operation_view(operation)
-            warnings = [] if source.status == "VALID" else [{"code": "SOURCE_METADATA_PARTIAL", "message": "Some editable source metadata values are missing.", "path": "metadata.txt"}]
-            persist_metadata_snapshot(session, material.id, _values(source), status=source.status,
-                source_filename="metadata.txt", source_sha256=source.sha256, source_content=source.raw_content,
+            if source.source_filename == "metadata.json" and operation.request_payload.get("identity"):
+                try:
+                    document = json.loads(source.raw_content, object_pairs_hook=_unique, parse_constant=_invalid)
+                    if any(document.get(key) != value for key, value in operation.request_payload["identity"].items()):
+                        return _operation_view(operation)
+                except (ValueError, TypeError, AttributeError, RecursionError): return _operation_view(operation)
+            warnings = [] if source.status == "VALID" else [{"code": "SOURCE_METADATA_PARTIAL", "message": "Some editable source metadata values are missing.", "path": source.source_filename}]
+            current = persist_metadata_snapshot(session, material.id, _values(source), status=source.status,
+                source_filename=source.source_filename, source_sha256=source.sha256, source_content=source.raw_content,
                 warnings=warnings)
+            snapshot_id = str(current.current_snapshot_id)
+            if operation.request_payload.get("content") is not None:
+                content_payload = ContentUpdate.model_validate(operation.request_payload["content"])
+                content_revision = apply_material_content(session, material, content_payload, operation.actor_id)["revision"]
         operation.status = outcome.status
         operation.result = {"failure_code": outcome.failure_code,
             "sha256": outcome.metadata.sha256 if outcome.metadata else None,
             "values": _values(outcome.metadata) if outcome.metadata else None}
+        if snapshot_id: operation.result = {**operation.result, "metadata_snapshot_id": snapshot_id}
+        if content_revision is not None: operation.result = {**operation.result, "content_revision": content_revision}
         state = _state(session, material.id, create=True)
         session.add(MaterialAuditEvent(material_id=material.id, actor_id=operation.actor_id,
             event_type="SOURCE_METADATA_" + outcome.status, generation=state.generation, revision_hash=None,
@@ -91,6 +125,7 @@ def build_source_metadata_router(database, worker, *, mutations_enabled=False):
             active = session.scalar(select(MaterialMetadataOperation).where(
                 MaterialMetadataOperation.material_id == material_id, MaterialMetadataOperation.status == "RUNNING"))
             return {"available": source is not None, "writes_enabled": bool(mutations_enabled and source and source.writes_enabled),
+                    "source_filename": source.source_filename if source else "metadata.json",
                     "editable": bool(source and source.editable), "expected_updated_at": material.updated_at,
                     "sha256": source.sha256 if source else None, "source_status": source.status if source else "UNAVAILABLE",
                     "values": _values(source if source and source.status != "MISSING" else session.get(PBRMaterialMetadata, material_id)),
@@ -98,7 +133,7 @@ def build_source_metadata_router(database, worker, *, mutations_enabled=False):
 
     @router.post("/{material_id}/source-metadata")
     def save(material_id: UUID, payload: MetadataSaveRequest, access: AccessDependency):
-        request_hash = canonical_hash({"material_id": str(material_id), "payload": payload.model_dump(mode="json")})
+        request_hash = canonical_hash({"material_id": str(material_id), "payload": _request_data(payload)})
         with database.session() as session:
             actor = access.check(session, MATERIAL_EDITORS); material = _material(session, material_id, access, lock=True)
             existing = session.scalar(select(MaterialMetadataOperation).where(
@@ -135,10 +170,13 @@ def build_source_metadata_router(database, worker, *, mutations_enabled=False):
             if observation.folder_name != material.technical_identity or observation.sha256 != payload.expected_sha256:
                 raise HTTPException(409, {"code": "METADATA_SOURCE_CHANGED"})
             lock_folder_catalog(session); require_material_idle(session, material.id); require_folder_idle(session, material.folder_path)
+            if payload.content is not None: validate_material_content(session, material, payload.content)
             state = _state(session, material.id, create=True)
             operation = MaterialMetadataOperation(id=uuid4(), material_id=material.id, actor_id=actor.id,
                 brand_id=material.published_brand_id, folder_path=material.folder_path, request_key=payload.idempotency_key,
-                request_hash=request_hash, request_payload=payload.model_dump(mode="json"), status="RUNNING")
+                request_hash=request_hash, request_payload={**_request_data(payload),
+                    "source_filename": observation.source_filename,
+                    "identity": metadata_identity(material)}, status="RUNNING")
             session.add(operation)
             invalidate_review(session, material, actor.id, "SOURCE_METADATA_STARTED", record_event=False)
             session.add(MaterialAuditEvent(material_id=material.id, actor_id=actor.id,

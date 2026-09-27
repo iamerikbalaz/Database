@@ -1,8 +1,9 @@
 """Explicitly paged administrator history of ordinary resource create/edit calls."""
 from datetime import UTC
 from uuid import UUID
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
 from app.auth.access import ADMIN, AccessDependency
@@ -26,6 +27,16 @@ def event_view(item, kind, identifier):
 
 def build_resource_history_router(database):
     router = APIRouter(tags=["resource history"])
+
+    @router.get("/api/materials/{material_id}/activity")
+    def activity(material_id: UUID, access: AccessDependency, after: Annotated[str | None, Query(max_length=80)] = None,
+                 limit: Annotated[int, Query(ge=1, le=100)] = 30):
+        from app.api.material_review import _material
+        from app.material_activity import material_activity
+        with database.session() as session:
+            access.check(session)
+            _material(session, material_id, access, historical=access.user.role == "ADMIN")
+            return material_activity(session, material_id, after=after, limit=limit)
 
     def make_read(kind):
         model, column, _, _ = KINDS[kind]

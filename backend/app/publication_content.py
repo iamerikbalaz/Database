@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.db.models import (OnlineCategory, BrandCollection, MaterialContent, MaterialOnlineCategory,
     MaterialCollection, MaterialContentApproval, MaterialContentRevision, MaterialReviewState, PublishedBrand)
 from app.material_review import canonical_hash, material_context
+from app.main_category import effective_categories, required_category
 
 
 def catalog_view(item, *, details=False):
@@ -28,9 +29,11 @@ def draft_view(session, material):
         .where(MaterialCollection.material_id == material.id).order_by(BrandCollection.normalized_key, BrandCollection.id)))
     result = {"material_id": str(material.id), "revision": content.revision if content else 0,
         "description": content.description if content else None, "credits": content.credits if content else None,
-        "tags": content.tags if content else [], "categories": [catalog_view(item) for item in categories],
+        "tags": content.tags if content else [], "categories": effective_categories(session, material, [catalog_view(item) for item in categories]),
         "collections": [catalog_view(item) for item in collections],
         "content_status": "MANUAL_DRAFT" if content else "EMPTY"}
+    required = required_category(session, material)
+    result.update(required_category_id=required["id"], required_category_code=required["code"])
     if content:
         saved = session.scalar(select(MaterialContentRevision.snapshot).where(MaterialContentRevision.material_id == material.id,
             MaterialContentRevision.revision == content.revision))

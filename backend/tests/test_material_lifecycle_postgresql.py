@@ -15,6 +15,7 @@ from test_material_archives import attach, prepare, apply, path, seed_preserved_
 from test_materials_postgresql import (
     POSTGRES_TEST_ADMIN_URL, isolated_postgresql_database, migrated_postgresql_url,
     review_pg_case, _review_pg_case, _current_head, staging_history_pg, _pg_reservation_payload,
+    _project_context_change,
 )
 
 pytestmark = pytest.mark.skipif(POSTGRES_TEST_ADMIN_URL is None, reason="Requires isolated PostgreSQL test configuration")
@@ -86,6 +87,7 @@ def test_postgresql_competing_commands_have_one_transition(lifecycle_case, same_
 
 def test_postgresql_archive_racing_edit_rechecks_the_locked_preview(lifecycle_case):
     case = lifecycle_case; ready = Barrier(2)
+    project_change = _project_context_change(case.database, case.material.project_id)
     with case.client_for() as archiver, case.client_for(3) as editor:
         payload = prepare(archiver, case.material.id)
         def archive():
@@ -93,7 +95,7 @@ def test_postgresql_archive_racing_edit_rechecks_the_locked_preview(lifecycle_ca
             return apply(archiver, case.material.id, payload)
         def edit():
             ready.wait(timeout=10)
-            return editor.patch(case.path, json={"material_name": "Concurrent reviewed edit"})
+            return editor.patch(case.path, json=project_change)
         with ThreadPoolExecutor(2) as pool:
             saved = pool.submit(archive); changed = pool.submit(edit)
             result = (saved.result(timeout=20).status_code, changed.result(timeout=20).status_code)

@@ -168,3 +168,87 @@ def test_missing_live_file_keeps_historical_values_without_claiming_source_proof
         assert result["values"]["hex_color"] == VALUES["hex_color"]
         assert float(result["values"]["width_cm"]) == float(VALUES["width_cm"])
     assert not worker.requests
+
+
+def test_unified_content_waits_for_source_and_resumes_once(metadata_case):
+    case, worker, path = metadata_case
+    worker.failed = True
+    with case.client("ADMIN") as client:
+        content = client.get(path + "/content").json()
+        payload = {**request_payload(client, path), "content": {
+            "idempotency_key": str(uuid4()), "expected_revision": content["revision"],
+            "description": "Saved with source metadata", "credits": 3,
+            "tags": ["test"], "category_ids": [item["id"] for item in content["categories"]],
+            "collection_ids": []}}
+        first = client.post(path + "/source-metadata", json=payload)
+        assert first.status_code == 200, first.text
+        assert first.json()["status"] == "RUNNING"
+        assert client.get(path + "/content").json()["revision"] == content["revision"]
+        worker.failed = False
+        resumed = client.post(path + "/source-metadata/" + first.json()["id"] + "/resume")
+        assert resumed.status_code == 200, resumed.text
+        assert resumed.json()["status"] == "COMPLETED"
+        assert resumed.json()["result"]["content_revision"] == content["revision"] + 1
+        assert resumed.json()["result"]["metadata_snapshot_id"]
+        assert client.get(path + "/content").json()["description"] == "Saved with source metadata"
+        assert client.post(path + "/source-metadata", json=payload).json() == resumed.json()
+    assert worker.requests[0] == worker.requests[1]
+
+
+def test_invalid_content_rejected_before_any_source_write(metadata_case):
+    case, worker, path = metadata_case
+    with case.client("ADMIN") as client:
+        payload = {**request_payload(client, path), "content": {
+            "idempotency_key": str(uuid4()), "expected_revision": 999, "description": "stale"}}
+        response = client.post(path + "/source-metadata", json=payload)
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "CONTENT_REVISION_CHANGED"
+    assert not worker.requests
+    with case.database.session() as session:
+        assert session.scalar(select(func.count()).select_from(MaterialMetadataOperation)) == 0
+
+
+def test_json_identity_is_derived_from_current_database(metadata_case):
+    case, worker, path = metadata_case
+    with case.client("ADMIN") as client:
+        assert client.post(path + "/source-metadata", json=request_payload(client, path)).status_code == 200
+    with case.database.session() as session:
+        material = session.get(PBRMaterial, case.materials[0].id)
+        identity = worker.requests[0]["identity"]
+        assert identity["FOLDER"] == material.technical_identity
+        assert identity["MANUFACTURER"] == material.published_brand.name
+        assert identity["PRODUCT_NUMBER"] == f"{material.sequence_number:04d}"
+        assert identity["PRODUCT_NAME"] == material.material_name
+
+
+def test_unified_save_reserves_incoming_catalog_choices_during_source_io(metadata_case):
+    from test_catalog_content import create_vocabulary
+    case, worker, path = metadata_case
+    worker.failed = True
+    with case.client("ADMIN") as client:
+        category, collection = create_vocabulary(client, case.materials[0].published_brand_id)
+        payload = {**request_payload(client, path), "content": {
+            "idempotency_key": str(uuid4()), "expected_revision": 0,
+            "category_ids": [category["id"]], "collection_ids": [collection["id"]]}}
+        operation = client.post(path + "/source-metadata", json=payload)
+        assert operation.status_code == 200 and operation.json()["status"] == "RUNNING"
+        for resource, item in (("online-categories", category), ("collections", collection)):
+            response = client.patch("/api/" + resource + "/" + item["id"], json={
+                "idempotency_key": str(uuid4()), "expected_version": item["version"],
+                "is_active": False, "reason": "Synthetic race"})
+            assert response.status_code == 409, response.text
+            assert response.json()["detail"]["code"] == "MATERIAL_OPERATION_ACTIVE"
+
+
+def test_json_completion_without_bound_identity_retains_operation_for_recovery(metadata_case):
+    case, worker, path = metadata_case
+    worker.inspect = lambda folder: MetadataObservation.model_validate({**source(folder),
+        "source_filename": "metadata.json", "editable": True, "writes_enabled": True})
+    worker.execute = lambda request: MetadataResult.model_validate({"operation_id": request["operation_id"],
+        "status": "COMPLETED", "failure_code": None,
+        "metadata": {**source(request["folder_path"]), "source_filename": "metadata.json"}})
+    with case.client("ADMIN") as client:
+        response = client.post(path + "/source-metadata", json=request_payload(client, path))
+        assert response.status_code == 200 and response.json()["status"] == "RUNNING"
+    with case.database.session() as session:
+        assert session.scalar(select(func.count()).select_from(PBRMaterialMetadataSnapshot)) == 0

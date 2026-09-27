@@ -199,7 +199,7 @@ def test_admin_can_close_unsent_job_exactly_once_and_replay_original_reservation
         assert result.status_code == 200 and result.json()["status"] == "REJECTED"
         assert client.post(item.path + "/" + saved["id"] + "/close", json=body).json() == result.json()
         assert client.post(item.path, json=item.payload).json() == result.json()
-        assert client.patch(item.material_path, json={"material_name": "Owner released"}).status_code == 200
+        assert client.patch(item.material_path, json={"assigned_processor_id": str(item.case.users["OTHER"].id)}).status_code == 200
     assert count(item, MaterialPackagingDispatch) == count(item, MaterialPackagingObservation) == 1
     with item.case.database.session() as session:
         observed = session.scalar(select(MaterialPackagingObservation))

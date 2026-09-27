@@ -10,12 +10,13 @@ from app.api.material_review import _material
 from app.auth.access import AccessDependency, CATALOG_MANAGERS
 from app.catalog import CategoryCreate, CollectionCreate, CatalogActivityUpdate, CatalogTableUpdate, ContentUpdate, value_key
 from app.db.models import (OnlineCategory, BrandCollection, CatalogAuditEvent,
-    MaterialOnlineCategory, MaterialCollection, MaterialContentRevision, PBRMaterial, PublishedBrand)
+    MaterialOnlineCategory, MaterialCollection, MaterialContentRevision, MaterialMetadataOperation, PBRMaterial, PublishedBrand)
 from app.material_identity import require_material_idle
 from app.material_review import canonical_hash, invalidate_review
 from app.publication_content import catalog_view, content_view
 from app.content_saves import save_material_content
 from app.history_pagination import HistoryLimit, history_window
+from app.main_category import required_category
 
 
 def _conflict(code):
@@ -58,6 +59,17 @@ def build_catalog_router(database):
                 if event.request_hash != request_hash:
                     _conflict("CATALOG_REQUEST_KEY_REUSED")
                 return JSONResponse(status_code=event.result["status_code"], content=event.result["body"])
+            pending_required = []
+            if kind == "CATEGORY" and (item_id is None or "abbreviation" in payload.model_fields_set):
+                # A new mapping can replace a computed required-category UUID.
+                # Keep that UUID stable while a durable combined save owns its
+                # immutable content request, including when no catalog row was
+                # linked yet. The exclusive access gate covers both projections.
+                for operation in session.scalars(select(MaterialMetadataOperation).where(MaterialMetadataOperation.status == "RUNNING")):
+                    if operation.request_payload.get("content") is not None:
+                        material = session.get(PBRMaterial, operation.material_id)
+                        if material is not None:
+                            pending_required.append((material, required_category(session, material)["id"]))
             if item_id is None:
                 if kind == "COLLECTION":
                     brand = session.get(PublishedBrand, payload.brand_id)
@@ -80,6 +92,13 @@ def build_catalog_router(database):
                 next_value = getattr(payload, property_name)
                 previous_value = getattr(item, property_name)
                 if previous_value != next_value:
+                    pending_field = "category_ids" if kind == "CATEGORY" else "collection_ids"
+                    for operation in session.scalars(select(MaterialMetadataOperation).where(MaterialMetadataOperation.status == "RUNNING")):
+                        content = operation.request_payload.get("content") or {}
+                        material = session.get(PBRMaterial, operation.material_id)
+                        required_id = required_category(session, material)["catalog_id"] if kind == "CATEGORY" and material else None
+                        if str(item.id) in content.get(pending_field, []) or str(item.id) == required_id:
+                            _conflict("MATERIAL_OPERATION_ACTIVE")
                     link = MaterialOnlineCategory if kind == "CATEGORY" else MaterialCollection
                     column = link.category_id if kind == "CATEGORY" else link.collection_id
                     for material in session.scalars(select(PBRMaterial).join(link).where(column == item.id)
@@ -92,6 +111,9 @@ def build_catalog_router(database):
                          "property": property_name, "before": previous_value, "after": next_value}
             try:
                 session.flush()
+                if any(required_category(session, material)["id"] != category_id
+                        for material, category_id in pending_required):
+                    _conflict("MATERIAL_OPERATION_ACTIVE")
                 body = catalog_view(item, details=details); code = 201 if item_id is None else 200
                 session.add(CatalogAuditEvent(resource_id=item.id, resource_kind=kind, actor_id=actor.id,
                     request_key=payload.idempotency_key, request_hash=request_hash,

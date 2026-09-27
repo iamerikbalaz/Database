@@ -144,8 +144,12 @@ def test_reopen_and_edit_cannot_revive_old_approvals_with_same_files(approval_ca
         assert current["review"]["revision_hash"] == approved["review"]["revision_hash"]
         assert current["approvals"] == []
         assert client.post(path + "/approvals", json=approval_payload(current)).status_code == 409
-        assert client.patch(path, json={"material_name": "Updated product name"}).status_code == 200
-        assert client.get(path + "/technical-review").json()["validation"] is None
+        # Reassigning is an ordinary edit that invalidates review without
+        # bypassing the controlled rename required for linked source folders.
+        assert client.patch(path, json={"assigned_processor_id": str(case.users["OTHER"].id)}).status_code == 200
+        after_edit = client.get(path + "/technical-review").json()
+        assert after_edit["validation"] is None
+        assert after_edit["approvals"] == []
 
 
 def test_publication_requires_technical_approval_and_current_report(approval_case):

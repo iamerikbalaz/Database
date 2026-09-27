@@ -329,6 +329,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 raise HTTPException(404, "Published brand not found.")
             before = resource_snapshot(brand)
             require_brand_idle(session, brand_id)
+            if ("name" in values and values["name"] != brand.name and session.scalar(
+                    select(PBRMaterial.id).where(PBRMaterial.published_brand_id == brand.id,
+                        PBRMaterial.folder_path.is_not(None)).limit(1)) is not None):
+                raise HTTPException(409, {"code": "BRAND_SOURCE_REWRITE_REQUIRED",
+                    "message": "Renaming this brand requires a controlled update of its linked materials and metadata.json manufacturer values."})
             if "company_id" in values:
                 _require_company(session, values["company_id"])
             if (
@@ -710,6 +715,10 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             old_identity = identity_context(material)
             if access.user.role == "PROCESSOR" and set(values) - {"material_name"}:
                 raise HTTPException(403, "Only a production lead or administrator can change material assignment or identity.")
+            if (material.folder_path is not None and "material_name" in values
+                    and values["material_name"] != material.material_name):
+                raise HTTPException(409, {"code": "IDENTITY_PLAN_REQUIRED",
+                    "message": "Use a controlled identity plan to rename a material with a linked source folder."})
             if "project_id" in values:
                 _get_or_404(session, Project, values["project_id"], "Project")
             if "assigned_processor_id" in values:

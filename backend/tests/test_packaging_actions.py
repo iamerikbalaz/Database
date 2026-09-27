@@ -126,7 +126,7 @@ def test_run_records_command_before_io_accepts_current_proof_and_releases_owner(
     assert len(item.inventory.calls) == 2 and len(item.worker.commands) == 1
     assert before == (count(item, MaterialInventory), count(item, MaterialTechnicalCheck))
     with item.case.client("ADMIN") as client:
-        assert client.patch(item.material_path, json={"material_name": "Now editable"}).status_code == 200
+        assert client.patch(item.material_path, json={"assigned_processor_id": str(item.case.users["OTHER"].id)}).status_code == 200
 
 
 def test_lost_response_requires_reconcile_and_exact_replay_never_dispatches(action_case):

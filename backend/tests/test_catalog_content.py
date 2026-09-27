@@ -137,7 +137,7 @@ def test_content_normalized_relations_history_noop_and_published_invalidation(ac
         assert response.status_code == 200, response.json()
         body = response.json()
         assert body["revision"] == 1 and body["tags"] == ["matte", "stone"]
-        assert body["categories"] == [category] and body["collections"] == [collection]
+        assert [item for item in body["categories"] if not item.get("is_required")] == [category] and body["collections"] == [collection]
         assert body["content_status"] == "MANUAL_DRAFT"
         assert client.post(path, json=payload).json() == body
         assert client.post(path, json={**payload, "reason": "Different request"}).status_code == 409
@@ -194,7 +194,7 @@ def test_deactivation_invalidates_existing_material_review_without_erasing_membe
         assert response.status_code == 200
         assert client.get(path + "/review").json()["generation"] == before + 1
         current = client.get(path + "/content").json()
-        assert current["revision"] == 1 and current["categories"][0]["is_active"] is False
+        assert current["revision"] == 1 and next(item for item in current["categories"] if item["id"] == category["id"])["is_active"] is False
         assert client.post(path + "/content", json=content_payload(expected_revision=1)).status_code == 200
 
 

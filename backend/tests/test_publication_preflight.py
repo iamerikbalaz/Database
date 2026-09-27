@@ -18,18 +18,18 @@ from test_technical_client import technical_payload
 PATH = "/api/publication-batches/preview"
 
 
-def prepare_candidate(case, worker, path, *, empty=False, report=None, human_approvals=True):
+def prepare_candidate(case, worker, path, *, empty=False, report=None, human_approvals=True, metadata_filename="metadata.txt"):
     material = next(item for item in case.materials if path.endswith(str(item.id)))
     if report is not None:
         report = json.loads(json.dumps(report).replace(report["inventory"]["folder_name"], material.technical_identity))
         rehash(report["inventory"])
-    metadata_hash = next(entry["sha256"] for entry in report["inventory"]["entries"] if entry["path"] == "metadata.txt") if report else "d" * 64
+    metadata_hash = next(entry["sha256"] for entry in report["inventory"]["entries"] if entry["path"] == metadata_filename) if report else "d" * 64
     # Synthetic immutable source proof, never a production path/file. Actual
     # parser/inventory bytes and decoding are tested separately in retained E2E.
     with case.database.session() as session:
         session.get(PBRMaterial, material.id).workflow_status = "DONE"
         snapshot = PBRMaterialMetadataSnapshot(material_id=material.id, sequence_number=1,
-            status="VALID", source_filename="metadata.txt", source_sha256=metadata_hash,
+            status="VALID", source_filename=metadata_filename, source_sha256=metadata_hash,
             hex_color="#A1B2C3", width_cm=Decimal("12.5"), height_cm=Decimal("34"),
             master_resolution=report["inventory"]["master_resolution"] if report else "4K")
         session.add(snapshot); session.flush()
@@ -41,7 +41,7 @@ def prepare_candidate(case, worker, path, *, empty=False, report=None, human_app
     def validate(folder):
         if report is not None: return TechnicalReport.model_validate_json(json.dumps(report))
         data = technical_payload(folder.rsplit("/", 1)[-1])
-        data["inventory"]["entries"].append({"path": "metadata.txt", "kind": "file", "size": 1, "sha256": "d" * 64})
+        data["inventory"]["entries"].append({"path": metadata_filename, "kind": "file", "size": 1, "sha256": "d" * 64})
         data["inventory"]["total_bytes"] += 1
         rehash(data["inventory"])
         return TechnicalReport.model_validate_json(json.dumps(data))
@@ -85,6 +85,16 @@ def test_complete_approved_candidate_has_stable_preview_without_writes_or_raw_so
         assert leader.get(path).json()["is_published"] is False
     with case.database.session() as session:
         assert session.scalar(select(func.count()).select_from(MaterialAuditEvent)) == before
+
+
+def test_json_metadata_snapshot_can_prepare_csv_with_exact_inventory_proof(approval_case):
+    case, worker, path = approval_case
+    material = prepare_candidate(case, worker, path, metadata_filename="metadata.json")
+    with case.client("ADMIN") as client:
+        result = preview(client, material.id)
+    assert result["can_prepare"] is True
+    assert result["items"][0]["row"]["width_cm"] == "12.5"
+    assert result["items"][0]["errors"] == []
 
 
 @pytest.mark.parametrize("role,expected", [(None, 401), ("PROCESSOR", 403), ("OTHER", 403), ("PRODUCTION_LEAD", 403),

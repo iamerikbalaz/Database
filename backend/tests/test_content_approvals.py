@@ -88,7 +88,7 @@ def test_required_content_findings_block_approval_without_creating_a_decision(ac
     material = access_case.materials[0]; path = f"/api/materials/{material.id}"
     with access_case.client("ADMIN") as client:
         empty = client.get(path + "/content-review").json()
-        assert set(empty["errors"]) == {"CONTENT_DRAFT_REQUIRED", "CONTENT_CREDITS_REQUIRED", "CONTENT_CATEGORIES_REQUIRED"}
+        assert set(empty["errors"]) == {"CONTENT_DRAFT_REQUIRED", "CONTENT_CREDITS_REQUIRED"}
         assert client.post(path + "/content", json=content_payload(description="Incomplete draft")).status_code == 200
         review = client.get(path + "/content-review").json()
         blocked = client.post(path + "/content/approve", json=approval_payload(review))

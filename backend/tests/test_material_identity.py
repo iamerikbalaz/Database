@@ -230,3 +230,90 @@ def test_blocking_findings_and_unacknowledged_warning_prevent_execution(identity
         payload = prepare(client, path, target); payload["warnings_acknowledged"] = False
         assert client.post(path + "/identity-confirm", json=payload).status_code == 409
     assert not worker.executions
+
+
+def test_explicit_material_name_renames_source_and_commits_display_name_once(identity_case):
+    case, worker, path, target = identity_case
+    with case.client("ADMIN") as client:
+        before = client.get(path).json()
+        target = {"target_brand_id": before["published_brand_id"], "main_category_code": before["main_category_code"], "material_name": "New polished stone"}
+        payload = prepare(client, path, target)
+        saved = client.post(path + "/identity-confirm", json=payload)
+        assert saved.status_code == 200 and saved.json()["status"] == "COMPLETED"
+        after = client.get(path).json()
+        assert after["material_name"] == "New polished stone"
+        assert after["technical_identity"] == "SAFE_0001_NEW-POLISHED-STONE_G03"
+        assert after["sequence_number"] == before["sequence_number"]
+        assert worker.executions[0]["material_name"] == "New polished stone"
+        assert client.post(path + "/identity-confirm", json=payload).json() == saved.json()
+        assert len(worker.executions) == 1
+
+
+@pytest.mark.parametrize("field,value,code", [("workflow_status", "DONE", "IDENTITY_REOPEN_REQUIRED"), ("is_published", True, "PUBLISHED_IDENTITY_BLOCKED")])
+def test_explicit_rename_keeps_existing_eligibility_guards(identity_case, field, value, code):
+    case, worker, path, target = identity_case
+    with case.database.session() as session:
+        setattr(session.get(PBRMaterial, case.materials[0].id), field, value); session.commit()
+    with case.client("ADMIN") as client:
+        response = client.post(path + "/identity-plan", json={**target, "material_name": "Changed name"})
+        assert response.status_code == 409 and response.json()["detail"]["code"] == code
+    assert not worker.plans and not worker.executions
+
+
+@pytest.mark.parametrize("operation,availability", [("rename", "unavailable"), ("move", "missing")])
+def test_identity_keeps_recorded_values_without_old_proof_and_source_fallback(identity_case, monkeypatch, operation, availability):
+    from decimal import Decimal
+    from app.db.models import PBRMaterialMetadata, PBRMaterialMetadataSnapshot
+    from app.metadata_client import MetadataClientError, MetadataObservation, WorkerMetadataClient
+    from test_material_metadata import _snapshot_values
+
+    case, worker, path, _ = identity_case
+    with case.database.session() as session:
+        values = _snapshot_values(color="#A1B2C3", width=Decimal("120.2500"))
+        snapshot = PBRMaterialMetadataSnapshot(material_id=case.materials[0].id, sequence_number=1, **values)
+        session.add(snapshot); session.flush()
+        metadata = session.get(PBRMaterialMetadata, case.materials[0].id)
+        metadata.current_snapshot_id = snapshot.id
+        for field, value in values.items(): setattr(metadata, field, value)
+        session.commit()
+
+    observed_folders = []
+    def inspect_source(_self, folder):
+        observed_folders.append(folder)
+        if availability == "unavailable": raise MetadataClientError()
+        return MetadataObservation.model_validate({"schema_version": 1, "source_filename": "metadata.json",
+            "folder_name": folder.rsplit("/", 1)[-1], "status": "MISSING", "sha256": None, "raw_content": None,
+            "hex_color": None, "width_cm": None, "height_cm": None, "editable": True, "writes_enabled": True})
+    monkeypatch.setattr(WorkerMetadataClient, "inspect", inspect_source)
+
+    with case.client("ADMIN") as client:
+        material = client.get(path).json()
+        before = client.get(path + "/metadata").json()
+        history = client.get(path + "/metadata/snapshots").json()
+        target = {"target_brand_id": material["published_brand_id"], "main_category_code": material["main_category_code"],
+            **({"material_name": "Preserved polished stone"} if operation == "rename" else {"target_parent": "Destination"})}
+        payload = prepare(client, path, target)
+        completed = client.post(path + "/identity-confirm", json=payload)
+        assert completed.status_code == 200 and completed.json()["status"] == "COMPLETED"
+        current = client.get(path + "/metadata").json()
+        retained = ("hex_color", "width_cm", "height_cm")
+        assert {key: current[key] for key in retained} == {key: before[key] for key in retained}
+        assert current["status"] == "NOT_SCANNED"
+        assert all(current[key] is None for key in ("current_snapshot_id", "source_filename", "source_sha256",
+            "master_resolution", "loaded_at"))
+        assert client.get(path).json()["validation_status"] == "NOT_CHECKED"
+        assert client.get(path + "/metadata/snapshots").json() == history
+
+        assert client.post(path + "/identity-confirm", json=payload).json() == completed.json()
+        assert client.get(path + "/metadata").json() == current
+        assert len(worker.executions) == 1
+        observation = client.get(path + "/source-metadata").json()
+        assert observation["available"] is (availability == "missing")
+        assert observation["source_status"] == ("MISSING" if availability == "missing" else "UNAVAILABLE")
+        assert observation["sha256"] is None
+        assert observation["values"] == {key: before[key] for key in retained}
+        assert observed_folders == [client.get(path).json()["folder_path"]]
+    with case.database.session() as session:
+        current = session.get(PBRMaterialMetadata, case.materials[0].id)
+        assert current.source_content is None
+        assert session.scalar(select(func.count()).select_from(PBRMaterialMetadataSnapshot)) == 1

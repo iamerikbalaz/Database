@@ -84,7 +84,7 @@ def test_abandonment_is_exactly_replayable_audited_and_preserves_journal(history
         assert closed["status"] == "CLOSED" and closed["close"]["dispatched"] is True
         assert closed["last_dispatch_id"] == str(item.dispatches[-1]) and closed["last_result_id"]
         assert client.post(item.job_path + "/abandon", json=payload).json() == closed
-        assert client.patch(item.material_path, json={"material_name": "Editable after explicit abandonment"}).status_code == 200
+        assert client.patch(item.material_path, json={"assigned_processor_id": str(item.case.users["OTHER"].id)}).status_code == 200
         assert client.post(item.job_path + "/abandon", json=payload).json() == closed
         assert client.get(item.history_path).json() == before
         assert client.post(item.job_path + "/abandon", json=abandonment(item)).status_code == 409

@@ -94,7 +94,7 @@ def test_historical_downloads_survive_edit_but_current_staging_preview_is_blocke
     item = staging_case
     with item.case.client("ADMIN") as client:
         assert post(item, client).status_code == 200
-        assert client.patch(item.material_path, json={"material_name": "Changed after package approval"}).status_code == 200
+        assert client.patch(item.material_path, json={"assigned_processor_id": str(item.case.users["OTHER"].id)}).status_code == 200
         response = post(item, client)
         assert response.status_code == 409
         assert response.json()["detail"]["code"] == "PACKAGING_APPROVAL_CONTEXT_CHANGED"

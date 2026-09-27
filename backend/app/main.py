@@ -54,6 +54,7 @@ from app.api.resource_history import build_resource_history_router
 from app.api.account_security import build_account_security_history_router
 from app.api.material_archives import build_material_archives_router
 from app.api.material_table import build_material_table_router
+from app.api.local_files import build_local_files_router
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -74,6 +75,7 @@ def create_app(
     notion_reader: NotionReader | None = None,
     metadata_client=None,
     folder_contents_client=None,
+    local_library=None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     app_database = database or Database(app_settings.resolved_database_url)
@@ -100,6 +102,7 @@ def create_app(
     application.include_router(build_health_router(app_database))
     application.include_router(build_resources_router(app_database))
     application.include_router(build_material_table_router(app_database, app_worker_client))
+    application.include_router(build_local_files_router(app_database, local_library))
     application.include_router(build_catalog_router(app_database))
     application.include_router(build_material_imports_router(app_database))
     application.include_router(build_ai_content_router(app_database))
@@ -167,7 +170,8 @@ def create_app(
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH"],
         allow_headers=["Accept", "Content-Type", "X-CSRF-Token", "Idempotency-Key"],
-        expose_headers=["Idempotency-Replayed"],
+        expose_headers=["Idempotency-Replayed", "X-Preview-Width", "X-Preview-Height", "X-Preview-Sha256",
+                        "X-Preview-Original-Width", "X-Preview-Original-Height"],
     )
 
     @application.get("/", tags=["system"])

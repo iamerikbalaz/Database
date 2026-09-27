@@ -95,6 +95,13 @@ def test_exact_wording_adoption_creates_a_revision_for_provenance_and_still_need
         assert client.post(path + "/content/approve", json=approval_payload(review)).status_code == 200
         current = client.get(path + "/content").json()
         assert current["content_status"] == "APPROVED" and current["ai_provenance"]["draft_id"] == draft["id"]
+        manual = client.post(path + "/content", json=content_payload(expected_revision=current["revision"],
+            description="Later human wording", credits=current["credits"], tags=current["tags"],
+            category_ids=[item["id"] for item in current["categories"]],
+            collection_ids=[item["id"] for item in current["collections"]]))
+        assert manual.status_code == 200 and manual.json()["ai_provenance"]["edited"] is True
+        history = client.get(path + "/content-history").json()
+        assert history[1]["snapshot"]["ai_provenance"]["edited"] is False
 
 
 def test_failed_revision_insert_rolls_back_content_and_keeps_original_proposal(access_case):

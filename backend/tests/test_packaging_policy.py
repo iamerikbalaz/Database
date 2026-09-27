@@ -179,7 +179,7 @@ def test_override_needs_current_preview_reason_and_csrf(approval_case):
         assert client.post(path + "/packaging-policy/override", json={**body, "expected_preview_hash": "a" * 64}).status_code == 409
         assert client.post(path + "/packaging-policy/override-preview", json={
             "policy": current["policy"], "expected_policy_id": current["id"]}).status_code == 409
-        assert client.patch(path, json={"material_name": "Changed after preview"}).status_code == 200
+        assert client.patch(path, json={"assigned_processor_id": str(case.users["OTHER"].id)}).status_code == 200
         assert client.post(path + "/packaging-policy/override", json=body).json()["detail"]["code"] == "PACKAGING_POLICY_PREVIEW_CHANGED"
         client.headers.pop("X-CSRF-Token")
         assert client.post(path + "/packaging-policy/override", json=body).status_code == 403

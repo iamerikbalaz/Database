@@ -292,6 +292,17 @@ def _review_pg_case(migrated_postgresql_url):
     database.engine.dispose()
 
 
+def _project_context_change(database, project_id):
+    """Prepare a real editable context change before concurrent work starts."""
+    with database.session() as session:
+        source = session.get(Project, project_id)
+        project = Project(company_id=source.company_id, project_number=uuid4().hex,
+                          name="Alternate synthetic review project")
+        _persist_project_at_schema(session, project)
+        session.commit()
+        return {"project_id": str(project.id)}
+
+
 @pytest.mark.parametrize("operation", ["listing", "image"])
 @pytest.mark.parametrize("change,code", [("assignment", 404), ("disable", 401), ("identity", 409)])
 def test_postgresql_preview_reauthorizes_after_actual_concurrent_api_change(review_pg_case, operation, change, code):
@@ -330,6 +341,7 @@ def test_postgresql_publication_preview_freezes_inputs_until_competing_edit_comm
     from app import publication_preflight
     from test_publication_preflight import prepare_candidate, preview
     case = review_pg_case
+    project_change = _project_context_change(case.database, case.material.project_id)
     adapter = SimpleNamespace(database=case.database, materials=[case.material], client=lambda _: case.client_for())
     prepare_candidate(adapter, case.technical, case.path)
     entered = Event(); release = Event()
@@ -351,10 +363,12 @@ def test_postgresql_publication_preview_freezes_inputs_until_competing_edit_comm
             try:
                 assert entered.wait(15)
                 if change == "material":
-                    writing = pool.submit(editor.patch, case.path, json={"material_name": "Changed after frozen preview"})
+                    # Linked names require a confirmed filesystem operation.
+                    # An ordinary editable property still takes the material lock.
+                    writing = pool.submit(editor.patch, case.path, json=project_change)
                 else:
                     writing = pool.submit(editor.patch, f"/api/brands/{case.material.published_brand_id}",
-                        json={"name": "Changed after frozen preview"})
+                        json={"brand_identifier": "changed-after-frozen-preview"})
                 with pytest.raises(TimeoutError): writing.result(timeout=0.15)
             finally: release.set()
             assert pending.result(timeout=25) == before
@@ -533,13 +547,16 @@ def test_postgresql_catalog_retirement_cannot_race_new_material_membership(revie
         assert retired.status_code == 200
         assert saved.status_code in (200, 409)
         current = editor.get(case.path + "/content").json()
+        optional = [item for item in current["categories"] if not item.get("is_required")]
+        assert [item["id"] for item in current["categories"] if item.get("is_required")] == [current["required_category_id"]]
         if saved.status_code == 200:
-            assert current["categories"][0]["is_active"] is False
+            assert [item["id"] for item in optional] == [category["id"]]
+            assert optional[0]["is_active"] is False
             review = editor.get(case.path + "/review").json()
             assert review["generation"] == 2 and review["failure_code"] == "CATALOG_ACTIVITY_CHANGED"
         else:
             assert saved.json()["detail"]["code"] == "CONTENT_CATALOG_VALUE_INACTIVE"
-            assert current["revision"] == 0 and current["categories"] == []
+            assert current["revision"] == 0 and optional == []
 
 
 def test_postgresql_catalog_and_content_audit_are_immutable(review_pg_case):
@@ -630,6 +647,7 @@ def test_postgresql_identity_confirmation_allocates_and_executes_once(review_pg_
 def test_postgresql_identity_io_holds_durable_ownership_without_open_transaction(review_pg_case, mutation):
     from test_material_identity import prepare
     case = review_pg_case; target = _identity_target(case)
+    project_change = _project_context_change(case.database, case.material.project_id)
     entered = Event(); release = Event()
     def pause():
         entered.set(); assert release.wait(20)
@@ -640,8 +658,8 @@ def test_postgresql_identity_io_holds_durable_ownership_without_open_transaction
             future = pool.submit(first.post, case.path + "/identity-confirm", json=payload)
             try:
                 assert entered.wait(10)
-                if mutation == "edit": response = second.patch(case.path, json={"material_name": "Cannot race source write"})
-                elif mutation == "brand": response = second.patch("/api/brands/" + target["target_brand_id"], json={"name": "Cannot race rewrite"})
+                if mutation == "edit": response = second.patch(case.path, json=project_change)
+                elif mutation == "brand": response = second.patch("/api/brands/" + target["target_brand_id"], json={"brand_identifier": "cannot-race-rewrite"})
                 elif mutation == "disable": response = second.patch("/api/internal-users/" + str(case.users[0].id), json={"is_active": False})
                 else:
                     response = second.post("/api/materials", json={"project_id": str(case.material.project_id),
@@ -736,9 +754,10 @@ def test_postgresql_concurrent_inventory_replay_is_atomic(review_pg_case, same_k
         assert len(list(session.scalars(select(MaterialAuditEvent).where(MaterialAuditEvent.material_id == case.material.id)))) == 1
 
 
-@pytest.mark.parametrize("change", ["name", "assignment", "reopen"])
+@pytest.mark.parametrize("change", ["project", "assignment", "reopen"])
 def test_postgresql_inventory_rechecks_material_after_worker_delay(review_pg_case, change):
     case = review_pg_case
+    project_change = _project_context_change(case.database, case.material.project_id)
     if change == "reopen":
         with case.database.session() as session:
             session.get(PBRMaterial, case.material.id).workflow_status = "DONE"; session.commit()
@@ -752,7 +771,7 @@ def test_postgresql_inventory_rechecks_material_after_worker_delay(review_pg_cas
             pending = pool.submit(processor.post, case.path + "/inventory/scan", json={"idempotency_key": str(uuid4()), "expected_generation": 0})
             try:
                 assert entered.wait(15)
-                if change == "name": response = admin.patch(case.path, json={"material_name": "Changed while scanning"})
+                if change == "project": response = admin.patch(case.path, json=project_change)
                 elif change == "assignment": response = admin.patch(case.path, json={"assigned_processor_id": str(case.users[2].id)})
                 else: response = admin.post(case.path + "/reopen", json={"idempotency_key": str(uuid4()), "expected_generation": 0, "reason": "Review correction"})
                 assert response.status_code == 200
@@ -807,11 +826,12 @@ def test_postgresql_concurrent_approvals_create_one_immutable_decision(review_pg
         assert len(list(session.scalars(select(MaterialTechnicalCheck).where(MaterialTechnicalCheck.material_id == case.material.id)))) == 2
 
 
-@pytest.mark.parametrize("change", ["name", "assignment", "reopen", "disable"])
+@pytest.mark.parametrize("change", ["project", "assignment", "reopen", "disable"])
 def test_postgresql_approval_rechecks_actual_api_changes_after_worker_delay(review_pg_case, change):
     from app.db.models import MaterialApproval
     from test_material_approvals import approval_payload
     case = review_pg_case; view = _prepare_pg_approval(case)
+    project_change = _project_context_change(case.database, case.material.project_id)
     entered = Event(); release = Event()
     def hold():
         entered.set()
@@ -822,7 +842,7 @@ def test_postgresql_approval_rechecks_actual_api_changes_after_worker_delay(revi
             pending = pool.submit(approver.post, case.path + "/approvals", json=approval_payload(view))
             try:
                 assert entered.wait(15)
-                if change == "name": response = admin.patch(case.path, json={"material_name": "Edited during approval"})
+                if change == "project": response = admin.patch(case.path, json=project_change)
                 elif change == "assignment": response = admin.patch(case.path, json={"assigned_processor_id": str(case.users[2].id)})
                 elif change == "disable": response = admin.patch(f"/api/internal-users/{case.users[0].id}", json={"is_active": False})
                 else: response = admin.post(case.path + "/reopen", json={"idempotency_key": str(uuid4()), "expected_generation": view["review"]["generation"], "reason": "Correct source"})
@@ -2035,6 +2055,7 @@ def _setup_material_path_race(migrated_postgresql_url: str) -> dict[str, object]
         session.commit()
         context: dict[str, object] = {
             "material_id": material.id,
+            "project_id": material.project_id,
             "technical_identity": material.technical_identity,
             "folder_path": f"materials/{prefix}_0001_G03",
         }
@@ -2073,6 +2094,11 @@ def test_concurrent_system_link_and_category_patch_use_locked_current_state(
     migrated_postgresql_url: str,
 ) -> None:
     context = _setup_material_path_race(migrated_postgresql_url)
+    setup_database = Database(migrated_postgresql_url)
+    try:
+        project_change = _project_context_change(setup_database, context["project_id"])
+    finally:
+        setup_database.dispose()
     material_path = f"/api/materials/{context['material_id']}"
     link_locked = Event()
     release_link = Event()
@@ -2119,7 +2145,7 @@ def test_concurrent_system_link_and_category_patch_use_locked_current_state(
             stored_response = client.get(material_path)
             follow_up_response = client.patch(
                 material_path,
-                json={"material_name": "Transaction remains usable"},
+                json=project_change,
             )
     finally:
         database.dispose()
@@ -2896,7 +2922,7 @@ def test_postgresql_publication_commit_preserves_snapshot_during_competing_edit(
                         description="Changed after immutable batch", credits=10, category_ids=[item["id"] for item in content["categories"]]))
                 else:
                     writing = pool.submit(editor.patch, f"/api/brands/{case.material.published_brand_id}",
-                        json={"name": "Changed after immutable batch"})
+                        json={"brand_identifier": "changed-after-immutable-batch"})
                 with pytest.raises(TimeoutError): writing.result(timeout=0.15)
             finally: release.set()
             result = pending.result(timeout=25)
@@ -3029,6 +3055,7 @@ def test_postgresql_packaging_write_serializes_material_and_account_change(revie
     from app.api import packaging_policy
     from test_packaging_policy import override_body
     case = review_pg_case; current = _prepare_pg_policy(case)
+    project_change = _project_context_change(case.database, case.material.project_id)
     entered = Event(); release = Event()
     original = packaging_policy.override_preview
     def hold(*args):
@@ -3043,7 +3070,7 @@ def test_postgresql_packaging_write_serializes_material_and_account_change(revie
             try:
                 assert entered.wait(15)
                 if change == "material":
-                    writing = pool.submit(editor.patch, case.path, json={"material_name": "Changed after policy"})
+                    writing = pool.submit(editor.patch, case.path, json=project_change)
                 else:
                     writing = pool.submit(editor.patch, f"/api/internal-users/{case.users[0].id}", json={"is_active": False})
                 with pytest.raises(TimeoutError): writing.result(timeout=0.15)
@@ -3343,6 +3370,7 @@ def test_postgresql_reservation_rechecks_after_actual_concurrent_preparation_cha
     from test_packaging_policy import override_body
     from test_material_approvals import run
     case = review_pg_case; body = _pg_reservation_payload(case); entered = Event(); release = Event()
+    project_change = _project_context_change(case.database, case.material.project_id)
     def hold():
         entered.set()
         if not release.wait(15): raise TimeoutError("Reservation preparation test was not released")
@@ -3353,7 +3381,7 @@ def test_postgresql_reservation_rechecks_after_actual_concurrent_preparation_cha
             try:
                 assert entered.wait(15)
                 if change == "material":
-                    assert editor.patch(case.path, json={"material_name": "Changed during preparation"}).status_code == 200
+                    assert editor.patch(case.path, json=project_change).status_code == 200
                 elif change == "account":
                     assert editor.patch("/api/internal-users/" + str(case.users[0].id), json={"is_active": False}).status_code == 200
                 elif change == "technical":
@@ -3374,6 +3402,7 @@ def test_postgresql_reservation_rechecks_after_actual_concurrent_preparation_cha
 def test_postgresql_final_reservation_commit_serializes_with_later_domain_change(review_pg_case, monkeypatch, change):
     from app.api import packaging_jobs
     case = review_pg_case; body = _pg_reservation_payload(case)
+    project_change = _project_context_change(case.database, case.material.project_id)
     entered = Event(); release = Event(); original = packaging_jobs.approved_inputs; calls = 0
     def hold(*args, **kwargs):
         nonlocal calls
@@ -3389,7 +3418,7 @@ def test_postgresql_final_reservation_commit_serializes_with_later_domain_change
             try:
                 assert entered.wait(15)
                 if change == "material":
-                    writing = pool.submit(editor.patch, case.path, json={"material_name": "Blocked by new owner"})
+                    writing = pool.submit(editor.patch, case.path, json=project_change)
                 else:
                     writing = pool.submit(editor.patch, "/api/internal-users/" + str(case.users[0].id), json={"is_active": False})
                 with pytest.raises(TimeoutError): writing.result(timeout=0.15)
@@ -3504,6 +3533,7 @@ def _pg_dispatch_case(case, *, legacy_publication=False):
 def test_postgresql_inflight_dispatch_is_committed_replayable_and_has_no_long_transaction(review_pg_case, same_key):
     from test_packaging_reservations import close_body
     case = review_pg_case; item = _pg_dispatch_case(case); entered = Event(); release = Event()
+    project_change = _project_context_change(case.database, case.material.project_id)
     def hold():
         entered.set()
         if not release.wait(15): raise TimeoutError("Dispatch test worker was not released")
@@ -3518,7 +3548,7 @@ def test_postgresql_inflight_dispatch_is_committed_replayable_and_has_no_long_tr
                 assert second.status_code == (200 if same_key else 409)
                 if same_key: assert second.json()["status"] == "RUNNING"
                 else: assert second.json()["detail"]["code"] == "PACKAGING_DISPATCH_BUSY"
-                assert editor.patch(case.path, json={"material_name": "Still owned"}).status_code == 409
+                assert editor.patch(case.path, json=project_change).status_code == 409
                 with case.database.engine.connect() as connection:
                     assert connection.scalar(text("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND state LIKE 'idle in transaction%'") ) == 0
             finally: release.set()
@@ -3564,6 +3594,7 @@ def test_postgresql_packaging_acceptance_serializes_with_later_changes(review_pg
     from app.api import packaging_jobs
     from test_packaging_reservations import close_body
     case = review_pg_case; item = _pg_dispatch_case(case); entered = Event(); release = Event()
+    project_change = _project_context_change(case.database, case.material.project_id)
     original = packaging_jobs.current_inputs; calls = 0
     def hold(*args, **kwargs):
         nonlocal calls
@@ -3580,7 +3611,7 @@ def test_postgresql_packaging_acceptance_serializes_with_later_changes(review_pg
                 assert entered.wait(15)
                 if change == "account":
                     writing = pool.submit(editor.patch, "/api/internal-users/" + str(case.users[0].id), json={"is_active": False})
-                else: writing = pool.submit(editor.patch, case.path, json={"material_name": "Edited after acceptance"})
+                else: writing = pool.submit(editor.patch, case.path, json=project_change)
                 with pytest.raises(TimeoutError): writing.result(timeout=0.15)
             finally: release.set()
             result = pending.result(timeout=20)
@@ -3654,6 +3685,7 @@ def test_postgresql_download_reauthorizes_without_transaction_across_stream(revi
     from test_packaging_downloads import DownloadStub, DATA, FILE_PATH
     from test_packaging_reservations import close_body
     case = review_pg_case; item = _pg_dispatch_case(case)
+    project_change = _project_context_change(case.database, case.material.project_id)
     transfer = DownloadStub(); entered = Event(); release = Event(); blocks = 0
     case.packaging.open_artifact = transfer.open
     def hold():
@@ -3680,7 +3712,7 @@ def test_postgresql_download_reauthorizes_without_transaction_across_stream(revi
                 if change.startswith("account"):
                     assert editor.patch("/api/internal-users/" + str(case.users[0].id), json={"is_active":False}).status_code == 200
                 else:
-                    assert editor.patch(case.path, json={"material_name":"Edited while historical download is open"}).status_code == 200
+                    assert editor.patch(case.path, json=project_change).status_code == 200
             finally: release.set()
             if change == "account-stream":
                 with pytest.raises(RuntimeError, match="Packaging transfer interrupted"): pending.result(timeout=20)
@@ -3698,6 +3730,7 @@ def test_postgresql_staging_preview_holds_current_inputs_until_concurrent_edit_c
     from app import publication_staging
     from test_packaging_reservations import close_body
     case = review_pg_case; item = _pg_dispatch_case(case)
+    project_change = _project_context_change(case.database, case.material.project_id)
     entered = Event(); release = Event()
     original = publication_staging.current_inputs
     def hold(*args, **kwargs):
@@ -3723,7 +3756,7 @@ def test_postgresql_staging_preview_holds_current_inputs_until_concurrent_edit_c
             try:
                 assert entered.wait(15)
                 writing = pool.submit(editor.patch, case.path if change == "material" else "/api/brands/" + str(case.material.published_brand_id),
-                    json={"material_name": "Changed after staging preview"} if change == "material" else {"name": "Changed brand after staging preview"})
+                    json=project_change if change == "material" else {"brand_identifier": "changed-after-staging-preview"})
                 with pytest.raises(TimeoutError): writing.result(timeout=.15)
             finally: release.set()
             response = pending.result(timeout=25)
@@ -3758,6 +3791,7 @@ def test_postgresql_staging_reservation_replay_and_exclusive_active_material(rev
     from app.db.models import PublicationStagingOwner
     from test_staging_reservations import PATH, close_payload
     case = review_pg_case; item, body = _pg_staging_case(case)
+    project_change = _project_context_change(case.database, case.material.project_id)
     barrier = Barrier(2)
     with case.client_for() as first, case.client_for() as second:
         def create(client, payload):
@@ -3780,7 +3814,7 @@ def test_postgresql_staging_reservation_replay_and_exclusive_active_material(rev
             closed = [future.result(timeout=30) for future in pending]
         assert all(response.status_code == 200 for response in closed)
         assert closed[0].json() == closed[1].json() and closed[0].json()["status"] == "CLOSED"
-        assert first.patch(case.path, json={"material_name": "Changed after staging close"}).status_code == 200
+        assert first.patch(case.path, json=project_change).status_code == 200
         assert first.get(item.path + "/artifacts").status_code == 200
     with case.database.session() as session:
         owners = list(session.scalars(select(PublicationStagingOwner).where(PublicationStagingOwner.material_id == case.material.id)))
@@ -4210,6 +4244,7 @@ def test_postgresql_staging_abandonment_respects_lease_and_retains_late_facts(st
     from app.staging_dispatch_lease import staging_dispatch_lease
     from test_staging_reservations import PATH
     case, identifier = staging_history_pg
+    project_change = _project_context_change(case.database, case.material.project_id)
     with case.database.session() as session:
         first = journal.dispatch(session, identifier); intent = journal.transfer(session, first); session.commit()
         job = session.get(journal.PublicationStagingJob, identifier)
@@ -4232,7 +4267,7 @@ def test_postgresql_staging_abandonment_respects_lease_and_retains_late_facts(st
         assert history["items"][0]["result"]["outcome"] == "UNCERTAIN"
         transfers = admin.get(path + "/dispatches/" + str(first.id) + "/transfers").json()
         assert transfers["items"][0]["observation"]["outcome"] == "VERIFIED"
-        assert admin.patch(case.path, json={"material_name": "Editable after abandoned transfer"}).status_code == 200
+        assert admin.patch(case.path, json=project_change).status_code == 200
 
 
 def test_postgresql_staging_abandonment_serializes_duplicate_requests(staging_history_pg):
@@ -4304,6 +4339,7 @@ def test_postgresql_staging_upload_has_committed_intent_and_no_transaction_over_
     from test_staging_runtime import body
     from test_staging_reservations import PATH
     case, item = staging_runtime_pg; entered = Event(); release = Event()
+    project_change = _project_context_change(case.database, case.material.project_id)
     async def hold(spec):
         if not entered.is_set():
             entered.set()
@@ -4320,7 +4356,7 @@ def test_postgresql_staging_upload_has_committed_intent_and_no_transaction_over_
                     assert connection.scalar(text("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND state LIKE 'idle in transaction%'")) == 0
                 with case.database.session() as session:
                     assert session.scalar(select(PublicationStagingTransfer.id).where(PublicationStagingTransfer.job_id == item.identifier))
-                assert admin.patch(case.path, json={"material_name": "Still owned during upload"}).status_code == 409
+                assert admin.patch(case.path, json=project_change).status_code == 409
                 if change == "revoke":
                     assert admin.patch("/api/internal-users/" + str(case.users[0].id), json={"is_active": False}).status_code == 200
                 elif change == "source": item.inventory.changed = True
@@ -4800,10 +4836,11 @@ def test_postgresql_resource_history_rejects_unbound_or_invalid_snapshots(review
 def test_postgresql_resource_api_concurrent_changes_preserve_commit_order(review_pg_case, kind):
     from app.resource_history import KINDS
     case = review_pg_case; identifier = _resource_target(case, kind); path = f"/api/{KINDS[kind][2]}/{identifier}"
-    changes = {"BRAND": ({"name": "Concurrent brand"}, {"is_active": False}),
+    project_change = _project_context_change(case.database, case.material.project_id)
+    changes = {"BRAND": ({"brand_identifier": "concurrent-brand"}, {"is_active": False}),
         "PROJECT": ({"notes": "Concurrent note"}, {"due_date": "2026-10-01"}),
         "USER": ({"display_name": "Concurrent user"}, {"is_active": False}),
-        "MATERIAL": ({"material_name": "Concurrent material"}, {"assigned_processor_id": str(case.users[2].id)})}[kind]
+        "MATERIAL": (project_change, {"assigned_processor_id": str(case.users[2].id)})}[kind]
     barrier = Barrier(2)
     with case.client_for() as first, case.client_for(3) as second:
         def update(client, values): barrier.wait(15); return client.patch(path, json=values)
@@ -4849,7 +4886,7 @@ def test_postgresql_resource_history_0021_preserves_0020_records_and_refuses_his
                 # A current project write is protected earlier by migration
                 # 0028's folder-history guard. A brand write exercises this
                 # test's original 0021 resource-history downgrade boundary.
-                assert client.patch(f"/api/brands/{case.material.published_brand_id}", json={"name": "First audited brand change"}).status_code == 200
+                assert client.patch(f"/api/brands/{case.material.published_brand_id}", json={"brand_identifier": "first-audited-brand-change"}).status_code == 200
             with case.database.session() as session:
                 events = list(session.scalars(select(ResourceChangeEvent)))
                 assert len(events) == 2
@@ -4857,7 +4894,7 @@ def test_postgresql_resource_history_0021_preserves_0020_records_and_refuses_his
                 assert updated.kind == "BRAND" and updated.brand_id == case.material.published_brand_id
                 assert updated.version == 1 and updated.actor_id == case.users[0].id
                 assert updated.before_snapshot == frozen["BRAND"]
-                assert updated.after_snapshot == frozen["BRAND"] | {"name": "First audited brand change"}
+                assert updated.after_snapshot == frozen["BRAND"] | {"brand_identifier": "first-audited-brand-change"}
                 created = next(item for item in events if item.action == "CREATED")
                 same_name_brand = session.get(PublishedBrand, created.brand_id)
                 company = session.get(Company, same_name_brand.company_id)

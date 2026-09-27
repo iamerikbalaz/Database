@@ -92,7 +92,7 @@ def test_material_edit_and_folder_change_clear_current_inventory(review_case):
     case, _, path = review_case
     with case.client("ADMIN") as client:
         first = scan(client, path).json()
-        assert client.patch(path, json={"material_name": "Reviewed rename"}).status_code == 200
+        assert client.patch(path, json={"assigned_processor_id": str(case.users["OTHER"].id)}).status_code == 200
         state = client.get(path + "/review").json()
         assert state["revision_hash"] is None and state["generation"] == first["generation"] + 1
         scan(client, path)

@@ -60,7 +60,9 @@ def test_context_contains_only_minimal_selected_data_and_explicit_urls(access_ca
         assert set(view) == {"context", "context_hash", "content_revision"}
         assert set(view["context"]) == {"material_id", "name", "brand", "categories", "collections", "source_urls"}
         assert view["context"]["source_urls"] == [{"id": source["id"], "url": source["url"]}]
-        assert view["context"]["categories"] == [{"id": category["id"], "value": category["value"]}]
+        content = client.get(path + "/content").json()
+        assert view["context"]["categories"] == [{"id": item["id"], "value": item["value"]} for item in content["categories"]]
+        assert {"id": category["id"], "value": category["value"]} in view["context"]["categories"]
         assert all(value not in response.text for value in ("PRIVATE_SAVED_DRAFT", "private draft tag", "folder_path", "metadata", "email", "assigned_processor_id", "project_id", material.technical_identity))
 
 

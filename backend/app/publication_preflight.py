@@ -82,9 +82,11 @@ def _candidate(session, material, *, packaging_execution_id=None, staging_job_id
         if any(getattr(current, field) != getattr(metadata, field) for field in fields):
             errors.append("METADATA_CURRENT_SNAPSHOT_MISMATCH")
         if metadata.status not in {"VALID", "WARNING"}: errors.append("METADATA_EXPORT_INVALID")
-        source = next((entry for entry in inventory.source_inventory["entries"]
-            if entry["path"] == "metadata.txt" and entry["kind"] == "file"), None) if inventory else None
-        if (metadata.source_filename != "metadata.txt" or not metadata.source_sha256
+        source_entries = inventory.source_inventory["entries"] if inventory else []
+        source_filename = "metadata.json" if any(entry["path"] == "metadata.json" for entry in source_entries) else "metadata.txt"
+        source = next((entry for entry in source_entries
+            if entry["path"] == source_filename and entry["kind"] == "file"), None)
+        if (metadata.source_filename != source_filename or not metadata.source_sha256
                 or source is None or source["sha256"] != metadata.source_sha256):
             errors.append("METADATA_SOURCE_REVISION_MISMATCH")
         if inventory and metadata.master_resolution != inventory.source_inventory["master_resolution"]:

@@ -31,6 +31,7 @@ def close_payload(saved, **changes):
 
 def test_reservation_is_exactly_replayable_and_blocks_changes_until_audited_close(staging_case):
     item = staging_case
+    reassignment = {"assigned_processor_id": str(item.case.users["OTHER"].id)}
     with item.case.client("ADMIN") as client:
         body = reservation(item, client)
         response = client.post(PATH, json=body)
@@ -41,14 +42,14 @@ def test_reservation_is_exactly_replayable_and_blocks_changes_until_audited_clos
         assert client.post(PATH, json=body).json() == saved
         assert client.get(path).json() == saved
         assert client.get(PATH).json()["items"][0]["id"] == saved["id"]
-        assert client.patch(item.material_path, json={"material_name": "Blocked"}).status_code == 409
+        assert client.patch(item.material_path, json=reassignment).status_code == 409
         assert client.get(item.files_path).status_code == 200
         closure = close_payload(saved)
         closed = client.post(path + "/close", json=closure)
         assert closed.status_code == 200, closed.json()
         assert closed.json()["status"] == "CLOSED" and closed.json()["close"]["reason"] == closure["reason"]
         assert client.post(path + "/close", json=closure).json() == closed.json()
-        assert client.patch(item.material_path, json={"material_name": "Changed after closure"}).status_code == 200
+        assert client.patch(item.material_path, json=reassignment).status_code == 200
         assert client.post(PATH, json=body).json() == closed.json()
         assert client.post(path + "/close", json=close_payload(saved)).status_code == 409
         assert client.get(item.material_path).json()["is_published"] is False

@@ -264,7 +264,8 @@ def test_historical_retirement_needs_no_current_source_or_publication_approval(r
     item = retirement_case; calls = len(item.inventory.calls)
     item.inventory.inventory = lambda *args: pytest.fail("Retirement must not read NAS")
     with item.case.client("ADMIN") as client:
-        assert client.patch(item.material_path, json={"material_name": "Changed since historical packaging"}).status_code == 200
+        assert client.patch(item.material_path, json={"assigned_processor_id": str(item.case.users["OTHER"].id)}).status_code == 200
+        assert client.get(item.material_path + "/technical-review").json()["approvals"] == []
         assert client.post(item.retirement_path, json=item.retirement_body).json()["status"] == "REMOVED"
         audit = client.get(item.material_path + "/audit").json()
         events = [entry["event_type"] for entry in audit if entry["event_type"].startswith("PACKAGING_RETIREMENT_")]

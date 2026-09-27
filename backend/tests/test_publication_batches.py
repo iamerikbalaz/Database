@@ -36,7 +36,7 @@ def test_batch_and_exact_csv_are_immutable_after_later_material_edits(approval_c
         assert "attachment;" in artifact.headers["content-disposition"]
         assert client.post(PATH, json=body).json() == batch
         assert client.get(batch_path).json() == batch
-        assert client.patch(path, json={"material_name": "Later material change"}).status_code == 200
+        assert client.patch(path, json={"assigned_processor_id": str(case.users["OTHER"].id)}).status_code == 200
         assert client.post(PATH, json=body).json() == batch
         assert client.get(batch_path + "/csv").content == artifact.content
         assert client.post(PATH, json={**body, "reason": "Different reason"}).status_code == 409
@@ -50,7 +50,7 @@ def test_batch_and_exact_csv_are_immutable_after_later_material_edits(approval_c
     with case.database.session() as session:
         saved = session.get(PublicationBatch, UUID(batch["id"]))
         item = session.get(PublicationBatchItem, (saved.id, material.id))
-        assert item.snapshot["material"]["material_name"] != "Later material change"
+        assert item.snapshot["material"]["assigned_processor_id"] != str(case.users["OTHER"].id)
         saved.reason = "Rewrite forbidden"
         with pytest.raises(Exception, match="append-only"): session.commit()
     with case.database.session() as session:

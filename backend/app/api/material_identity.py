@@ -16,13 +16,14 @@ from app.inventory_client import validate_relative_path
 from app.material_identity import ACTIVE_STATUSES, identity_context, require_material_idle, lock_folder_catalog, require_folder_idle
 from app.material_review import canonical_hash, invalidate_review
 from app.material_naming import build_identity
-from app.schemas import ApiSchema, CategoryCode, Sha256
+from app.schemas import ApiSchema, CategoryCode, Name, Sha256
 from app.history_pagination import HistoryLimit, history_window
 
 
 class IdentityPlanRequest(ApiSchema):
     target_brand_id: UUID
     main_category_code: CategoryCode
+    material_name: Name | None = None
     target_parent: Annotated[str, StringConstraints(max_length=1792)] | None = None
 
     @field_validator("target_parent")
@@ -72,9 +73,10 @@ def _contexts(session, material, payload, *, lock=False):
         _conflict("IDENTITY_COLLECTIONS_ASSIGNED", "Remove the old brand's collection assignments before planning a rebrand.")
     number = target.next_sequence_number if rebrand else material.sequence_number
     if number > 9999: _conflict("IDENTITY_SEQUENCE_EXHAUSTED", "The target brand has no unused four-digit numbers.")
+    next_name = payload.material_name if payload.material_name is not None else material.material_name
     try:
         identity = build_identity(target.folder_prefix, number, payload.main_category_code,
-                                  material.material_name, source_identity=material.technical_identity)
+                                  next_name, source_identity=material.technical_identity if next_name == material.material_name else None)
     except ValueError:
         _conflict("MATERIAL_IDENTITY_INVALID", "The proposed folder identity is unsupported or exceeds 255 ASCII characters.")
     parent = payload.target_parent if payload.target_parent is not None else material.folder_path.rpartition("/")[0]
@@ -85,7 +87,7 @@ def _contexts(session, material, payload, *, lock=False):
     source_context = _context(material, old_brand)
     target_context = {**source_context, "published_brand_id": str(target.id), "brand_name": target.name,
         "folder_prefix": target.folder_prefix, "sequence_number": number, "main_category_code": payload.main_category_code,
-        "technical_identity": identity, "folder_path": folder}
+        "technical_identity": identity, "folder_path": folder, "material_name": next_name}
     # Another linked material must never be contained in either moving tree.
     for other in session.scalars(select(PBRMaterial).where(PBRMaterial.id != material.id)):
         if other.technical_identity == identity: _conflict("IDENTITY_ALREADY_USED", "The target identity is already allocated.")
@@ -155,12 +157,16 @@ def _finish(database, operation_id, worker):
             material.published_brand_id = UUID(context["published_brand_id"])
             material.sequence_number = context["sequence_number"]
             material.main_category_code = context["main_category_code"]
+            material.material_name = context["material_name"]
             material.technical_identity = context["technical_identity"]
             material.folder_path = context["folder_path"]
             material.validation_status = "NOT_CHECKED"
             metadata = session.get(PBRMaterialMetadata, material.id)
-            for field in ("current_snapshot_id", "source_filename", "source_sha256", "source_content", "hex_color",
-                          "width_cm", "height_cm", "master_resolution", "loaded_at"):
+            # Color and sample size remain useful recorded values when the
+            # renamed source is offline. Detach old source proof until a fresh
+            # observation; retaining these values must not restore validation.
+            for field in ("current_snapshot_id", "source_filename", "source_sha256", "source_content",
+                          "master_resolution", "loaded_at"):
                 setattr(metadata, field, None)
             metadata.status = "NOT_SCANNED"; metadata.warnings = []
             session.add(MaterialIdentityHistory(material_id=material.id, actor_id=operation.actor_id, operation_id=operation.id,
@@ -213,7 +219,7 @@ def build_material_identity_router(database, worker, *, mutations_enabled=False)
 
     @router.post("/{material_id}/identity-confirm")
     def confirm(material_id: UUID, payload: IdentityConfirmRequest, access: AccessDependency):
-        request_hash = canonical_hash({"material_id": str(material_id), "payload": payload.model_dump(mode="json")})
+        request_hash = canonical_hash({"material_id": str(material_id), "payload": payload.model_dump(mode="json", exclude={"material_name"} if payload.material_name is None else set())})
         with database.session() as session:
             actor = access.check(session, CATALOG_MANAGERS); _material(session, material_id, access)
             existing = _existing(session, actor.id, material_id, payload, request_hash)
@@ -247,7 +253,7 @@ def build_material_identity_router(database, worker, *, mutations_enabled=False)
             operation = MaterialFileOperation(id=uuid4(), material_id=material.id, actor_id=actor.id,
                 source_brand_id=material.published_brand_id, target_brand_id=target.id,
                 request_key=payload.idempotency_key, request_hash=request_hash, proposal_hash=proposal["proposal_hash"],
-                request_payload=payload.model_dump(mode="json"), source_context=proposal["source_context"],
+                request_payload=payload.model_dump(mode="json", exclude={"material_name"} if payload.material_name is None else set()), source_context=proposal["source_context"],
                 target_context=proposal["target_context"], worker_plan=proposal["worker_plan"], status="RUNNING")
             session.add(operation)
             try:

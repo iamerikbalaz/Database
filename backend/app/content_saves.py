@@ -11,6 +11,7 @@ from app.material_identity import require_material_idle
 from app.material_review import canonical_hash, invalidate_review
 from app.publication_content import content_view, draft_view
 from app.ai_content import publishing_context
+from app.main_category import normalize_category_ids, effective_category_ids
 
 
 def _conflict(code):
@@ -21,6 +22,52 @@ def _content_values(view):
     return {"description": view["description"], "credits": view["credits"], "tags": view["tags"],
         "category_ids": sorted(item["id"] for item in view["categories"]),
         "collection_ids": sorted(item["id"] for item in view["collections"])}
+
+
+def validate_material_content(session, material, payload):
+    """Validate while the caller owns the material and authorization gate."""
+    before = content_view(session, material)
+    if before["revision"] != payload.expected_revision: _conflict("CONTENT_REVISION_CHANGED")
+    category_ids = normalize_category_ids(session, material, payload.category_ids)
+    categories = list(session.scalars(select(OnlineCategory).where(OnlineCategory.id.in_(category_ids))))
+    collections = list(session.scalars(select(BrandCollection).where(BrandCollection.id.in_(payload.collection_ids))))
+    if len(categories) != len(category_ids) or len(collections) != len(payload.collection_ids): _conflict("CONTENT_CATALOG_VALUE_MISSING")
+    if any(not item.is_active for item in categories + collections): _conflict("CONTENT_CATALOG_VALUE_INACTIVE")
+    if any(item.brand_id != material.published_brand_id for item in collections): _conflict("CONTENT_COLLECTION_BRAND_MISMATCH")
+    return before, categories, collections
+
+
+def apply_material_content(session, material, payload, actor_id, *, source_draft_id=None, provenance=None):
+    """Apply without committing; durable source ownership is checked by caller."""
+    before, categories, collections = validate_material_content(session, material, payload)
+    if provenance is None: provenance = before.get("ai_provenance")
+    # Adoption already compared against the AI proposal. Only later manual
+    # saves compare against the previously saved content.
+    if source_draft_id is None and provenance and (payload.description != before["description"] or payload.tags != before["tags"]):
+        provenance = {**provenance, "edited": True}
+    audit_reason = payload.reason or "Publication content updated"
+    values = payload.model_dump(mode="json", include={"description", "credits", "tags", "category_ids", "collection_ids"})
+    values["category_ids"] = effective_category_ids(session, material, payload.category_ids)
+    state = _state(session, material.id, create=True)
+    if values != _content_values(before) or source_draft_id is not None:
+        content = session.get(MaterialContent, material.id)
+        if content is None:
+            content = MaterialContent(material_id=material.id, revision=0); session.add(content)
+        content.revision += 1
+        content.description = payload.description; content.credits = payload.credits; content.tags = payload.tags
+        for model in (MaterialOnlineCategory, MaterialCollection): session.execute(delete(model).where(model.material_id == material.id))
+        session.add_all(MaterialOnlineCategory(material_id=material.id, category_id=item.id) for item in categories)
+        session.add_all(MaterialCollection(material_id=material.id, collection_id=item.id) for item in collections)
+        session.flush()
+        body = draft_view(session, material)
+        if provenance: body["ai_provenance"] = provenance
+        if source_draft_id is not None: body["content_status"] = "AI_DRAFT"
+        snapshot = {**body, "published_brand_id": str(material.published_brand_id), "material_name": material.material_name}
+        session.add(MaterialContentRevision(material_id=material.id, revision=content.revision, actor_id=actor_id,
+            snapshot=snapshot, snapshot_hash=canonical_hash(snapshot), reason=audit_reason))
+        invalidate_review(session, material, actor_id, "CONTENT_CHANGED", record_event=False)
+    else: body = before
+    return body
 
 
 def save_material_content(database, material_id, payload, access, *, source_draft_id=None):
@@ -57,30 +104,8 @@ def save_material_content(database, material_id, payload, access, *, source_draf
         elif provenance and (payload.description != before["description"] or payload.tags != before["tags"]):
             provenance = {**provenance, "edited": True}
         audit_reason = payload.reason or "Publication content updated"
-        categories = list(session.scalars(select(OnlineCategory).where(OnlineCategory.id.in_(payload.category_ids))))
-        collections = list(session.scalars(select(BrandCollection).where(BrandCollection.id.in_(payload.collection_ids))))
-        if len(categories) != len(payload.category_ids) or len(collections) != len(payload.collection_ids): _conflict("CONTENT_CATALOG_VALUE_MISSING")
-        if any(not item.is_active for item in categories + collections): _conflict("CONTENT_CATALOG_VALUE_INACTIVE")
-        if any(item.brand_id != material.published_brand_id for item in collections): _conflict("CONTENT_COLLECTION_BRAND_MISMATCH")
-        values = payload.model_dump(mode="json", include={"description", "credits", "tags", "category_ids", "collection_ids"})
+        body = apply_material_content(session, material, payload, actor.id,
+            source_draft_id=source_draft_id, provenance=provenance)
         state = _state(session, material.id, create=True)
-        if values != _content_values(before) or source_draft_id is not None:
-            content = session.get(MaterialContent, material.id)
-            if content is None:
-                content = MaterialContent(material_id=material.id, revision=0); session.add(content)
-            content.revision += 1
-            content.description = payload.description; content.credits = payload.credits; content.tags = payload.tags
-            for model in (MaterialOnlineCategory, MaterialCollection): session.execute(delete(model).where(model.material_id == material.id))
-            session.add_all(MaterialOnlineCategory(material_id=material.id, category_id=item.id) for item in categories)
-            session.add_all(MaterialCollection(material_id=material.id, collection_id=item.id) for item in collections)
-            session.flush()
-            body = draft_view(session, material)
-            if provenance: body["ai_provenance"] = provenance
-            if source_draft_id is not None: body["content_status"] = "AI_DRAFT"
-            snapshot = {**body, "published_brand_id": str(material.published_brand_id), "material_name": material.material_name}
-            session.add(MaterialContentRevision(material_id=material.id, revision=content.revision, actor_id=actor.id,
-                snapshot=snapshot, snapshot_hash=canonical_hash(snapshot), reason=audit_reason))
-            invalidate_review(session, material, actor.id, "CONTENT_CHANGED", record_event=False)
-        else: body = before
         return _record(session, material, state, actor.id, "AI_DRAFT_ADOPTED" if source_draft_id else "CONTENT_SAVED", original_request, request_hash, body,
             audit={"revision": body["revision"], "reason": audit_reason, **({"ai_draft_id": str(source_draft_id)} if source_draft_id else {})})

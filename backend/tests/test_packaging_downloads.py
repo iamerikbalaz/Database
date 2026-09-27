@@ -61,7 +61,7 @@ def download_case(action_case):
 def test_list_pages_and_download_remain_historical_after_material_edit(download_case):
     item = download_case
     with item.case.client("ADMIN") as client:
-        assert client.patch(item.material_path, json={"material_name":"Changed after packaging"}).status_code == 200
+        assert client.patch(item.material_path, json={"assigned_processor_id": str(item.case.users["OTHER"].id)}).status_code == 200
         first = client.get(item.files_path, params={"limit":1}).json()
         second = client.get(item.files_path, params={"after":first["next_cursor"], "limit":50}).json()
         assert first["items"] + second["items"] == item.files["items"] and second["next_cursor"] is None

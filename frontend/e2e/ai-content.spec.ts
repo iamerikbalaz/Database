@@ -1,6 +1,5 @@
 import { expect, test, request } from "@playwright/test";
-import path from "node:path";
-import { e2eOutputDirectory, runManifest } from "./run-manifest";
+import { runManifest } from "./run-manifest";
 import { retainedPass, signInThroughApi } from "./auth-helpers";
 
 test("approved sources and human-reviewed AI proposals retain provenance after restart", async ({ page }) => {
@@ -29,64 +28,38 @@ test("approved sources and human-reviewed AI proposals retain provenance after r
   }
   const api = `/api/materials/${id}`;
   await page.goto(`/materials/${id}`);
-  const panel = page.getByRole("article", { name: "AI proposals", exact: true });
-  const content = page.getByRole("article", { name: "Publication content", exact: true });
-  const approval = page.getByRole("article", { name: "Content approval", exact: true });
-  await panel.getByRole("button", { name: "Load AI workspace", exact: true }).click();
-  await expect(panel.getByRole("heading", { name: "AI proposal history" })).toBeVisible();
+  await expect(page.getByRole("article", { name: "AI proposals", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("article", { name: "Content approval", exact: true })).toHaveCount(0);
+  const approve = async () => {
+    const review = await (await page.request.get(api + "/content-review")).json();
+    const saved = await page.request.post(api + "/content/approve", { headers, data: { idempotency_key: crypto.randomUUID(), expected_revision: review.content_revision,
+      expected_context_hash: review.context_hash, warnings_acknowledged: true, note: "Synthetic retained compatibility approval" } });
+    expect(saved.status()).toBe(200);
+  };
   if (!retainedPass) {
-    await panel.getByText("Approved source URLs", { exact: true }).click();
-    await panel.getByLabel("Reason for source approval or availability change").fill("Approve synthetic documentation source");
-    await panel.getByLabel("Source URL", { exact: true }).fill("https://catalog.example/synthetic-stone");
-    await panel.getByRole("button", { name: "Approve source URL", exact: true }).click();
-    await expect(panel.getByRole("heading", { name: "AI proposal history" })).toBeVisible();
-    await expect.poll(async () => (await (await page.request.get(api + "/content-sources")).json()).length).toBe(1);
-    // Establish a real human approval before proposal intake. Saving a proposal
-    // alone must preserve it; actual adoption must invalidate it.
-    await approval.getByRole("button", { name: "Review saved content", exact: true }).click();
-    await approval.getByRole("button", { name: "Confirm content approval", exact: true }).click();
-    await expect(approval.getByText("Current content is approved.", { exact: true })).toBeVisible();
-    await panel.getByRole("button", { name: "Load AI workspace", exact: true }).click();
-    await panel.getByText("Record an AI proposal", { exact: true }).click();
-    await panel.getByLabel("AI provider", { exact: true }).fill("Synthetic test provider");
-    await panel.getByLabel("AI model", { exact: true }).fill("fixture-v1");
-    await panel.getByLabel("Prompt version", { exact: true }).fill("pbr-1");
-    await panel.getByLabel("Proposed description", { exact: true }).fill("Original AI proposal text");
-    await panel.getByLabel("Proposed tags, one per line", { exact: true }).fill("stone\nrough");
-    await panel.getByRole("checkbox", { name: "https://catalog.example/synthetic-stone", exact: true }).check();
-    await panel.getByLabel("Reason for recording proposal", { exact: true }).fill("Record synthetic source-based proposal");
-    await panel.getByRole("button", { name: "Save AI proposal", exact: true }).click();
-    await expect(panel.getByRole("button", { name: "Compare and review proposal", exact: true })).toBeEnabled();
+    const source = await page.request.post(api + "/content-sources", { headers, data: { idempotency_key: crypto.randomUUID(),
+      url: "https://catalog.example/synthetic-stone", reason: "Approve synthetic documentation source" } });
+    expect(source.status()).toBe(201);
+    await approve();
+    const context = await (await page.request.get(api + "/publishing-context")).json();
+    const proposal = await page.request.post(api + "/content-drafts", { headers, data: { idempotency_key: crypto.randomUUID(), expected_context_hash: context.context_hash,
+      provider: "Synthetic test provider", model: "fixture-v1", prompt_version: "pbr-1", description: "Original AI proposal text", tags: ["stone", "rough"],
+      source_link_ids: [(await source.json()).id], reason: "Record synthetic source-based proposal" } });
+    expect(proposal.status()).toBe(201);
     expect((await (await page.request.get(api + "/content")).json()).content_status).toBe("APPROVED");
-    await panel.getByRole("button", { name: "Compare and review proposal", exact: true }).click();
-    const comparison = panel.getByRole("region", { name: "Review AI proposal", exact: true });
-    await expect(comparison.getByRole("region", { name: "Currently saved content" })).toContainText("Original synthetic publication text");
-    await comparison.getByRole("textbox", { name: "Reviewed description", exact: true }).fill("Human verified synthetic stone description");
-    await comparison.getByRole("textbox", { name: "Reviewed tags, one per line", exact: true }).fill("stone\nmatte");
-    await comparison.getByLabel("Reason for adopting proposal", { exact: true }).fill("Correct synthetic wording before publication");
-    await expect(comparison.getByRole("button", { name: "Adopt reviewed content" })).toBeDisabled();
-    await comparison.getByRole("checkbox", { name: /I reviewed the text/ }).check();
-    const images = path.join(path.dirname(e2eOutputDirectory), "ai-first-pass");
-    await comparison.screenshot({ path: path.join(images, "ai-comparison.png") });
-    await page.setViewportSize({ width: 390, height: 844 });
-    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await comparison.screenshot({ path: path.join(images, "ai-comparison-mobile.png") });
-    await page.setViewportSize({ width: 1280, height: 720 });
-    await comparison.getByRole("button", { name: "Adopt reviewed content", exact: true }).click();
-    await expect(content.getByRole("textbox", { name: "Description", exact: true })).toHaveValue("Human verified synthetic stone description");
-    await expect(approval.getByText("Current content requires approval.", { exact: true })).toBeVisible();
-    await expect(content).toContainText("Human content approval is still required.");
-    await approval.getByRole("button", { name: "Review saved content", exact: true }).click();
-    await approval.getByRole("button", { name: "Confirm content approval", exact: true }).click();
-    await expect(approval.getByText("Current content is approved.", { exact: true })).toBeVisible();
-    await panel.getByRole("button", { name: "Load AI workspace", exact: true }).click();
+    const draft = await proposal.json();
+    const adopted = await page.request.post(api + `/content-drafts/${draft.id}/adopt`, { headers, data: { idempotency_key: crypto.randomUUID(), expected_revision: context.content_revision,
+      expected_context_hash: context.context_hash, description: "Human verified synthetic stone description", tags: ["stone", "matte"], reason: "Correct synthetic wording before publication" } });
+    expect(adopted.status()).toBe(200);
+    expect((await (await page.request.get(api + "/content-review")).json()).approval).toBeNull();
+    await approve();
   }
-  await expect(content).toContainText("This content has a current human approval.");
+  await page.reload();
+  const content = page.getByRole("article", { name: "Publication content", exact: true });
+  await expect(content.getByText(/Revision 2 · Saved content/)).toBeVisible();
+  await expect(content).not.toContainText("human approval");
   await expect(content.getByRole("textbox", { name: "Description", exact: true })).toHaveValue("Human verified synthetic stone description");
   await expect(content.getByLabel("Credits", { exact: true })).toHaveValue("7");
-  await expect(panel.getByRole("button", { name: "Compare and review proposal", exact: true })).toBeDisabled();
-  await panel.getByText("Original proposal", { exact: true }).click();
-  await expect(panel.getByText("Original AI proposal text", { exact: true })).toBeVisible();
   const proposals = await (await page.request.get(api + "/content-drafts")).json(); expect(proposals.items).toHaveLength(1);
   expect(proposals.items[0].context_is_current).toBe(false); expect(proposals.items[0].description).toBe("Original AI proposal text");
   const saved = await (await page.request.get(api + "/content")).json();
@@ -131,12 +104,10 @@ test("one-material AI service access is revocable and its proposal history survi
       const posted = await ai.post(`/api/ai/materials/${id}/content-drafts`, { data: proposal });
       expect(posted.status()).toBe(201); expect(Object.keys(await posted.json()).sort()).toEqual(["context_hash", "id", "status"]);
       await page.goto(`/materials/${id}`);
-      const manager = page.getByRole("article", { name: "AI service access", exact: true });
-      await manager.getByText("Manage AI service access", { exact: true }).click();
-      await manager.getByRole("button", { name: "Load service access history", exact: true }).click();
-      await manager.getByLabel("Reason for service access change", { exact: true }).fill("Synthetic service work complete");
-      await manager.getByRole("button", { name: `Revoke credential ${credential.credential.id}`, exact: true }).click();
-      await expect(manager.getByText(/Service access revoked/)).toBeVisible();
+      await expect(page.getByRole("article", { name: "AI service access", exact: true })).toHaveCount(0);
+      const revoked = await page.request.post(target + `/ai-service-credentials/${credential.credential.id}/revoke`, { headers,
+        data: { idempotency_key: crypto.randomUUID(), reason: "Synthetic service work complete" } });
+      expect(revoked.status()).toBe(200);
       expect((await ai.get(`/api/ai/materials/${id}/publishing-context`)).status()).toBe(401);
       expect((await ai.post(`/api/ai/materials/${id}/content-drafts`, { data: proposal })).status()).toBe(401);
     } finally { await ai.dispose(); }
@@ -146,23 +117,13 @@ test("one-material AI service access is revocable and its proposal history survi
   }
   const target = `/api/materials/${id}`;
   await page.goto(`/materials/${id}`);
-  const panel = page.getByRole("article", { name: "AI proposals", exact: true });
-  await panel.getByRole("button", { name: "Load AI workspace", exact: true }).click();
-  await panel.getByText("Original proposal", { exact: true }).click();
-  await expect(panel.getByText("Synthetic service proposal awaiting human review", { exact: true })).toBeVisible();
-  await expect(panel.getByRole("button", { name: "Compare and review proposal", exact: true })).toBeEnabled();
+  await expect(page.getByRole("article", { name: "AI proposals", exact: true })).toHaveCount(0);
   const content = await (await page.request.get(target + "/content")).json(); expect(content.revision).toBe(0);
   const grants = await (await page.request.get(target + "/ai-service-credentials")).json(); expect(grants.items).toHaveLength(1);
   expect(grants.items[0].revoked_at === null).toBe(false); expect(Object.keys(grants.items[0])).not.toContain("token_hash");
-  const manager = page.getByRole("article", { name: "AI service access", exact: true });
-  await manager.getByText("Manage AI service access", { exact: true }).click();
-  await manager.getByRole("button", { name: "Load service access history", exact: true }).click();
-  await expect(manager.getByRole("button", { name: `Revoke credential ${grants.items[0].id}`, exact: true })).toBeDisabled();
-  await expect(manager.getByLabel("One-time service credential", { exact: true })).toHaveCount(0);
-  await manager.screenshot({ path: test.info().outputPath("ai-service-history.png") });
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await manager.screenshot({ path: test.info().outputPath("ai-service-history-mobile.png") });
+  await expect(page.getByRole("article", { name: "AI service access", exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("One-time service credential", { exact: true })).toHaveCount(0);
   const drafts = await (await page.request.get(target + "/content-drafts")).json(); expect(drafts.items).toHaveLength(1);
   expect(drafts.items[0].service_credential_id).toBe(grants.items[0].id);
+  expect(drafts.items[0].description).toBe("Synthetic service proposal awaiting human review");
 });

@@ -18,12 +18,12 @@ const sizes: GallerySize[] = ["small", "medium", "large", "extra-large"];
 function preference(key: string) { try { return localStorage.getItem(key); } catch { return null; } }
 function savePreference(key: string, value: string) { try { localStorage.setItem(key, value); } catch { /* The view also works with browser storage disabled. */ } }
 
-export function MaterialsPage({ client, navigate, initialView }: { client: ApiClient; navigate: (path: string) => void; initialView?: "gallery" }) {
+export function MaterialsPage({ client, navigate, initialView, archived = false }: { client: ApiClient; navigate: (path: string) => void; initialView?: "gallery"; archived?: boolean }) {
   const [tableBusy, setTableBusy] = useState(false);
   const [publicationSelection, setPublicationSelection] = useState<Material[] | null>(null);
   const [publicationBusy, setPublicationBusy] = useState(false);
   const role = useSession()?.session.user.role;
-  const canPublish = role === "ADMIN" || role === "LEADERSHIP";
+  const canPublish = !archived && (role === "ADMIN" || role === "LEADERSHIP");
   const busy = tableBusy || publicationSelection !== null;
   const [filters, setFilters] = useState<MaterialFilters>({});
   const [view, setView] = useState<"list" | "gallery">(() => initialView ?? (preference("materials.view") === "gallery" ? "gallery" : "list"));
@@ -32,7 +32,7 @@ export function MaterialsPage({ client, navigate, initialView }: { client: ApiCl
   const generation = sessionGeneration();
   const store = useMemo(() => new GalleryStore(generation), [generation]);
   useEffect(() => () => store.clear(), [store]);
-  const load = useCallback(() => client.getMaterials(filters), [client, filters]);
+  const load = useCallback(() => client.getMaterials(archived ? { ...filters, is_archived: "true" } : filters), [client, filters, archived]);
   const result = useResource(load);
   const loadOptions = useCallback(() => Promise.all([
     client.getProjects(), client.getBrands(), client.getInternalUsers(),
@@ -52,7 +52,7 @@ export function MaterialsPage({ client, navigate, initialView }: { client: ApiCl
     { key: "is_published", label: "Published", options: [{ value: "true", label: "Yes" }, { value: "false", label: "No" }] },
   ];
   return <section>
-    <div className="page-heading"><div><p className="eyebrow">Production</p><h1>Materials</h1><p>Manage material records and their production status.</p></div>
+    <div className="page-heading"><div><p className="eyebrow">Production</p><h1>{archived ? "Archived materials" : "Materials"}</h1><p>{archived ? "Manage archived material records. Clear Archived to return a material to active work." : "Manage material records and their production status."}</p></div>
       <NavigationLink className="button button--primary" href="/materials/new" navigate={navigate}>Add material</NavigationLink>
     </div>
     <fieldset disabled={busy} className="panel material-filters" role="search" aria-label="Material filters">
@@ -91,6 +91,6 @@ export function MaterialsPage({ client, navigate, initialView }: { client: ApiCl
       : !result.data.length ? <EmptyState title="No materials found" description="Clear the filters or add a material to get started." />
       : view === "gallery" ? <MaterialsGrid key={`${generation}:${previewEpoch}`} materials={result.data} store={store} size={size} navigate={navigate} />
       : <MaterialsTable materials={result.data} store={store} client={client} projects={projects} brands={brands} users={users}
-          navigate={navigate} refresh={result.retry} onBusyChange={setTableBusy} onPreparePublication={preparePublication} />}
+          navigate={navigate} refresh={result.retry} onBusyChange={setTableBusy} onPreparePublication={canPublish ? preparePublication : undefined} />}
   </section>;
 }

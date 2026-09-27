@@ -2,9 +2,10 @@ import { request } from "./client";
 import { boolean, record, uuid } from "./dto";
 import { ApiError } from "./errors";
 
-export type ImportField = "identity" | "name" | "project" | "brand" | "processor" | "folder";
+export type ImportPropertyField = "color" | "sample_size" | "done" | "checked" | "note" | "brand_identifier";
+export type ImportField = "identity" | "name" | "project" | "brand" | "processor" | "folder" | ImportPropertyField;
 export type ImportGroup = "project" | "brand" | "processor";
-export type ImportColumns = Record<Exclude<ImportField, "project" | "folder">, string> & { project: string | null; folder?: string | null };
+export type ImportColumns = Record<"identity" | "name" | "brand" | "processor", string> & { project: string | null; folder?: string | null } & Partial<Record<ImportPropertyField, string | null>>;
 export interface ImportSource { format: "CSV" | "XLSX"; data: string; delimiter?: "," | ";"; sheet?: string; }
 export interface ImportLinks { projects: Record<string, string>; brands: Record<string, string>; processors: Record<string, string>; }
 export interface ImportPlanRequest { source: ImportSource; columns: ImportColumns; links: ImportLinks; }
@@ -38,10 +39,20 @@ function format(value: unknown): "CSV" | "XLSX" {
 }
 function finding(value: unknown) {
   const data = record(value); const code = text(data.code, 100); const field = text(data.field, 20);
-  if (!/^IMPORT_[A-Z0-9_]+$/.test(code) || !["identity", "name", "project", "brand", "processor"].includes(field)) throw new Error("Invalid import finding");
+  if (!/^IMPORT_[A-Z0-9_]+$/.test(code) || !["identity", "name", "project", "brand", "processor", "color", "sample_size", "done", "checked", "note", "brand_identifier"].includes(field)) throw new Error("Invalid import finding");
   return { row: integer(data.row, 1, 4194304), field, code };
 }
 const findingMessages: Record<string, string> = {
+  IMPORT_COLOR_INVALID: "Use six HEX digits, optionally prefixed by #.",
+  IMPORT_SAMPLE_SIZE_INVALID: "Use positive dimensions in cm, for example 10x10-cm or 10x10. Other units need an explicit correction.",
+  IMPORT_DONE_INVALID: "Use YES or NO for Done; blank means In progress.",
+  IMPORT_CHECKED_INVALID: "Use YES / OK, NO or Correction for Checked.",
+  IMPORT_CHECKED_REQUIRES_DONE: "Checked OK requires a mapped Done value of YES.",
+  IMPORT_CORRECTION_REQUIRES_IN_PROGRESS: "A material awaiting Correction must have Done set to NO.",
+  IMPORT_NOTE_INVALID: "Remove unsupported control characters from the note.",
+  IMPORT_BRAND_IDENTIFIER_INVALID: "Use a nonempty brand identifier of at most 255 characters.",
+  IMPORT_BRAND_IDENTIFIER_INCONSISTENT: "All rows for this brand must use the same identifier.",
+  IMPORT_BRAND_IDENTIFIER_CONFLICT: "Another brand uses this identifier.",
   IMPORT_IDENTITY_FORMAT: "Use an exact identity with a four-digit number and one folder name.",
   IMPORT_CATEGORY_FORMAT: "The identity must end with its uppercase category code.",
   IMPORT_MATERIAL_NAME: "Enter a material name of 1–255 characters.",
@@ -122,11 +133,23 @@ function row(value: unknown) {
   if (folderPath !== null && (folderPath.split("/").some((part) => !part || part === "." || part === "..") || [...folderPath].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 || "\\:".includes(char)) || folderPath.split("/").at(-1) !== data.technical_identity)) throw new Error("Invalid import folder reference");
   return { sourceRow: integer(data.source_row, 1, 4194304), identity: text(data.technical_identity, 512), name: text(data.material_name, 255),
     number: integer(data.sequence_number, 1, 9999), category: text(data.main_category_code, 100), projectId: data.project_id === null ? null : uuid(data.project_id),
-    brandId: uuid(data.published_brand_id), processorId: uuid(data.assigned_processor_id), folderPath };
+    brandId: uuid(data.published_brand_id), processorId: uuid(data.assigned_processor_id), folderPath,
+    properties: data.properties === undefined ? undefined : importProperties(data.properties) };
 }
-function initialState(value: unknown, allowFolder = false) {
+function importProperties(value: unknown) {
+  const data = record(value); const allowed = ["hex_color", "width_cm", "height_cm", "workflow_status", "checked_status", "note", "brand_identifier"];
+  if (Object.keys(data).some((key) => !allowed.includes(key))) throw new Error("Invalid import properties");
+  const parsed: Record<string, string | null> = {};
+  for (const [key, value] of Object.entries(data)) parsed[key] = value === null ? null : text(value, key === "note" ? 10000 : 255);
+  if (parsed.hex_color != null && !/^#[A-F0-9]{6}$/.test(parsed.hex_color)) throw new Error("Invalid imported color");
+  for (const key of ["width_cm", "height_cm"]) if (parsed[key] != null && (!/^\d+(\.\d{1,4})?$/.test(parsed[key]) || Number(parsed[key]) <= 0 || Number(parsed[key]) >= 1e8)) throw new Error("Invalid imported dimension");
+  if ("workflow_status" in parsed && !["IN_PROGRESS", "DONE"].includes(parsed.workflow_status ?? "")) throw new Error("Invalid imported workflow");
+  if ("checked_status" in parsed && !["no", "OK", "Correction"].includes(parsed.checked_status ?? "")) throw new Error("Invalid imported Checked");
+  return parsed;
+}
+function initialState(value: unknown, allowFolder = false, imported = false) {
   const data = record(value);
-  if (data.workflow_status !== "IN_PROGRESS" || data.validation_status !== "NOT_CHECKED" || data.publication_status !== "NOT_PUBLISHED" ||
+  if (!(data.workflow_status === "IN_PROGRESS" || (imported && data.workflow_status === "DONE")) || data.validation_status !== "NOT_CHECKED" || data.publication_status !== "NOT_PUBLISHED" ||
       data.is_published !== false || (!allowFolder && data.folder_path !== null)) throw new Error("Unsafe import initial state");
 }
 function referenceContext(value: unknown) {
@@ -144,7 +167,7 @@ function referenceContext(value: unknown) {
 }
 export function parseImportPreview(value: unknown) {
   const data = record(value); const snapshot = record(data.snapshot);
-  if (snapshot.schema_version !== 1) throw new Error("Unknown import snapshot");
+  if (snapshot.schema_version !== 1 && snapshot.schema_version !== 2) throw new Error("Unknown import snapshot");
   initialState(snapshot.initial_state);
   const rows = list(snapshot.rows, 2000, row); const findings = list(data.findings, 20000, finding);
   const rowCount = integer(data.row_count, 1, 2000); const ready = boolean(data.can_confirm);
@@ -167,9 +190,9 @@ function summary(value: unknown) {
 }
 export function parseImportResult(value: unknown) {
   const result = summary(value); const data = record(value); const snapshot = record(data.snapshot);
-  if (snapshot.schema_version !== 1 || hash(snapshot.source_sha256) !== result.sourceHash) throw new Error("Invalid import audit");
+  if ((snapshot.schema_version !== 1 && snapshot.schema_version !== 2) || hash(snapshot.source_sha256) !== result.sourceHash) throw new Error("Invalid import audit");
   initialState(snapshot.initial_state);
-  const rows = list(data.rows, 2000, (value) => { initialState(value, true); return { ...row(value), materialId: uuid(record(value).material_id) }; });
+  const rows = list(data.rows, 2000, (value) => { initialState(value, true, snapshot.schema_version === 2); return { ...row(value), materialId: uuid(record(value).material_id) }; });
   if (rows.length !== result.rowCount) throw new Error("Incomplete import result");
   unique(rows.map((row) => row.materialId)); unique(rows.map((row) => String(row.sourceRow)));
   return { ...result, rows, references: referenceContext(snapshot.references) };

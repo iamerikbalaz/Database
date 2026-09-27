@@ -7,6 +7,15 @@ import { setSessionToken } from "../auth/sessionTransport";
 
 afterEach(() => { vi.unstubAllGlobals(); setSessionToken(null); });
 
+it("reads explicit spreadsheet properties while keeping technical review unverified", () => {
+  const properties = { hex_color: "#AABBCC", width_cm: "10", height_cm: "20", workflow_status: "DONE", checked_status: "OK", note: "#sample", brand_identifier: "sample-brand" };
+  const value = { ...importBatch, snapshot: { ...importBatch.snapshot, schema_version: 2 },
+    rows: importBatch.rows.map((row) => ({ ...row, workflow_status: "DONE", checked_status: "OK", note: "#sample", properties })) };
+  expect(parseImportResult(value).rows[0].properties).toEqual(properties);
+  expect(() => parseImportResult({ ...value, snapshot: { ...value.snapshot, schema_version: "2" } })).toThrow();
+  expect(() => parseImportResult({ ...value, rows: value.rows.map((row) => ({ ...row, properties: { ...properties, width_cm: "-1" } })) })).toThrow();
+});
+
 it("parses explicit worksheet selection, a bounded sample and literal mapping labels", () => {
   expect(parseImportInspection({ format: "XLSX", sheets: ["Materials"], requires_sheet: true })).toEqual({ format: "XLSX", sheets: ["Materials"], requiresSheet: true });
   const result = parseImportInspection({ ...importInspection, mapping_values: importMappings });

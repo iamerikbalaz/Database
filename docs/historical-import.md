@@ -37,6 +37,27 @@ Both associated companies, the brand and the assigned processor must be active;
 the selected processor must have the PROCESSOR role. Historical project status
 is not imported and does not itself prevent import into an existing project.
 
+### Spreadsheet properties (2026-09-27)
+
+Optional explicit mappings now include `color`, `sample_size`, `done`, `checked`,
+`note` and `brand_identifier`. HEX accepts six digits with an optional `#` and
+is stored uppercase. Sample sizes use centimetres: `10x20-cm`, `10x20`, decimal
+commas/points and the multiplication sign are accepted. Explicit other units,
+nonpositive values and excess precision are blocked for review, never guessed.
+
+Done accepts YES/NO (case insensitive), true/false and 1/0; blank means In progress.
+Checked accepts YES/OK, NO or Correction. OK requires Done; Correction cannot
+remain Done. Imported Done/Checked are historical user values: technical validation
+stays NOT_CHECKED and no approval record or source inspection is manufactured.
+Color and dimensions append an internal WARNING snapshot with spreadsheet
+provenance and no source-file proof. The importer never creates metadata.txt.
+
+All rows of one brand must agree on its identifier; another brand's identifier
+cannot be reused. Confirmation atomically updates the explicitly mapped brand
+identifiers with normal audit/invalidation. Preview shows these values before
+confirmation. Schema-2 receipts store the mapped properties; existing schema-1
+receipt hashes and exact replays remain compatible.
+
 The exact identity uses `PREFIX_0001_MATERIAL-NAME_CATEGORY`: its selected brand's
 prefix, a four-digit number 0001–9999, the original name component and the
 canonical uppercase category suffix. Persisted three-part identities remain

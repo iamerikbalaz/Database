@@ -42,13 +42,7 @@ function containsPathLeak(value: string): boolean {
 }
 
 function materialFact(page: Page, label: string): Locator {
-  return page.locator("article").filter({ has: page.locator(".material-facts") }).locator("dt", { hasText: new RegExp(`^${label}$`) }).locator("..").locator("dd");
-}
-
-function panel(page: Page, heading: string): Locator {
-  return page.locator("article").filter({
-    has: page.getByRole("heading", { name: heading, exact: true }),
-  });
+  return page.getByRole("article", { name: "Material properties" }).locator("dt", { hasText: new RegExp(`^${label}$`) }).locator("..").locator("dd");
 }
 
 async function openPreparedMaterial(page: Page, material: MaterialFixture): Promise<void> {
@@ -58,7 +52,7 @@ async function openPreparedMaterial(page: Page, material: MaterialFixture): Prom
 }
 
 async function assertRetainedDone(page: Page, material: MaterialFixture, status: string) {
-  await expect(materialFact(page, "Status")).toHaveText("done");
+  await expect(materialFact(page, "Status").getByRole("combobox")).toHaveValue("DONE");
   await expect(materialFact(page, "Folder path")).toHaveText(material.relativePath);
   const snapshots = await page.request.get(`/api/materials/${material.id}/metadata/snapshots`);
   expect(snapshots.status()).toBe(200);
@@ -66,19 +60,29 @@ async function assertRetainedDone(page: Page, material: MaterialFixture, status:
   expect((await snapshots.json()).length).toBe(1);
   await waitForMaterialReads(page);
   await page.reload();
-  await expect(panel(page, "Snapshot history").getByText("Snapshot 1", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Snapshot history", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Mark as Done", exact: true })).toHaveCount(0);
 }
 
 async function waitForMaterialReads(page: Page): Promise<void> {
-  // A reload must exercise a fully loaded detail, including the independently
-  // fetched panels. Reloading after only the metadata panel can abort another
-  // panel's response between its headers and body.
   await expect(page.getByRole("article", { name: "Publication content", exact: true }).getByText(/^Revision \d+ ·/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Reload identity status", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Reload content approval", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Reload technical review", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Reload source review", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Color HEX", exact: true })).toBeVisible();
+  await expect(page.getByRole("article", { name: "Material properties" })).toBeVisible();
+}
+
+async function setDone(page: Page): Promise<Response> {
+  const response = page.waitForResponse(item => item.request().method() === "PATCH" && new URL(item.url()).pathname.endsWith("/table"));
+  await materialFact(page, "Status").getByRole("combobox").selectOption("DONE");
+  const saved = await response;
+  await expect(materialFact(page, "Status").getByRole("combobox")).toBeEnabled();
+  return saved;
+}
+
+async function savedMetadata(page: Page, id: string, status: string) {
+  const metadata = await (await page.request.get(`/api/materials/${id}/metadata`)).json();
+  const snapshots = await (await page.request.get(`/api/materials/${id}/metadata/snapshots`)).json();
+  expect(metadata.status).toBe(status); expect(snapshots).toHaveLength(1); expect(snapshots[0]).toMatchObject({ sequence_number: 1, status });
+  return metadata;
 }
 
 async function checkFolder(page: Page, relativePath: string): Promise<Response> {
@@ -231,29 +235,19 @@ test("happy path persists Done metadata and snapshot after reload", async ({ pag
   expect(linkResponse.status()).toBe(200);
   await expect(materialFact(page, "Folder path")).toHaveText(state.valid.relativePath);
 
-  const doneResponse = await confirmOperation(
-    page,
-    "Mark as Done",
-    "Mark this material as Done?",
-    "/mark-done",
-  );
+  const doneResponse = await setDone(page);
   expect(doneResponse.status()).toBe(200);
-  expect(await doneResponse.json()).toMatchObject({
-    material: { workflow_status: "DONE" },
-    metadata: { status: "VALID" },
-    snapshot: { sequence_number: 1, status: "VALID" },
-  });
-  await expect(materialFact(page, "Status")).toHaveText("done");
-  await expect(panel(page, "Current metadata").getByText("valid", { exact: true })).toBeVisible();
-  await expect(panel(page, "Current metadata").getByText("#A1B2C3", { exact: true })).toBeVisible();
-  await expect(panel(page, "Snapshot history").getByText("Snapshot 1", { exact: true })).toBeVisible();
+  expect(await doneResponse.json()).toMatchObject({ workflow_status: "DONE" });
+  expect(await savedMetadata(page, state.valid.id, "VALID")).toMatchObject({ hex_color: "#A1B2C3" });
+  await expect(materialFact(page, "Status").getByRole("combobox")).toHaveValue("DONE");
+  await expect(page.getByRole("textbox", { name: "Color HEX", exact: true })).toHaveValue("#A1B2C3");
 
   await waitForMaterialReads(page);
   await page.reload();
-  await expect(materialFact(page, "Status")).toHaveText("done");
+  await expect(materialFact(page, "Status").getByRole("combobox")).toHaveValue("DONE");
   await expect(materialFact(page, "Folder path")).toHaveText(state.valid.relativePath);
-  await expect(panel(page, "Current metadata").getByText("valid", { exact: true })).toBeVisible();
-  await expect(panel(page, "Snapshot history").getByText("Snapshot 1", { exact: true })).toBeVisible();
+  await savedMetadata(page, state.valid.id, "VALID");
+  await expect(page.getByRole("heading", { name: "Snapshot history", exact: true })).toHaveCount(0);
 });
 
 test("missing metadata remains non-blocking and its warning stays visible", async ({ page }) => {
@@ -270,14 +264,12 @@ test("missing metadata remains non-blocking and its warning stays visible", asyn
   await expect(page.getByRole("button", { name: "Link folder", exact: true })).toBeEnabled();
 
   expect((await confirmOperation(page, "Link folder", "Link this folder?", "/folder-link")).status()).toBe(200);
-  await expect(page.getByRole("button", { name: "Mark as Done", exact: true })).toBeEnabled();
-  expect((await confirmOperation(page, "Mark as Done", "Mark this material as Done?", "/mark-done")).status()).toBe(200);
+  expect((await setDone(page)).status()).toBe(200);
 
-  await expect(materialFact(page, "Status")).toHaveText("done");
-  const currentMetadata = panel(page, "Current metadata");
-  await expect(currentMetadata.getByText("missing", { exact: true })).toBeVisible();
-  await expect(currentMetadata.getByText(/SOURCE_METADATA_MISSING/)).toBeVisible();
-  await expect(panel(page, "Snapshot history").getByText("Snapshot 1", { exact: true })).toBeVisible();
+  await expect(materialFact(page, "Status").getByRole("combobox")).toHaveValue("DONE");
+  const metadata = await savedMetadata(page, state.missing.id, "MISSING");
+  expect(metadata.warnings.some((item: { code: string }) => item.code === "SOURCE_METADATA_MISSING")).toBe(true);
+  await expect(page.getByText("Saving creates the missing root metadata.txt.")).toBeVisible();
 });
 
 test("unsupported metadata dimensions stay nonblocking across worker, API and PostgreSQL", async ({ page }) => {
@@ -287,11 +279,11 @@ test("unsupported metadata dimensions stay nonblocking across worker, API and Po
   expect(preflight.status()).toBe(200);
   expect(await preflight.json()).toMatchObject({ metadata_status: "WARNING", width_cm: null, height_cm: "2", can_continue: true });
   expect((await confirmOperation(page, "Link folder", "Link this folder?", "/folder-link")).status()).toBe(200);
-  const done = await confirmOperation(page, "Mark as Done", "Mark this material as Done?", "/mark-done");
-  expect(done.status()).toBe(200);
-  expect(await done.json()).toMatchObject({ material: { workflow_status: "DONE" },
-    metadata: { status: "WARNING", width_cm: null, height_cm: "2.0000" }, snapshot: { sequence_number: 1 } });
-  await expect(panel(page, "Current metadata").getByText(/SOURCE_METADATA_DIMENSION_UNSUPPORTED/)).toBeVisible();
+  const done = await setDone(page); expect(done.status()).toBe(200);
+  expect(await done.json()).toMatchObject({ workflow_status: "DONE" });
+  const metadata = await savedMetadata(page, state.dimensions.id, "WARNING");
+  expect(metadata).toMatchObject({ width_cm: null, height_cm: "2.0000" });
+  expect(metadata.warnings.some((item: { code: string }) => item.code === "SOURCE_METADATA_DIMENSION_UNSUPPORTED")).toBe(true);
 });
 
 test("identity mismatch cannot be linked or marked Done", async ({ page }) => {

@@ -16,8 +16,14 @@ const fields: { key: ImportField; label: string }[] = [
   { key: "folder", label: "Existing folder path" },
 ];
 const groups: ImportGroup[] = ["project", "brand", "processor"];
+const propertyFields = [
+  { key: "color", label: "HEX color" }, { key: "sample_size", label: "Sample size (cm)" },
+  { key: "done", label: "Done" }, { key: "checked", label: "Checked" }, { key: "note", label: "Note" },
+  { key: "brand_identifier", label: "Brand identifier" },
+] as const;
 const groupKeys = { project: "projects", brand: "brands", processor: "processors" } as const;
-const blankColumns = (): ImportColumns => ({ identity: "", name: "", project: "", brand: "", processor: "", folder: null });
+const blankColumns = (): ImportColumns => ({ identity: "", name: "", project: "", brand: "", processor: "", folder: null,
+  color: null, sample_size: null, done: null, checked: null, note: null, brand_identifier: null });
 const blankLinks = (): ImportLinks => ({ projects: {}, brands: {}, processors: {} });
 
 export function ImportsPage(props: { client: ApiClient; navigate: (path: string) => void }) {
@@ -152,6 +158,10 @@ function ImportWorkspace({ client, navigate }: { client: ApiClient; navigate: (p
         {fields.filter(({ key }) => (key !== "project" || columns.project !== null) && (key !== "folder" || columns.folder !== null)).map(({ key, label }) => <label key={key}>{label} column<select required value={columns[key] ?? ""} onChange={(event) => {
           setColumns({ ...columns, [key]: event.target.value }); setInspection({ ...inspection, mappingValues: undefined }); setLinks(blankLinks()); invalidatePreview();
         }}><option value="">Choose column</option>{inspection.headers.map((header) => <option key={header} disabled={Object.entries(columns).some(([field, value]) => field !== key && value === header)}>{header}</option>)}</select></label>)}
+        <p>Optional spreadsheet properties. Done and Checked are historical values; importing them does not perform a technical source check. Brand identifiers will update the mapped brands.</p>
+        {propertyFields.map(({ key, label }) => <label key={key}>{label} column<select value={columns[key] ?? ""} onChange={(event) => {
+          setColumns({ ...columns, [key]: event.target.value || null }); setInspection({ ...inspection, mappingValues: undefined }); setLinks(blankLinks()); invalidatePreview();
+        }}><option value="">Do not import</option>{inspection.headers.map((header) => <option key={header} disabled={Object.entries(columns).some(([field, value]) => field !== key && value === header)}>{header}</option>)}</select></label>)}
         <button className="button" disabled={Object.values(columns).some((value) => value !== null && !value) || new Set(Object.values(columns).filter((value) => value !== null)).size !== Object.values(columns).filter((value) => value !== null).length}>Load source labels</button>
       </fieldset></form>
     </article>}

@@ -1,21 +1,24 @@
 # Material archive and restore
 
 Implemented on the autonomous development branch, with additive migration
-`20260918_0023`. The handoffs name soft-delete/restore without defining cascading
+`20260918_0023` and the forward guard update `20260927_0030`. The handoffs name soft-delete/restore without defining cascading
 or external-file behavior. This conservative local lifecycle keeps ownership,
 evidence and files intact. It has not been deployed to the original/demo database.
 
 ## Commands and current-state binding
 
-ADMIN-only preview/read/commands for one PBR record. Use a separate bounded archive
-list/detail namespace (`/api/material-archives`) to avoid shadowing ordinary material
-UUID routes. Ordinary material lists and source/work endpoints exclude archives.
-Archived details and lifecycle history remain explicitly available to ADMIN.
+ADMIN-only lifecycle preview/read/commands remain compatible under
+`/api/material-archives`. Archive now reuses the Materials list, filters, gallery,
+property chooser and editable cells through `GET /api/materials?is_archived=true`.
+`GET /api/materials/{id}?include_archived=true` serves the matching detail. Both
+explicit archive reads require ADMIN; ordinary reads keep their previous scope.
+Archived list/detail responses add `is_archived` and `archived_at`. Active responses
+retain their previous shape, including immutable ordinary-command schemas and hashes.
 
 Preview returns the current lifecycle version and an input digest bound to material
 identity/assignment/ordinary fields, updated time, review generation and archive
 state. The command requires that version/digest, a nonzero actor-scoped request key,
-reason and explicit acknowledgment. Recheck current authorization and the input
+an acknowledgment and a bounded audit reason (server default when omitted). Recheck current authorization and the input
 under the material row lock, then commit lifecycle state, invalidation and immutable
 event atomically. No external IO is needed for either command.
 
@@ -28,9 +31,11 @@ persistence; use explicit exact retry or read-only recovery.
 
 ## Eligibility and effects
 
-- Archive only `NOT_PUBLISHED` with `is_published=false`. Uploaded, pending/import,
-  published and ambiguous publication/error states need a separate external-state
-  reconciliation contract and are rejected initially.
+- Manual Published is independent of Archived and is preserved. Stable
+  `NOT_PUBLISHED`, `PUBLISHED_CURRENT` and `PUBLISHED_UPDATE_REQUIRED` states are
+  eligible subject to the ownership and external dispatch guards below. Pending,
+  uploaded/import and error states remain blocked. Review invalidation marks a
+  published record internally as requiring an update; it never clears Published.
 - Both archive and restore hold the material lock and require no active/unresolved
   identity, packaging or staging owner. A timeout does not release ownership.
 - Any recorded storage dispatch also blocks the transition, including an abandoned
@@ -40,11 +45,10 @@ persistence; use explicit exact retry or read-only recovery.
 - Preserve the row, UUID, brand sequence reservation, technical identity, relative
   source folder, assignment, content, all immutable histories, accepted packages,
   exports and cloud references. Never recycle a number or source identity.
-- Archive/restore invalidate current review/technical/content readiness. A prior
-  DONE record returns to IN_PROGRESS; IN_PROGRESS remains unfinished. The actual
-  main schema has no NOT_STARTED state.
-  Reset the current metadata pointer/readiness as reopening does while preserving
-  immutable snapshots. Restore does not restore approvals or assert NAS availability.
+- Archive/restore preserve Status, Checked, Published and all current metadata
+  values, including the current snapshot pointer. They invalidate internal technical
+  review/validation evidence. Restore does not restore approvals or assert NAS
+  availability; it leaves the user properties as saved.
 - No cascade archive to company/brand/project or assigned accounts. No rename,
   file deletion, remote cancellation, cloud deletion or publication command.
 - Restore preserves assignment; subsequent normal authorization/validation still
@@ -63,8 +67,9 @@ must refuse to erase history or archive state.
 
 Keep existing accepted-package downloads and immutable CSV exports readable under
 their existing roles, including stream reauthorization. Add narrow historical-read
-exceptions rather than a blanket archived-material bypass. New source previews,
-workers, approvals, packages, AI service requests and staging must reject archives
+exceptions rather than a blanket archived-material bypass. Administrators may
+read archive previews, with authorization and source identity rechecked after IO.
+Other source/work, approval, package, AI service and staging commands reject archives
 before IO and at acceptance. Late factual observations of an already-owned operation
 must remain persistable; active ownership prevents archive in the first place.
 
@@ -75,19 +80,22 @@ unchanged source/identity/number/package evidence, and browser fresh/retained fl
 
 ## Operator flow and recovery
 
-An administrator opens **Archive and restore** on a material, selects **Review
-archive**, supplies a reason and explicitly acknowledges clearing current readiness.
-The saved record appears under **Archived materials**. **Review restore** uses the
-same checks and confirmation. Current state must be refreshed separately from an old
-command result; a recovered event describes that command, not all later changes.
+An administrator toggles the **Archived** checkbox in either the table or detail.
+The client checks current eligibility, then sends one exact command; no reason
+input or additional confirmation is shown. The archive date is visible in Archive.
+Clearing the same checkbox restores the material. Audit history stays on the server.
 
-The browser retains one unresolved packet per actor in memory across panel closure
-and navigation. An uncertain response offers **Check saved lifecycle result** or
-**Retry exact lifecycle request**. Neither runs automatically. A later denial or
-missing result does not silently discard an uncertain packet. Leaving a page with
-the lifecycle panel warns while that actor has a retained packet, even if the panel
-is collapsed. Other pages do not install this warning. Packets are not persisted in browser storage. After a
-full browser restart, read current state and history before considering new work.
+ADMIN can edit Note, Project, Processor and Published while archived, with the same
+optimistic timestamps, row ownership checks and ordinary-write receipts. Workflow,
+Checked and identity changes require restore. Other roles retain their existing
+archive visibility boundary. ADMIN may recover an already committed ordinary
+receipt after archive; replay returns evidence without repeating a mutation.
+
+One uncertain packet per actor stays in memory and blocks another lifecycle change.
+The browser offers **Check saved lifecycle result** and **Retry exact lifecycle
+request**, never automatic retries. Missing results or later authorization denials
+do not discard the packet. Navigation and reload warn while a request is pending.
+No request or private row data is persisted in browser storage.
 
 Accepted packaging history/detail/dispatch reads and proof downloads retain their
 existing authorization. Archived history is explicitly marked in the API; the UI
@@ -100,7 +108,9 @@ Apply the normal migration chain only to a separately authorized target. Migrati
 0023 adds state and event tables; it neither edits old rows nor invents prior
 events. A deferred composite foreign key requires each state version to have an
 exact event in the same transaction. PostgreSQL enforces ordered transitions,
-review invalidation, unpublished/idle eligibility and immutable evidence.
+review invalidation, inactive publication/idle eligibility and immutable evidence.
+Migration 0030 updates only the lifecycle guard; it never rewrites existing rows.
+Its downgrade refuses incompatible currently published lifecycle records.
 
 An empty 0023 can downgrade to 0022. Once lifecycle evidence exists, downgrade
 refuses: use a forward fix. Do not roll the application back to a version that does

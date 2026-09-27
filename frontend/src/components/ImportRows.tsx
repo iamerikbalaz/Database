@@ -8,7 +8,7 @@ export function ImportRows({ data, navigate }: { data: ImportPreview | ImportRes
   const company = (id: string) => references.companies.find((item) => item.id === id)?.name ?? "Unavailable company";
   return <div className="import-rows">
     <div className="table-scroll" tabIndex={0} role="region" aria-label="Imported material rows"><table>
-      <thead><tr><th>Source row</th><th>Material</th><th>Project / company</th><th>Brand / company</th><th>Processor</th></tr></thead>
+      <thead><tr><th>Source row</th><th>Material</th><th>Project / company</th><th>Brand / company</th><th>Processor</th>{data.rows.some((row) => row.properties) && <th>Imported properties</th>}</tr></thead>
       <tbody>{data.rows.slice(page * 50, (page + 1) * 50).map((row) => {
         const project = references.projects.find((item) => item.id === row.projectId);
         const brand = references.brands.find((item) => item.id === row.brandId);
@@ -18,7 +18,8 @@ export function ImportRows({ data, navigate }: { data: ImportPreview | ImportRes
           <small>{row.name}</small>{row.folderPath && <small>Unverified folder reference: {row.folderPath}</small>}</td>
           <td>{row.projectId === null ? "No project assigned" : project?.name ?? "Unavailable project"}<small>{project ? company(project.companyId) : ""}</small></td>
           <td>{brand?.name ?? "Unavailable brand"}<small>{brand ? company(brand.companyId) : ""}</small></td>
-          <td>{references.processors.find((item) => item.id === row.processorId)?.name ?? "Unavailable processor"}</td></tr>;
+          <td>{references.processors.find((item) => item.id === row.processorId)?.name ?? "Unavailable processor"}</td>
+          {data.rows.some((item) => item.properties) && <td>{row.properties && Object.entries(row.properties).map(([key, value]) => <small key={key}>{key.replaceAll("_", " ")}: {value ?? "Empty"}</small>)}</td>}</tr>;
       })}</tbody>
     </table></div>
     {data.rows.length > 50 && <div className="import-pagination">

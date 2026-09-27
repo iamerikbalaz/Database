@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import { runManifest } from "./run-manifest";
 import { retainedPass, signInThroughApi } from "./auth-helpers";
 
-test("approved CSV, downloads and proof-bound local removal survive retained restart", async ({ page }) => {
+test("automatic source checks, global ZIP settings and immutable downloads survive retained restart", async ({ page }) => {
   test.setTimeout(120_000);
   await signInThroughApi(page);
   const fixture = runManifest.state.publication, path = `/api/materials/${fixture.id}`;
@@ -17,29 +17,7 @@ test("approved CSV, downloads and proof-bound local removal survive retained res
     expect(category.status()).toBe(201);
     expect((await page.request.post(path + "/content", { headers, data: { idempotency_key: crypto.randomUUID(), expected_revision: 0,
       description: "Synthetic approved export", credits: 12, tags: ["matte"], category_ids: [(await category.json()).id], collection_ids: [], reason: "Prepare synthetic export" } })).status()).toBe(200);
-    const review = await (await page.request.get(path + "/review")).json();
-    const check = await page.request.post(path + "/technical-review/run", { headers, data: { idempotency_key: crypto.randomUUID(), expected_generation: review.generation } });
-    expect(check.status()).toBe(200); let current = await check.json();
-    for (const kind of ["TECHNICAL", "PUBLICATION"]) {
-      const decision = await page.request.post(path + "/approvals", { headers, data: { idempotency_key: crypto.randomUUID(),
-        expected_generation: current.review.generation, expected_revision_hash: current.review.revision_hash, technical_check_id: current.validation.id,
-        kind, warnings_acknowledged: true, note: "Reviewed synthetic files and accepted missing optional previews/source" } });
-      expect(decision.status()).toBe(200); current = await decision.json();
-    }
-    const content = await (await page.request.get(path + "/content-review")).json();
-    expect((await page.request.post(path + "/content/approve", { headers, data: { idempotency_key: crypto.randomUUID(), expected_revision: content.content_revision,
-      expected_context_hash: content.context_hash, warnings_acknowledged: true, note: "Reviewed synthetic publication content" } })).status()).toBe(200);
-  }
-  if (!retainedPass) {
-    await page.goto("/materials/" + fixture.id);
-    const policy = page.getByRole("article", { name: "ZIP packaging policy", exact: true });
-    await policy.locator("summary").click();
-    await expect(policy.getByText("No ZIP policy has been saved.", { exact: true })).toBeVisible();
-    await policy.getByLabel("Reason for ZIP policy decision").fill("Freeze original synthetic ZIP dates");
-    await policy.getByRole("checkbox", { name: "I reviewed this ZIP rule and its effect.", exact: true }).check();
-    await policy.getByRole("button", { name: "Save ZIP policy", exact: true }).click();
-    await expect(policy.getByText("ZIP policy saved.", { exact: true })).toBeVisible();
-    await expect(policy.getByText("Current · retain packaging dates", { exact: true })).toBeVisible();
+    expect((await (await page.request.get(path + "/packaging-policy")).json()).current).toBe(null);
   }
   await page.goto("/materials");
   if (!retainedPass) {
@@ -50,15 +28,17 @@ test("approved CSV, downloads and proof-bound local removal survive retained res
     await page.getByRole("searchbox", { name: "Search materials", exact: true }).fill("#E2E-publication-ready");
     await page.getByRole("button", { name: "Prepare filtered for publication (1)", exact: true }).click();
     await expect(page.getByRole("searchbox", { name: "Search materials", exact: true })).toBeDisabled();
-    await page.getByRole("button", { name: "Review selected materials", exact: true }).click();
-    await expect(page.getByText("All selected materials passed the current approval checks.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Check sources and review", exact: true }).click();
+    await expect(page.getByText("All selected materials passed the source and export checks.", { exact: true })).toBeVisible();
+    expect((await (await page.request.get(path + "/technical-review")).json()).approvals).toEqual([]);
+    expect((await (await page.request.get(path + "/content-approvals")).json())).toEqual([]);
+    expect((await (await page.request.get(path)).json()).checked_status).toBe("no");
     const previewPanel = page.getByRole("group", { name: "2. Review export values", exact: true });
     await expect(previewPanel).toContainText("12.5x34 cm");
     await previewPanel.screenshot({ path: test.info().outputPath("publication-preview.png") });
     await page.setViewportSize({ width: 390, height: 844 });
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await previewPanel.screenshot({ path: test.info().outputPath("publication-preview-mobile.png") });
-    await page.getByLabel("Reason for preparing this batch").fill("Freeze synthetic approved CSV");
     await page.getByRole("checkbox", { name: "I reviewed the selected materials and export values.", exact: true }).check();
     let discarded = false; const sent: unknown[] = [];
     await page.route("**/api/publication-batches", async (route) => {
@@ -74,6 +54,8 @@ test("approved CSV, downloads and proof-bound local removal survive retained res
     await expect(page.getByRole("status")).toContainText("CSV batch saved");
     expect(sent).toHaveLength(2); expect(sent[0]).toEqual(sent[1]);
     await page.unroute("**/api/publication-batches");
+    const automaticPolicy = (await (await page.request.get(path + "/packaging-policy")).json()).current;
+    expect(automaticPolicy.evidence.selection_mode).toBe("AUTOMATIC");
     const batchPanel = page.getByRole("group", { name: "Saved CSV batch", exact: true });
     await batchPanel.getByText(`1. ${fixture.material_name} — ${fixture.technical_identity}`, { exact: true }).click();
     const packaging = batchPanel.getByRole("article", { name: "Material packaging", exact: true });
@@ -235,46 +217,44 @@ test("approved CSV, downloads and proof-bound local removal survive retained res
   expect(csv.subarray(0, 3).equals(Buffer.from([239, 187, 191]))).toBe(true);
   expect(csv.toString("utf8")).toContain(";12;12.5x34 cm;"); expect(csv.toString("utf8")).not.toContain("Later unapproved content");
   const currentPreview = await page.request.post("/api/publication-batches/preview", { headers, data: { material_ids: [fixture.id] } });
-  expect(currentPreview.status()).toBe(200); expect((await currentPreview.json()).can_prepare).toBe(false);
+  expect(currentPreview.status()).toBe(200); expect((await currentPreview.json()).preview_hash).not.toBe(summary.snapshot_hash);
   expect((await (await page.request.get(path)).json()).is_published).toBe(false);
   await saved.screenshot({ path: test.info().outputPath("publication-saved.png") });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await saved.screenshot({ path: test.info().outputPath("publication-saved-mobile.png") });
-  await page.goto("/materials/" + fixture.id);
-  const policy = page.getByRole("article", { name: "ZIP packaging policy", exact: true });
-  await policy.locator("summary").click();
+  const frozenPolicyId = completedJob.policy_id;
+  await page.goto("/settings");
+  await expect(page.getByRole("heading", { name: "Automatic ZIP packaging", exact: true })).toBeVisible();
   if (!retainedPass) {
-    await policy.getByRole("button", { name: "Review ZIP policy change", exact: true }).click();
-    await expect(policy.getByRole("region", { name: "ZIP policy change preview", exact: true })).toContainText("All current technical, publication and content approvals");
-    await policy.getByLabel("Reason for ZIP policy decision").fill("Reviewed synthetic historical override");
-    await policy.getByRole("checkbox", { name: "I reviewed this ZIP rule and its effect.", exact: true }).check();
+    await page.getByLabel("Cutoff date", { exact: true }).fill("2099-01-01");
     let discarded = false; const sent: unknown[] = [];
-    await page.route("**" + path + "/packaging-policy/override", async (route) => {
+    await page.route("**/api/settings/packaging", async (route) => {
+      if (route.request().method() !== "POST") { await route.continue(); return; }
       sent.push(route.request().postDataJSON());
       if (!discarded) { discarded = true; expect((await route.fetch()).status()).toBe(200); await route.abort("failed"); }
       else await route.continue();
     });
-    await policy.getByRole("button", { name: "Confirm ZIP policy change", exact: true }).click();
-    await expect(policy.getByRole("alert")).toContainText("The outcome is unknown");
-    await expect(policy.getByLabel("Reason for ZIP policy decision")).toBeDisabled();
-    await policy.getByRole("button", { name: "Retry same policy request", exact: true }).click();
-    await expect(policy.getByText("ZIP policy saved.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Save packaging settings", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("The save result is unknown");
+    await expect(page.getByLabel("Cutoff date", { exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "Recover same settings request", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText("Packaging settings saved");
     expect(sent).toHaveLength(2); expect(sent[0]).toEqual(sent[1]);
-    await page.unroute("**" + path + "/packaging-policy/override");
+    await page.unroute("**/api/settings/packaging");
   }
-  await expect(policy.getByText("Legacy · normalize ZIP dates to 1 January 2026", { exact: true })).toBeVisible();
-  await policy.getByRole("button", { name: "Load policy history", exact: true }).click();
-  await expect(policy.getByRole("listitem")).toHaveCount(2);
-  await expect(policy.getByRole("listitem").last()).toContainText("Freeze original synthetic ZIP dates");
-  const policyReview = await (await page.request.get(path + "/review")).json();
-  expect(policyReview.revision_hash).toBe(null);
+  await expect(page.getByLabel("Cutoff date", { exact: true })).toHaveValue("2099-01-01");
+  expect((await (await page.request.get(path + "/packaging-executions/" + completedJob.id)).json()).policy_id).toBe(frozenPolicyId);
   expect((await page.request.get("/api/publication-batches/" + summary.id + "/csv")).status()).toBe(200);
   expect((await (await page.request.get("/api/publication-batches/" + summary.id)).json()).csv_sha256).toBe(summary.csv_sha256);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await policy.screenshot({ path: test.info().outputPath("packaging-policy-mobile.png") });
+  await page.screenshot({ path: test.info().outputPath("packaging-settings-mobile.png") });
   await page.setViewportSize({ width: 1280, height: 900 });
-  await policy.screenshot({ path: test.info().outputPath("packaging-policy-desktop.png") });
+  await page.screenshot({ path: test.info().outputPath("packaging-settings-desktop.png") });
+  await page.goto("/publication");
+  await page.getByRole("button", { name: "Load latest batches", exact: true }).click();
+  await page.getByRole("button", { name: `Open batch ${summary.id}`, exact: true }).click();
+  await page.getByRole("group", { name: "Saved CSV batch", exact: true }).getByText(`1. ${fixture.material_name} — ${fixture.technical_identity}`, { exact: true }).click();
   // Capture the persisted job in both independently retained pass directories.
   const retainedJob = page.getByRole("article", { name: "Material packaging", exact: true });
   await retainedJob.locator("summary").click();

@@ -12,37 +12,27 @@ test("real image checks and two human approvals survive the retained-data restar
     expect((await page.request.post(path + "/mark-done", { headers })).status()).toBe(200);
   }
   await page.goto(`/materials/${fixture.id}`);
-  const panel = page.getByRole("article", { name: "Technical review" });
-  await expect(panel.getByRole("button", { name: "Run technical checks" })).toBeEnabled();
+  await expect(page.getByRole("article", { name: "Technical review" })).toHaveCount(0);
   const initial = await (await page.request.get(path + "/technical-review")).json();
+  const response = await page.request.post(path + "/technical-review/run", { headers, data: { idempotency_key: crypto.randomUUID(), expected_generation: initial.review.generation } });
+  expect(response.status()).toBe(200); let current = await response.json();
   if (!retainedPass) {
-    const response = page.waitForResponse((item) => item.request().method() === "POST" && new URL(item.url()).pathname === path + "/technical-review/run");
-    await panel.getByRole("button", { name: "Run technical checks" }).click();
-    expect((await response).status()).toBe(200);
-    await expect(panel.getByText("Passed with warnings", { exact: true })).toBeVisible();
-    await expect(panel.getByRole("region", { name: "Technical warnings" })).toContainText("Root metadata.txt is missing");
-    await panel.getByText("Verified maps (3)", { exact: true }).click();
-    await expect(panel.getByRole("cell", { name: "1024 × 1024" })).toHaveCount(3);
-    for (const label of ["Approve technically", "Approve for publication"]) {
-      const approve = panel.getByRole("button", { name: label, exact: true });
-      await expect(approve).toBeDisabled();
-      await panel.getByLabel("Approval note", { exact: true }).fill("Synthetic test maps reviewed; metadata and previews may be added later.");
-      await panel.getByRole("checkbox").check();
-      const approved = page.waitForResponse((item) => item.request().method() === "POST" && new URL(item.url()).pathname === path + "/approvals");
-      await approve.click(); expect((await approved).status()).toBe(200);
+    expect(current.validation.report.can_approve).toBe(true);
+    expect(current.validation.report.warnings.some((item: { code: string }) => item.code === "SOURCE_METADATA_MISSING")).toBe(true);
+    expect(current.validation.report.images.map((item: { width: number; height: number }) => [item.width, item.height])).toEqual([[1024, 1024], [1024, 1024], [1024, 1024]]);
+    for (const kind of ["TECHNICAL", "PUBLICATION"]) {
+      const approved = await page.request.post(path + "/approvals", { headers, data: { kind, expected_generation: current.review.generation,
+        expected_revision_hash: current.review.revision_hash, technical_check_id: current.validation.id, idempotency_key: crypto.randomUUID(),
+        note: "Synthetic test maps reviewed; metadata and previews may be added later.", warnings_acknowledged: true } });
+      expect(approved.status()).toBe(200); current = await approved.json();
     }
   } else {
     expect(initial.approvals).toHaveLength(2);
-    const response = page.waitForResponse((item) => item.request().method() === "POST" && new URL(item.url()).pathname === path + "/technical-review/run");
-    await panel.getByRole("button", { name: "Run technical checks" }).click();
-    const rechecked = await response; expect(rechecked.status()).toBe(200);
-    const current = await rechecked.json();
     expect(current.review.generation).toBe(initial.review.generation);
     expect(current.review.revision_hash).toBe(initial.review.revision_hash);
     expect(current.approvals).toEqual(initial.approvals);
   }
   await page.reload();
-  await expect(panel.getByText("Approved for this revision", { exact: true })).toHaveCount(2);
   const stored = await (await page.request.get(path + "/technical-review")).json();
   expect(stored.validation.report.images).toHaveLength(3);
   expect(stored.approvals).toHaveLength(2);

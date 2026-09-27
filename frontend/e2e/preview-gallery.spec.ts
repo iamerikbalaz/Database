@@ -62,8 +62,8 @@ test("materials grid, primary previews, sizes and cycling survive a retained-dat
   }
   await page.goto(`/materials/${runManifest.state.valid.id}`);
   // Finish all independent detail reads before navigating away.
-  for (const name of ["Reload identity status", "Reload content approval", "Reload technical review", "Reload source review"])
-    await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
+  await expect(page.getByRole("article", { name: "Material properties" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Color HEX", exact: true })).toBeVisible();
   await expect(page.getByRole("article", { name: "Publication content", exact: true }).getByText(/^Revision \d+ ·/)).toBeVisible();
   const gallery = page.getByRole("article", { name: "Preview gallery", exact: true });
   await expect(gallery.getByRole("button", { name: "Close preview gallery" })).toBeVisible();

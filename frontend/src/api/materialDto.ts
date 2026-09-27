@@ -19,6 +19,8 @@ export interface MaterialCreateDto {
 }
 export type MaterialPatchDto = Partial<Omit<MaterialCreateDto, "published_brand_id">>;
 export interface MaterialDto extends Omit<MaterialCreateDto, "project_id"> {
+  is_archived?: boolean;
+  archived_at?: string | null;
   checked_status?: typeof checkedStatuses[number];
   note?: string | null;
   project_id: string | null;
@@ -48,6 +50,8 @@ export function parseMaterial(input: unknown): MaterialDto {
   if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 9999)
     throw new Error("Invalid material sequence");
   return {
+    ...(v.is_archived !== undefined ? { is_archived: boolean(v.is_archived) } : {}),
+    ...(v.archived_at !== undefined ? { archived_at: nullable(v.archived_at) } : {}),
     ...(v.checked_status !== undefined ? { checked_status: choice(v.checked_status, checkedStatuses) } : {}),
     ...(v.note !== undefined ? { note: nullable(v.note) } : {}),
     id: uuid(v.id), project_id: v.project_id === null ? null : uuid(v.project_id), published_brand_id: uuid(v.published_brand_id),
@@ -62,6 +66,7 @@ export function parseMaterial(input: unknown): MaterialDto {
 }
 export function materialFromDto(v: MaterialDto) {
   return {
+    isArchived: v.is_archived ?? false, archivedAt: v.archived_at ?? null,
     checkedStatus: v.checked_status ?? "no", note: v.note ?? null,
     id: v.id, projectId: v.project_id, publishedBrandId: v.published_brand_id,
     materialName: v.material_name, mainCategoryCode: v.main_category_code,

@@ -7,6 +7,8 @@ import { requestNavigation } from "../navigationGuard";
 import { ApiError } from "../api/errors";
 import { GalleryStore } from "../api/galleryStore";
 import { materialFromDto, internalUserFromDto } from "../api/materialDto";
+import { materialArchiveClient, archivePreview, lifecycleEvent } from "../api/materialArchiveClient";
+import { archivePreviewDto, lifecycleEventDto } from "../test/materialArchiveFixtures";
 import { materialTableClient } from "../api/materialTableClient";
 import { previewClient } from "../api/previewClient";
 import { projectFromDto, publishedBrandFromDto } from "../api/dto";
@@ -28,7 +30,7 @@ function setup(materials = [first, second]) {
   </SessionContext.Provider>);
 }
 function bulk() {
-  fireEvent.click(screen.getByRole("button", { name: "Select all filtered (2)" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select all visible materials" }));
   fireEvent.click(screen.getByRole("button", { name: "Review bulk change" }));
   return screen.getByRole("dialog", { name: "Change 2 materials" });
 }
@@ -90,11 +92,12 @@ it("saves multiline Note explicitly", async () => {
 });
 it("shows coded category paths and persists only column display preferences", () => {
   setup([first]); expect(screen.getByRole("combobox", { name: `Category for ${first.materialName}` })).toHaveTextContent("K03 · Metal / Tiles");
-  fireEvent.click(screen.getByText(/Properties ·/));
+  fireEvent.click(screen.getByText("Properties"));
   fireEvent.click(screen.getByRole("checkbox", { name: "Folder path" }));
-  fireEvent.change(screen.getByRole("spinbutton", { name: "Width of Folder path" }), { target: { value: "500" } });
+  expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Move .* (left|right)/ })).not.toBeInTheDocument();
   expect(screen.getByRole("columnheader", { name: "Folder path" })).toBeVisible();
-  expect(localStorage.getItem("materials.columns.v1")).toContain('"width":500');
+  expect(localStorage.getItem("materials.columns.v1")).toContain('"key":"folder","width":340,"visible":true');
   expect(localStorage.getItem("materials.columns.v1")).not.toContain(first.id);
 });
 it("loads a small primary thumbnail only near the viewport", async () => {
@@ -134,4 +137,75 @@ it("stops remaining Done operations when preflight is known unavailable", async 
   expect(update).toHaveBeenCalledTimes(1);
   expect(within(dialog).getByText(/Nothing was changed/)).toBeVisible();
   expect(within(dialog).getByRole("button", { name: "Close report" })).toBeEnabled();
+});
+
+it("shows identical editable properties in detail and allows archived database fields", async () => {
+  const archived = { ...first, isArchived: true, archivedAt: "2026-09-27T12:00:00Z" };
+  const update = vi.spyOn(materialTableClient, "update").mockResolvedValue({ ...first, note: "Archive note" });
+  render(<SessionContext.Provider value={{ session: { user: { ...processorDto, role: "ADMIN" }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}>
+    <MaterialsTable detail materials={[archived]} store={new GalleryStore()} client={mockApiClient} projects={[projectFromDto(materialProject)]}
+      brands={[publishedBrandFromDto(materialBrand)]} users={[internalUserFromDto(processorDto)]} navigate={vi.fn()} refresh={vi.fn()} onBusyChange={vi.fn()} />
+  </SessionContext.Provider>);
+  expect(screen.getByRole("combobox", { name: `Status for ${first.materialName}` })).toBeDisabled();
+  expect(screen.getByRole("combobox", { name: `Category for ${first.materialName}` })).toBeDisabled();
+  expect(screen.getByRole("combobox", { name: `Project for ${first.materialName}` })).toBeEnabled();
+  expect(screen.getByRole("checkbox", { name: `Published for ${first.materialName}` })).toBeEnabled();
+  expect(screen.getByRole("checkbox", { name: `Archived for ${first.materialName}` })).toBeChecked();
+  fireEvent.change(screen.getByRole("textbox", { name: `Note for ${first.materialName}` }), { target: { value: "Archive note" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save note" }));
+  await waitFor(() => expect(update).toHaveBeenCalledWith(archived, { note: "Archive note" }, expect.any(String)));
+  await screen.findByText("Saved. Refresh materials to reapply the current filters.");
+  expect(screen.getByRole("checkbox", { name: `Archived for ${first.materialName}` })).toBeChecked();
+  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+});
+
+function archiveBulk(restoring = false) {
+  setup(restoring ? [first, second].map(row => ({ ...row, isArchived: true, archivedAt: "2026-09-27T12:00:00Z" })) : undefined);
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select all visible materials" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Property" }), { target: { value: "is_archived" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "New value" }), { target: { value: restoring ? "false" : "true" } });
+  fireEvent.click(screen.getByRole("button", { name: "Review bulk change" }));
+  return screen.getByRole("dialog", { name: "Change 2 materials" });
+}
+it.each([false, true])("changes Archived in bulk with exact recovery (restoring=%s)", async restoring => {
+  const version = restoring ? 1 : 0;
+  const preview = vi.spyOn(materialArchiveClient, "preview").mockImplementation(async (id, action) => archivePreview(archivePreviewDto(version, id), id, action));
+  const command = vi.spyOn(materialArchiveClient, "command").mockRejectedValueOnce(new TypeError("Lost response"))
+    .mockImplementation(async current => lifecycleEvent(lifecycleEventDto(version + 1, current.id), current.id));
+  const table = vi.spyOn(materialTableClient, "update");
+  const dialog = archiveBulk(restoring);
+  expect(screen.queryByLabelText("Reason for lifecycle change")).not.toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Apply change" }));
+  const retry = await within(dialog).findByRole("button", { name: "Retry same request and continue" });
+  expect(requestNavigation("/projects")).toBe(false);
+  expect(preview).toHaveBeenCalledTimes(1); expect(command).toHaveBeenCalledTimes(1);
+  fireEvent.click(retry);
+  await within(dialog).findByText(/2 saved · 0 rejected/);
+  expect(command.mock.calls[1]).toEqual(command.mock.calls[0]);
+  expect(command.mock.calls[2][0].id).toBe(second.id);
+  expect(command.mock.calls[0][2]).toMatchObject({ action: restoring ? "RESTORE" : "ARCHIVE", reason: "Archived property changed." });
+  expect(preview).toHaveBeenCalledTimes(2); expect(table).not.toHaveBeenCalled();
+});
+it("stops bulk archive before writes when eligibility is unavailable", async () => {
+  vi.spyOn(materialArchiveClient, "preview").mockRejectedValue(new TypeError("Unavailable"));
+  const command = vi.spyOn(materialArchiveClient, "command");
+  const dialog = archiveBulk();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Apply change" }));
+  await within(dialog).findByText("Not attempted");
+  expect(within(dialog).getByText(/Nothing was changed/)).toBeVisible();
+  expect(within(dialog).getByRole("button", { name: "Close report" })).toBeEnabled();
+  expect(command).not.toHaveBeenCalled();
+});
+it("does not dispatch a bulk archive after unmount during preview", async () => {
+  let finish!: (value: ReturnType<typeof archivePreview>) => void;
+  vi.spyOn(materialArchiveClient, "preview").mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  const command = vi.spyOn(materialArchiveClient, "command");
+  const tree = setup();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select all visible materials" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Property" }), { target: { value: "is_archived" } });
+  fireEvent.click(screen.getByRole("button", { name: "Review bulk change" }));
+  fireEvent.click(screen.getByRole("button", { name: "Apply change" }));
+  tree.unmount();
+  await act(async () => finish(archivePreview(archivePreviewDto(0, first.id), first.id, "ARCHIVE")));
+  expect(command).not.toHaveBeenCalled();
 });

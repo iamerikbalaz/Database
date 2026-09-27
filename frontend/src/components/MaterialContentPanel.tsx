@@ -19,7 +19,6 @@ function ContentEditor({ content, categories, collections, onSaved, reload }: {
   const [tags, setTags] = useState(content.tags.join("\n"));
   const [selectedCategories, setCategories] = useState(content.categories.map((item) => item.id));
   const [selectedCollections, setCollections] = useState(content.collections.map((item) => item.id));
-  const [reason, setReason] = useState("");
   const [error, setError] = useState(""); const [pending, setPending] = useState(false); const [uncertain, setUncertain] = useState(false);
   const payload = useRef<ContentPayload | null>(null); const sending = useRef(false);
   const save = async () => {
@@ -32,7 +31,7 @@ function ContentEditor({ content, categories, collections, onSaved, reload }: {
     sending.current = true; setPending(true); setError("");
     payload.current ??= { idempotency_key: crypto.randomUUID(), expected_revision: content.revision,
       description: description.trim() || null, credits: credits === "" ? null : Number(credits), tags: tagValues,
-      category_ids: selectedCategories, collection_ids: selectedCollections, reason: reason.trim() };
+      category_ids: selectedCategories, collection_ids: selectedCollections };
     try {
       await catalogClient.save(content.materialId, payload.current);
       payload.current = null; setUncertain(false); reload(); onSaved();
@@ -51,10 +50,9 @@ function ContentEditor({ content, categories, collections, onSaved, reload }: {
       onChange={(event) => change(event.target.checked ? [...selected, item.id] : selected.filter((id) => id !== item.id))} />{vocabularyLabel(item)}{!item.active && " (inactive; remove before saving)"}</label>)}
   </fieldset>;
   return <>
-    <p>Revision {content.revision} · {content.status === "EMPTY" ? "Empty" : "Saved content"}. Saving a change invalidates technical checks and publication approvals.</p>
+    <p>Revision {content.revision} · {content.status === "EMPTY" ? "Empty" : "Saved content"}. Saving a change requires fresh source checks before preparing another publication batch.</p>
     {content.aiProvenance && <p>Based on AI proposal from {content.aiProvenance.provider}, {content.aiProvenance.model} ({content.aiProvenance.promptVersion}).
-      {content.aiProvenance.edited ? " The proposed wording or tags were edited." : " The proposed wording and tags were adopted unchanged."}
-      {content.status === "APPROVED" ? " This content has a current human approval." : " Human content approval is still required."}</p>}
+      {content.aiProvenance.edited ? " The proposed wording or tags were edited." : " The proposed wording and tags were adopted unchanged."}</p>}
     {error && <p role="alert" className="field-error">{error}</p>}
     {allowed ? <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <fieldset disabled={pending || uncertain}><legend>Publication draft</legend>
@@ -64,9 +62,8 @@ function ContentEditor({ content, categories, collections, onSaved, reload }: {
         <p>Categories and tags remain individual values. Colons are reserved for publication export.</p>
         {choices("Online categories", categories, selectedCategories, setCategories)}
         {choices("Brand collections", collections, selectedCollections, setCollections)}
-        <label>Reason for content change<textarea required maxLength={2000} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
       </fieldset>
-      <button className="button button--primary" disabled={pending || !reason.trim()}>{uncertain ? "Retry same content save" : "Save publication draft"}</button>
+      <button className="button button--primary" disabled={pending}>{uncertain ? "Retry same content save" : "Save publication draft"}</button>
     </form> : <dl><dt>Description</dt><dd>{description || "Not entered"}</dd><dt>Credits</dt><dd>{credits || "Not entered"}</dd>
       <dt>Tags</dt><dd>{content.tags.join(", ") || "None"}</dd><dt>Online categories</dt><dd>{content.categories.map(item => vocabularyLabel(categories.find(current => current.id === item.id) ?? item)).join(", ") || "None"}</dd>
       <dt>Brand collections</dt><dd>{content.collections.map(item => vocabularyLabel(collections.find(current => current.id === item.id) ?? item)).join(", ") || "None"}</dd></dl>}
@@ -92,7 +89,7 @@ export function MaterialContentPanel({ material, onChanged }: { material: Materi
   }, [material.id, material.publishedBrandId, actor]);
   const resource = useResource(load);
   return <article className="panel catalog-content" aria-label="Publication content"><h2>Publication content</h2>
-    <p>Prepare descriptions, credits, online categories, tags and brand collections. Changed content requires a new approval.</p>
+    <p>Prepare descriptions, credits, online categories, tags and brand collections.</p>
     {resource.error ? <ErrorState message="Publication content could not be loaded." retry={resource.retry} /> : !resource.data ? <LoadingState label="Loading publication content…" /> :
       <ContentEditor key={resource.data.content.revision} {...resource.data} onSaved={onChanged} reload={resource.retry} />}
   </article>;

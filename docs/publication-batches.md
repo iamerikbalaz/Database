@@ -6,10 +6,13 @@ It has no filesystem or external service effects. Materials keep their publicati
 
 ## Operator flow
 
-Sign in as ADMIN or LEADERSHIP and open **Publication** (`/publication`). Search DONE
-materials by name/project, explicitly select 1–100, and review their export values.
+Sign in as ADMIN or LEADERSHIP and open **Publication batches** in Materials
+(`/publication` remains compatible). Select 1–100 DONE materials and use **Check
+sources and review** to validate source files and review export values.
 Resolve any blocking findings in the material screens and reload the preview.
-Enter a reason, confirm the reviewed values, acknowledge any warnings, then save.
+Optionally enter a reason, confirm the reviewed values, acknowledge any warnings,
+then save. Human approval rows are not required in phase one; saved snapshots
+retain any historical decisions without creating an approval automatically.
 History supports bounded pages and downloading the exact saved CSV.
 
 The file is UTF-8 with BOM, semicolons and CRLF; see `publication-csv.md`. Browser
@@ -30,7 +33,7 @@ authorized roles even after current approvals have become stale.
 
 - `POST /api/publication-batches/preview`: read-only preview (documented separately).
 - `POST /api/publication-batches`: `material_ids`, `expected_preview_hash`, UUID
-  `idempotency_key`, nonempty `reason`, boolean `warnings_acknowledged`; returns 201.
+  `idempotency_key`, optional `reason`, boolean `warnings_acknowledged`; returns 201.
 - `GET /api/publication-batches?after=<UUID>&limit=20`: descending timestamp/UUID
   cursor, maximum 50. Browser requests 20.
 - `GET /api/publication-batches/{id}`: immutable rows and approval references.
@@ -47,7 +50,9 @@ request body under the same key fails. Reversing selection order is equivalent.
 Session expiry is rechecked after domain work before recording new data.
 
 Private snapshots bind workflow, identity, inventory, normalized metadata source,
-technical report, all three human decisions and content context. API responses
+technical report, optional human decisions and content context. Schema-2 batches
+also freeze [global packaging settings](packaging-policy.md); policy selection is
+automatic and existing artifacts retain their recorded rule. API responses
 omit source paths and raw metadata. Composite foreign keys prevent cross-material
 approval/check/metadata references. ORM and PostgreSQL triggers reject UPDATE,
 DELETE and TRUNCATE for both provenance tables. Stored status is always PREPARED.

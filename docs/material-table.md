@@ -6,7 +6,8 @@
   preview (FABRIC_1.png, then SPHERE_1.png, then the remaining PNGs). It reuses the
   bounded thumbnail queue/cache and loads only near the viewport.
 - Preview and material identity stay pinned on desktop. Properties controls
-  visibility, order and widths of the other columns. Only display preferences
+  visibility of the other columns through the same disclosure and checkboxes as
+  Projects, Companies and Catalog. Column order and widths use fixed defaults. Only display preferences
   persist in local storage; private row values and images do not.
 - Project, Processor, Status, Checked and Published save directly from their
   controls. Note supports 10,000 characters, newlines, an explicit Save button
@@ -17,6 +18,8 @@
   Unlinked, unpublished materials in progress can change identity after a
   database-only confirmation, with numbering reservations and identity history.
   Active operations and existing brand collections still block unsafe transfers.
+- The table header checkbox selects or clears every filtered row; duplicate
+  selection buttons are omitted.
 - Bulk selection covers every record returned by the current filters, including
   offscreen rows. The current API returns the complete filtered list without
   pagination. No server-side implicit “all records” mutation is performed.
@@ -57,6 +60,7 @@ so recovery resends the same payload/key instead of creating another batch.
 | Status | In progress / Done; one workflow field |
 | Checked | no / OK / Correction; explicitly human review |
 | Published | Yes / No; manual evidence, no upload or importer action |
+| Archived | Yes / No; logical archive with a recorded archive date, ADMIN only |
 | Note | Optional multiline text; independent of publication description |
 
 A transition to Done still reads and verifies the linked source folder and
@@ -68,10 +72,17 @@ grants human OK. Note and Published edits do not invalidate approvals.
 
 The old validation/publication state columns remain internal pipeline data and
 historical evidence. The main list/detail present the simplified human fields;
-the optional File check column and specialist technical panels retain diagnostics.
+the optional File check column retains diagnostics. Detail uses the same editable
+property controls as the table. Source review, AI/service controls, content approval,
+per-material ZIP policy and snapshot history panels are omitted; backend history
+and legacy endpoints remain available.
 
-Administrators and production leads can edit all these properties. Processors
+Administrators and production leads can edit the ordinary properties; Archived is ADMIN only. Processors
 can change Status and Note on their own assigned materials. Leadership is read-only.
+Archived is also available for the fixed filtered selection in bulk changes. Each
+row uses its own lifecycle preview and exact command; uncertain outcomes retain
+that packet and stop the remaining rows until recovered. No reason entry is required.
+Changing Archived preserves Status, Checked, Published and current metadata.
 Every endpoint rechecks current authorization, archival state and active-operation
 locks, independently of what the browser enables.
 
@@ -124,3 +135,14 @@ The R100 local acceptance app still uses a dated derived-preview snapshot and
 has no live NAS worker connection. Ordinary database cell edits work there;
 Done preflight and linked identity planning require that connection. Source
 mutations, packaging and external publication remain disabled in that instance.
+
+
+## Archive view (2026-09-27)
+
+Archive is the same Materials component with a fixed `is_archived=true` query,
+including search, all filters, list/gallery, Properties and row selection. Archive
+date is shown with the Archived checkbox. Clearing Archived restores the record.
+Published is preserved. ADMIN can change Note, Project, Processor and Published;
+workflow, Checked and identity need restore. The migration preserves old lifecycle
+history, active-job fences and recorded external-dispatch blocks. See the
+[archive contract](material-archive-contract.md) for state/recovery details.

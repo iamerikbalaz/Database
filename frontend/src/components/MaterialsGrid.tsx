@@ -63,9 +63,9 @@ function MaterialTile({ material, store, size, navigate }: { material: Material;
       {!material.folderPath ? <span className="gallery-placeholder">No folder linked</span>
         : near ? <TilePreview key={`${material.id}:${material.folderPath}`} material={material} store={store} size={size === "small" ? 256 : 512} selectedName={selectedName} select={select} />
           : <span className="gallery-placeholder" aria-hidden="true" />}
-      <NavigationLink className="gallery-open" href={`/materials/${material.id}`} navigate={navigate} aria-label={`Open ${material.materialName}`} />
+      <NavigationLink className="gallery-open" href={material.isArchived ? `/material-archives/${material.id}` : `/materials/${material.id}`} navigate={navigate} aria-label={`Open ${material.materialName}`} />
     </div>
-    <div className="gallery-caption"><NavigationLink href={`/materials/${material.id}`} navigate={navigate} title={material.materialName}>{material.materialName}</NavigationLink>
+    <div className="gallery-caption"><NavigationLink href={material.isArchived ? `/material-archives/${material.id}` : `/materials/${material.id}`} navigate={navigate} title={material.materialName}>{material.materialName}</NavigationLink>
       <span title={material.technicalIdentity}>{material.technicalIdentity}</span></div>
   </li>;
 }

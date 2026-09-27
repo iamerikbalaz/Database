@@ -37,7 +37,7 @@ export function archiveDetail(input: unknown, materialId?: string) {
   for (const [field, [, parse]] of Object.entries(resourceHistorySchema.MATERIAL)) if (field in raw) parse(raw[field]);
   const version = integer(value.version), isArchived = boolean(value.is_archived), changedAt = value.changed_at === null ? null : timestamp(value.changed_at);
   if (isArchived !== (version % 2 === 1) || (version === 0) !== (changedAt === null)
-      || isArchived && (raw.is_published || raw.publication_status !== "NOT_PUBLISHED" || raw.workflow_status !== "IN_PROGRESS" || raw.validation_status !== "NOT_CHECKED")) throw new Error("Invalid archive state");
+      || isArchived && (raw.validation_status !== "NOT_CHECKED")) throw new Error("Invalid archive state");
   return { id, name: string(raw.material_name), technicalIdentity: string(raw.technical_identity), folderPath: nullable(raw.folder_path),
     assignedProcessorId: uuid(raw.assigned_processor_id), projectId: raw.project_id === null ? null : uuid(raw.project_id), brandId: uuid(raw.published_brand_id),
     sequenceNumber: integer(raw.sequence_number, 1, 9999), isArchived, version, changedAt };
@@ -60,7 +60,7 @@ export interface LifecycleRequest {
   reason: string;
   acknowledge: true;
 }
-export function lifecycleRequest(preview: ArchivePreview, explanation: string, requestKey: string = crypto.randomUUID()): LifecycleRequest {
+export function lifecycleRequest(preview: ArchivePreview, explanation: string = "Archived property changed.", requestKey: string = crypto.randomUUID()): LifecycleRequest {
   if (!preview.canApply || preview.isArchived !== (preview.action === "RESTORE")) throw new Error("Review current eligibility first");
   return { action: action(preview.action), request_key: key(requestKey), expected_version: integer(preview.version, 0, 2147483646),
     expected_input_sha256: digest(preview.inputHash), reason: reason(explanation), acknowledge: true };

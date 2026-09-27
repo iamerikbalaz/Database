@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../api/errors";
 import { packagingClient as api, packagingStatusLabel, type PackagingAction, type PackagingCommand, type PackagingJob, type PackagingReservation } from "../api/packagingClient";
-import { packagingPolicyClient, policyLabel } from "../api/packagingPolicyClient";
+import { packagingPolicyClient } from "../api/packagingPolicyClient";
 import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
 import { ErrorState, LoadingState } from "./PageState";
@@ -88,7 +88,7 @@ function PackagingWork({ materialId, batch, onChanged }: Props) {
   const reserve = () => {
     if (sending.current || reading.current || packet.current || !batch || !policy.data || !history.data?.enabled || !reason.trim() || !ack) return;
     packet.current = { kind: "reserve", body: { idempotency_key: crypto.randomUUID(), batch_id: batch.id,
-      expected_snapshot_hash: batch.snapshotHash, expected_policy_id: policy.data.id, reason: reason.trim() } }; void send();
+      expected_snapshot_hash: batch.snapshotHash, reason: reason.trim() } }; void send();
   };
   const command = (kind: PackagingAction) => {
     if (sending.current || reading.current || packet.current || !job || !reason.trim() || !ack) return;
@@ -112,8 +112,8 @@ function PackagingWork({ materialId, batch, onChanged }: Props) {
       {archived && <p>This material is archived. Saved packaging history and accepted files remain available.</p>}
       {batch && <p className="revision-hash">Selected CSV batch: {batch.id}</p>}
       {batch && !archived && policy.error && <ErrorState message="Saved ZIP policy could not be loaded." retry={policy.retry} />}
-      {batch && !archived && policy.data && <p>Saved ZIP rule: {policyLabel(policy.data.policy)} · {policy.data.storageTimezone}.</p>}
-      {batch && !archived && !policy.data && !policy.error && <p>Save the first ZIP policy on the material detail before reserving a job.</p>}
+      {batch && !archived && policy.data && <p>ZIP method is selected automatically from the settings saved with this batch.</p>}
+      {batch && !archived && !policy.data && !policy.error && <p>Prepare a new CSV batch to apply the automatic ZIP rule.</p>}
       {owned && <p>An active job owns this material. Open it below to finish or close it.</p>}
       {!batch && !archived && <p>Create a new reservation from a material in a saved CSV batch in Materials → Publication batches.</p>}
       <h3>Packaging history</h3>

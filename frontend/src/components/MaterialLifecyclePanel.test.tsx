@@ -27,114 +27,78 @@ function mount(role: Role = "ADMIN", archived = false) {
   const rendered = render(view());
   return { ...rendered, applied, navigate, change: (id: string, idActor = actor, nextRole = role) => rendered.rerender(view(id, idActor, nextRole)) };
 }
-function open() {
-  const details = screen.getByText("Archive and restore", { selector: "summary" }).parentElement as HTMLDetailsElement;
-  details.open = true; fireEvent(details, new Event("toggle")); return details;
-}
-async function review(restore = false) {
-  fireEvent.click(await screen.findByRole("button", { name: restore ? "Review restore" : "Review archive" }));
-  await screen.findByLabelText("Reason for lifecycle change");
-}
-function confirm(restore = false) {
-  fireEvent.change(screen.getByLabelText("Reason for lifecycle change"), { target: { value: "Reviewed lifecycle decision" } });
-  fireEvent.click(screen.getByRole("checkbox"));
-  fireEvent.click(screen.getByRole("button", { name: restore ? "Confirm restore" : "Confirm archive" }));
-}
 
-it.each([false, true])("requires an explicit review, reason and acknowledgment for restore=%s", async (restore) => {
-  const view = mount("ADMIN", restore); expect(api.history).not.toHaveBeenCalled(); open(); await review(restore);
+async function toggle() { fireEvent.click(screen.getByRole("checkbox", { name: "Archived" })); await waitFor(() => expect(api.preview).toHaveBeenCalled()); }
+
+it.each([false, true])("toggles Archived without reason or extra acknowledgment, restore=%s", async (restore) => {
+  const view = mount("ADMIN", restore); await toggle();
+  await waitFor(() => expect(view.applied).toHaveBeenCalledTimes(1));
   expect(api.preview).toHaveBeenCalledWith(archiveMaterialId, restore ? "RESTORE" : "ARCHIVE");
-  expect(screen.getByRole("button", { name: restore ? "Confirm restore" : "Confirm archive" })).toBeDisabled();
-  confirm(restore);
-  await screen.findByRole("status"); await waitFor(() => expect(view.applied).toHaveBeenCalledTimes(1));
-  expect(api.command).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(api.command).mock.calls[0][2]).toMatchObject({ action: restore ? "RESTORE" : "ARCHIVE", expected_version: restore ? 1 : 0, acknowledge: true });
+  expect(vi.mocked(api.command).mock.calls[0][2]).toMatchObject({ action: restore ? "RESTORE" : "ARCHIVE", acknowledge: true, reason: "Archived property changed." });
+  expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  expect(api.history).not.toHaveBeenCalled();
 });
-it.each(["PROCESSOR", "PRODUCTION_LEAD", "LEADERSHIP"] as const)("hides all lifecycle controls from %s", (role) => {
-  mount(role); expect(screen.queryByText("Archive and restore")).not.toBeInTheDocument(); expect(api.history).not.toHaveBeenCalled();
+it.each(["PROCESSOR", "PRODUCTION_LEAD", "LEADERSHIP"] as const)("keeps the archive property read only for %s", role => {
+  mount(role); expect(screen.getByRole("checkbox", { name: "Archived" })).toBeDisabled(); expect(api.preview).not.toHaveBeenCalled();
 });
-it("shows eligibility blockers without exposing a confirm action", async () => {
-  vi.mocked(api.preview).mockResolvedValueOnce({ ...archivePreview(archivePreviewDto(), archiveMaterialId, "ARCHIVE"), canApply: false, blockedCode: "MATERIAL_OPERATION_ACTIVE" });
-  mount(); open(); fireEvent.click(await screen.findByRole("button", { name: "Review archive" }));
-  await screen.findByText(/This action is currently blocked/);
-  expect(screen.queryByRole("button", { name: "Confirm archive" })).not.toBeInTheDocument(); expect(api.command).not.toHaveBeenCalled();
-});
-it("explains that closing a storage job does not reconcile external files", async () => {
+it("shows work and external state blockers without issuing a command", async () => {
   vi.mocked(api.preview).mockResolvedValueOnce({ ...archivePreview(archivePreviewDto(), archiveMaterialId, "ARCHIVE"), canApply: false, blockedCode: "MATERIAL_LIFECYCLE_EXTERNAL_STATE_BLOCKED" });
-  mount(); open(); fireEvent.click(await screen.findByRole("button", { name: "Review archive" }));
-  await screen.findByText(/Closing that job does not prove that external files were removed/);
-  expect(screen.queryByRole("button", { name: "Confirm archive" })).not.toBeInTheDocument(); expect(api.command).not.toHaveBeenCalled();
+  mount(); await toggle(); await screen.findByText(/Closing that job does not prove/);
+  expect(api.command).not.toHaveBeenCalled(); expect(screen.getByRole("checkbox")).not.toBeChecked();
 });
-it("keeps an uncertain exact packet through collapse and missing read recovery", async () => {
+it("retains an uncertain request through remount, missing recovery and exact retry", async () => {
   vi.mocked(api.command).mockRejectedValueOnce(new TypeError("Synthetic response loss"));
   vi.mocked(api.recover).mockRejectedValueOnce(new ApiError(404, "Missing"));
-  const storage = vi.spyOn(Storage.prototype, "setItem"); mount(); const details = open(); await review(); confirm();
+  const storage = vi.spyOn(Storage.prototype, "setItem"); const view = mount(); await toggle();
   await screen.findByText(/The outcome could not be verified/);
   const original = vi.mocked(api.command).mock.calls[0][2];
   const leaving = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(leaving); expect(leaving.defaultPrevented).toBe(true);
-  details.open = false; fireEvent(details, new Event("toggle")); open();
-  expect(api.command).toHaveBeenCalledTimes(1);
-  fireEvent.click(await screen.findByRole("button", { name: "Check saved lifecycle result" }));
+  view.unmount(); mount(); expect(api.command).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "Check saved lifecycle result" }));
   await screen.findByText(/The original request may still commit/);
-  expect(screen.queryByRole("button", { name: "Review archive" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Retry exact lifecycle request" }));
-  await screen.findByText(/Recorded archive action/);
-  expect(vi.mocked(api.command).mock.calls[1][2]).toEqual(original); expect(api.recover).toHaveBeenCalledTimes(1);
-  expect(storage).not.toHaveBeenCalled();
+  await waitFor(() => expect(screen.getByRole("checkbox")).toBeChecked());
+  expect(vi.mocked(api.command).mock.calls[1][2]).toEqual(original); expect(storage).not.toHaveBeenCalled();
 });
 it("recovers by reading without resending the command", async () => {
   vi.mocked(api.command).mockRejectedValueOnce(new ApiError(503, "Unavailable"));
-  mount(); open(); await review(); confirm(); await screen.findByText(/The outcome could not be verified/);
+  mount(); await toggle(); await screen.findByText(/The outcome could not be verified/);
   fireEvent.click(screen.getByRole("button", { name: "Check saved lifecycle result" }));
-  await screen.findByText(/Recorded archive action/); expect(api.command).toHaveBeenCalledTimes(1); expect(api.recover).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(screen.getByRole("checkbox")).toBeChecked());
+  expect(api.command).toHaveBeenCalledTimes(1); expect(api.recover).toHaveBeenCalledTimes(1);
 });
-it("releases an explicitly rejected first command but keeps an uncertain later denial", async () => {
+it("releases a rejected first command but keeps a later uncertain denial", async () => {
   vi.mocked(api.command).mockRejectedValueOnce(new ApiError(409, "Changed"));
-  mount(); open(); await review(); confirm(); await screen.findByText(/The action was rejected/);
-  await review(); vi.mocked(api.command).mockRejectedValueOnce(new TypeError("Synthetic response loss")); confirm();
+  mount(); await toggle(); await screen.findByText(/The action was rejected/);
+  vi.mocked(api.command).mockRejectedValueOnce(new TypeError("Synthetic loss")); await toggle();
   await screen.findByText(/The outcome could not be verified/);
   vi.mocked(api.command).mockRejectedValueOnce(new ApiError(403, "Denied"));
   fireEvent.click(screen.getByRole("button", { name: "Retry exact lifecycle request" }));
   await waitFor(() => expect(api.command).toHaveBeenCalledTimes(3));
-  await screen.findByRole("button", { name: "Check saved lifecycle result" });
-  expect(screen.queryByRole("button", { name: "Review archive" })).not.toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "Check saved lifecycle result" })).toBeVisible();
+  expect(screen.getByRole("checkbox")).toBeDisabled();
 });
-it("keeps a pending material scoped across in-app navigation", async () => {
-  vi.mocked(api.command).mockRejectedValueOnce(new TypeError("Synthetic response loss"));
-  const view = mount(); open(); await review(); confirm(); await screen.findByText(/The outcome could not be verified/);
-  view.change(crypto.randomUUID());
-  fireEvent.click(await screen.findByRole("button", { name: "Open pending material" }));
+it("keeps an uncertain packet scoped to its actor and target", async () => {
+  vi.mocked(api.command).mockRejectedValueOnce(new TypeError("Synthetic loss"));
+  const view = mount(); await toggle(); await screen.findByText(/The outcome could not be verified/);
+  view.change(crypto.randomUUID()); fireEvent.click(screen.getByRole("button", { name: "Open pending material" }));
   expect(view.navigate).toHaveBeenCalledWith(`/material-archives/${archiveMaterialId}`);
-  expect(screen.queryByRole("button", { name: "Review archive" })).not.toBeInTheDocument(); expect(api.command).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("checkbox")).toBeDisabled();
+  view.change(archiveMaterialId, crypto.randomUUID()); expect(screen.getByRole("checkbox")).toBeEnabled();
+  expect(api.command).toHaveBeenCalledTimes(1);
+});
+it("does not send after a preview resolves beyond unmount", async () => {
+  let finish!: (value: Awaited<ReturnType<typeof api.preview>>) => void;
+  vi.mocked(api.preview).mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+  const view = mount(); await toggle(); view.unmount();
+  await act(async () => finish(archivePreview(archivePreviewDto(), archiveMaterialId, "ARCHIVE")));
+  expect(api.command).not.toHaveBeenCalled();
 });
 it("discards late success after the signed-in actor changes", async () => {
-  let finish: (value: LifecycleEvent) => void = () => undefined;
-  vi.mocked(api.command).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
-  const view = mount(); open(); await review(); confirm();
-  await waitFor(() => expect(api.command).toHaveBeenCalledTimes(1));
-  const original = vi.mocked(api.command).mock.calls[0]; view.change(archiveMaterialId, crypto.randomUUID());
-  await act(async () => finish(lifecycleEvent({ ...lifecycleEventDto(), actor_id: actor, request_key: original[2].request_key }, archiveMaterialId)));
-  expect(view.applied).not.toHaveBeenCalled(); expect(screen.queryByText(/Recorded archive action/)).not.toBeInTheDocument();
-});
-it("keeps separate uncertain packets when two actors use the same browser", async () => {
-  vi.mocked(api.command).mockRejectedValue(new TypeError("Synthetic response loss"));
-  const view = mount(); const details = open(); await review(); confirm(); await screen.findByText(/The outcome could not be verified/);
-  const first = vi.mocked(api.command).mock.calls[0][2];
-  details.open = false; fireEvent(details, new Event("toggle"));
-  const leaving = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(leaving); expect(leaving.defaultPrevented).toBe(true);
-  open(); view.change(archiveMaterialId, crypto.randomUUID()); await review(); confirm(); await screen.findByText(/The outcome could not be verified/);
-  expect(vi.mocked(api.command).mock.calls[1][2].request_key).not.toBe(first.request_key);
-  view.change(archiveMaterialId, actor);
-  fireEvent.click(await screen.findByRole("button", { name: "Check saved lifecycle result" }));
-  await screen.findByText(/Recorded archive action/);
-  expect(vi.mocked(api.recover).mock.calls[0][1]).toBe(actor);
-  expect(vi.mocked(api.recover).mock.calls[0][2]).toEqual(first);
-  expect(api.command).toHaveBeenCalledTimes(2);
-});
-it("reads older history without sending mutations", async () => {
-  const first = lifecycleEvent(lifecycleEventDto(2), archiveMaterialId), older = lifecycleEvent(lifecycleEventDto(1), archiveMaterialId);
-  vi.mocked(api.history).mockResolvedValueOnce({ items: [first], nextCursor: first.id }).mockResolvedValueOnce({ items: [older], nextCursor: null });
-  mount(); open(); fireEvent.click(await screen.findByRole("button", { name: "Older lifecycle actions" }));
-  await screen.findByText(/^Archived ·/); expect(api.history).toHaveBeenLastCalledWith(archiveMaterialId, first.id);
-  expect(api.command).not.toHaveBeenCalled();
+  let finish!: (value: LifecycleEvent) => void;
+  vi.mocked(api.command).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const view = mount(); await toggle(); await waitFor(() => expect(api.command).toHaveBeenCalledTimes(1));
+  view.change(archiveMaterialId, crypto.randomUUID());
+  await act(async () => finish(lifecycleEvent(lifecycleEventDto(), archiveMaterialId)));
+  expect(view.applied).not.toHaveBeenCalled(); expect(screen.getByRole("checkbox")).not.toBeChecked();
 });

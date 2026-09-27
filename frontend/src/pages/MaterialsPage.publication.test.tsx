@@ -32,7 +32,8 @@ it("prepares exactly the current filtered records and preserves note filters on 
   expect(screen.queryByRole("button", { name: /Remove/ })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Review selected materials" }));
   await waitFor(() => expect(preview).toHaveBeenCalledWith([first.id]));
-  await screen.findByText("All selected materials passed the current approval checks.");
+  await screen.findByText("All selected materials passed the source and export checks.");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Back to material list" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Back to material list" }));
   expect(screen.getByRole("searchbox")).toHaveValue("#Autumn");
   expect(screen.getByRole("table")).toBeVisible();

@@ -1,99 +1,91 @@
-# Persisted historical ZIP policy
+# Automatic global ZIP policy
 
-Migration 0016 adds append-only material policy decisions. Each material has an
-initial decision and an ordered chain of administrator overrides. The latest
-revision is the saved policy; later observations never replace it automatically.
-PostgreSQL rejects UPDATE, DELETE, TRUNCATE, gaps, stale predecessors, same-policy
-overrides, changed storage timezones and cross-material inventory references.
-ORM history protection also applies in portable tests.
+Settings owns the shared date rule. The original archived `readme.txt` and both
+`scripts/texture-zip.zip` scripts establish **4 March 2026**, with midnight in
+**Europe/Prague** as the default boundary. Strictly before it selects method A;
+the boundary itself and later selects method B.
 
-## Selecting and changing a policy
+- **A** uses the original legacy conversion method and normalizes archive dates
+  to 1 January 2026. **B** uses the current method and retains packaging dates.
+- The Settings page exposes the cutoff and IANA timezone to administrators. All
+  authenticated roles can read the rule. Methods and their timestamp behavior
+  are fixed compatibility parameters, displayed without unsupported controls.
+- The source date is the first verified original master-folder modification time,
+  recorded before staging. Later source scans/copies cannot silently replace it.
+  A material without that observation uses its current validated original source
+  inventory when its first batch is saved.
+- Saving a CSV batch automatically selects its policy. No per-material selection
+  or override step is required. Changes to Settings apply to future batches for
+  both existing and new materials.
 
-The material detail has an expandable **ZIP packaging policy** panel. It loads
-only when opened and keeps any unresolved request mounted when collapsed.
+## Versioning and concurrency
 
-- Leadership or an administrator can save the first rule for a DONE material
-  with a successful current technical report. The request binds the exact
-  inventory, generation and revision. The stored source context and report hashes
-  are revalidated; a malformed or stale report cannot select a policy.
-- The initial rule uses the original master folder modification time from the
-  saved source inventory, before staging/copying. It stores that observation,
-  inventory/report hashes, timezone and midnight boundary as immutable evidence.
-- Subsequent selection requests reuse the saved decision without inspecting new
-  timestamps, even after reopen or a changed inventory.
-- Only an administrator can override. They must review the server preview,
-  acknowledge its effect and enter a reason. Confirmation binds the exact
-  decision and preview hash. A changed material/review rejects an old preview.
-- An override invalidates current review and all associated approvals. Published
-  materials keep their published flag and require an update. Existing batch CSV
-  and artifacts remain unchanged. The policy's storage timezone stays fixed.
-- Current state and paginated history follow ordinary material read permissions
-  and processor assignment. Mutation authorization includes CSRF and active
-  account/session checks; active identity operations block a new decision.
-- Lost responses retain the exact request and idempotency key for retry. Definite
-  rejection requires a fresh review; raw server diagnostics are not displayed.
+Migration 0031 adds append-only `packaging_settings_revisions`. Every administrator
+save checks the expected version and stores the exact actor-scoped idempotency
+request and response. Retry returns the original response even after later edits;
+reusing a key with a changed payload fails. PostgreSQL serializes writers with a
+transaction advisory lock and enforces contiguous versions and immutable rows.
+Auth, active-session checks, CSRF and current administrator authorization apply to
+both initial writes and replay. The UI retains uncertain requests and blocks
+navigation until the same request is recovered.
 
-The source inventory's policy is still an observed fact. Current packaging code
-requires an explicit policy. The [job coordinator](packaging-reservations.md) passes
-the saved policy and snapshots its decision ID, revision and timezone into the job.
-Saving a policy alone creates no packaging job or upload.
+New schema-2 batch snapshots freeze the full global settings. A shared settings
+lock precedes material locks, so an edit cannot change the rule during batch
+creation. A changed settings revision appends an automatic material policy
+successor; it can retain the same method or change timezone without rewriting any
+previous decision. Existing administrator-override history is retained and future
+batches use the global rule. The original per-material API remains compatible for
+historical clients, but the ordinary UI no longer exposes manual ZIP policy work.
 
-## Configuration
+Existing batches, jobs, accepted output and downloads are immutable. New jobs for
+a schema-2 batch bind that batch's recorded settings and policy, even after the
+global rule changes. Already reserved jobs carry their original policy ID. Old
+schema-1 jobs retain their previous current-policy checks. Source, ownership,
+lease, account and archive checks remain in force in either version.
 
-Set ZIP_POLICY_TIMEZONE to the same installed IANA timezone on backend and worker.
-The shared Compose configuration forwards one value to both; default Europe/Prague.
-The backend validates the zone at startup and rejects initial selection when its
-classification disagrees with the observed worker policy.
+## Phase-one publication
 
-Strictly before local midnight on 4 March 2026 selects
-LEGACY_BEFORE_2026_03_04; midnight itself and later selects
-CURRENT_ON_OR_AFTER_2026_03_04. Nanosecond timestamps immediately before the
-whole-second boundary remain before it. This preserves the current repository
-enum and comparison semantics. The process owner still needs to confirm that
-business boundary before deployment, as stated in the handoff.
+Materials publication preparation includes **Check sources and review**. It runs
+existing technical validation sequentially over the frozen selection and then
+shows the CSV preview. A lost validation response retains its exact request key;
+no later material starts until recovery. Leadership can run this automatic check.
+It does not create a human approval or change the manual Checked property.
 
-No existing material is automatically classified by the migration. No source
-timestamps or files are modified. Changing runtime timezone does not rewrite an
-existing policy; a future timezone-change workflow would require a separate
-reviewed migration of decisions.
+Publication batches no longer require technical, publication or content human
+approval rows. Those optional IDs and old histories remain available. Current
+successful technical reports are validated against their report hash, full source
+inventory, material identity and revision; metadata snapshots must match their
+source bytes and export fields. Content still needs valid credits, category and
+brand references, and export warnings still require acknowledgment. Saving freezes
+the complete content snapshot. A reason is optional and an omitted reason records
+`Publication preparation`, not an invented approval. Existing batch CSV bytes and
+hashes are unchanged.
 
-## Endpoints
+## API
 
-Under /api/materials/{id}/packaging-policy:
+- `GET /api/settings/packaging`: current global rule and version.
+- `POST /api/settings/packaging`: administrator save with `idempotency_key`,
+  `expected_version`, `cutoff_date` and `storage_timezone`.
+- Existing publication preview/create and packaging reservation routes consume
+  the rule automatically. Packaging reservation may omit `expected_policy_id`;
+  the server selects the policy bound to the saved batch, never a client policy.
 
-| Method / path | Purpose |
-| --- | --- |
-| GET | Current saved decision or null. |
-| GET /history | Up to 50 decisions, descending revision, optional before cursor. |
-| POST /select | First selection or reuse, publication approvers only. |
-| POST /override-preview | Exact proposed effect, administrator only. |
-| POST /override | Audited successor bound to that preview, administrator only. |
+## Verification and rollback
 
-Both mutations use the existing material audit idempotency ledger and row lock.
-The database enforces contiguous immutable ancestry independently of ORM hooks.
-Evidence contains decision/source digests and facts, without raw metadata or
-credentials. A preview stores only the current decision summary, avoiding recursive
-copies of earlier evidence.
+Portable tests cover roles, CSRF, invalid parameters, stale versions, immutable
+receipts, exact retry, automatic selection, global changes for an existing material,
+old-batch packaging after settings changes, and CSV/package preparation with zero
+human approval rows. Frontend tests cover exact recovery, current-state refresh,
+optional reasons and sequential source validation. Isolated PostgreSQL cases cover
+competing settings writers, settings/batch lock order, policy-chain guards and
+reservation of a historical batch after a changed cutoff. The browser publication
+scenario uses automatic source checking and exercises global-settings lost-response
+recovery while retaining old artifacts.
 
-## Verification / rollback
-
-The initial focused backend suite passed 119 cases. Complete isolated verification
-passed 1126 backend and 171 actual PostgreSQL cases (mandatory auth 27/27), including
-fresh/prior upgrade, Alembic current/heads/check, immutable/FK/downgrade guards and
-real concurrency. No backend or PostgreSQL case was skipped. Existing dependency
-warnings remain. The subsequent UI passed 457 frontend tests, build, lint and E2E
-TypeScript checks. Test-only Testing Library typing and an unused callback parameter
-were corrected without changing validation rules. An initial E2E exposed the
-whole-detail refresh closing the panel after a successful save; the callback now
-refreshes detail data in place. The final unchanged assertions passed all 17 fresh
-and 17 retained-data E2E scenarios. Desktop and 390px screenshots were visually
-inspected. The complete final frontend suite again passed 457 tests, lint/build
-and E2E TypeScript. Exact project/run identifiers are in autonomous-pbr-progress.md.
-
-Migration 0016 is additive. Empty downgrade to 0015 is supported; any saved policy
-refuses downgrade to preserve provenance. Prefer a forward repair once populated.
-Existing committed migrations through 0015 are unchanged. No production migration
-or publication has been performed. Database execution/attempts, packaging ownership
-and configurable GCS/Notion adapters are implemented in their separate contracts;
-see the [current checkpoint](autonomous-pbr-progress.md). Live integrations,
-importer verification/confirmation and accepted-artifact retirement remain pending.
+Migration 0031 is additive and preserves previous records. It makes the two human
+approval IDs nullable and removes the requirement that every content snapshot have
+a human content-approval row. Existing report/material foreign keys and append-only
+history triggers remain. Downgrade refuses recorded global settings, automatic
+policy evidence or new publication snapshots; use a forward repair once populated.
+No production source, worker filesystem, live GCS or Notion operation is part of
+this settings implementation.

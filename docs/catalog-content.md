@@ -21,7 +21,9 @@ are inferred. The main storage category remains separate from online categories.
   (maximum 2147483647). Plain-text descriptions are optional and limited to 10000
   characters. Manual drafts can receive an explicit decision under migration
   0011; see `content-approvals.md`. AI draft provenance remains separate work.
-  Content approval alone does not make a material ready for publication.
+  The first-phase publication workflow does not require human content approval;
+  existing decisions remain available in history. Source and export checks still
+  run before publication preparation.
 - Content changes invalidate source checks and material approvals, including the
   published-update-required state. Identical saves are no-ops for revision and
   generation. Catalog activation/deactivation invalidates affected materials in
@@ -53,7 +55,10 @@ exists for catalog values.
   availability with expected version, idempotency key and reason.
 - `GET /api/catalog-audit` returns the latest 100 events.
 - `GET/POST /api/materials/{id}/content` reads/saves the complete draft; saves
-  require expected revision, idempotency key and reason.
+  require expected revision and idempotency key. Reason is optional for material
+  content only; omitted/null reasons store `Publication content updated` in the
+  audit and revision history. The editor hides the reason field. Explicit reasons
+  and their existing immutable request receipts remain compatible.
 - `GET /api/materials/{id}/content-history` returns the latest 100 immutable
   snapshots, including exact category/collection values at the time of save.
 - Catalog navigation manages vocabulary. Material detail edits content, shows

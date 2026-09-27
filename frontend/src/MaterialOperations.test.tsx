@@ -169,7 +169,6 @@ async function renderDetail(options: ClientOptions = {}) {
   const result = operationClient(options);
   render(<App client={result.client} initialPath={`/materials/${materialDto.id}`} />);
   await screen.findByRole("heading", { name: materialDto.material_name });
-  await screen.findByRole("heading", { name: "Current metadata" });
   return result;
 }
 
@@ -191,12 +190,12 @@ async function openAndConfirm(buttonName: string, dialogName: string) {
 }
 
 describe("material folder and Done UI", () => {
-  it("shows an unlinked material, current NOT_SCANNED metadata and an empty history", async () => {
-    await renderDetail();
-    expect(screen.getByText("Folder status").nextElementSibling).toHaveTextContent("Not linked");
-    expect(screen.queryByRole("button", { name: "Mark as Done" })).not.toBeInTheDocument();
-    expect(await screen.findByText("not scanned")).toBeInTheDocument();
-    expect(await screen.findByText("No metadata snapshots yet.")).toBeInTheDocument();
+  it("shows source folder controls without deleted metadata history panels", async () => {
+    const result = await renderDetail();
+    expect(screen.getByText("Folder path").nextElementSibling).toHaveTextContent("No folder linked");
+    for (const name of ["Snapshot history", "Source inventory and review", "AI proposals", "Content approval"])
+      expect(screen.queryByRole("heading", { name })).not.toBeInTheDocument();
+    expect(result.getMaterialMetadataSnapshots).not.toHaveBeenCalled();
   });
 
   it("never displays or acts on an absolute server folder path", async () => {
@@ -305,70 +304,17 @@ describe("material folder and Done UI", () => {
     expect(screen.getByRole("button", { name: "Link folder" })).toBeEnabled();
   });
 
-  it("confirms and links a folder, then reloads detail, current metadata and snapshots", async () => {
-    const {
-      linkMaterialFolder,
-      preflightMaterialFolder,
-      getMaterial,
-      getMaterialMetadata,
-      getMaterialMetadataSnapshots,
-    } = await renderDetail();
-    expect(await screen.findByText("not scanned")).toBeInTheDocument();
-    expect(await screen.findByText("No metadata snapshots yet.")).toBeInTheDocument();
-
-    const linkedSnapshot = materialMetadataSnapshotFromDto({
-      ...snapshotDto,
-      id: "60000000-0000-4000-8000-000000000007",
-      sequence_number: 7,
-      status: "WARNING",
-      source_filename: "linked-snapshot.txt",
-      loaded_at: "2026-09-11T14:07:00Z",
-      created_at: "2026-09-11T14:07:01Z",
-    });
-    const linkedMetadata = materialMetadataFromDto({
-      ...metadataDto,
-      current_snapshot_id: linkedSnapshot.id,
-      status: "WARNING",
-      source_filename: "linked-current.txt",
-      loaded_at: "2026-09-11T14:08:00Z",
-    });
-    getMaterialMetadata.mockResolvedValueOnce(linkedMetadata);
-    getMaterialMetadataSnapshots.mockResolvedValueOnce([linkedSnapshot]);
-
+  it("confirms and links a folder then refreshes editable properties", async () => {
+    const result = await renderDetail();
     const linkedPath = `library/${materialDto.technical_identity}`;
-    const folderInput = screen.getByLabelText("Relative folder path");
-    fireEvent.change(folderInput, { target: { value: `  ${linkedPath}  ` } });
-    fireEvent.click(screen.getByRole("button", { name: "Check folder" }));
-    await screen.findByLabelText("Folder check result");
-    expect(folderInput).toHaveValue(linkedPath);
-    expect(preflightMaterialFolder).toHaveBeenLastCalledWith(materialDto.id, linkedPath);
-    await openAndConfirm("Link folder", "Link this folder?");
+    await runPreflight(); await openAndConfirm("Link folder", "Link this folder?");
     expect(await screen.findByText(/was linked successfully/)).toBeInTheDocument();
-    expect(linkMaterialFolder).toHaveBeenCalledTimes(1);
-    expect(linkMaterialFolder).toHaveBeenCalledWith(materialDto.id, linkedPath);
-    expect(getMaterial).toHaveBeenCalledTimes(2);
-    expect(getMaterial).toHaveBeenLastCalledWith(materialDto.id);
-    expect(getMaterialMetadata).toHaveBeenCalledTimes(2);
-    expect(getMaterialMetadata).toHaveBeenLastCalledWith(materialDto.id);
-    expect(getMaterialMetadataSnapshots).toHaveBeenCalledTimes(2);
-    expect(getMaterialMetadataSnapshots).toHaveBeenLastCalledWith(materialDto.id);
-    expect(screen.getByText("Folder status").nextElementSibling).toHaveTextContent("Linked");
-    expect(screen.getByText("Folder path").nextElementSibling).toHaveTextContent(
-      linkedPath,
-    );
+    expect(result.linkMaterialFolder).toHaveBeenCalledOnce();
+    expect(result.linkMaterialFolder).toHaveBeenCalledWith(materialDto.id, linkedPath);
+    expect(result.getMaterial).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Folder path").nextElementSibling).toHaveTextContent(linkedPath);
     expect(screen.queryByLabelText("Folder check result")).not.toBeInTheDocument();
-
-    const currentPanel = screen.getByRole("heading", { name: "Current metadata" }).closest("article");
-    const historyPanel = screen.getByRole("heading", { name: "Snapshot history" }).closest("article");
-    expect(currentPanel).not.toBeNull();
-    expect(historyPanel).not.toBeNull();
-    expect(within(currentPanel!).getByText("warning")).toBeInTheDocument();
-    expect(within(currentPanel!).getByText("linked-current.txt")).toBeInTheDocument();
-    expect(within(currentPanel!).getByText("2026-09-11T14:08:00Z")).toBeInTheDocument();
-    expect(within(currentPanel!).queryByText("not scanned")).not.toBeInTheDocument();
-    expect(within(historyPanel!).getByText("Snapshot 7")).toBeInTheDocument();
-    expect(within(historyPanel!).getAllByText("2026-09-11T14:07:00Z").length).toBeGreaterThan(0);
-    expect(within(historyPanel!).queryByText("No metadata snapshots yet.")).not.toBeInTheDocument();
+    expect(result.getMaterialMetadataSnapshots).not.toHaveBeenCalled();
   });
 
   it("never exposes an unsafe path returned by folder-link", async () => {
@@ -404,134 +350,22 @@ describe("material folder and Done UI", () => {
     await act(async () => reject(new ApiError(503, "Unavailable")));
   });
 
-  it("keeps a successful link visible when a subsequent refresh fails and retries all data", async () => {
+  it("keeps a successful link visible after a failed refresh and recovers without relinking", async () => {
     const result = await renderDetail();
-    await screen.findByText("not scanned");
-    await screen.findByText("No metadata snapshots yet.");
-    const refreshedSnapshot = materialMetadataSnapshotFromDto({
-      ...snapshotDto,
-      id: "60000000-0000-4000-8000-000000000006",
-      sequence_number: 6,
-      source_filename: "linked-history.txt",
-      loaded_at: "2026-09-11T16:06:00Z",
-      created_at: "2026-09-11T16:06:01Z",
-    });
-    result.getMaterialMetadata.mockRejectedValueOnce(new TypeError("Network unavailable"));
-    result.getMaterialMetadataSnapshots.mockResolvedValueOnce([refreshedSnapshot]);
-
-    await runPreflight();
-    await openAndConfirm("Link folder", "Link this folder?");
-
-    const savedButStale = await screen.findByText(/The folder was linked, but some updated data could not be reloaded/);
-    expect(savedButStale).toBeInTheDocument();
-    expect(savedButStale.closest("[role=alert]")).toHaveFocus();
-    expect(result.linkMaterialFolder).toHaveBeenCalledTimes(1);
-    expect(result.getMaterial).toHaveBeenCalledTimes(2);
-    expect(result.getMaterialMetadata).toHaveBeenCalledTimes(2);
-    expect(result.getMaterialMetadataSnapshots).toHaveBeenCalledTimes(2);
-    expect(screen.getByText("Folder status").nextElementSibling).toHaveTextContent("Linked");
-    expect(screen.getByText("Folder path").nextElementSibling).toHaveTextContent(
-      `library/${materialDto.technical_identity}`,
-    );
-    const historyPanel = screen.getByRole("heading", { name: "Snapshot history" }).closest("article");
-    expect(historyPanel).not.toBeNull();
-    expect(within(historyPanel!).getByText("Snapshot 6")).toBeInTheDocument();
-    expect(within(historyPanel!).queryByText("No metadata snapshots yet.")).not.toBeInTheDocument();
-
-    const retryMetadata = materialMetadataFromDto({
-      ...metadataDto,
-      current_snapshot_id: refreshedSnapshot.id,
-      status: "VALID",
-      source_filename: "retry-current.txt",
-      loaded_at: "2026-09-11T16:07:00Z",
-    });
-    let resolveRetry!: (value: MaterialMetadata) => void;
-    const pendingRetry = new Promise<MaterialMetadata>((resolve) => { resolveRetry = resolve; });
-    result.getMaterialMetadata.mockReturnValueOnce(pendingRetry);
-    result.getMaterialMetadataSnapshots.mockResolvedValueOnce([refreshedSnapshot]);
-    const reload = screen.getByRole("button", { name: "Reload material data" });
-    const panelRetry = screen.getByRole("button", { name: "Try again" });
-    act(() => {
-      reload.click();
-      panelRetry.click();
-    });
-    expect(screen.getByRole("button", { name: "Reloading…" })).toBeDisabled();
-    await waitFor(() => {
-      expect(result.getMaterial).toHaveBeenCalledTimes(3);
-      expect(result.getMaterialMetadata).toHaveBeenCalledTimes(3);
-      expect(result.getMaterialMetadataSnapshots).toHaveBeenCalledTimes(3);
-    });
-    await act(async () => resolveRetry(retryMetadata));
-
-    expect(await screen.findByText(/Material detail, current metadata and snapshot history were reloaded/)).toBeInTheDocument();
-    expect(result.getMaterial).toHaveBeenCalledTimes(3);
-    expect(result.getMaterialMetadata).toHaveBeenCalledTimes(3);
-    expect(result.getMaterialMetadataSnapshots).toHaveBeenCalledTimes(3);
-    expect(result.linkMaterialFolder).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText(/Change saved, refresh incomplete/)).not.toBeInTheDocument();
-    const currentPanel = screen.getByRole("heading", { name: "Current metadata" }).closest("article");
-    expect(currentPanel).not.toBeNull();
-    expect(within(currentPanel!).getByText("retry-current.txt")).toBeInTheDocument();
-    expect(within(currentPanel!).getByText("2026-09-11T16:07:00Z")).toBeInTheDocument();
-    expect(within(historyPanel!).getByText("Snapshot 6")).toBeInTheDocument();
-  });
-
-  it("does not let older metadata or snapshot requests overwrite the post-link refresh", async () => {
-    let resolveInitial!: (value: MaterialMetadata) => void;
-    let resolveInitialSnapshots!: (value: MaterialMetadataSnapshot[]) => void;
-    const initialMetadata = new Promise<MaterialMetadata>((resolve) => { resolveInitial = resolve; });
-    const initialSnapshots = new Promise<MaterialMetadataSnapshot[]>((resolve) => {
-      resolveInitialSnapshots = resolve;
-    });
-    const result = await renderDetail({
-      initialMetadataPromise: initialMetadata,
-      initialSnapshotsPromise: initialSnapshots,
-    });
-    await waitFor(() => expect(result.getMaterialMetadata).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(result.getMaterialMetadataSnapshots).toHaveBeenCalledTimes(1));
-    const refreshedMetadata = materialMetadataFromDto({
-      ...metadataDto,
-      status: "VALID",
-      source_filename: "fresh-current.txt",
-      loaded_at: "2026-09-11T13:00:00Z",
-    });
-    const refreshedSnapshot = materialMetadataSnapshotFromDto({
-      ...snapshotDto,
-      id: "60000000-0000-4000-8000-000000000008",
-      sequence_number: 8,
-      source_filename: "fresh-history.txt",
-      loaded_at: "2026-09-11T13:01:00Z",
-      created_at: "2026-09-11T13:01:01Z",
-    });
-    result.getMaterialMetadata.mockResolvedValueOnce(refreshedMetadata);
-    result.getMaterialMetadataSnapshots.mockResolvedValueOnce([refreshedSnapshot]);
-
-    await runPreflight();
-    await openAndConfirm("Link folder", "Link this folder?");
-    await screen.findByText(/was linked successfully/);
-    const currentPanel = screen.getByRole("heading", { name: "Current metadata" }).closest("article");
-    expect(currentPanel).not.toBeNull();
-    expect(within(currentPanel!).getByText("valid")).toBeInTheDocument();
-    const historyPanel = screen.getByRole("heading", { name: "Snapshot history" }).closest("article");
-    expect(historyPanel).not.toBeNull();
-    expect(within(historyPanel!).getByText("Snapshot 8")).toBeInTheDocument();
-
-    await act(async () => {
-      resolveInitial(materialMetadataFromDto(metadataDto));
-      resolveInitialSnapshots([materialMetadataSnapshotFromDto(snapshotDto)]);
-    });
-    await waitFor(() => expect(within(currentPanel!).getByText("valid")).toBeInTheDocument());
-    expect(within(currentPanel!).queryByText("not scanned")).not.toBeInTheDocument();
-    expect(within(historyPanel!).getByText("Snapshot 8")).toBeInTheDocument();
-    expect(within(historyPanel!).queryByText("Snapshot 1")).not.toBeInTheDocument();
+    result.getMaterial.mockRejectedValueOnce(new TypeError("Synthetic read failure"));
+    await runPreflight(); await openAndConfirm("Link folder", "Link this folder?");
+    await screen.findByText(/Change saved, but the material could not be reloaded/);
+    expect(screen.getByText("Folder path").nextElementSibling).toHaveTextContent(`library/${materialDto.technical_identity}`);
+    fireEvent.click(screen.getByRole("button", { name: "Reload material data" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Reload material data" })).not.toBeInTheDocument());
+    expect(result.linkMaterialFolder).toHaveBeenCalledOnce(); expect(result.getMaterial).toHaveBeenCalledTimes(3);
   });
 
   it("shows and focuses a link conflict", async () => {
     await renderDetail({ linkError: new ApiError(409, "Conflict") });
     await runPreflight();
     const dialog = await openAndConfirm("Link folder", "Link this folder?");
-    const error = await screen.findByRole("alert", { name: "" });
-    expect(error).toHaveTextContent("already used or the material changed");
+    const error = (await screen.findByText(/already used or the material changed/)).closest("[role=alert]");
     expect(error).toHaveFocus();
     fireEvent(dialog, new Event("close"));
     await act(async () => { await Promise.resolve(); });
@@ -572,163 +406,15 @@ describe("material folder and Done UI", () => {
     expect(await screen.findByText(/did not reach the server/)).toBeInTheDocument();
   });
 
-  it.each(["VALID", "MISSING"] as const)("marks Done with %s metadata and refreshes all related data", async (status) => {
-    const warning = status === "MISSING" ? [{ code: "SOURCE_METADATA_MISSING", message: "Metadata file is missing.", path: null }] : [];
-    const current = materialMetadataFromDto({ ...metadataDto, status, warnings: warning });
-    const { markMaterialDone, getMaterial, getMaterialMetadata, getMaterialMetadataSnapshots } = await renderDetail({ linked: true, metadata: current });
-    expect(await screen.findByText(status === "VALID" ? "valid" : "missing")).toBeInTheDocument();
-    await screen.findByText("No metadata snapshots yet.");
-
-    const sequenceNumber = status === "VALID" ? 9 : 10;
-    const minute = String(sequenceNumber).padStart(2, "0");
-    const loadedAt = `2026-09-11T15:${minute}:00Z`;
-    const doneSnapshot = materialMetadataSnapshotFromDto({
-      ...snapshotDto,
-      id: `60000000-0000-4000-8000-${String(sequenceNumber).padStart(12, "0")}`,
-      sequence_number: sequenceNumber,
-      status,
-      source_filename: status === "VALID" ? "done-current.txt" : null,
-      warnings: warning,
-      loaded_at: loadedAt,
-      created_at: `2026-09-11T15:${minute}:01Z`,
-    });
-    const refreshedCurrent = materialMetadataFromDto({
-      ...metadataDto,
-      current_snapshot_id: doneSnapshot.id,
-      status,
-      source_filename: status === "VALID" ? "done-current.txt" : null,
-      warnings: warning,
-      loaded_at: loadedAt,
-    });
-    getMaterialMetadata.mockResolvedValueOnce(refreshedCurrent);
-    getMaterialMetadataSnapshots.mockResolvedValueOnce([doneSnapshot]);
-
-    fireEvent.click(screen.getByRole("button", { name: "Mark as Done" }));
-    const dialog = screen.getByRole("dialog", { name: "Mark this material as Done?" });
-    expect(dialog).toHaveTextContent("does not by itself prevent");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Mark as Done" }));
-    expect(await screen.findByText(/Material was marked as Done/)).toBeInTheDocument();
-    expect(markMaterialDone).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(getMaterial).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(getMaterialMetadata).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(getMaterialMetadataSnapshots).toHaveBeenCalledTimes(2));
-    expect(screen.queryByRole("button", { name: "Mark as Done" })).not.toBeInTheDocument();
-    const currentPanel = screen.getByRole("heading", { name: "Current metadata" }).closest("article");
-    const historyPanel = screen.getByRole("heading", { name: "Snapshot history" }).closest("article");
-    expect(currentPanel).not.toBeNull();
-    expect(historyPanel).not.toBeNull();
-    expect(within(currentPanel!).getByText(loadedAt)).toBeInTheDocument();
-    expect(within(historyPanel!).getByText(`Snapshot ${sequenceNumber}`)).toBeInTheDocument();
-    expect(within(historyPanel!).queryByText("No metadata snapshots yet.")).not.toBeInTheDocument();
-    if (status === "MISSING")
-      expect(screen.getAllByText(/Metadata file is missing/).length).toBeGreaterThan(0);
-  });
-
-  it("shows and focuses a repeated Done conflict", async () => {
-    await renderDetail({ linked: true, doneError: new ApiError(409, "Already done") });
-    await openAndConfirm("Mark as Done", "Mark this material as Done?");
-    const message = await screen.findByText(/already Done or changed/);
-    expect(message.closest("[role=alert]")).toHaveFocus();
-  });
-
-  it("prevents a double Done submission while the first request is pending", async () => {
-    let reject!: (reason: unknown) => void;
-    const pending = new Promise<never>((_resolve, rejectPromise) => { reject = rejectPromise; });
-    const { markMaterialDone } = await renderDetail({ linked: true, donePromise: pending });
-    fireEvent.click(screen.getByRole("button", { name: "Mark as Done" }));
-    const dialog = screen.getByRole("dialog", { name: "Mark this material as Done?" });
-    const confirm = within(dialog).getByRole("button", { name: "Mark as Done" });
-    fireEvent.click(confirm);
-    fireEvent.click(confirm);
-    expect(markMaterialDone).toHaveBeenCalledTimes(1);
-    expect(within(dialog).getByRole("button", { name: "Marking as Done…" })).toBeDisabled();
-    await act(async () => reject(new ApiError(503, "Unavailable")));
-  });
-
   it.each(["Cancel", "Escape"])("closes confirmation with %s and restores focus", async (method) => {
     await renderDetail({ linked: true });
-    const trigger = screen.getByRole("button", { name: "Mark as Done" });
+    await runPreflight();
+    const trigger = screen.getByRole("button", { name: "Link folder" });
     fireEvent.click(trigger);
-    const dialog = screen.getByRole("dialog", { name: "Mark this material as Done?" });
+    const dialog = screen.getByRole("dialog", { name: "Link this folder?" });
     if (method === "Cancel") fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     else fireEvent(dialog, new Event("cancel", { cancelable: true }));
-    expect(screen.queryByRole("dialog", { name: "Mark this material as Done?" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Link this folder?" })).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
-  });
-});
-
-describe("material metadata UI", () => {
-  it("shows INVALID current metadata and its normalized issue", async () => {
-    const metadata = materialMetadataFromDto({
-      ...metadataDto,
-      status: "INVALID",
-      source_filename: "metadata.txt",
-      loaded_at: "2026-09-11T12:45:00Z",
-      warnings: [{
-        code: "METADATA_JSON_INVALID",
-        message: "The metadata file is not valid JSON.",
-        path: "library/metadata.txt",
-      }],
-    });
-    await renderDetail({ metadata });
-
-    const panel = screen.getByRole("heading", { name: "Current metadata" }).closest("article");
-    expect(panel).not.toBeNull();
-    expect(await within(panel!).findByText("invalid")).toBeInTheDocument();
-    expect(within(panel!).getByText(/METADATA_JSON_INVALID/).closest("li")).toHaveTextContent(
-      "The metadata file is not valid JSON.",
-    );
-    expect(within(panel!).getByText(/library\/metadata.txt/)).toBeInTheDocument();
-  });
-
-  it("shows current safe metadata without raw source fields", async () => {
-    const metadata = materialMetadataFromDto({
-      ...metadataDto,
-      status: "WARNING",
-      source_filename: "metadata.txt",
-      source_sha256: "b".repeat(64),
-      hex_color: "#D4E5F6",
-      width_cm: "121.7500",
-      height_cm: "75.2500",
-      master_resolution: "16K",
-      loaded_at: "2026-09-11T11:30:00Z",
-      warnings: [{ code: "REVIEW", message: "Review dimensions.", path: "metadata.txt" }],
-      raw_content: "RAW MUST STAY HIDDEN",
-      source_content: "SOURCE MUST STAY HIDDEN",
-    } as typeof metadataDto);
-    await renderDetail({ metadata });
-    for (const text of ["warning", "metadata.txt", "#D4E5F6", "121.7500 cm", "75.2500 cm", "16K", "2026-09-11T11:30:00Z"])
-      expect((await screen.findAllByText(text)).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Review dimensions/)).toBeInTheDocument();
-    expect(screen.queryByText(/RAW MUST STAY HIDDEN|SOURCE MUST STAY HIDDEN/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/raw_content|source_content/i)).not.toBeInTheDocument();
-  });
-
-  it("shows multiple snapshots in stable sequence order", async () => {
-    const first = materialMetadataSnapshotFromDto(snapshotDto);
-    const second = materialMetadataSnapshotFromDto({
-      ...snapshotDto,
-      id: "60000000-0000-4000-8000-000000000002",
-      sequence_number: 2,
-      status: "WARNING",
-      loaded_at: "2026-09-11T12:30:00Z",
-      created_at: "2026-09-11T12:30:01Z",
-    });
-    await renderDetail({ snapshots: [second, first] });
-    const items = await screen.findAllByText(/Snapshot [12]/);
-    expect(items.map((item) => item.textContent)).toEqual(["Snapshot 1", "Snapshot 2"]);
-    expect(screen.getAllByText("2026-09-11T10:30:00Z").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("2026-09-11T12:30:00Z").length).toBeGreaterThan(0);
-  });
-
-  it("shows snapshot loading and a focused error state", async () => {
-    let reject!: (reason: unknown) => void;
-    const pending = new Promise<never>((_resolve, rejectPromise) => { reject = rejectPromise; });
-    await renderDetail({ snapshotPromise: pending });
-    expect(screen.getByText("Loading snapshot history…")).toBeInTheDocument();
-    await act(async () => reject(new TypeError("Network unavailable")));
-    const error = await screen.findByText(/metadata service could not be reached/);
-    expect(error.closest("[role=alert]")).toHaveFocus();
-    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 });

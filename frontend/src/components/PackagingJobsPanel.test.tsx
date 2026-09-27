@@ -65,7 +65,7 @@ it("loads lazily, reserves approved inputs and requires a separate explicit star
   await screen.findByText("Job reserved. Start packaging when ready.");
   expect(writes).toHaveLength(1);
   expect(JSON.parse(String(writes[0].options?.body))).toEqual({ idempotency_key: expect.any(String), batch_id: id,
-    expected_snapshot_hash: batch.snapshotHash, expected_policy_id: id, reason: "Reviewed packaging" });
+    expected_snapshot_hash: batch.snapshotHash, reason: "Reviewed packaging" });
   expect(writes[0].options?.headers).toEqual(expect.objectContaining({ "X-CSRF-Token": "p".repeat(43) }));
   const start = await screen.findByRole("button", { name: "Start packaging" });
   expect(start).toBeDisabled(); confirm(); fireEvent.click(start);

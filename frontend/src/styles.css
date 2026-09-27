@@ -1392,3 +1392,10 @@ a.button {
 .catalog-database .resource-table-toolbar label { display: grid; }
 .catalog-database .resource-table-scroll td > strong { display: block; }
 @media (min-width: 1100px) { .catalog-database .filters label:first-of-type { grid-column: span 2; } }
+
+/* Materials uses the shared property disclosure and matching detail controls. */
+.material-property-editor dd { min-width:0; }
+.material-property-editor select, .material-property-editor textarea { width:100%; max-width:100%; }
+.material-property-editor .table-note { width:100%; }
+.material-archive-control p { white-space:normal; font-size:12px; }
+.material-archive-control input[type=checkbox] { width:16px; height:16px; }

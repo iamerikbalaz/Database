@@ -34,7 +34,7 @@ test("material table edits, frozen bulk selection and lost-response recovery per
   expect(records).toHaveLength(2);
   const one = records.find((row: { material_name: string }) => row.material_name === prefix + "one");
   if (!retainedPass) {
-    await page.getByRole("button", { name: "Select all filtered (2)" }).click();
+    await page.getByRole("checkbox", { name: "Select all visible materials" }).click();
     await page.getByRole("button", { name: "Review bulk change" }).click();
     const dialog = page.getByRole("dialog", { name: "Change 2 materials" });
     await dialog.getByRole("button", { name: "Apply change", exact: true }).click();

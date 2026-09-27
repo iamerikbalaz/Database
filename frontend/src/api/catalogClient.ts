@@ -33,7 +33,7 @@ export function contentFromDto(input: unknown) {
 export type MaterialContent = ReturnType<typeof contentFromDto>;
 export interface ContentPayload {
   idempotency_key: string; expected_revision: number; description: string | null; credits: number | null;
-  tags: string[]; category_ids: string[]; collection_ids: string[]; reason: string;
+  tags: string[]; category_ids: string[]; collection_ids: string[]; reason?: string | null;
 }
 export interface CatalogCreate { idempotency_key: string; value: string; brand_id?: string; abbreviation?: string | null; }
 export interface CatalogActivity { idempotency_key: string; expected_version: number; is_active: boolean; reason: string; }

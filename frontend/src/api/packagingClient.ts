@@ -33,7 +33,7 @@ export function packagingJobFromDto(value: unknown, materialId: string) {
 }
 export type PackagingJob = ReturnType<typeof packagingJobFromDto>;
 export interface PackagingReservation {
-  idempotency_key: string; batch_id: string; expected_snapshot_hash: string; expected_policy_id: string; reason: string;
+  idempotency_key: string; batch_id: string; expected_snapshot_hash: string; expected_policy_id?: string; reason: string;
 }
 export interface PackagingCommand { idempotency_key: string; expected_last_dispatch_id: string | null; reason: string }
 const path = (materialId: string) => `/materials/${uuid(materialId)}/packaging-executions`;
@@ -83,7 +83,7 @@ export const packagingClient = {
   async detail(materialId: string, id: string) { return bound(await request(`${path(materialId)}/${uuid(id)}`), materialId, id); },
   async reserve(materialId: string, body: PackagingReservation) {
     const value = record(await request(path(materialId), "POST", body)), result = packagingJobFromDto(value, materialId);
-    if (result.batchId !== body.batch_id || result.inputHash !== body.expected_snapshot_hash || result.policyId !== body.expected_policy_id || value.reason !== body.reason) throw new Error("Mismatched packaging reservation");
+    if (result.batchId !== body.batch_id || result.inputHash !== body.expected_snapshot_hash || (body.expected_policy_id && result.policyId !== body.expected_policy_id) || value.reason !== body.reason) throw new Error("Mismatched packaging reservation");
     return result;
   },
   async command(materialId: string, id: string, action: PackagingAction, body: PackagingCommand) {

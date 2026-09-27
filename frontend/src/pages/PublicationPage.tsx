@@ -7,6 +7,7 @@ import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
 import { NavigationLink } from "../components/NavigationLink";
 import { PackagingJobsPanel } from "../components/PackagingJobsPanel";
+import { PublicationSourceChecks } from "../components/PublicationSourceChecks";
 import { StagingPanel } from "../components/StagingPanel";
 import { useNavigationGuard } from "../navigationGuard";
 
@@ -41,8 +42,9 @@ export function PublicationWorkspace({ client, navigate, initialSelection, onBus
   const [reason, setReason] = useState(""), [reviewed, setReviewed] = useState(false), [acknowledged, setAcknowledged] = useState(false);
   const [batch, setBatch] = useState<PublicationBatch | null>(null), [history, setHistory] = useState<Awaited<ReturnType<typeof publicationClient.history>> | null>(null);
   const [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
+  const [sourceBusy, setSourceBusy] = useState(false);
   const pending = useRef<PublicationCreate | null>(null), operating = useRef(false), mounted = useRef(true), download = useRef<AbortController | null>(null);
-  const frozen = busy || uncertain;
+  const frozen = busy || uncertain || sourceBusy;
   useNavigationGuard(() => pending.current !== null);
   useEffect(() => { onBusyChange?.(frozen); return () => onBusyChange?.(false); }, [frozen, onBusyChange]);
   useEffect(() => { mounted.current = true; const prevent = (event: BeforeUnloadEvent) => { if (pending.current) { event.preventDefault(); event.returnValue = ""; } }; window.addEventListener("beforeunload", prevent);
@@ -73,8 +75,8 @@ export function PublicationWorkspace({ client, navigate, initialSelection, onBus
     } finally { operating.current = false; if (mounted.current) setBusy(false); }
   };
   const save = () => {
-    if (frozen || pending.current || !preview?.canPrepare || !reviewed || !reason.trim() || (preview.items.some((item) => item.warnings.length) && !acknowledged)) return;
-    pending.current = { material_ids: selected.map((item) => item.id), idempotency_key: crypto.randomUUID(), expected_preview_hash: preview.previewHash, reason: reason.trim(), warnings_acknowledged: acknowledged };
+    if (frozen || pending.current || !preview?.canPrepare || !reviewed || (preview.items.some((item) => item.warnings.length) && !acknowledged)) return;
+    pending.current = { material_ids: selected.map((item) => item.id), idempotency_key: crypto.randomUUID(), expected_preview_hash: preview.previewHash, reason: reason.trim() || null, warnings_acknowledged: acknowledged };
     void send();
   };
   const loadHistory = (after: string | null = null) => run(async () => { const page = await publicationClient.history(after); if (mounted.current) setHistory(page); }, "Batch history could not be loaded.");
@@ -97,7 +99,7 @@ export function PublicationWorkspace({ client, navigate, initialSelection, onBus
     {error && <p role="alert" className="form-error">{error}</p>}{notice && <p role="status" className="success-notice">{notice}</p>}
     {uncertain && <button className="button" disabled={busy} onClick={() => void send()}>Retry same batch request</button>}
     <fieldset className="panel" disabled={frozen}><legend>1. Select materials</legend>
-      {initialSelection ? <p>This selection is fixed from Materials. Review all findings before preparing CSV and ZIP files. Return to the list to choose a different set; each batch supports up to 100 materials.</p> : <p>Only DONE materials are listed. Each selected material must also pass the current technical and content approvals. Select up to 100.</p>}
+      {initialSelection ? <p>This selection is fixed from Materials. Review all findings before preparing CSV and ZIP files. Return to the list to choose a different set; each batch supports up to 100 materials.</p> : <p>Only DONE materials are listed. Check source files and review export values for up to 100 materials.</p>}
       {!initialSelection && <>
       <div className="publication-filters"><label>Search materials<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
         <label>Project<select value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="">All projects</option>{projects.data?.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
@@ -111,15 +113,16 @@ export function PublicationWorkspace({ client, navigate, initialSelection, onBus
       <h2>Selected materials ({selected.length}/100)</h2><ul>{selected.map((item) => <li key={item.id}>{item.materialName} — {item.technicalIdentity} {!initialSelection && <button className="button" aria-label={`Remove ${item.technicalIdentity}`} onClick={() => { setSelected(selected.filter((entry) => entry.id !== item.id)); resetPreview(); }}>Remove</button>}</li>)}</ul>
       <button className="button button--primary" disabled={!selected.length || selected.length > 100} onClick={() => void inspect()}>Review selected materials</button>
     </fieldset>
+    <PublicationSourceChecks materialIds={selected.map(item => item.id)} disabled={busy || uncertain} onBusyChange={setSourceBusy} onChecked={inspect} />
     {preview && <fieldset className="panel" disabled={frozen}><legend>2. Review export values</legend>
-      <p>{preview.canPrepare ? "All selected materials passed the current approval checks." : "Preparation is blocked. Resolve the listed findings and load a new preview."}</p>
+      <p>{preview.canPrepare ? "All selected materials passed the source and export checks." : "Preparation is blocked. Resolve the listed findings and load a new preview."}</p>
       {preview.items.map((item) => <article key={item.materialId}><h2>{item.name}</h2><NavigationLink href={`/materials/${item.materialId}`} navigate={navigate}>Open material</NavigationLink>
         {!!item.errors.length && <ul className="form-error">{item.errors.map((code) => <li key={code}>{code.replaceAll("_", " ").toLowerCase()}</li>)}</ul>}
         <Warnings items={item.warnings} />{item.row && <Row value={item.row} />}</article>)}
-      <label>Reason for preparing this batch<textarea maxLength={2000} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
+      <label>Reason for preparing this batch (optional)<textarea maxLength={2000} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
       <label className="publication-check"><input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} />I reviewed the selected materials and export values.</label>
       {hasWarnings && <label className="publication-check"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />I acknowledge the export warnings above.</label>}
-      <button className="button button--primary" disabled={!preview.canPrepare || !reviewed || !reason.trim() || (!!hasWarnings && !acknowledged)} onClick={save}>Save CSV batch</button>
+      <button className="button button--primary" disabled={!preview.canPrepare || !reviewed || (!!hasWarnings && !acknowledged)} onClick={save}>Save CSV batch</button>
     </fieldset>}
     <fieldset className="panel" disabled={frozen}><legend>Saved batch history</legend><p>Saved batches preserve the exact reviewed values. They can differ from current material records.</p>
       <button className="button" onClick={() => void loadHistory()}>Load latest batches</button>

@@ -33,6 +33,7 @@ test("profile creates and role changes recover lost responses without replacing 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.getByRole("link", { name: "Companies", exact: true }).click();
     await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await page.getByRole("link", { name: "Manage users", exact: true }).click();
     form = page.getByRole("form", { name: "Create account", exact: true });
     await expect(form.getByLabel("Email", { exact: true })).toHaveValue(email);
     await expect(form.getByLabel("Email", { exact: true })).toBeDisabled();

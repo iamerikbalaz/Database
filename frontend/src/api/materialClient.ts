@@ -22,6 +22,7 @@ import {
 } from "./materialOperationsDto";
 
 export interface MaterialFilters {
+  is_archived?: string;
   search?: string;
   project_id?: string;
   published_brand_id?: string;
@@ -35,7 +36,7 @@ export interface MaterialFilters {
 }
 export interface MaterialApi {
   getMaterials(filters?: MaterialFilters): Promise<Material[]>;
-  getMaterial(id: string): Promise<Material>;
+  getMaterial(id: string, includeArchived?: boolean): Promise<Material>;
   createMaterial(payload: MaterialCreateDto, requestKey?: string): Promise<Material>;
   updateMaterial(id: string, payload: MaterialPatchDto, requestKey?: string): Promise<Material>;
   getInternalUsers(activeOnly?: boolean): Promise<InternalUser[]>;
@@ -56,8 +57,8 @@ export function materialApi(request: Request): MaterialApi {
       }
       return parseList(await request("/materials" + (query.size ? "?" + query : "")), parseMaterial).map(materialFromDto);
     },
-    async getMaterial(id) {
-      return materialFromDto(parseMaterial(await request("/materials/" + uuid(id))));
+    async getMaterial(id, includeArchived = false) {
+      return materialFromDto(parseMaterial(await request("/materials/" + uuid(id) + (includeArchived ? "?include_archived=true" : ""))));
     },
     async createMaterial(p, requestKey) {
       // Explicit allowlist also strips extra properties supplied at runtime.

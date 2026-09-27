@@ -53,7 +53,9 @@ export function publicationBatchFromDto(value: unknown) {
   const items = list(item.items, 100, (value) => {
     const item = record(value), materialId = uuid(item.material_id);
     return { materialId, ordinal: integer(item.ordinal, 1, 100), snapshotHash: hash(item.snapshot_hash), row: row(item.row, materialId),
-      technicalApprovalId: uuid(item.technical_approval_id), publicationApprovalId: uuid(item.publication_approval_id), contentApprovalId: uuid(item.content_approval_id), metadataSnapshotId: uuid(item.metadata_snapshot_id) };
+      technicalApprovalId: item.technical_approval_id === null ? null : uuid(item.technical_approval_id),
+      publicationApprovalId: item.publication_approval_id === null ? null : uuid(item.publication_approval_id),
+      contentApprovalId: item.content_approval_id === null ? null : uuid(item.content_approval_id), metadataSnapshotId: uuid(item.metadata_snapshot_id) };
   });
   unique(items.map((item) => item.materialId));
   const warningsAcknowledged = boolean(item.warnings_acknowledged);
@@ -61,12 +63,12 @@ export function publicationBatchFromDto(value: unknown) {
   return { ...batch, reason: text(item.reason, 2000), warningsAcknowledged, warnings, items };
 }
 export type PublicationBatch = ReturnType<typeof publicationBatchFromDto>;
-export interface PublicationCreate { material_ids: string[]; idempotency_key: string; expected_preview_hash: string; reason: string; warnings_acknowledged: boolean; }
+export interface PublicationCreate { material_ids: string[]; idempotency_key: string; expected_preview_hash: string; reason: string | null; warnings_acknowledged: boolean; }
 export const publicationClient = {
   async preview(materialIds: string[]) { return publicationPreviewFromDto(await request("/publication-batches/preview", "POST", { material_ids: materialIds.map(uuid) }), materialIds); },
   async create(payload: PublicationCreate) {
     const batch = publicationBatchFromDto(await request("/publication-batches", "POST", payload));
-    if (batch.snapshotHash !== payload.expected_preview_hash || batch.reason !== payload.reason || batch.warningsAcknowledged !== payload.warnings_acknowledged || batch.items.length !== payload.material_ids.length || batch.items.some((item) => !payload.material_ids.includes(item.materialId))) throw new Error("Mismatched saved publication batch");
+    if (batch.snapshotHash !== payload.expected_preview_hash || batch.reason !== (payload.reason || "Publication preparation") || batch.warningsAcknowledged !== payload.warnings_acknowledged || batch.items.length !== payload.material_ids.length || batch.items.some((item) => !payload.material_ids.includes(item.materialId))) throw new Error("Mismatched saved publication batch");
     return batch;
   },
   async detail(id: string) { const batch = publicationBatchFromDto(await request(`/publication-batches/${uuid(id)}`)); if (batch.id !== id) throw new Error("Wrong publication batch"); return batch; },

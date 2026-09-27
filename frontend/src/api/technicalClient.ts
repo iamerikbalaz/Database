@@ -45,6 +45,9 @@ export const technicalClient = {
   async run(id: string, generation: number, key: string) {
     return parse(await request(`/materials/${uuid(id)}/technical-review/run`, "POST", { expected_generation: generation, idempotency_key: uuid(key) }));
   },
+  async prepare(id: string, generation: number, key: string) {
+    return parse(await request(`/materials/${uuid(id)}/technical-review/prepare`, "POST", { expected_generation: generation, idempotency_key: uuid(key) }));
+  },
   async approve(id: string, current: TechnicalReview, kind: ApprovalKind, key: string, note: string, acknowledged: boolean) {
     if (!current.validation || !current.review.revisionHash) throw new Error("Technical report is required");
     return parse(await request(`/materials/${uuid(id)}/approvals`, "POST", { kind, expected_generation: current.review.generation,

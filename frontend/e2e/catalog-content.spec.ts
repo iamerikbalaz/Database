@@ -5,6 +5,14 @@ import { retainedPass, signInThroughApi } from "./auth-helpers";
 test("catalog values, material drafts and revision history persist through restart", async ({ page }) => {
   await signInThroughApi(page);
   const fixture = runManifest.state.content; const path = `/api/materials/${fixture.id}`;
+  const auth = await (await page.request.get("/api/auth/session")).json();
+  const headers = { Origin: runManifest.frontendUrl, "X-CSRF-Token": auth.csrf_token };
+  const approve = async () => {
+    const current = await (await page.request.get(path + "/content-review")).json();
+    const saved = await page.request.post(path + "/content/approve", { headers, data: { idempotency_key: crypto.randomUUID(), expected_revision: current.content_revision,
+      expected_context_hash: current.context_hash, warnings_acknowledged: true, note: "Synthetic retained compatibility approval" } });
+    expect(saved.status()).toBe(200);
+  };
   if (!retainedPass) {
     await page.goto("/catalog");
     await page.getByLabel("Catalog value", { exact: true }).fill("E2E Natural Stone");
@@ -27,12 +35,12 @@ test("catalog values, material drafts and revision history persist through resta
     await panel.getByRole("textbox", { name: "Tags, one per line", exact: true }).fill("matte\nMatte\nstone");
     await panel.getByRole("checkbox", { name: "E2E_STONE · E2E Natural Stone", exact: true }).check();
     await panel.getByRole("checkbox", { name: "E2E_SERIES · E2E Architectural Series", exact: true }).check();
-    await panel.getByLabel("Reason for content change").fill("Classify synthetic E2E material");
+    await expect(panel.getByLabel("Reason for content change")).toHaveCount(0);
     await panel.getByRole("button", { name: "Save publication draft" }).click();
     await expect(panel.getByText(/Revision 1 · Saved content/)).toBeVisible();
     panel = page.getByRole("article", { name: "Publication content", exact: true });
     await panel.getByRole("spinbutton", { name: "Credits", exact: true }).fill("12");
-    await panel.getByLabel("Reason for content change").fill("Adjust synthetic credits");
+    await expect(panel.getByLabel("Reason for content change")).toHaveCount(0);
     await panel.getByRole("button", { name: "Save publication draft" }).click();
     await expect(panel.getByText(/Revision 2 · Saved content/)).toBeVisible();
     await page.goto("/catalog");
@@ -43,26 +51,21 @@ test("catalog values, material drafts and revision history persist through resta
       await expect(page.getByLabel("Reason for catalog change")).toBeEnabled();
     }
     await page.goto(`/materials/${fixture.id}`);
-    const approval = page.getByRole("article", { name: "Content approval", exact: true });
-    await approval.getByRole("button", { name: "Review saved content", exact: true }).click();
-    await expect(approval.getByRole("region", { name: "Saved content to approve" })).toContainText("Synthetic material for catalog verification.");
-    await approval.screenshot({ path: test.info().outputPath("content-review.png") });
-    await approval.getByRole("button", { name: "Confirm content approval", exact: true }).click();
-    await expect(approval.getByText("Current content is approved.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("article", { name: "Content approval", exact: true })).toHaveCount(0);
+    await approve();
     panel = page.getByRole("article", { name: "Publication content", exact: true });
     await expect(panel.getByText(/Revision 2 · Saved content/)).toBeVisible();
     await panel.getByRole("spinbutton", { name: "Credits", exact: true }).fill("13");
-    await panel.getByLabel("Reason for content change").fill("Verify invalidation after approval");
+    await expect(panel.getByLabel("Reason for content change")).toHaveCount(0);
     await panel.getByRole("button", { name: "Save publication draft" }).click();
     await expect(panel.getByText(/Revision 3 · Saved content/)).toBeVisible();
-    await expect(approval.getByText("Current content requires approval.", { exact: true })).toBeVisible();
-    await approval.getByRole("button", { name: "Review saved content", exact: true }).click();
-    await approval.getByRole("button", { name: "Confirm content approval", exact: true }).click();
-    await expect(approval.getByText("Current content is approved.", { exact: true })).toBeVisible();
+    expect((await (await page.request.get(path + "/content-review")).json()).approval).toBeNull();
+    await approve();
   }
   await page.goto(`/materials/${fixture.id}`);
   const panel = page.getByRole("article", { name: "Publication content", exact: true });
   await expect(panel.getByText(/Revision 3 · Saved content/)).toBeVisible();
+  await expect(panel.getByLabel("Reason for content change")).toHaveCount(0);
   await expect(panel.getByRole("textbox", { name: "Description", exact: true })).toHaveValue("Synthetic material for catalog verification.");
   await expect(panel.getByRole("spinbutton", { name: "Credits", exact: true })).toHaveValue("13");
   await expect(panel.getByRole("textbox", { name: "Tags, one per line", exact: true })).toHaveValue("matte\nstone");
@@ -82,7 +85,7 @@ test("catalog values, material drafts and revision history persist through resta
   expect(approvals).toHaveLength(2); expect(approvals.map((item: { content_revision: number }) => item.content_revision)).toEqual([3, 2]);
   const currentReview = await (await page.request.get(path + "/content-review")).json();
   expect(currentReview.approval.id).toBe(approvals[0].id);
-  await expect(page.getByRole("article", { name: "Content approval", exact: true }).getByText("Current content is approved.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("article", { name: "Content approval", exact: true })).toHaveCount(0);
   const audit = await (await page.request.get("/api/catalog-audit")).json();
   const ownedIds = [current.categories[0].id, current.collections[0].id];
   expect(audit.filter((item: { resource_id: string }) => ownedIds.includes(item.resource_id))).toHaveLength(4);

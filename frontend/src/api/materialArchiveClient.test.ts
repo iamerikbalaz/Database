@@ -9,15 +9,14 @@ function response(body: unknown) { return new Response(JSON.stringify(body)); }
 it.each([0, 1, 2, 3])("parses lifecycle version %s and scoped identity", (version) => {
   expect(archiveDetail(archiveDetailDto(version), archiveMaterialId)).toMatchObject({ id: archiveMaterialId, version, isArchived: version % 2 === 1 });
 });
-it.each(["target", "version", "parity", "date", "initial-date", "publication", "readiness", "extra-field"])("rejects contradictory archive state: %s", (change) => {
+it.each(["target", "version", "parity", "date", "initial-date", "readiness", "extra-field"])("rejects contradictory archive state: %s", (change) => {
   const dto = archiveDetailDto(1);
   if (change === "target") dto.material.id = crypto.randomUUID();
   if (change === "version") dto.version = 1.5;
   if (change === "parity") dto.is_archived = false;
   if (change === "date") dto.changed_at = "not-a-date";
   if (change === "initial-date") { dto.version = 0; dto.is_archived = false; }
-  if (change === "publication") dto.material.is_published = true;
-  if (change === "readiness") dto.material.workflow_status = "DONE";
+  if (change === "readiness") dto.material.validation_status = "VALID";
   if (change === "extra-field") dto.material.unexpected = "not accepted";
   expect(() => archiveDetail(dto, archiveMaterialId)).toThrow();
 });
@@ -93,4 +92,16 @@ it("requires scoped, consecutive lifecycle pages and a final full-page cursor", 
   expect(() => lifecyclePage({ ...dto, items: items.slice(1) }, archiveMaterialId)).toThrow();
   expect(() => lifecyclePage({ ...dto, items: [...items].reverse() }, archiveMaterialId)).toThrow();
   expect(() => lifecycleEvent({ ...items[0], review_generation: Number.MAX_SAFE_INTEGER + 1 }, archiveMaterialId)).toThrow();
+});
+
+it("accepts manual Published evidence in Archive and generates a reason when omitted", () => {
+  const dto = archiveDetailDto(1); dto.material.is_published = true; dto.material.publication_status = "PUBLISHED_UPDATE_REQUIRED";
+  expect(archiveDetail(dto).isArchived).toBe(true);
+  expect(lifecycleRequest(preview()).reason).toBe("Archived property changed.");
+});
+
+it("accepts preserved user properties on archived material", () => {
+  const dto = archiveDetailDto(1);
+  dto.material.workflow_status = "DONE"; dto.material.checked_status = "OK"; dto.material.is_published = true;
+  expect(archiveDetail(dto).isArchived).toBe(true);
 });

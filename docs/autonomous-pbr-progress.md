@@ -1,6 +1,101 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-26, database tables and project import)
+## Latest checkpoint (2026-09-27, material properties and source metadata)
+
+Continued `codex/autonomous-pbr-completion` from `00f4467`. A fresh remote read
+confirmed main remains `88a1f99d748d2a0edbb1fce509e13d18bfc03908`; main checkout
+is clean and unchanged. No removed auth branch was used.
+
+### Delivered
+
+- Archived is a list/detail/bulk checkbox; Archive shares Materials filters,
+  table/gallery and Properties. Archive/restore preserve Status, Checked, Published
+  and current metadata while invalidating technical review. Existing ownership
+  and publication fences remain. No reason field is presented.
+- Detail reuses list property controls and exposes safe folder browsing and
+  root metadata.txt editing/creation. Source writes use a durable operation,
+  exact replay, hash checks, guarded Linux descriptors and an atomic journal.
+- Source review, AI, content approval, metadata snapshot history and individual
+  ZIP-policy panels are hidden. Publication content reason is optional; existing
+  explicit-reason receipts retain their original request hashes.
+- Global Settings selects ZIP A/B from the original master date and configured
+  cutoff/timezone. New batches freeze that version automatically; existing
+  artifacts retain their policy. Technical checks remain, separate human
+  approvals are no longer a phase-one prerequisite.
+- Excel import supports HEX, cm dimensions, Done, Checked, Note and brand
+  identifier. Invalid units/conflicting statuses are rejected rather than guessed.
+  Imported metadata retains unverified provenance and causes no source write.
+- Company creation/rename, brand rename/transfer and Notion company-name adoption
+  maintain a same-name company brand within the same transaction.
+
+See [version details](materials-v4.md), [editable metadata](editable-source-metadata.md)
+and [packaging policy](packaging-policy.md).
+
+### Actual acceptance instance
+
+Backed up the owned database before migrations 0030–0032; all prior table rows
+were unchanged by migration and `alembic check` found no drift. Keep the private
+backup and owned volumes. Populated new history has downgrade guards: use a
+forward fix or restore the backup into a separate owned instance, never force
+downgrade or overwrite original/demo volumes.
+
+Enriched the 100 selected historical records: 97 Done, 90 Checked OK, 99 colors,
+84 dimensions, 63 notes including preserved manual edits. Eighteen brand
+identifiers now match Excel; four manually changed fields and the existing archive
+flag were retained. One explicit `-m` size awaits unit clarification. All 111
+companies now have a same-name brand; 99 were added. There are 118 total brands,
+252 projects and 76 categories. No source folders were created or renamed.
+
+All 100 selected R folders and 280 preview filenames can be listed through a private
+read-only Windows adapter. It holds ancestor handles against rename, rejects
+reparse points and bounds/rechecks listings. No original source file was modified.
+Docker Desktop cannot bind this mapped R share, so real R metadata writes and
+technical checks remain blocked pending a correctly connected worker.
+
+The synthetic worker can write only one exact Linux-volume metadata fixture;
+its surrounding Windows source bind is read-only. Create/edit/replay, unknown-key
+preservation, mode 0644 and unchanged texture/preview hashes passed. An earlier
+Windows-bind fixture retains its pending journal because the filesystem rejected
+atomic no-replace rename; no ownership guard was bypassed. The private guide links
+to the working fixture. Current total: 103 materials, 102 active and 1 archived.
+ZIP/CSV stays testable with the separate synthetic fixture. Notion/GCS/upload
+remain disabled; original/demo databases and the Y library remain untouched.
+
+### Verification
+
+- Frontend: **1008/1008**, lint and build pass; main JS 477.75 kB.
+- E2E: **25 fresh + 25 retained**, run `dd4fe402-0f39-4295-ab7d-7f5fa339bff6`,
+  project `reawote-e2e-material-v4-final-0927`; real ZIP/CSV and restart checks pass.
+  Owned containers/networks cleaned, test volumes/artifacts retained; protected
+  original/demo state unchanged.
+- PostgreSQL: full run 472 passed / 8 outdated test assumptions failed. Fixed the
+  access-lock observer, expected guard message, extra company-brand audit event
+  and legacy migration fixtures; no production guard relaxed. Follow-up **67/67**
+  includes all former failures, all 27 auth checks with zero skips, lifecycle and
+  new settings/metadata cases. All 480 distinct integration cases are covered.
+- Linux backend: 2194 passed,480 PostgreSQL cases skipped, one archive expectation
+  collected before its update failed. Updated archive suite 36/36 and exact failed
+  case rerun pass. Import/company/resource/Notion follow-up 104/104; content reason
+  and legacy replay 28/28, AI-adoption regression 10/10.
+- Linux worker: 530 passed,330 opt-in ImageMagick packaging cases skipped. Metadata
+  source/client security and current permission tests passed; all 31 worker Python
+  files match the running acceptance image.
+- Actual acceptance browser: archive filters/checkboxes, note search, live folder
+  navigation, imported metadata, synthetic editor, Settings and mobile width pass;
+  zero browser errors/non-auth writes. Migration fingerprints, all 100 source-tree
+  listings and synthetic metadata file hashes checked. Test-runner isolation 10/10.
+
+### Resume and remaining boundaries
+
+The ignored acceptance folder contains `PREHLED-VERZE-4.md`, exact test journals,
+backups and guarded `start-test.ps1`; it starts the existing loopback instance
+without resetting data. Standard isolated test runners remain in `scripts/`.
+Do not clear the preserved Windows diagnostic operation manually. Next external
+acceptance needs a compatible NAS worker mount and the full production workbook.
+The deferred AI-description CSV exchange and live publication/GCS/Notion require
+separate scope/configuration. No production deployment or merge is performed.
+
+## Previous checkpoint (2026-09-26, database tables and project import)
 
 Continued the existing `codex/autonomous-pbr-completion` worktree from
 `cd698f47c29240ed843cdd56aaa7a3fa40c20316`. Main remains the verified

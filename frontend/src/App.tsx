@@ -14,6 +14,7 @@ import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { useSession } from "./auth/context";
 import { restrictedDestination } from "./auth/permissions";
 import { AccountsPage } from "./pages/AccountsPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { CatalogPage } from "./pages/CatalogPage";
 import { PublicationPage } from "./pages/PublicationPage";
@@ -98,7 +99,9 @@ function App({ client = apiClient, initialPath }: AppProps) {
         description="The URL is malformed."
       />
     );
-  else if (path === "/settings/users" || (path === "/settings" && role === "ADMIN"))
+  else if (path === "/settings")
+    page = <SettingsPage navigate={navigate} />;
+  else if (path === "/settings/users")
     page = <AccountsPage navigate={navigate} />;
   else if (path === "/catalog")
     page = <CatalogPage client={client} />;
@@ -109,10 +112,10 @@ function App({ client = apiClient, initialPath }: AppProps) {
   else if (path === "/publication")
     page = <PublicationPage client={client} navigate={navigate} />;
   else if (path === "/material-archives")
-    page = <MaterialArchivesPage navigate={navigate} />;
+    page = <MaterialArchivesPage client={client} navigate={navigate} />;
   else if (archiveMatch) {
     const id = decodeURIComponent(archiveMatch[1]);
-    page = isMaterialId(id) ? <MaterialArchivesPage key={id} id={id} navigate={navigate} />
+    page = isMaterialId(id) ? <MaterialArchivesPage key={id} id={id} client={client} navigate={navigate} />
       : <section><h1>Invalid material ID</h1><p role="alert">The material URL must contain a valid UUID.</p></section>;
   }
   else if (path === "/materials")

@@ -14,15 +14,11 @@ test("source inventory, revision invalidation and reopen persist with audit hist
     expect((await page.request.post(path + "/mark-done", { headers })).status()).toBe(200);
   }
   await page.goto(`/materials/${fixture.id}`);
-  const panel = page.getByRole("article", { name: "Source review" });
-  await expect(panel.getByRole("button", { name: "Scan source inventory" })).toBeEnabled();
+  await expect(page.getByRole("article", { name: "Source review" })).toHaveCount(0);
   const scan = async () => {
-    const response = page.waitForResponse((item) => item.request().method() === "POST" && new URL(item.url()).pathname === path + "/inventory/scan");
-    await panel.getByRole("button", { name: "Scan source inventory" }).click();
-    const result = await response;
-    expect(result.status()).toBe(200);
-    await expect(panel.getByText("Observed revision available", { exact: true })).toBeVisible();
-    return result.json();
+    const before = await (await page.request.get(path + "/review")).json();
+    const result = await page.request.post(path + "/inventory/scan", { headers, data: { idempotency_key: randomUUID(), expected_generation: before.generation } });
+    expect(result.status()).toBe(200); return result.json();
   };
   if (retainedPass) {
     const prior = await (await page.request.get(path + "/review")).json();
@@ -39,16 +35,14 @@ test("source inventory, revision invalidation and reopen persist with audit hist
     expect(JSON.stringify(inventory)).not.toMatch(/raw_content|source_content|e2e-materials/);
     expect((await page.request.patch(path, { headers, data: { material_name: "E2E Reviewed Revision" } })).status()).toBe(200);
     await page.reload();
-    await expect(panel.locator("dl").getByText("MATERIAL_FIELDS_CHANGED", { exact: true })).toBeVisible();
+    expect((await (await page.request.get(path + "/review")).json()).failure_code).toBe("MATERIAL_FIELDS_CHANGED");
     const changed = await scan();
     expect(changed.revision_hash).not.toBe(first.revision_hash);
-    await panel.getByRole("button", { name: "Reopen material", exact: true }).click();
-    await panel.getByLabel("Reason for reopening").fill("Correct the source before technical review");
-    const response = page.waitForResponse((item) => item.request().method() === "POST" && new URL(item.url()).pathname === path + "/reopen");
-    await panel.getByRole("button", { name: "Confirm reopen" }).click();
-    expect((await response).status()).toBe(200);
-    await expect(page.getByRole("button", { name: "Mark as Done", exact: true })).toBeVisible();
-    await expect(panel.locator("dl").getByText("REOPENED", { exact: true })).toBeVisible();
+    const response = await page.request.post(path + "/reopen", { headers, data: { idempotency_key: randomUUID(), expected_generation: changed.generation, reason: "Correct the source before technical review" } });
+    expect(response.status()).toBe(200);
+    await page.reload();
+    await expect(page.getByRole("combobox", { name: "Status for E2E Reviewed Revision" })).toHaveValue("IN_PROGRESS");
+    expect((await (await page.request.get(path + "/review")).json()).failure_code).toBe("REOPENED");
     const reopened = await scan();
     expect(reopened.generation).toBeGreaterThan(changed.generation);
     const stale = await page.request.post(path + "/inventory/scan", { headers, data: { idempotency_key: randomUUID(), expected_generation: first.generation } });

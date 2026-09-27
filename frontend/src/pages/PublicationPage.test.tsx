@@ -31,10 +31,10 @@ async function inspect() {
   fireEvent.click(screen.getByRole("button", { name: "Find materials" }));
   fireEvent.click(await screen.findByRole("checkbox", { name: new RegExp(materialDto.material_name) }));
   fireEvent.click(screen.getByRole("button", { name: "Review selected materials" }));
-  await screen.findByText("All selected materials passed the current approval checks.");
+  await screen.findByText("All selected materials passed the source and export checks.");
 }
 function review() {
-  fireEvent.change(screen.getByLabelText("Reason for preparing this batch"), { target: { value: "Prepare synthetic batch" } });
+  fireEvent.change(screen.getByLabelText("Reason for preparing this batch (optional)"), { target: { value: "Prepare synthetic batch" } });
   fireEvent.click(screen.getByRole("checkbox", { name: "I reviewed the selected materials and export values." }));
 }
 it("requires explicit selection, preview and review before saving an immutable batch", async () => {
@@ -55,12 +55,20 @@ it("requires an explicit warning acknowledgment and displays formula-like text g
   fireEvent.click(screen.getByRole("button", { name: "Save CSV batch" })); await screen.findByText(/CSV batch saved/);
   expect(create.mock.calls[0][0].warnings_acknowledged).toBe(true);
 });
+it("saves a reviewed batch without requiring a reason", async () => {
+  const { create } = setup(); await inspect();
+  fireEvent.click(screen.getByRole("checkbox", { name: "I reviewed the selected materials and export values." }));
+  expect(screen.getByRole("button", { name: "Save CSV batch" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "Save CSV batch" }));
+  await screen.findByText(/CSV batch saved/);
+  expect(create.mock.calls[0][0].reason).toBe(null);
+});
 it("freezes uncertain writes and retries the same key and exact payload", async () => {
   const { create } = setup(); create.mockImplementationOnce(async () => { expect(requestNavigation("/companies")).toBe(false); throw new TypeError("Synthetic timeout"); }); await inspect(); review();
   fireEvent.click(screen.getByRole("button", { name: "Save CSV batch" })); await screen.findByText(/The outcome is unknown/);
   expect(requestNavigation("/companies")).toBe(false);
   for (const name of ["Find materials", "Load latest batches", "Save CSV batch"]) expect(screen.getByRole("button", { name })).toBeDisabled();
-  expect(screen.getByLabelText("Reason for preparing this batch")).toBeDisabled();
+  expect(screen.getByLabelText("Reason for preparing this batch (optional)")).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Retry same batch request" })); await screen.findByText(/CSV batch saved/);
   expect(create.mock.calls[0]).toEqual(create.mock.calls[1]);
   expect(requestNavigation("/companies")).toBe(true);

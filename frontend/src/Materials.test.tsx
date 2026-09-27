@@ -137,18 +137,19 @@ it("combines all filters, honors an empty response and clears filters", async ()
 it("loads full detail including UUID, four-digit number, relations, path and states", async () => {
   backend(); render(<App initialPath={"/materials/" + materialDto.id} />);
   await screen.findByRole("heading", { name: materialDto.material_name });
-  for (const text of [materialDto.id, "9999", "G03 · Facade / Tiles", "in progress", "no", processorDto.display_name]) expect(screen.getByText(text)).toBeInTheDocument();
-  expect(screen.getAllByText("Not linked")).toHaveLength(2);
-  expect(screen.getByRole("link", { name: materialProject.name })).toHaveAttribute("href", "/projects/" + materialProject.id);
-  expect(screen.getByRole("link", { name: materialBrand.name })).toHaveAttribute("href", "/brands/" + materialBrand.id);
-  expect(screen.getByText(materialDto.created_at)).toBeInTheDocument();
-  expect(screen.getByText(materialDto.updated_at)).toBeInTheDocument();
+  for (const text of [materialDto.id, "9999", "G03 · Facade / Tiles", "In progress", "no"]) expect(screen.getByText(text)).toBeInTheDocument();
+  expect(screen.getByText("Folder path").nextElementSibling).toHaveTextContent("No folder linked");
+  expect(await screen.findByText(materialProject.name)).toBeInTheDocument();
+  expect(screen.getByText(materialBrand.name)).toBeInTheDocument();
+  expect(screen.getByText(processorDto.display_name)).toBeInTheDocument();
+  expect(screen.getByText(new Date(materialDto.created_at).toLocaleString())).toBeInTheDocument();
+  expect(screen.getByText(new Date(materialDto.updated_at).toLocaleString())).toBeInTheDocument();
   for (const name of ["Done", "Approve", "Publish", "Open folder"]) expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
 });
 it.each([
-  ["/api/projects/" + materialProject.id, "Project could not be loaded"],
-  ["/api/internal-users/" + processorDto.id, "Processor could not be loaded"],
-  ["/api/brands/" + materialBrand.id, "Published brand could not be loaded"],
+  ["/api/projects", "Related property choices could not be loaded"],
+  ["/api/internal-users", "Related property choices could not be loaded"],
+  ["/api/brands", "Related property choices could not be loaded"],
 ])("preserves detail when related record %s is missing", async (failed, message) => {
   backend({ failed }); render(<App initialPath={"/materials/" + materialDto.id} />);
   expect(await screen.findByRole("alert")).toHaveTextContent(message);

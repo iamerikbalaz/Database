@@ -46,6 +46,7 @@ export function responseError(status: number, body: unknown): ApiError {
         ? "Please correct the highlighted fields and try again."
         : status === 404
           ? "The record or selected company no longer exists (404)."
+          : status === 503 ? "The source service is unavailable (503). Check that the worker is running and can access the configured NAS folder."
           : "The request could not be completed (" +
             status +
             "). Please try again.";

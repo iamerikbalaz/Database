@@ -1,45 +1,26 @@
 import { categoryLabel } from "../data/materialCategories";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { ApiClient } from "../api/client";
-import {
-  materialLoadError,
-  materialOperationError,
-} from "../api/materialClient";
+import { materialLoadError, materialOperationError } from "../api/materialClient";
 import { validateFolderPath } from "../api/folderPathValidation";
 import { useSession } from "../auth/context";
 import { statusLabel, type Material } from "../api/materialDto";
-import type {
-  MaterialFinding,
-  MaterialFolderPreflight,
-  MaterialMetadata,
-  MaterialMetadataSnapshot,
-} from "../api/materialOperationsDto";
+import type { MaterialFinding, MaterialFolderPreflight } from "../api/materialOperationsDto";
+import { GalleryStore } from "../api/galleryStore";
 import { useResource } from "../api/useResource";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { NavigationLink } from "../components/NavigationLink";
-import { MaterialReviewPanel } from "../components/MaterialReviewPanel";
-import { MaterialTechnicalPanel } from "../components/MaterialTechnicalPanel";
-import { MaterialIdentityPanel } from "../components/MaterialIdentityPanel";
 import { MaterialContentPanel } from "../components/MaterialContentPanel";
-import { MaterialAiPanel } from "../components/MaterialAiPanel";
-import { AiServicePanel } from "../components/AiServicePanel";
-import { ContentApprovalPanel } from "../components/ContentApprovalPanel";
+import { MaterialMetadataEditor } from "../components/MaterialMetadataEditor";
 import { MaterialGallery } from "../components/MaterialGallery";
+import { MaterialsTable } from "../components/MaterialsTable";
 import { FolderDiscovery } from "../components/FolderDiscovery";
-import { PackagingPolicyPanel } from "../components/PackagingPolicyPanel";
+import { MaterialFolderContents } from "../components/MaterialFolderContents";
 import { PackagingJobsPanel } from "../components/PackagingJobsPanel";
 import { ResourceHistoryPanel } from "../components/ResourceHistoryPanel";
-import { MaterialLifecyclePanel } from "../components/MaterialLifecyclePanel";
 
+type SavedOperation = "link";
 function Value({ children }: { children: ReactNode }) {
   return children === null || children === undefined || children === "" ? (
     <span className="muted">Not available</span>
@@ -65,63 +46,6 @@ function ActionError({ message }: { message: string }) {
   );
 }
 
-function SectionError({
-  message,
-  retry,
-  focusOnMount = true,
-}: {
-  message: string;
-  retry: () => void;
-  focusOnMount?: boolean;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (focusOnMount) ref.current?.focus();
-  }, [focusOnMount, message]);
-  return (
-    <div ref={ref} className="section-state section-state--error" role="alert" tabIndex={-1}>
-      <p>{message}</p>
-      <button className="button" type="button" onClick={retry}>Try again</button>
-    </div>
-  );
-}
-
-function SectionLoading({ label }: { label: string }) {
-  return <div className="section-state" role="status"><span className="spinner" /><p>{label}</p></div>;
-}
-
-type ResourceResult<T> =
-  | { state: "loading" }
-  | { state: "ready"; data: T }
-  | { state: "error"; cause: unknown };
-
-type SavedOperation = "link" | "done" | "reopen";
-
-function RefreshError({
-  operation,
-  pending,
-  retry,
-}: {
-  operation: SavedOperation;
-  pending: boolean;
-  retry: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => ref.current?.focus(), [operation]);
-  const savedChange = operation === "link"
-    ? "The folder was linked"
-    : operation === "reopen" ? "The material was reopened" : "The material was marked as Done";
-  return (
-    <div ref={ref} className="form-error" role="alert" tabIndex={-1}>
-      <strong>Change saved, refresh incomplete</strong>
-      <p>{savedChange}, but some updated data could not be reloaded. Try loading the material data again.</p>
-      <button className="button" type="button" disabled={pending} onClick={retry}>
-        {pending ? "Reloading…" : "Reload material data"}
-      </button>
-    </div>
-  );
-}
-
 function FindingList({ title, items }: { title: string; items: MaterialFinding[] }) {
   return (
     <div className="findings">
@@ -138,25 +62,6 @@ function FindingList({ title, items }: { title: string; items: MaterialFinding[]
       )}
     </div>
   );
-}
-
-function MetadataValues({ value }: { value: MaterialMetadata | MaterialMetadataSnapshot }) {
-  const fields: Array<[string, ReactNode]> = [
-    ["Status", <span className={`metadata-status metadata-status--${value.status.toLowerCase()}`}>{statusLabel(value.status)}</span>],
-    ["Source filename", <Value>{value.sourceFilename}</Value>],
-    ["HEX color", value.hexColor ? <span className="color-value"><span className="color-swatch" style={{ backgroundColor: value.hexColor }} aria-hidden="true" />{value.hexColor}</span> : <Value>{null}</Value>],
-    ["Real width", value.widthCm ? `${value.widthCm} cm` : <Value>{null}</Value>],
-    ["Real height", value.heightCm ? `${value.heightCm} cm` : <Value>{null}</Value>],
-    ["Master resolution", <Value>{value.masterResolution}</Value>],
-    ["Loaded at", value.loadedAt ? <time dateTime={value.loadedAt}>{value.loadedAt}</time> : <Value>{null}</Value>],
-  ];
-  return <>
-    <dl className="info-list metadata-values">
-      {fields.map(([label, content]) => <div key={label}><dt>{label}</dt><dd>{content}</dd></div>)}
-    </dl>
-    <FindingList title="Warnings and metadata issues" items={value.warnings} />
-    <div className="findings"><h3>Errors</h3><p className="muted">The metadata endpoints do not provide a separate errors list.</p></div>
-  </>;
 }
 
 export function MaterialFacts({ material: m }: { material: Material }) {
@@ -358,317 +263,59 @@ function FolderControls({
   </article>;
 }
 
-function MarkDoneControl({
-  material,
-  client,
-  refreshing,
-  onSaved,
-}: {
-  material: Material;
-  client: ApiClient;
-  refreshing: boolean;
-  onSaved: (fallback: Material, operation: SavedOperation) => Promise<boolean>;
+
+function MaterialDetailContent({ initialMaterial, client, navigate, reload, includeArchived }: {
+  initialMaterial: Material; client: ApiClient; navigate: (path: string) => void; reload: () => void; includeArchived: boolean;
 }) {
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const pendingRef = useRef(false);
-  const button = useRef<HTMLButtonElement>(null);
-  const dialog = useRef<HTMLDialogElement>(null);
-  const restoreDialogFocus = useRef(true);
-  const eligible = Boolean(safeFolderPath(material.folderPath) && material.workflowStatus !== "DONE");
-  if (!eligible && !pending && !error && !notice) return null;
-
-  const markDone = async () => {
-    if (pendingRef.current) return;
-    pendingRef.current = true;
-    setPending(true);
-    setError("");
-    setNotice("");
-    try {
-      const result = await client.markMaterialDone(material.id);
-      dialog.current?.close();
-      const refreshed = await onSaved(result.material, "done");
-      setNotice(refreshed
-        ? "Material was marked as Done. Metadata and snapshot history were refreshed."
-        : "");
-    } catch (cause) {
-      setError(materialOperationError(cause, "done"));
-      restoreDialogFocus.current = false;
-      dialog.current?.close();
-    } finally {
-      pendingRef.current = false;
-      setPending(false);
-    }
-  };
-
-  return <div className="done-control">
-    {error && <ActionError message={error} />}
-    <p className="operation-notice" role="status" aria-live="polite">{notice}</p>
-    {eligible && <>
-      <button
-        ref={button}
-        className="button button--primary"
-        type="button"
-        disabled={pending || refreshing}
-        aria-haspopup="dialog"
-        onClick={() => {
-          restoreDialogFocus.current = true;
-          dialog.current?.showModal();
-        }}
-      >
-        {pending ? "Marking as Done…" : "Mark as Done"}
-      </button>
-      <ConfirmDialog
-        dialogRef={dialog}
-        returnFocusRef={button}
-        restoreFocusOnCloseRef={restoreDialogFocus}
-        title="Mark this material as Done?"
-        confirmLabel="Mark as Done"
-        pendingLabel="Marking as Done…"
-        pending={pending || refreshing}
-        onConfirm={() => void markDone()}
-      >
-        <p>The linked folder will be checked again and a metadata snapshot will be saved.</p>
-        <p>Missing or incorrect metadata creates a warning, but does not by itself prevent the material from being marked Done. Folder safety or identity problems can still block the action.</p>
-      </ConfirmDialog>
-    </>}
-  </div>;
-}
-
-function CurrentMetadataPanel({
-  result,
-  retry,
-  focusError,
-}: {
-  result: ResourceResult<MaterialMetadata>;
-  retry: () => void;
-  focusError: boolean;
-}) {
-  return <article className="panel metadata-panel">
-    <div className="panel-title"><div><p className="eyebrow">Latest scan</p><h2>Current metadata</h2></div></div>
-    {result.state === "error" ? <SectionError message={materialOperationError(result.cause, "metadata")} retry={retry} focusOnMount={focusError} />
-      : result.state === "loading" ? <SectionLoading label="Loading current metadata…" />
-      : <MetadataValues value={result.data} />}
-  </article>;
-}
-
-function SnapshotHistoryPanel({
-  result,
-  retry,
-  focusError,
-}: {
-  result: ResourceResult<MaterialMetadataSnapshot[]>;
-  retry: () => void;
-  focusError: boolean;
-}) {
-  const snapshots = result.state === "ready"
-    ? [...result.data].sort((a, b) => a.sequenceNumber - b.sequenceNumber || a.id.localeCompare(b.id))
-    : undefined;
-  return <article className="panel metadata-panel">
-    <div className="panel-title"><div><p className="eyebrow">Audit trail</p><h2>Snapshot history</h2></div><span className="count-pill">{snapshots?.length ?? "–"}</span></div>
-    {result.state === "error" ? <SectionError message={materialOperationError(result.cause, "snapshots")} retry={retry} focusOnMount={focusError} />
-      : snapshots === undefined ? <SectionLoading label="Loading snapshot history…" />
-      : snapshots.length === 0 ? <div className="section-state"><p>No metadata snapshots yet.</p><span className="muted">A snapshot is added when the material is marked Done.</span></div>
-      : <ol className="snapshot-list">{snapshots.map((snapshot) => <li key={snapshot.id}>
-          <details>
-            <summary><span>Snapshot {snapshot.sequenceNumber}</span><time dateTime={snapshot.loadedAt ?? snapshot.createdAt}>{snapshot.loadedAt ?? snapshot.createdAt}</time></summary>
-            <MetadataValues value={snapshot} />
-          </details>
-        </li>)}</ol>}
-  </article>;
-}
-
-function useMaterialDataRefresh(initialMaterial: Material, client: ApiClient) {
-  const materialId = initialMaterial.id;
-  const [material, setMaterial] = useState(initialMaterial);
-  const [metadata, setMetadata] = useState<ResourceResult<MaterialMetadata>>({ state: "loading" });
-  const [snapshots, setSnapshots] = useState<ResourceResult<MaterialMetadataSnapshot[]>>({ state: "loading" });
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshFailure, setRefreshFailure] = useState<SavedOperation | null>(null);
-  const [refreshNotice, setRefreshNotice] = useState("");
-  const [reviewRefreshVersion, setReviewRefreshVersion] = useState(0);
-  const requestGeneration = useRef(0);
-  const refreshInFlight = useRef<Promise<boolean> | null>(null);
-
-  useEffect(() => {
-    const generation = ++requestGeneration.current;
-    void Promise.allSettled([
-      Promise.resolve().then(() => client.getMaterialMetadata(materialId)),
-      Promise.resolve().then(() => client.getMaterialMetadataSnapshots(materialId)),
-    ]).then(([metadataResult, snapshotsResult]) => {
-      if (requestGeneration.current !== generation) return;
-      setMetadata(metadataResult.status === "fulfilled"
-        ? { state: "ready", data: metadataResult.value }
-        : { state: "error", cause: metadataResult.reason });
-      setSnapshots(snapshotsResult.status === "fulfilled"
-        ? { state: "ready", data: snapshotsResult.value }
-        : { state: "error", cause: snapshotsResult.reason });
-    });
-    return () => {
-      requestGeneration.current += 1;
-    };
-  }, [client, materialId]);
-
-  const refreshAll = useCallback((fallback: Material | undefined, operation: SavedOperation | undefined) => {
-    if (refreshInFlight.current) return refreshInFlight.current;
-
-    const generation = ++requestGeneration.current;
-    if (fallback) setMaterial(fallback);
-    // Review state can change without touching the material's updated_at.
-    setReviewRefreshVersion((value) => value + 1);
-    setMetadata({ state: "loading" });
-    setSnapshots({ state: "loading" });
-    if (fallback) setRefreshFailure(null);
-    setRefreshNotice("");
-    setRefreshing(true);
-
-    const work = Promise.allSettled([
-      Promise.resolve().then(() => client.getMaterial(materialId)),
-      Promise.resolve().then(() => client.getMaterialMetadata(materialId)),
-      Promise.resolve().then(() => client.getMaterialMetadataSnapshots(materialId)),
-    ]).then(([materialResult, metadataResult, snapshotsResult]) => {
-      if (requestGeneration.current !== generation) return false;
-
-      if (materialResult.status === "fulfilled") setMaterial(materialResult.value);
-      setMetadata(metadataResult.status === "fulfilled"
-        ? { state: "ready", data: metadataResult.value }
-        : { state: "error", cause: metadataResult.reason });
-      setSnapshots(snapshotsResult.status === "fulfilled"
-        ? { state: "ready", data: snapshotsResult.value }
-        : { state: "error", cause: snapshotsResult.reason });
-
-      const complete = materialResult.status === "fulfilled" &&
-        metadataResult.status === "fulfilled" && snapshotsResult.status === "fulfilled";
-      if (complete) {
-        setRefreshFailure(null);
-        if (operation === "reopen") setRefreshNotice("Material reopened. Previous metadata snapshots remain in its history.");
-      }
-      else if (operation) setRefreshFailure(operation);
-      return complete;
-    });
-    const tracked = work.finally(() => {
-      if (requestGeneration.current === generation) {
-        refreshInFlight.current = null;
-        setRefreshing(false);
-      }
-    });
-    refreshInFlight.current = tracked;
-    return tracked;
-  }, [client, materialId]);
-
-  const retry = useCallback(() => {
-    const savedOperation = refreshFailure ?? undefined;
-    void refreshAll(undefined, savedOperation).then((complete) => {
-      if (complete) setRefreshNotice("Material detail, current metadata and snapshot history were reloaded.");
-    });
-  }, [refreshAll, refreshFailure]);
-
-  return {
-    material,
-    reviewRefreshVersion,
-    metadata,
-    snapshots,
-    refreshing,
-    refreshFailure,
-    refreshNotice,
-    refreshAll,
-    retry,
-  };
-}
-
-function MaterialDetailContent({
-  initialMaterial,
-  project,
-  brand,
-  processor,
-  retryRelated,
-  client,
-  navigate,
-}: {
-  initialMaterial: Material;
-  project: PromiseSettledResult<Awaited<ReturnType<ApiClient["getProjectRecord"]>> | null>;
-  brand: PromiseSettledResult<Awaited<ReturnType<ApiClient["getBrand"]>>>;
-  processor: PromiseSettledResult<Awaited<ReturnType<ApiClient["getInternalUser"]>>>;
-  retryRelated: () => void;
-  client: ApiClient;
-  navigate: (path: string) => void;
-}) {
-  const data = useMaterialDataRefresh(initialMaterial, client);
   const role = useSession()?.session.user.role;
-  const canEdit = role !== "LEADERSHIP";
-  const { material } = data;
-
+  const [material, setMaterial] = useState(initialMaterial);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState("");
+  const [propertiesBusy, setPropertiesBusy] = useState(false);
+  const store = useMemo(() => new GalleryStore(), []);
+  useEffect(() => () => store.clear(), [store]);
+  const loadOptions = useCallback(() => Promise.all([client.getProjects(), client.getBrands(), client.getInternalUsers()]), [client]);
+  const options = useResource(loadOptions);
+  const [projects = [], brands = [], users = []] = options.data ?? [];
+  const refresh = useCallback(async (fallback?: Material) => {
+    if (fallback) setMaterial(fallback);
+    setRefreshing(true); setRefreshError("");
+    try {
+      const updated = await client.getMaterial(material.id, includeArchived || role === "ADMIN");
+      setMaterial(updated);
+      if (updated.isArchived !== material.isArchived) navigate(updated.isArchived ? `/material-archives/${material.id}` : `/materials/${material.id}`);
+      return true;
+    }
+    catch { setRefreshError("Change saved, but the material could not be reloaded. Refresh the material data."); return false; }
+    finally { setRefreshing(false); }
+  }, [client, material.id, material.isArchived, includeArchived, role, navigate]);
+  const refreshFromProperties = useCallback(() => { void refresh(); }, [refresh]);
+  const canEdit = role !== "LEADERSHIP" && !material.isArchived;
   return <section>
-    <NavigationLink className="back-link" href="/materials" navigate={navigate}>Back to materials</NavigationLink>
+    <NavigationLink className="back-link" href={material.isArchived ? "/material-archives" : "/materials"} navigate={navigate}>{material.isArchived ? "Back to archived materials" : "Back to materials"}</NavigationLink>
     <div className="page-heading"><div><p className="eyebrow">{material.technicalIdentity}</p><h1>{material.materialName}</h1></div>
-      <NavigationLink className="button" href={`/materials/${material.id}/edit`} navigate={navigate}>Edit material</NavigationLink>
+      {canEdit && <NavigationLink className="button" href={`/materials/${material.id}/edit`} navigate={navigate}>Edit material</NavigationLink>}
     </div>
-    {role && <MaterialGallery key={`gallery-${material.id}-${material.folderPath}-${data.reviewRefreshVersion}`} materialId={material.id} linked={Boolean(material.folderPath)} initiallyOpen />}
-    <article className="panel"><MaterialFacts material={material} />
-      <dl className="info-list">
-        <div><dt>Project</dt><dd>{material.projectId === null ? "No project assigned" : project.status === "fulfilled" && project.value ? <NavigationLink href={`/projects/${material.projectId}`} navigate={navigate}>{project.value.name}</NavigationLink> : <span role="alert">Project could not be loaded ({material.projectId}).</span>}</dd></div>
-        <div><dt>Published brand</dt><dd>{brand.status === "fulfilled" ? <NavigationLink href={`/brands/${material.publishedBrandId}`} navigate={navigate}>{brand.value.name}</NavigationLink> : <span role="alert">Published brand could not be loaded ({material.publishedBrandId}).</span>}</dd></div>
-        <div><dt>Processor</dt><dd>{processor.status === "fulfilled" ? processor.value.displayName + (processor.value.isActive ? "" : " (inactive)") : <span role="alert">Processor could not be loaded ({material.assignedProcessorId}).</span>}</dd></div>
-      </dl>
-      {[project, brand, processor].some((result) => result.status === "rejected") && <button className="button" onClick={retryRelated}>Retry related records</button>}
-      {canEdit && <MarkDoneControl
-        material={material}
-        client={client}
-        refreshing={data.refreshing}
-        onSaved={data.refreshAll}
-      />}
+    {role && <MaterialGallery key={`gallery-${material.id}-${material.folderPath}-${material.updatedAt}`} materialId={material.id} linked={Boolean(material.folderPath)} initiallyOpen />}
+    <article className="panel" aria-label="Material properties">
+      {options.error && <p role="alert">Related property choices could not be loaded. <button onClick={options.retry}>Retry related records</button></p>}
+      <MaterialsTable detail materials={[material]} store={store} client={client} projects={projects} brands={brands} users={users}
+        navigate={navigate} refresh={refreshFromProperties} onBusyChange={setPropertiesBusy} onMaterialChanged={setMaterial} />
     </article>
-    {canEdit && <FolderControls
-      material={material}
-      client={client}
-      refreshing={data.refreshing}
-      onSaved={data.refreshAll}
-    />}
-    {data.refreshFailure && <RefreshError
-      operation={data.refreshFailure}
-      pending={data.refreshing}
-      retry={data.retry}
-    />}
-    <p className="operation-notice" role="status" aria-live="polite">{data.refreshNotice}</p>
-    <div className="metadata-grid">
-      <CurrentMetadataPanel result={data.metadata} retry={data.retry} focusError={!data.refreshFailure} />
-      <SnapshotHistoryPanel result={data.snapshots} retry={data.retry} focusError={!data.refreshFailure} />
-    </div>
-    {role && <MaterialContentPanel key={`content-${material.id}-${material.publishedBrandId}`} material={material} onChanged={retryRelated} />}
-    {role && <MaterialAiPanel key={`ai-${material.id}`} materialId={material.id} onAdopted={retryRelated} onSourcesChanged={() => void data.refreshAll(undefined, undefined)} />}
-    {role && <AiServicePanel materialId={material.id} />}
-    {role && <ContentApprovalPanel key={`content-approval-${material.id}`} materialId={material.id} refreshVersion={data.reviewRefreshVersion} onChanged={retryRelated} />}
-    {role && <PackagingPolicyPanel key={`policy-${material.id}`} materialId={material.id} workflowStatus={material.workflowStatus} refreshVersion={data.reviewRefreshVersion} onChanged={() => void data.refreshAll(undefined, undefined)} />}
-    <PackagingJobsPanel key={`packaging-${material.id}`} materialId={material.id} onChanged={() => void data.refreshAll(undefined, undefined)} />
+    {refreshError && <div role="alert">{refreshError}<button className="button" onClick={() => void refresh()}>Reload material data</button></div>}
+    {role && <MaterialFolderContents key={`contents-${material.id}-${material.folderPath}`} materialId={material.id} folderPath={material.folderPath} />}
+    {canEdit && <FolderControls key={`folder-${material.id}`} material={material} client={client} refreshing={refreshing || propertiesBusy} onSaved={refresh} />}
+    {role && !material.isArchived && <MaterialMetadataEditor key={`metadata-${material.id}`} material={material} onChanged={refresh} />}
+    {role && !material.isArchived && <MaterialContentPanel key={`content-${material.id}-${material.publishedBrandId}`} material={material} onChanged={reload} />}
+    <PackagingJobsPanel key={`packaging-${material.id}`} materialId={material.id} onChanged={refresh} />
     <ResourceHistoryPanel kind="MATERIAL" id={material.id} updatedAt={material.updatedAt} />
-    <MaterialLifecyclePanel materialId={material.id} navigate={navigate} onApplied={() => navigate(`/material-archives/${material.id}`)} />
-    {role && <MaterialTechnicalPanel key={`technical-${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material} onChanged={() => data.refreshAll(undefined, undefined)} />}
-    {role && <MaterialIdentityPanel key={`identity-${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material} client={client} onChanged={async () => { retryRelated(); return true; }} />}
-    {role && <MaterialReviewPanel key={`${material.id}-${material.updatedAt}-${material.workflowStatus}-${material.folderPath}`} material={material}
-      onScanned={() => data.refreshAll(undefined, undefined)}
-      onReopened={() => data.refreshAll({ ...material, workflowStatus: "IN_PROGRESS", validationStatus: "NOT_CHECKED" }, "reopen")} />}
   </section>;
 }
 
-export function MaterialDetailPage({ id, client, navigate }: { id: string; client: ApiClient; navigate: (path: string) => void }) {
-  const load = useCallback(async () => {
-    const material = await client.getMaterial(id);
-    const [project, brand, processor] = await Promise.allSettled([
-      material.projectId === null ? Promise.resolve(null) : client.getProjectRecord(material.projectId), client.getBrand(material.publishedBrandId), client.getInternalUser(material.assignedProcessorId),
-    ]);
-    return { material, project, brand, processor };
-  }, [id, client]);
+export function MaterialDetailPage({ id, client, navigate, includeArchived = false }: { id: string; client: ApiClient; navigate: (path: string) => void; includeArchived?: boolean }) {
+  const load = useCallback(() => client.getMaterial(id, includeArchived), [id, client, includeArchived]);
   const { data, error, cause, retry } = useResource(load);
   if (error) return <ErrorState message={materialLoadError(cause)} retry={retry} />;
   if (!data) return <LoadingState label="Loading material…" />;
-  return <MaterialDetailContent
-    initialMaterial={data.material}
-    project={data.project}
-    brand={data.brand}
-    processor={data.processor}
-    retryRelated={retry}
-    client={client}
-    navigate={navigate}
-  />;
+  return <MaterialDetailContent key={`${data.id}:${data.updatedAt}:${data.isArchived}`} initialMaterial={data} client={client} navigate={navigate} reload={retry} includeArchived={includeArchived} />;
 }

@@ -8,10 +8,11 @@ test("confirmed rebrand renames real source files and survives backend and worke
   const session = await (await page.request.get("/api/auth/session")).json();
   const headers = { Origin: runManifest.frontendUrl, "X-CSRF-Token": session.csrf_token };
   if (!retainedPass) expect((await page.request.post(path + "/folder-link", { headers, data: { folder_path: fixture.relativePath } })).status()).toBe(200);
+  const before = await (await page.request.get(path)).json();
   await page.goto(`/materials/${fixture.id}`);
   const panel = page.getByRole("article", { name: "Material identity" });
   if (!retainedPass) {
-    await panel.getByRole("combobox", { name: "Target brand", exact: true }).selectOption(runManifest.state.identityBrandId);
+    await page.getByRole("combobox", { name: `Published brand for ${before.material_name}`, exact: true }).selectOption(runManifest.state.identityBrandId);
     await panel.getByLabel("Target category code").selectOption("G02");
     await panel.getByRole("button", { name: "Preview identity changes" }).click();
     await expect(panel.getByRole("region", { name: "Identity change preview" })).toBeVisible();
@@ -22,8 +23,9 @@ test("confirmed rebrand renames real source files and survives backend and worke
     await panel.getByRole("button", { name: "Confirm identity change" }).click();
     const confirmed = await response;
     expect(confirmed.status()).toBe(200); expect((await confirmed.json()).status).toBe("COMPLETED");
+    await page.getByRole("dialog", { name: "Change material identity" }).getByRole("button", { name: "Back to materials", exact: true }).click();
   }
-  await expect(page.getByRole("link", { name: "E2E Identity Target", exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: `Published brand for ${before.material_name}`, exact: true })).toHaveValue(runManifest.state.identityBrandId);
   const current = await (await page.request.get(path)).json();
   expect(current.id).toBe(fixture.id); expect(current.project_id).toBe(runManifest.state.projectId);
   expect(current.published_brand_id).toBe(runManifest.state.identityBrandId);

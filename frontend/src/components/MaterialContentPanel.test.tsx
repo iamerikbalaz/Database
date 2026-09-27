@@ -70,19 +70,20 @@ async function fill() {
   fireEvent.change(screen.getByLabelText("Tags, one per line"), { target: { value: "matte\nstone" } });
   fireEvent.click(screen.getByRole("checkbox", { name: "Stone" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Studio" }));
-  fireEvent.change(screen.getByLabelText("Reason for content change"), { target: { value: "Classify synthetic material" } });
 }
-it("saves individual values with the content revision, CSRF and an idempotency key", async () => {
+it("saves individual values without a reason, with the content revision, CSRF and an idempotency key", async () => {
   const { posts, changed } = setup(); await fill();
   fireEvent.click(screen.getByRole("button", { name: "Save publication draft" }));
   await waitFor(() => expect(changed).toHaveBeenCalledOnce());
   expect(JSON.parse(String(posts[0].body))).toEqual({ idempotency_key: expect.any(String), expected_revision: 0,
-    description: "Synthetic stone", credits: 8, tags: ["matte", "stone"], category_ids: [category.id], collection_ids: [collection.id], reason: "Classify synthetic material" });
+    description: "Synthetic stone", credits: 8, tags: ["matte", "stone"], category_ids: [category.id], collection_ids: [collection.id] });
   expect(posts[0].headers).toEqual(expect.objectContaining({ "X-CSRF-Token": "t".repeat(43) }));
 });
-it("requires a reason and rejects colon-joined tags without an HTTP mutation", async () => {
+it("hides the reason and approval requirement while still rejecting colon-joined tags", async () => {
   const { posts } = setup(); await screen.findByRole("button", { name: "Save publication draft" });
-  expect(screen.getByRole("button", { name: "Save publication draft" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Save publication draft" })).toBeEnabled();
+  expect(screen.queryByLabelText("Reason for content change")).not.toBeInTheDocument();
+  expect(screen.queryByText(/requires a new approval|human approval|approval is still required/i)).not.toBeInTheDocument();
   await fill(); fireEvent.change(screen.getByLabelText("Tags, one per line"), { target: { value: "matte:stone" } });
   fireEvent.click(screen.getByRole("button", { name: "Save publication draft" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("without colons"); expect(posts).toHaveLength(0);

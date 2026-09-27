@@ -16,6 +16,7 @@ from app.material_review import canonical_hash, invalidate_review
 from app.packaging_policy import current_policy, initial_evidence, override_preview, policy_view
 from app.publication_csv import Digest
 from app.schemas import ApiSchema, MaterialZipPolicy
+from app.packaging_settings import current_settings, lock_settings
 
 
 class PolicySelection(ApiSchema):
@@ -64,6 +65,7 @@ def build_packaging_policy_router(database, settings):
         request_hash = _request_hash("PACKAGING_POLICY_SELECT", material_id, payload)
         with database.session() as session:
             actor = access.check(session, PUBLICATION_APPROVERS)
+            lock_settings(session)
             material = _material(session, material_id, access, lock=True, mutating=True)
             replay = _replay(session, actor.id, material_id, payload, request_hash)
             if replay is not None: return replay
@@ -71,9 +73,12 @@ def build_packaging_policy_router(database, settings):
             current = current_policy(session, material_id)
             event = "PACKAGING_POLICY_REUSED"
             if current is None:
-                policy, evidence = initial_evidence(session, material, state, payload, settings.zip_policy_timezone)
+                config = current_settings(session, settings)
+                policy, evidence = initial_evidence(session, material, state, payload, config["storage_timezone"],
+                    cutoff_date=config["cutoff_date"] if config["version"] else None)
+                evidence.update(schema_version=2, selection_mode="AUTOMATIC", packaging_settings=config)
                 current = MaterialPackagingPolicy(material_id=material_id, actor_id=actor.id, revision=1,
-                    inventory_id=state.inventory_id, policy=policy, storage_timezone=settings.zip_policy_timezone,
+                    inventory_id=state.inventory_id, policy=policy, storage_timezone=config["storage_timezone"],
                     reason=payload.reason, evidence=evidence, evidence_hash=canonical_hash(evidence))
                 session.add(current)
                 try: session.flush()

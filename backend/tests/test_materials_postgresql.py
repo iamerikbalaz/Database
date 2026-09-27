@@ -335,13 +335,13 @@ def test_postgresql_publication_preview_freezes_inputs_until_competing_edit_comm
     entered = Event(); release = Event()
     original = publication_preflight._candidate
     calls = 0
-    def hold(session, material):
+    def hold(session, material, **kwargs):
         nonlocal calls
         calls += 1
         if calls == 1:
             entered.set()
             if not release.wait(15): raise TimeoutError("Publication preview test was not released")
-        return original(session, material)
+        return original(session, material, **kwargs)
     with case.client_for() as reader, case.client_for(3) as editor:
         before = preview(reader, case.material.id)
         assert before["can_prepare"] is True
@@ -2876,13 +2876,13 @@ def test_postgresql_publication_commit_preserves_snapshot_during_competing_edit(
     case = review_pg_case; _prepare_pg_publication(case)
     entered = Event(); release = Event(); original = publication_preflight._candidate
     calls = 0
-    def hold(session, material):
+    def hold(session, material, **kwargs):
         nonlocal calls
         calls += 1
         if calls == 1:
             entered.set()
             if not release.wait(15): raise TimeoutError("Publication commit test was not released")
-        return original(session, material)
+        return original(session, material, **kwargs)
     with case.client_for() as publisher, case.client_for(3) as editor:
         view = preview(publisher, case.material.id); body = creation(view)
         content = editor.get(case.path + "/content").json()
@@ -2939,7 +2939,7 @@ def test_postgresql_publication_history_rejects_mutation_cross_material_proof_an
                 FROM publication_batch_items WHERE batch_id=:batch"""), {"other": other_id, "batch": batch_id})
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("DATABASE_URL", case.database.engine.url.render_as_string(hide_password=False)); get_settings.cache_clear()
-        with pytest.raises(DBAPIError, match="Publication provenance exists"):
+        with pytest.raises(DBAPIError, match="Publication provenance exists|Global packaging or phase-one publication history exists"):
             command.downgrade(Config("alembic.ini"), "20260917_0014")
     with case.database.engine.connect() as connection:
         assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == _current_head()
@@ -3094,7 +3094,7 @@ def test_postgresql_packaging_decisions_require_immutable_contiguous_same_materi
         with pytest.raises(IntegrityError, match="fk_material_packaging_policies_inventory"): session.commit()
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("DATABASE_URL", case.database.engine.url.render_as_string(hide_password=False)); get_settings.cache_clear()
-        with pytest.raises(DBAPIError, match="Packaging policy provenance exists"):
+        with pytest.raises(DBAPIError, match="Packaging policy provenance exists|Global packaging or phase-one publication history exists"):
             command.downgrade(Config("alembic.ini"), "20260917_0015")
     with case.database.engine.connect() as connection:
         assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == _current_head()
@@ -3233,7 +3233,7 @@ def test_postgresql_packaging_provenance_is_append_only_and_ownership_is_preserv
                 {"other": uuid4(), "id": values["id"]})
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("DATABASE_URL", case.database.engine.url.render_as_string(hide_password=False)); get_settings.cache_clear()
-        with pytest.raises(DBAPIError, match="Packaging execution provenance exists"):
+        with pytest.raises(DBAPIError, match="Packaging execution provenance exists|Global packaging or phase-one publication history exists"):
             command.downgrade(Config("alembic.ini"), "20260918_0016")
     with case.database.engine.connect() as connection:
         assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == _current_head()
@@ -3282,7 +3282,8 @@ def test_postgresql_execution_inputs_cannot_substitute_frozen_batch_or_policy(re
     elif change == "folder": values["worker_request"]["request"]["parts"] = ["different", "folder"]
     else: values["input_snapshot"]["generation"] += 1
     with case.database.session() as session:
-        with pytest.raises(DBAPIError, match="Packaging inputs must bind"): reserve(session, values); session.commit()
+        message = "Packaging policy must bind the saved global settings" if change == "policy" else "Packaging inputs must bind"
+        with pytest.raises(DBAPIError, match=message): reserve(session, values); session.commit()
 
 
 def test_postgresql_packaging_execution_upgrade_from_0016_and_empty_downgrade():
@@ -3434,7 +3435,49 @@ def test_postgresql_concurrent_closure_cannot_release_or_record_twice(review_pg_
         assert observations[0].outcome == "NOT_STARTED" and session.get(MaterialPackagingState, identifier).status == "REJECTED"
 
 
-def _pg_dispatch_case(case):
+def _legacy_publication_batch(case):
+    """Seed genuine schema-1 inputs for pre-0031 migration-boundary tests.
+
+    The caller has already obtained real fixture source checks and all three
+    human approvals. Create historical records once; never rewrite newer saved
+    history or weaken the production downgrade guard to get an older schema.
+    """
+    from app.db.models import MaterialPackagingPolicy, PublicationBatch, PublicationBatchItem
+    from app.material_review import canonical_hash
+    from app.packaging_policy import initial_evidence
+    from app.publication_csv import render_publication_csv
+    from app.publication_preflight import _candidate
+    with case.database.session() as session:
+        material = session.get(PBRMaterial, case.material.id)
+        state = session.get(MaterialReviewState, material.id)
+        snapshot, row = _candidate(session, material)
+        assert snapshot["schema_version"] == 1 and not snapshot["errors"] and row is not None
+        assert all(snapshot[field] for field in ("technical_approval_id", "publication_approval_id", "content_approval_id"))
+        payload = SimpleNamespace(expected_generation=state.generation, expected_revision_hash=state.revision_hash,
+            expected_inventory_id=state.inventory_id)
+        timezone = case.app.state.settings.zip_policy_timezone
+        method, evidence = initial_evidence(session, material, state, payload, timezone)
+        assert evidence["schema_version"] == 1 and "selection_mode" not in evidence
+        policy = MaterialPackagingPolicy(material_id=material.id, actor_id=case.users[0].id, revision=1,
+            inventory_id=state.inventory_id, policy=method, storage_timezone=timezone,
+            reason="Historical migration fixture policy", evidence=evidence, evidence_hash=canonical_hash(evidence))
+        artifact = render_publication_csv([row])
+        batch = PublicationBatch(actor_id=case.users[0].id, request_key=uuid4(),
+            request_hash=canonical_hash({"historical_fixture": str(material.id)}),
+            snapshot_hash=canonical_hash({"schema_version": 1, "snapshots": [snapshot]}),
+            csv_sha256=artifact.sha256, csv_bytes=artifact.data, row_count=1,
+            reason="Historical migration fixture publication", warnings_acknowledged=True, warnings=snapshot["warnings"])
+        session.add_all([policy, batch]); session.flush()
+        item = PublicationBatchItem(batch_id=batch.id, material_id=material.id, ordinal=1,
+            generation=snapshot["generation"], revision_hash=snapshot["revision_hash"],
+            content_context_hash=snapshot["content_context_hash"], snapshot_hash=canonical_hash(snapshot), snapshot=snapshot,
+            **{field: UUID(snapshot[field]) for field in ("technical_check_id", "metadata_snapshot_id",
+                "technical_approval_id", "publication_approval_id")})
+        session.add(item); session.commit()
+        return {"id": str(policy.id)}, {"id": str(batch.id), "items": [{"snapshot_hash": item.snapshot_hash}]}
+
+
+def _pg_dispatch_case(case, *, legacy_publication=False):
     from test_packaging_actions import DispatchStub, FreshInventory
     from test_packaging_policy import choose
     from test_publication_preflight import prepare_candidate, preview
@@ -3445,8 +3488,11 @@ def _pg_dispatch_case(case):
     adapter = SimpleNamespace(database=case.database, materials=[case.material], client=lambda _: case.client_for())
     prepare_candidate(adapter, case.technical, case.path, report=worker.template["report"])
     with case.client_for() as client:
-        policy = choose(client, case.path)
-        batch = client.post(PATH, json=creation(preview(client, case.material.id))).json()
+        if legacy_publication:
+            policy, batch = _legacy_publication_batch(case)
+        else:
+            policy = choose(client, case.path)
+            batch = client.post(PATH, json=creation(preview(client, case.material.id))).json()
         saved = client.post(case.path + "/packaging-executions", json={"idempotency_key": str(uuid4()), "batch_id": batch["id"],
             "expected_snapshot_hash": batch["items"][0]["snapshot_hash"], "expected_policy_id": policy["id"], "reason": "PG dispatch fixture"})
         assert saved.status_code == 201
@@ -3688,9 +3734,9 @@ def test_postgresql_staging_preview_holds_current_inputs_until_concurrent_edit_c
     assert len(item.worker.commands) == 1 and len(item.inventory.calls) == 2
 
 
-def _pg_staging_case(case):
+def _pg_staging_case(case, *, legacy_publication=False):
     from test_packaging_reservations import close_body
-    item = _pg_dispatch_case(case)
+    item = _pg_dispatch_case(case, legacy_publication=legacy_publication)
     with case.client_for() as client:
         packaged = client.post(item.path + "/run", json=close_body()).json()
         assert packaged["status"] == "PACKAGED"
@@ -3763,7 +3809,7 @@ def test_postgresql_staging_history_and_released_ownership_are_preserved(review_
             connection.execute(text("UPDATE publication_staging_owners SET active=true,close_id=NULL WHERE job_id=:id"), {"id": saved["id"]})
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("DATABASE_URL", case.database.engine.url.render_as_string(hide_password=False)); get_settings.cache_clear()
-        with pytest.raises(DBAPIError, match="Staging reservation provenance exists"):
+        with pytest.raises(DBAPIError, match="Staging reservation provenance exists|Global packaging or phase-one publication history exists"):
             command.downgrade(Config("alembic.ini"), "20260918_0017")
     with case.database.engine.connect() as connection:
         assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == _current_head()
@@ -4064,7 +4110,7 @@ def test_postgresql_staging_journal_is_append_only_and_populated_downgrade_refus
             with pytest.raises(DBAPIError, match="append-only"): connection.execute(text(operation))
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("DATABASE_URL", case.database.engine.url.render_as_string(hide_password=False)); get_settings.cache_clear()
-        with pytest.raises(DBAPIError, match="Staging dispatch provenance exists"):
+        with pytest.raises(DBAPIError, match="Staging dispatch provenance exists|Global packaging or phase-one publication history exists"):
             command.downgrade(Config("alembic.ini"), "20260918_0018")
     with case.database.engine.connect() as connection:
         assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == _current_head()
@@ -4129,7 +4175,7 @@ def test_postgresql_staging_0019_backfills_open_and_closed_0018_jobs_without_cha
         config = Config("alembic.ini"); command.upgrade(config, "head")
         fixture = _review_pg_case(database_url); case = next(fixture)
         try:
-            _, body = _pg_staging_case(case)
+            _, body = _pg_staging_case(case, legacy_publication=True)
             with case.client_for() as client:
                 closed = client.post(PATH, json=body).json()
                 assert client.post(PATH + "/" + closed["id"] + "/close", json=close_payload(closed)).status_code == 200
@@ -4804,11 +4850,29 @@ def test_postgresql_resource_history_0021_preserves_0020_records_and_refuses_his
                 # 0028's folder-history guard. A brand write exercises this
                 # test's original 0021 resource-history downgrade boundary.
                 assert client.patch(f"/api/brands/{case.material.published_brand_id}", json={"name": "First audited brand change"}).status_code == 200
+            with case.database.session() as session:
+                events = list(session.scalars(select(ResourceChangeEvent)))
+                assert len(events) == 2
+                updated = next(item for item in events if item.action == "UPDATED")
+                assert updated.kind == "BRAND" and updated.brand_id == case.material.published_brand_id
+                assert updated.version == 1 and updated.actor_id == case.users[0].id
+                assert updated.before_snapshot == frozen["BRAND"]
+                assert updated.after_snapshot == frozen["BRAND"] | {"name": "First audited brand change"}
+                created = next(item for item in events if item.action == "CREATED")
+                same_name_brand = session.get(PublishedBrand, created.brand_id)
+                company = session.get(Company, same_name_brand.company_id)
+                assert created.kind == "BRAND" and created.brand_id != updated.brand_id
+                assert created.version == 1 and created.actor_id == case.users[0].id
+                assert created.before_snapshot == {} and created.after_snapshot == resource_snapshot(same_name_brand)
+                assert str(company.id) == frozen["BRAND"]["company_id"]
+                assert same_name_brand.name == company.name and same_name_brand.next_sequence_number == 1
+            with case.database.engine.connect() as connection:
+                events_before = list(connection.execute(select(ResourceChangeEvent.__table__).order_by(ResourceChangeEvent.id)).mappings())
             with pytest.raises(DBAPIError, match="Resource history exists"):
                 command.downgrade(config, "20260918_0020")
             with case.database.engine.connect() as connection:
                 assert connection.scalar(text("SELECT version_num FROM alembic_version")) == _current_head()
-                assert connection.scalar(text("SELECT count(*) FROM resource_change_events")) == 1
+                assert list(connection.execute(select(ResourceChangeEvent.__table__).order_by(ResourceChangeEvent.id)).mappings()) == events_before
         finally: fixture.close(); get_settings.cache_clear()
 
 

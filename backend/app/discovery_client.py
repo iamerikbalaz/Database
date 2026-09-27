@@ -69,6 +69,8 @@ def _unique_object(pairs):
 
 
 class WorkerDiscoveryClient:
+    endpoint = "/internal/folder-discovery"
+    result_type = FolderDiscovery
     def __init__(self, base_url: str):
         parsed = urlsplit(base_url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
@@ -78,7 +80,7 @@ class WorkerDiscoveryClient:
     def listing(self, parent_path):
         try:
             validate_parent_path(parent_path)
-            with httpx.stream("POST", self.base_url + "/internal/folder-discovery", json={"parent_path": parent_path},
+            with httpx.stream("POST", self.base_url + self.endpoint, json={"parent_path": parent_path},
                     timeout=httpx.Timeout(15, connect=5), follow_redirects=False, trust_env=False) as response:
                 length = response.headers.get("Content-Length")
                 if length is not None and not 0 <= int(length) <= MAX_RESPONSE_BYTES: raise ValueError()
@@ -93,7 +95,7 @@ class WorkerDiscoveryClient:
                         code = value.get("detail", {}).get("code")
                         if isinstance(code, str): raise DiscoveryClientError(code)
                     raise DiscoveryClientError()
-                result = FolderDiscovery.model_validate(value, strict=True)
+                result = self.result_type.model_validate(value, strict=True)
                 if result.parent_path != parent_path: raise ValueError()
                 return result
         except DiscoveryClientError:

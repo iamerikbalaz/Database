@@ -2,7 +2,7 @@
 from fastapi import HTTPException
 from sqlalchemy import or_, select, text
 
-from app.db.models import MaterialFileOperation, MaterialPackagingExecution, MaterialPackagingState, PACKAGING_ACTIVE_STATUSES
+from app.db.models import MaterialFileOperation, MaterialMetadataOperation, MaterialPackagingExecution, MaterialPackagingState, PACKAGING_ACTIVE_STATUSES
 from app.db.models import PublicationStagingItem, PublicationStagingOwner
 from app.material_review import material_context
 
@@ -17,6 +17,10 @@ def lock_folder_catalog(session):
 
 
 def require_folder_idle(session, folder, *, packaging_execution_id=None, staging_job_id=None):
+    for path in session.scalars(select(MaterialMetadataOperation.folder_path).where(MaterialMetadataOperation.status == "RUNNING")):
+        a, b = folder.casefold(), path.casefold()
+        if a == b or a.startswith(b + "/") or b.startswith(a + "/"):
+            raise HTTPException(409, {"code": "MATERIAL_OPERATION_ACTIVE", "message": "Reconcile the active source metadata edit first."})
     for operation in session.scalars(select(MaterialFileOperation).where(MaterialFileOperation.status.in_(ACTIVE_STATUSES))):
         for context in (operation.source_context, operation.target_context):
             a, b = folder.casefold(), context["folder_path"].casefold()
@@ -47,6 +51,9 @@ def identity_context(material):
 
 
 def require_material_idle(session, material_id, *, packaging_execution_id=None, staging_job_id=None):
+    if session.scalar(select(MaterialMetadataOperation.id).where(MaterialMetadataOperation.material_id == material_id,
+            MaterialMetadataOperation.status == "RUNNING").limit(1)):
+        raise HTTPException(409, {"code": "MATERIAL_OPERATION_ACTIVE", "message": "Reconcile the active source metadata edit first."})
     owner = session.scalar(select(PublicationStagingOwner.job_id).where(
         PublicationStagingOwner.material_id == material_id, PublicationStagingOwner.active.is_(True)).limit(1))
     if staging_job_id is not None and owner != staging_job_id:
@@ -68,6 +75,9 @@ def require_material_idle(session, material_id, *, packaging_execution_id=None, 
 
 
 def require_brand_idle(session, brand_id):
+    if session.scalar(select(MaterialMetadataOperation.id).where(MaterialMetadataOperation.brand_id == brand_id,
+            MaterialMetadataOperation.status == "RUNNING").limit(1)):
+        raise HTTPException(409, {"code": "BRAND_OPERATION_ACTIVE", "message": "Reconcile active source metadata edits first."})
     if session.scalar(select(PublicationStagingOwner.job_id).join(PublicationStagingItem,
             (PublicationStagingOwner.job_id == PublicationStagingItem.job_id)
             & (PublicationStagingOwner.material_id == PublicationStagingItem.material_id)).where(

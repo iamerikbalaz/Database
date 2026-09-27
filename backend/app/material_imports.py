@@ -8,8 +8,23 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db.models import Company, InternalUser, MaterialFileOperation, MaterialNumberReservation, PBRMaterial, Project, PublishedBrand
 from app.db.models import MaterialImportBatch, MaterialImportRow, PBRMaterialMetadata
-from app.material_identity import ACTIVE_STATUSES, lock_folder_catalog, require_folder_idle
-from app.material_review import canonical_hash
+from app.material_identity import ACTIVE_STATUSES, lock_folder_catalog, require_folder_idle, require_brand_idle
+from app.material_review import canonical_hash, invalidate_review
+from app.metadata_saves import persist_metadata_snapshot
+from app.resource_history import resource_snapshot, append_resource_change
+
+
+def apply_import_properties(session, material, properties):
+    """Historical values are user-provided, never a worker check or approval."""
+    for key in ("workflow_status", "checked_status", "note"):
+        if key in properties: setattr(material, key, properties[key])
+    if any(key in properties for key in ("hex_color", "width_cm", "height_cm")):
+        current = material.metadata_state
+        persist_metadata_snapshot(session, material.id,
+            {key: properties[key] if key in properties else
+             (str(getattr(current, key)) if getattr(current, key) is not None else None)
+             for key in ("hex_color", "width_cm", "height_cm")},
+            warnings=[{"code": "IMPORTED_METADATA_UNVERIFIED", "message": "Imported from a spreadsheet; the source metadata file has not been inspected.", "path": None}])
 
 
 def _value(value):
@@ -59,6 +74,13 @@ def build_preview(session, payload, table, rows, findings):
             MaterialNumberReservation.sequence_number).where(tuple_(MaterialNumberReservation.brand_id,
                 MaterialNumberReservation.sequence_number).in_(pairs))).all())
     active_brands = set()
+    brand_identifiers = {}
+    for item in rows:
+        identifier = (item.properties or {}).get("brand_identifier")
+        if identifier is not None:
+            brand_identifiers.setdefault(item.brand_id, set()).add(identifier)
+    identifier_owners = {item.brand_identifier: item.id for item in session.scalars(select(PublishedBrand).where(
+        PublishedBrand.brand_identifier.in_({value for values in brand_identifiers.values() for value in values})))}
     for source, target in session.execute(select(MaterialFileOperation.source_brand_id,
             MaterialFileOperation.target_brand_id).where(MaterialFileOperation.status.in_(ACTIVE_STATUSES),
                 or_(MaterialFileOperation.source_brand_id.in_(brands), MaterialFileOperation.target_brand_id.in_(brands)))):
@@ -73,6 +95,14 @@ def build_preview(session, payload, table, rows, findings):
         if brand is not None and brand.folder_prefix != item.prefix:
             issue("identity", "IMPORT_BRAND_PREFIX_MISMATCH")
         if item.brand_id in active_brands: issue("brand", "IMPORT_BRAND_OPERATION_ACTIVE")
+        try: require_brand_idle(session, item.brand_id)
+        except HTTPException: issue("brand", "IMPORT_BRAND_OPERATION_ACTIVE")
+        identifier = (item.properties or {}).get("brand_identifier")
+        if identifier is not None:
+            if len(brand_identifiers[item.brand_id]) != 1: issue("brand_identifier", "IMPORT_BRAND_IDENTIFIER_INCONSISTENT")
+            if (identifier_owners.get(identifier, item.brand_id) != item.brand_id or
+                any(other != item.brand_id and identifier in values for other, values in brand_identifiers.items())):
+                issue("brand_identifier", "IMPORT_BRAND_IDENTIFIER_CONFLICT")
         if processor is None or not processor.is_active or processor.role != "PROCESSOR":
             issue("processor", "IMPORT_PROCESSOR_UNAVAILABLE")
         for field, record in (("project", project), ("brand", brand)):
@@ -97,7 +127,7 @@ def build_preview(session, payload, table, rows, findings):
         "processors": _snapshots(processors, ("display_name", "role", "is_active")),
         "companies": _snapshots(companies, ("name", "is_active")),
     }
-    snapshot = {"schema_version": 1, **source_context(payload, table), "references": references,
+    snapshot = {"schema_version": 2 if any(item.properties is not None for item in rows) else 1, **source_context(payload, table), "references": references,
                 "rows": [item.public_values() for item in rows],
                 "initial_state": {"workflow_status": "IN_PROGRESS", "validation_status": "NOT_CHECKED",
                                   "publication_status": "NOT_PUBLISHED", "is_published": False, "folder_path": None},
@@ -151,6 +181,17 @@ def confirm_import(session, actor_id, payload, table, rows, findings):
     try:
         session.add(batch)
         session.flush()
+        for brand_id in sorted(brands, key=str):
+            identifier = next(((row.properties or {})["brand_identifier"] for row in rows
+                if row.brand_id == brand_id and "brand_identifier" in (row.properties or {})), None)
+            brand = brands[brand_id]
+            if identifier is not None and identifier != brand.brand_identifier:
+                before = resource_snapshot(brand)
+                for existing_material in session.scalars(select(PBRMaterial).where(PBRMaterial.published_brand_id == brand_id)
+                        .order_by(PBRMaterial.id).with_for_update()):
+                    invalidate_review(session, existing_material, actor_id, "BRAND_FIELDS_CHANGED")
+                brand.brand_identifier = identifier
+                append_resource_change(session, brand, actor_id, before)
         materials = []
         for row in rows:
             material = PBRMaterial(project_id=row.project_id, published_brand_id=row.brand_id,
@@ -163,10 +204,13 @@ def confirm_import(session, actor_id, payload, table, rows, findings):
             brands[row.brand_id].next_sequence_number = max(brands[row.brand_id].next_sequence_number, row.sequence_number + 1)
         session.flush()
         for row, material in materials:
+            if row.properties is not None: apply_import_properties(session, material, row.properties)
             session.add(MaterialNumberReservation(brand_id=row.brand_id, sequence_number=row.sequence_number,
                 material_id=material.id, actor_id=actor_id))
             session.add(MaterialImportRow(batch_id=batch.id, source_row=row.source_row, material_id=material.id,
-                snapshot={**snapshot["initial_state"], **row.public_values()}))
+                snapshot={**snapshot["initial_state"], **row.public_values(),
+                    **({"workflow_status": material.workflow_status, "checked_status": material.checked_status, "note": material.note}
+                       if row.properties is not None else {})}))
         session.flush()
         result = batch_result(session, batch)
         session.commit()

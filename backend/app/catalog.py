@@ -67,7 +67,7 @@ class ContentUpdate(ApiSchema):
     tags: Annotated[list[TagValue], Field(max_length=100)] = []
     category_ids: Annotated[list[UUID], Field(max_length=100)] = []
     collection_ids: Annotated[list[UUID], Field(max_length=100)] = []
-    reason: Reason
+    reason: Reason | None = None
 
     @field_validator("tags")
     @classmethod

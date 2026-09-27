@@ -17,7 +17,7 @@ def build_material_previews_router(database, client: PreviewClient):
     def read(material_id, access, operation):
         with database.session() as session:
             access.check(session)
-            material = _material(session, material_id, access)
+            material = _material(session, material_id, access, historical=access.user.role == "ADMIN")
             require_material_idle(session, material_id)
             if not material.folder_path: raise HTTPException(409, {"code": "PREVIEW_FOLDER_REQUIRED"})
             access.require_folder(material.folder_path, material.technical_identity)
@@ -29,7 +29,7 @@ def build_material_previews_router(database, client: PreviewClient):
         # and material checks, even when the worker returned an error.
         with database.session() as session:
             access.check(session)
-            material = _material(session, material_id, access, lock=True)
+            material = _material(session, material_id, access, lock=True, historical=access.user.role == "ADMIN")
             require_material_idle(session, material_id)
             if (material.folder_path, material.technical_identity) != context:
                 raise HTTPException(409, {"code": "PREVIEW_MATERIAL_CHANGED"})

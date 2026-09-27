@@ -221,11 +221,11 @@ def test_0025_upgrade_preserves_0024_accepted_history_and_populated_downgrade_re
         try:
             config = Config("alembic.ini"); command.upgrade(config, "head")
             with contextmanager(_review_pg_case)(url) as case:
-                # Prepare an accepted package using the current API, then restore
-                # the clean historical schema before exercising the upgrade.
+                # Prepare an accepted package from schema-1 publication/policy
+                # records, then restore the historical schema for the upgrade.
                 # No table edits, retirement intents or newer receipts are seeded.
                 from test_packaging_reservations import close_body
-                package = _pg_dispatch_case(case)
+                package = _pg_dispatch_case(case, legacy_publication=True)
                 with case.client_for() as client:
                     assert client.post(package.path + "/run", json=close_body()).json()["status"] == "PACKAGED"
                 intent = values(case, package)

@@ -41,7 +41,11 @@ def build_material_table_router(database, worker_client):
             material = session.scalar(select(PBRMaterial).where(PBRMaterial.id == material_id).with_for_update())
             if material is None:
                 raise HTTPException(404, "PBR material not found.")
-            access.require_material(material)
+            if material.is_archived and access.user.role == "ADMIN":
+                if field not in {"note", "project_id", "assigned_processor_id", "is_published"}:
+                    raise HTTPException(409, "Restore the material before changing production or identity properties.")
+            else:
+                access.require_material(material)
             require_material_idle(session, material_id)
             if utc(material.updated_at) != utc(payload.expected_updated_at):
                 raise HTTPException(409, "This material changed. Reload it before editing again.")

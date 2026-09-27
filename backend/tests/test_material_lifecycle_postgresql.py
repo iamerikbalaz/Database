@@ -11,7 +11,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.core.config import get_settings
 from app.db.models import MaterialLifecycleEvent, MaterialLifecycleState, PBRMaterial
-from test_material_archives import attach, prepare, apply, path
+from test_material_archives import attach, prepare, apply, path, seed_preserved_properties
 from test_materials_postgresql import (
     POSTGRES_TEST_ADMIN_URL, isolated_postgresql_database, migrated_postgresql_url,
     review_pg_case, _review_pg_case, _current_head, staging_history_pg, _pg_reservation_payload,
@@ -229,3 +229,23 @@ def test_postgresql_lifecycle_prior_schema_preserved_and_populated_downgrade_ref
                 assert connection.scalar(text("SELECT version_num FROM alembic_version")) == _current_head()
                 assert connection.scalar(text("SELECT count(*) FROM material_lifecycle_events")) == 1
         finally: fixture.close(); get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("publication", ["NOT_PUBLISHED", "PUBLISHED_CURRENT", "PUBLISHED_UPDATE_REQUIRED"])
+def test_postgresql_published_archive_guard_preserves_boolean(lifecycle_case, publication):
+    case = lifecycle_case
+    seed_preserved_properties(case, case.material.id)
+    with case.database.session() as session:
+        material = session.get(PBRMaterial, case.material.id)
+        material.is_published = True; material.publication_status = publication; session.commit()
+    with case.client_for() as client:
+        metadata = client.get(case.path + "/metadata").json()
+        saved = apply(client, case.material.id, prepare(client, case.material.id))
+        assert saved.status_code == 200, saved.json()
+        archived = client.get(path(case.material.id)).json()
+        assert archived["material"]["is_published"] and archived["is_archived"]
+        assert archived["material"]["workflow_status"] == "DONE" and archived["material"]["checked_status"] == "OK"
+        assert apply(client, case.material.id, prepare(client, case.material.id, "RESTORE")).status_code == 200
+        restored = client.get(case.path).json()
+        assert restored["is_published"] and restored["workflow_status"] == "DONE" and restored["checked_status"] == "OK"
+        assert client.get(case.path + "/metadata").json() == metadata

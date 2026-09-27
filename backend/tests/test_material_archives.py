@@ -6,7 +6,7 @@ from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 
 from app.api.material_archives import build_material_archives_router
-from app.db.models import MaterialLifecycleEvent, MaterialLifecycleState, MaterialInventory, MaterialReviewState, PBRMaterial, PBRMaterialMetadata, PublishedBrand
+from app.db.models import MaterialLifecycleEvent, MaterialLifecycleState, MaterialInventory, MaterialReviewState, PBRMaterial, PBRMaterialMetadata, PBRMaterialMetadataSnapshot, PublishedBrand
 from test_application_access import access_case
 from test_material_review import review_case, scan
 from test_material_approvals import approval_case
@@ -45,10 +45,29 @@ def apply(client, identifier, payload):
     return client.post(path(identifier) + "/commands", json=payload)
 
 
+
+def seed_preserved_properties(case, identifier):
+    from decimal import Decimal
+    from test_material_metadata import _snapshot_values
+    values = _snapshot_values(color="#A1B2C3", width=Decimal("120.2500"))
+    with case.database.session() as session:
+        material = session.get(PBRMaterial, identifier)
+        material.workflow_status = "DONE"; material.checked_status = "OK"
+        snapshot = PBRMaterialMetadataSnapshot(material_id=identifier, sequence_number=1, **values)
+        session.add(snapshot); session.flush()
+        metadata = session.get(PBRMaterialMetadata, identifier)
+        metadata.current_snapshot_id = snapshot.id
+        for field, value in values.items(): setattr(metadata, field, value)
+        session.commit()
+        return snapshot.id, values
+
+
 def test_archive_restore_and_exact_replay_preserve_identity_and_do_not_repeat(archive_case):
     case = archive_case; material = case.materials[0]; identifier = material.id
+    snapshot_id, metadata_values = seed_preserved_properties(case, identifier)
     with case.client("ADMIN") as client:
         original = client.get(f"/api/materials/{identifier}").json()
+        original_metadata = client.get(f"/api/materials/{identifier}/metadata").json()
         payload = prepare(client, identifier)
         response = apply(client, identifier, payload)
         assert response.status_code == 200, response.json()
@@ -60,6 +79,11 @@ def test_archive_restore_and_exact_replay_preserve_identity_and_do_not_repeat(ar
         listing = client.get("/api/material-archives").json()
         assert [value["material"]["id"] for value in listing["items"]] == [str(identifier)]
         assert listing["items"][0]["is_archived"] and listing["next_cursor"] is None
+        assert listing["items"][0]["material"]["workflow_status"] == "DONE"
+        assert listing["items"][0]["material"]["checked_status"] == "OK"
+        with case.database.session() as session:
+            metadata = session.get(PBRMaterialMetadata, identifier)
+            assert metadata.current_snapshot_id == snapshot_id and metadata.source_content == metadata_values["source_content"]
         assert apply(client, identifier, payload).json() == archived
         assert client.get(path(identifier) + "/commands/" + payload["request_key"]).json() == archived
         restored = apply(client, identifier, prepare(client, identifier, "RESTORE"))
@@ -69,7 +93,9 @@ def test_archive_restore_and_exact_replay_preserve_identity_and_do_not_repeat(ar
         current = client.get(f"/api/materials/{identifier}").json()
         for field in ("id", "sequence_number", "technical_identity", "folder_path", "assigned_processor_id", "project_id", "published_brand_id"):
             assert current[field] == original[field]
-        assert current["workflow_status"] == "IN_PROGRESS" and current["validation_status"] == "NOT_CHECKED"
+        assert current["workflow_status"] == "DONE" and current["checked_status"] == "OK"
+        assert current["validation_status"] == "NOT_CHECKED"
+        assert client.get(f"/api/materials/{identifier}/metadata").json() == original_metadata
         assert apply(client, identifier, payload).json() == archived
         assert not client.get(path(identifier)).json()["is_archived"]
         assert apply(client, identifier, {**payload, "reason": "Changed reason"}).status_code == 409
@@ -98,8 +124,7 @@ def test_every_lifecycle_surface_is_admin_only(archive_case, role, status):
 
 
 @pytest.mark.parametrize("publication,published", [("PREPARING", False), ("UPLOADED_WAITING_FOR_IMPORT", False),
-    ("WAITING_FOR_VERIFICATION", False), ("PUBLISHED_CURRENT", True), ("PUBLISHED_UPDATE_REQUIRED", True),
-    ("PUBLICATION_ERROR", False), ("NOT_PUBLISHED", True)])
+    ("WAITING_FOR_VERIFICATION", False), ("PUBLICATION_ERROR", False)])
 def test_unreconciled_publication_is_blocked(archive_case, publication, published):
     case = archive_case; identifier = case.materials[0].id
     with case.client("ADMIN") as client:
@@ -143,7 +168,10 @@ def test_archived_work_surfaces_are_hidden_for_every_role(archive_case):
         with case.client(role) as client:
             for suffix in ("", "/metadata", "/metadata/snapshots", "/review", "/inventory", "/audit", "/technical-review",
                     "/content", "/content-history", "/previews", "/identity-operations", "/identity-history", "/publishing-context", "/content-sources", "/content-drafts"):
-                assert client.get(material_path + suffix).status_code == 404, suffix
+                if role == "ADMIN" and suffix == "/previews":
+                    assert client.get(material_path + suffix).status_code == 409  # No source folder linked.
+                else:
+                    assert client.get(material_path + suffix).status_code == 404, suffix
             if role in {"ADMIN", "PRODUCTION_LEAD", "PROCESSOR", "OTHER"}:
                 assert client.patch(material_path, json={"material_name": "Denied edit"}).status_code == 404
                 assert client.post(material_path + "/inventory/scan", json={"idempotency_key": str(uuid4()), "expected_generation": 1}).status_code == 404
@@ -245,6 +273,7 @@ def test_accepted_download_and_export_remain_available_after_archive(download_ca
     item = download_case; attach(item.case)
     with item.case.client("ADMIN") as client:
         before = client.get(item.material_path).json()
+        before_metadata = client.get(item.material_path + "/metadata").json()
         result = apply(client, item.material.id, prepare(client, item.material.id))
         assert result.status_code == 200, result.json()
         assert client.get(item.material_path).status_code == 404
@@ -258,9 +287,9 @@ def test_accepted_download_and_export_remain_available_after_archive(download_ca
         assert client.get(f'/api/publication-batches/{item.batch["id"]}/csv').status_code == 200
         assert apply(client, item.material.id, prepare(client, item.material.id, "RESTORE")).status_code == 200
         current = client.get(item.material_path).json()
-        assert current["workflow_status"] == "IN_PROGRESS" and current["technical_identity"] == before["technical_identity"]
+        assert current["workflow_status"] == before["workflow_status"] and current["technical_identity"] == before["technical_identity"]
         metadata = client.get(item.material_path + "/metadata").json()
-        assert metadata["current_snapshot_id"] is None and metadata["status"] == "NOT_SCANNED"
+        assert metadata == before_metadata
     assert len(item.worker.commands) == 1 and item.download.closed == 1
 
 
@@ -323,3 +352,60 @@ def test_recovery_is_bound_to_the_original_admin_and_target(archive_case):
         assert apply(other, identifier, payload).status_code == 409
         own = apply(other, case.materials[1].id, prepare(other, case.materials[1].id, key=UUID(payload["request_key"])))
         assert own.status_code == 200 and own.json()["event"]["actor_id"] == str(case.users["OTHER"].id)
+
+
+@pytest.mark.parametrize("publication", ["NOT_PUBLISHED", "PUBLISHED_CURRENT", "PUBLISHED_UPDATE_REQUIRED"])
+def test_archive_preserves_manual_published_flag_and_default_reason(archive_case, publication):
+    case = archive_case; identifier = case.materials[0].id
+    with case.database.session() as session:
+        material = session.get(PBRMaterial, identifier)
+        material.is_published = True; material.publication_status = publication; session.commit()
+    with case.client("ADMIN") as client:
+        payload = prepare(client, identifier); payload.pop("reason")
+        saved = apply(client, identifier, payload)
+        assert saved.status_code == 200, saved.json()
+        assert saved.json()["event"]["reason"] == "Archived property changed."
+        assert client.get(path(identifier)).json()["material"]["is_published"] is True
+        assert apply(client, identifier, prepare(client, identifier, "RESTORE")).status_code == 200
+        assert client.get(f"/api/materials/{identifier}").json()["is_published"] is True
+        assert apply(client, identifier, payload).json() == saved.json()
+
+
+def test_archived_materials_use_same_filters_with_admin_only_visibility(archive_case):
+    case = archive_case; identifier = case.materials[0].id
+    with case.client("ADMIN") as client:
+        assert apply(client, identifier, prepare(client, identifier)).status_code == 200
+        current = client.get(f"/api/materials/{identifier}?include_archived=true").json()
+        assert current["is_archived"] and current["archived_at"]
+        query = {"is_archived": "true", "project_id": current["project_id"], "main_category_code": current["main_category_code"], "is_published": "false"}
+        rows = client.get("/api/materials", params=query).json()
+        assert [row["id"] for row in rows] == [str(identifier)]
+        assert client.get("/api/materials", params={**query, "search": "#absent"}).json() == []
+        assert str(identifier) not in [row["id"] for row in client.get("/api/materials").json()]
+    for role in ("PROCESSOR", "OTHER", "PRODUCTION_LEAD", "LEADERSHIP"):
+        with case.client(role) as client:
+            assert client.get("/api/materials?is_archived=true").status_code == 403
+            assert client.get(f"/api/materials/{identifier}?include_archived=true").status_code == 403
+
+
+def test_archived_ordinary_properties_remain_receipted_and_production_requires_restore(archive_case):
+    case = archive_case; identifier = case.materials[0].id
+    with case.client("ADMIN") as client:
+        assert apply(client, identifier, prepare(client, identifier)).status_code == 200
+        record = client.get(f"/api/materials/{identifier}?include_archived=true").json()
+        archive_date = record["archived_at"]
+        for change in ({"note": "#archived editable"}, {"project_id": None}, {"assigned_processor_id": str(case.users["OTHER"].id)}, {"is_published": True}):
+            key = str(uuid4()); payload = {"expected_updated_at": record["updated_at"], **change}
+            url = f"/api/materials/{identifier}/table"
+            saved = client.patch(url, json=payload, headers={"Idempotency-Key": key})
+            assert saved.status_code == 200, saved.json()
+            assert client.patch(url, json=payload, headers={"Idempotency-Key": key}).json() == saved.json()
+            assert client.get(f"/api/resource-commands/{key}").status_code == 200
+            record = client.get(f"/api/materials/{identifier}?include_archived=true").json()
+            assert record["archived_at"] == archive_date
+        rows = client.get("/api/materials?is_archived=true&search=%23archived&is_published=true").json()
+        assert [row["id"] for row in rows] == [str(identifier)]
+        for change in ({"workflow_status": "DONE"}, {"checked_status": "OK"}, {"main_category_code": "G03"}):
+            denied = client.patch(url, json={"expected_updated_at": record["updated_at"], **change}, headers={"Idempotency-Key": str(uuid4())})
+            assert denied.status_code == 409
+        assert client.get(path(identifier) + "/history").json()["items"][0]["version"] == 1

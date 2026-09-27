@@ -1,8 +1,10 @@
 """Human approvals require a fresh report for the exact reviewed revision."""
+import json
 from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import Field, StringConstraints
 from sqlalchemy import select
 
@@ -86,7 +88,7 @@ def build_material_approvals_router(database, technical_client: TechnicalClient)
 
     def execute(material_id, payload, access, *, approval=False):
         operation = payload.kind + "_APPROVAL" if approval else "TECHNICAL_CHECK"
-        roles = (CATALOG_MANAGERS if payload.kind == "TECHNICAL" else PUBLICATION_APPROVERS) if approval else MATERIAL_EDITORS
+        roles = (CATALOG_MANAGERS if payload.kind == "TECHNICAL" else PUBLICATION_APPROVERS) if approval else MATERIAL_EDITORS | PUBLICATION_APPROVERS
         request_hash = _request_hash(operation, material_id, payload)
         with database.session() as session:
             actor = access.check(session, roles)
@@ -163,6 +165,19 @@ def build_material_approvals_router(database, technical_client: TechnicalClient)
     @router.post("/{material_id}/technical-review/run")
     def run_validation(material_id: UUID, payload: ReviewMutation, access: AccessDependency):
         return execute(material_id, payload, access)
+
+    @router.post("/{material_id}/technical-review/prepare")
+    def prepare_for_publication(material_id: UUID, payload: ReviewMutation, access: AccessDependency):
+        # The ordinary checker journals known worker failures as well as successful
+        # reports. Expose a journaled failure as a resolved command with failure
+        # facts, so the simple workflow can recover its exact key and stop safely.
+        # Unrecorded HTTP/auth/conflict failures retain their normal status.
+        result = execute(material_id, payload, access)
+        if isinstance(result, JSONResponse) and result.status_code in {422, 503}:
+            body = json.loads(result.body)
+            if "review" in body and body["review"].get("failure_code"):
+                return JSONResponse(content=body)
+        return result
 
     @router.post("/{material_id}/approvals")
     def approve(material_id: UUID, payload: ApprovalRequest, access: AccessDependency):

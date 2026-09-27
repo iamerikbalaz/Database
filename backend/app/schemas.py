@@ -306,7 +306,14 @@ class PBRMaterialRead(PBRMaterialFields):
     updated_at: datetime
 
 
+class PBRMaterialListingRead(PBRMaterialRead):
+    """Current view fields are kept outside immutable ordinary-write receipts."""
+    is_archived: bool = False
+    archived_at: datetime | None = None
+
+
 class PBRMaterialListFilters(ApiSchema):
+    is_archived: bool = False
     checked_status: Literal["no", "OK", "Correction"] | None = None
     project_id: UUID | None = None
     published_brand_id: UUID | None = None

@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.auth.access import AccessDependency, ADMIN, CATALOG_MANAGERS, MATERIAL_EDITORS
 from app.auth.service import database_now, lock_user_credential, revoke_all_user_sessions
@@ -46,6 +46,7 @@ from app.schemas import (
     PBRMaterialMetadataRead,
     PBRMaterialMetadataSnapshotRead,
     PBRMaterialRead,
+    PBRMaterialListingRead,
     PBRMaterialUpdate,
     ProjectCreate,
     ProjectListFilters,
@@ -151,6 +152,8 @@ def _apply_update(item: ModelT, values: dict[str, Any]) -> None:
 
 def _commit_company(session, company, actor_id, before, *, action="UPDATED", command=None):
     try:
+        from app.company_brands import ensure_company_brand
+        ensure_company_brand(session, company, actor_id)
         append_company_change(session, company, actor_id, before, action=action)
         response = command.record(session, company) if command else None
         saved = _commit(session, company)
@@ -202,7 +205,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
     )
     def create_company(payload: CompanyCreate, access: AccessDependency, submitted: CommandInput, request_key: CommandKey = None) -> Company:
         with database.session() as session:
-            actor = access.check(session, CATALOG_MANAGERS)
+            actor = access.check(session, CATALOG_MANAGERS, exclusive=True)
             command = ResourceWrite(access, "COMPANY", "CREATED", payload, request_key, raw_payload=submitted)
             if (replayed := command.replay(session)) is not None: return replayed
             if payload.notion_page_id is not None:
@@ -228,7 +231,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         if payload.expected_updated_at is not None and request_key is None:
             raise HTTPException(422, "Idempotency-Key is required for table edits.")
         with database.session() as session:
-            actor = access.check(session, CATALOG_MANAGERS)
+            actor = access.check(session, CATALOG_MANAGERS, exclusive=True)
             command = ResourceWrite(access, "COMPANY", "UPDATED", payload, request_key, company_id, raw_payload=submitted)
             if (replayed := command.replay(session)) is not None: return replayed
             company = session.scalar(select(Company).where(Company.id == company_id).with_for_update())
@@ -358,6 +361,9 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                         .order_by(PBRMaterial.id).with_for_update()):
                     invalidate_review(session, material, actor.id, "BRAND_FIELDS_CHANGED")
             _apply_update(brand, values)
+            from app.company_brands import ensure_company_brand
+            for company_id_to_check in {brand.company_id, UUID(before["company_id"])}:
+                ensure_company_brand(session, session.get(Company, company_id_to_check), actor.id)
             return _commit_resource(session, brand, actor.id, before, command=command)
 
     @router.get("/projects", response_model=list[ProjectRead], tags=["projects"])
@@ -536,12 +542,13 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             _apply_update(user, values)
             return _commit_resource(session, user, actor.id, before, command=command)
 
-    @router.get("/materials", response_model=list[PBRMaterialRead], tags=["materials"])
+    @router.get("/materials", response_model=list[PBRMaterialListingRead], response_model_exclude_unset=True, tags=["materials"])
     def list_materials(
-        filters: Annotated[PBRMaterialListFilters, Query()], access: AccessDependency) -> list[PBRMaterial]:
+        filters: Annotated[PBRMaterialListFilters, Query()], access: AccessDependency) -> list[dict[str, Any]]:
         with database.session() as session:
-            access.check(session)
-            statement = select(PBRMaterial).where(~PBRMaterial.lifecycle_state.has(is_archived=True))
+            access.check(session, ADMIN if filters.is_archived else MATERIAL_EDITORS | {"LEADERSHIP"})
+            archived = PBRMaterial.lifecycle_state.has(is_archived=True)
+            statement = select(PBRMaterial).options(selectinload(PBRMaterial.lifecycle_state)).where(archived if filters.is_archived else ~archived)
             if access.user.role == "PROCESSOR":
                 statement = statement.where(PBRMaterial.assigned_processor_id == access.user.id)
             for field_name in (
@@ -569,9 +576,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                         ),
                     )
                 )
-            return list(
-                session.scalars(statement.order_by(PBRMaterial.created_at, PBRMaterial.id))
-            )
+            # Keep the legacy active response shape (also used by immutable
+            # receipts); only the archive view adds its current-state fields.
+            return [(PBRMaterialListingRead if material.is_archived else PBRMaterialRead)
+                .model_validate(material).model_dump(mode="json") for material in
+                session.scalars(statement.order_by(PBRMaterial.created_at, PBRMaterial.id))]
 
     @router.post(
         "/materials",
@@ -628,13 +637,14 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 material_id=material.id, actor_id=access.user.id if session.get(InternalUser, access.user.id) else None))
             return _commit_resource(session, material, actor.id, {}, action="CREATED", command=command)
 
-    @router.get("/materials/{material_id}", response_model=PBRMaterialRead, tags=["materials"])
-    def get_material(material_id: UUID, access: AccessDependency) -> PBRMaterial:
+    @router.get("/materials/{material_id}", response_model=PBRMaterialListingRead, response_model_exclude_unset=True, tags=["materials"])
+    def get_material(material_id: UUID, access: AccessDependency, include_archived: bool = False) -> dict[str, Any]:
         with database.session() as session:
-            access.check(session)
+            access.check(session, ADMIN if include_archived else MATERIAL_EDITORS | {"LEADERSHIP"})
             material = _get_or_404(session, PBRMaterial, material_id, "PBR material")
-            access.require_material(material)
-            return material
+            if not include_archived:
+                access.require_material(material)
+            return (PBRMaterialListingRead if material.is_archived else PBRMaterialRead).model_validate(material).model_dump(mode="json")
 
     @router.get(
         "/materials/{material_id}/metadata",

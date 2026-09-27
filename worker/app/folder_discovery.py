@@ -39,18 +39,18 @@ def discovery_parts(value: str) -> tuple[str, ...]:
     return parts
 
 
-def discover_folders(root: Path, parts: tuple[str, ...], *, limits: DiscoveryLimits | None = None) -> dict:
+def discover_folders(root: Path, parts: tuple[str, ...], *, limits: DiscoveryLimits | None = None, include_files=False) -> dict:
     if discovery_parts("/".join(parts)) != parts:
         raise ValueError("Invalid discovery path")
     if not DISCOVERY_SLOTS.acquire(blocking=False):
         raise DiscoveryError("DISCOVERY_BUSY")
     try:
-        return _discover(root, parts, limits or DiscoveryLimits())
+        return _discover(root, parts, limits or DiscoveryLimits(), include_files=include_files)
     finally:
         DISCOVERY_SLOTS.release()
 
 
-def _discover(root, parts, limits):
+def _discover(root, parts, limits, *, include_files=False):
     deadline = time.monotonic() + limits.max_seconds
     parent = "/".join(parts)
 
@@ -74,10 +74,16 @@ def _discover(root, parts, limits):
         try:
             first = snapshot()
             directories = []
+            files = []
             omitted = 0
             for name, signature in sorted(first.items()):
                 check_time()
                 path = parent + "/" + name if parent else name
+                if (include_files and _safe_discovery_name(name) and stat.S_ISREG(signature[2]) and signature[0] == original[0]
+                        and len(path.encode("utf-8", "surrogatepass")) <= 2048):
+                    # Stat only: contents browsing never hashes or opens textures.
+                    files.append({"name": name, "path": path, "kind": "file", "size": signature[4]})
+                    continue
                 if (not _safe_discovery_name(name) or not stat.S_ISDIR(signature[2]) or signature[0] != original[0]
                         or len(path.encode("utf-8", "surrogatepass")) > 2048 or len(parts) >= 16):
                     omitted += 1
@@ -102,4 +108,8 @@ def _discover(root, parts, limits):
             check_time()
         except OSError:
             raise DiscoveryError("DISCOVERY_READ_FAILED") from None
+    if include_files:
+        return {"schema_version": 1, "parent_path": parent, "entries": sorted([
+            *[{**item, "kind": "directory", "size": 0} for item in directories], *files], key=lambda item: (item["kind"] != "directory", item["name"])),
+            "omitted_entries": omitted}
     return {"schema_version": 1, "parent_path": parent, "directories": directories, "omitted_entries": omitted}

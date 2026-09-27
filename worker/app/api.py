@@ -28,6 +28,7 @@ from app.identity_execute import execute_identity_change
 from app.file_journal import JournalError
 from app.previews import PreviewError, list_previews, render_preview
 from app.folder_discovery import DiscoveryError, discovery_parts, discover_folders
+from app.metadata_edit import inspect_metadata, execute_metadata_edit
 
 
 SCHEMA_VERSION = 1
@@ -68,6 +69,12 @@ class MaterialIdentityPlanRequest(MaterialPreflightRequest):
 class MaterialIdentityExecuteRequest(MaterialIdentityPlanRequest):
     operation_id: str
     expected_plan_hash: str
+
+
+class MaterialMetadataEditRequest(MaterialPreflightRequest):
+    operation_id: str
+    expected_sha256: str | None
+    values: dict[str, str | None]
 
 
 class MaterialPreviewRequest(MaterialPreflightRequest):
@@ -354,7 +361,7 @@ def create_app(
 
     @application.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, __: RequestValidationError) -> JSONResponse:
-        if request.url.path in {"/internal/folder-discovery", "/internal/material-inventory", "/internal/material-validate", "/internal/material-identity-plan", "/internal/material-identity-execute"}:
+        if request.url.path in {"/internal/folder-discovery", "/internal/folder-contents", "/internal/material-metadata", "/internal/material-metadata-edit", "/internal/material-inventory", "/internal/material-validate", "/internal/material-identity-plan", "/internal/material-identity-execute"}:
             return JSONResponse(status_code=422, content={"detail": {"code": "INVALID_REQUEST"}})
         result = _error_response(
             "",
@@ -422,15 +429,52 @@ def create_app(
     def material_previews(request: MaterialPreflightRequest) -> dict:
         return execute_source_inspection(request, list_previews)
 
+    @application.post("/internal/material-metadata", tags=["internal"])
+    def material_metadata(request: MaterialPreflightRequest) -> dict:
+        try:
+            return execute_source_inspection(request, lambda root, parts: {
+                **inspect_metadata(root, parts), "writes_enabled": bool(writes_enabled and token_valid and private_journal)})
+        except JournalError as exc:
+            raise HTTPException(422, {"code": str(exc)}) from None
+
+    @application.post("/internal/material-metadata-edit", tags=["internal"])
+    def material_metadata_edit(payload: MaterialMetadataEditRequest, request: Request) -> dict:
+        if writes_enabled is not True or not token_valid or not private_journal:
+            raise HTTPException(503, {"code": "SOURCE_MUTATIONS_DISABLED"})
+        if not hmac.compare_digest(request.headers.get("Authorization", "").encode("utf-8"), ("Bearer " + private_token).encode("ascii")):
+            raise HTTPException(401, {"code": "UNAUTHORIZED_WORKER_MUTATION"})
+        try:
+            operation_id = UUID(payload.operation_id)
+            if operation_id.version != 4 or str(operation_id) != payload.operation_id: raise ValueError()
+            normalized, parts = _normalize_relative_path(payload.folder_path)
+            if len(normalized) > 2048 or normalized != payload.folder_path: raise ValueError()
+        except ValueError:
+            raise HTTPException(422, {"code": "INVALID_REQUEST"}) from None
+        try:
+            return execute_metadata_edit(_configured_root(configured_root), Path(private_journal), payload.operation_id,
+                parts, payload.expected_sha256, payload.values, enabled=True)
+        except JournalError as exc:
+            raise HTTPException(409 if str(exc) in {"JOURNAL_BUSY", "METADATA_SOURCE_CHANGED", "JOURNAL_REQUEST_CONFLICT"} else 503,
+                                {"code": str(exc)}) from None
+        except Exception:
+            raise HTTPException(503, {"code": "METADATA_UNAVAILABLE"}) from None
+
     @application.post("/internal/folder-discovery", tags=["internal"])
     def folder_discovery(request: FolderDiscoveryRequest) -> dict:
+        return discover_directory(request)
+
+    @application.post("/internal/folder-contents", tags=["internal"])
+    def folder_contents(request: FolderDiscoveryRequest) -> dict:
+        return discover_directory(request, include_files=True)
+
+    def discover_directory(request, *, include_files=False):
         try:
             parts = discovery_parts(request.parent_path)
         except (ValueError, UnicodeError):
             raise HTTPException(422, {"code": "INVALID_FOLDER_PATH"}) from None
         try:
             root = _configured_root(configured_root)
-            return discover_folders(root, parts)
+            return discover_folders(root, parts, include_files=include_files)
         except (RuntimeError, OSError) as exc:
             if isinstance(exc, DiscoveryError):
                 code = str(exc)

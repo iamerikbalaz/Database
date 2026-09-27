@@ -1,6 +1,7 @@
 """Saved historical ZIP decisions. Observed source policy never replaces one."""
-from datetime import datetime
+from datetime import datetime, date, time
 import json
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -34,7 +35,7 @@ def _blocked(code):
     raise HTTPException(409, {"code": code})
 
 
-def initial_evidence(session, material, state, payload, storage_timezone):
+def initial_evidence(session, material, state, payload, storage_timezone, *, cutoff_date=None, original_stamp=None):
     if (state is None or state.generation != payload.expected_generation or state.failure_code is not None
             or state.revision_hash != payload.expected_revision_hash or state.inventory_id != payload.expected_inventory_id
             or material.workflow_status != "DONE" or not material.folder_path or not state.technical_check_id):
@@ -54,21 +55,47 @@ def initial_evidence(session, material, state, payload, storage_timezone):
                 or canonical_hash({"source_files_hash": inventory.source_revision_hash, "material_context": material_context(material)}) != state.revision_hash):
             raise ValueError
         zone = ZoneInfo(storage_timezone)
-        boundary = datetime(2026, 3, 4, tzinfo=zone)
+        boundary = datetime.combine(date.fromisoformat(cutoff_date), time(), zone) if cutoff_date else datetime(2026, 3, 4, tzinfo=zone)
         # ISO input can contain nanoseconds. Python truncates to microseconds;
         # this preserves strict-before at the whole-second midnight boundary.
-        modified = datetime.fromisoformat(inventory.master_last_modified_at)
+        modified = datetime.fromisoformat(original_stamp or inventory.master_last_modified_at)
         if modified.tzinfo is None: raise ValueError
         policy = MaterialZipPolicy.LEGACY_BEFORE_2026_03_04 if modified < boundary else MaterialZipPolicy.CURRENT_ON_OR_AFTER_2026_03_04
-        if inventory.policy != policy: _blocked("PACKAGING_POLICY_TIMEZONE_MISMATCH")
+        if cutoff_date is None and inventory.policy != policy: _blocked("PACKAGING_POLICY_TIMEZONE_MISMATCH")
         return policy.value, {"schema_version": 1, "inventory_id": str(stored.id),
             "generation": state.generation, "revision_hash": state.revision_hash,
             "source_revision_hash": inventory.source_revision_hash, "technical_check_id": str(check.id),
             "technical_report_hash": check.report_hash, "master_resolution": inventory.master_resolution,
-            "master_last_modified_at": inventory.master_last_modified_at, "observed_policy": inventory.policy.value,
+            "master_last_modified_at": original_stamp or inventory.master_last_modified_at, "observed_policy": inventory.policy.value,
             "policy_boundary": boundary.isoformat(), "storage_timezone": storage_timezone}
     except (ValueError, TypeError, KeyError, OverflowError):
         _blocked("PACKAGING_POLICY_SOURCE_INVALID")
+
+
+def ensure_automatic_policy(session, material, state, actor_id, settings):
+    """Caller holds global-settings read gate and material row lock.
+
+    The original observation survives copies and rescans. New global revisions
+    append decisions; jobs can continue to reference their immutable decision.
+    """
+    current = current_policy(session, material.id)
+    if current and current.evidence.get("packaging_settings") == settings:
+        return current
+    first = session.scalar(select(MaterialPackagingPolicy).where(
+        MaterialPackagingPolicy.material_id == material.id, MaterialPackagingPolicy.revision == 1)) if current else None
+    payload = SimpleNamespace(expected_generation=state.generation, expected_revision_hash=state.revision_hash,
+        expected_inventory_id=state.inventory_id)
+    policy, evidence = initial_evidence(session, material, state, payload, settings["storage_timezone"],
+        cutoff_date=settings["cutoff_date"], original_stamp=first.evidence["master_last_modified_at"] if first else None)
+    evidence.update(schema_version=2, selection_mode="AUTOMATIC", packaging_settings=settings)
+    decision = MaterialPackagingPolicy(material_id=material.id, actor_id=actor_id,
+        revision=current.revision + 1 if current else 1, previous_id=current.id if current else None,
+        inventory_id=None if current else state.inventory_id, policy=policy,
+        storage_timezone=settings["storage_timezone"], reason="Automatic global packaging rule",
+        evidence=evidence, evidence_hash=canonical_hash(evidence))
+    session.add(decision)
+    session.flush()
+    return decision
 
 
 def override_preview(material, state, current, proposed_policy, expected_policy_id):

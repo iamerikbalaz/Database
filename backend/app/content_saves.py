@@ -56,6 +56,7 @@ def save_material_content(database, material_id, payload, access, *, source_draf
                 collection_ids=[item["id"] for item in before["collections"]])
         elif provenance and (payload.description != before["description"] or payload.tags != before["tags"]):
             provenance = {**provenance, "edited": True}
+        audit_reason = payload.reason or "Publication content updated"
         categories = list(session.scalars(select(OnlineCategory).where(OnlineCategory.id.in_(payload.category_ids))))
         collections = list(session.scalars(select(BrandCollection).where(BrandCollection.id.in_(payload.collection_ids))))
         if len(categories) != len(payload.category_ids) or len(collections) != len(payload.collection_ids): _conflict("CONTENT_CATALOG_VALUE_MISSING")
@@ -78,8 +79,8 @@ def save_material_content(database, material_id, payload, access, *, source_draf
             if source_draft_id is not None: body["content_status"] = "AI_DRAFT"
             snapshot = {**body, "published_brand_id": str(material.published_brand_id), "material_name": material.material_name}
             session.add(MaterialContentRevision(material_id=material.id, revision=content.revision, actor_id=actor.id,
-                snapshot=snapshot, snapshot_hash=canonical_hash(snapshot), reason=payload.reason))
+                snapshot=snapshot, snapshot_hash=canonical_hash(snapshot), reason=audit_reason))
             invalidate_review(session, material, actor.id, "CONTENT_CHANGED", record_event=False)
         else: body = before
         return _record(session, material, state, actor.id, "AI_DRAFT_ADOPTED" if source_draft_id else "CONTENT_SAVED", original_request, request_hash, body,
-            audit={"revision": body["revision"], "reason": payload.reason, **({"ai_draft_id": str(source_draft_id)} if source_draft_id else {})})
+            audit={"revision": body["revision"], "reason": audit_reason, **({"ai_draft_id": str(source_draft_id)} if source_draft_id else {})})

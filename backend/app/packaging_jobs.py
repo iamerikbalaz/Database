@@ -62,10 +62,20 @@ def approved_inputs(session, material_id, payload, access, *, packaging_executio
     if item is None: raise HTTPException(404, "Publication batch item not found.")
     if item.snapshot_hash != payload.expected_snapshot_hash:
         conflict("PACKAGING_BATCH_SNAPSHOT_CHANGED")
-    policy = current_policy(session, material_id)
+    frozen_settings = item.snapshot.get("packaging_settings")
+    if frozen_settings and payload.expected_policy_id is None:
+        policy = session.scalar(select(MaterialPackagingPolicy).where(MaterialPackagingPolicy.material_id == material_id,
+            MaterialPackagingPolicy.storage_timezone == frozen_settings["storage_timezone"],
+            MaterialPackagingPolicy.evidence["packaging_settings"]["version"].as_integer() == frozen_settings["version"])
+            .order_by(MaterialPackagingPolicy.revision.desc()).limit(1))
+    else:
+        policy = session.get(MaterialPackagingPolicy, payload.expected_policy_id) if frozen_settings else current_policy(session, material_id)
     if policy is None: conflict("PACKAGING_POLICY_NOT_SELECTED")
-    if policy.id != payload.expected_policy_id: conflict("PACKAGING_POLICY_CHANGED")
-    snapshot, _ = _candidate(session, material, packaging_execution_id=packaging_execution_id, staging_job_id=staging_job_id)
+    if payload.expected_policy_id is not None and policy.id != payload.expected_policy_id: conflict("PACKAGING_POLICY_CHANGED")
+    if policy.material_id != material_id or (frozen_settings and policy.evidence.get("packaging_settings") != frozen_settings):
+        conflict("PACKAGING_POLICY_CHANGED")
+    snapshot, _ = _candidate(session, material, packaging_execution_id=packaging_execution_id,
+        staging_job_id=staging_job_id, packaging_settings=frozen_settings)
     if snapshot["errors"] or snapshot != item.snapshot or canonical_hash(snapshot) != item.snapshot_hash:
         conflict("PACKAGING_APPROVAL_CONTEXT_CHANGED")
     report = frozen_report(session, snapshot)

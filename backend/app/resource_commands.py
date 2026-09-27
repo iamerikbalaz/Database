@@ -48,7 +48,11 @@ def authorize_receipt(session, access, receipt):
     target = session.scalar(select(model).where(model.id == getattr(receipt, field)).with_for_update(read=True))
     if target is None:
         raise HTTPException(404, "Record not found.")
-    if receipt.kind == "MATERIAL": access.require_material(target)
+    if receipt.kind == "MATERIAL":
+        # Administrators can recover an already committed property change in
+        # Archive. Replaying its receipt never starts another write.
+        if access.user.role == "ADMIN": access.require_historical_material(target)
+        else: access.require_material(target)
 
 
 def saved_response(receipt):

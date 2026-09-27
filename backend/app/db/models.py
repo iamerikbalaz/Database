@@ -189,6 +189,24 @@ def _material_metadata_constraints(table_name: str) -> tuple[CheckConstraint, ..
     )
 
 
+class MaterialMetadataOperation(TimestampMixin, Base):
+    __tablename__ = "material_metadata_operations"
+    __table_args__ = (
+        UniqueConstraint("actor_id", "request_key", name="uq_metadata_operation_actor_request"),
+        CheckConstraint("status IN ('RUNNING','COMPLETED','REJECTED')", name="ck_metadata_operation_status"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), index=True)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    brand_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("published_brands.id", ondelete="RESTRICT"))
+    folder_path: Mapped[str] = mapped_column(String(2048), nullable=False)
+    request_key: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_payload: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    result: Mapped[dict | None] = mapped_column(_JSON_DOCUMENT)
+
+
 class MaterialMetadataFieldsMixin:
     status: Mapped[str] = mapped_column(
         String(32),
@@ -556,6 +574,10 @@ class PBRMaterial(TimestampMixin, Base):
     @property
     def is_archived(self) -> bool:
         return self.lifecycle_state is not None and self.lifecycle_state.is_archived
+
+    @property
+    def archived_at(self) -> datetime | None:
+        return self.lifecycle_state.changed_at if self.is_archived else None
 
 
 class PBRMaterialMetadataSnapshot(MaterialMetadataFieldsMixin, Base):
@@ -1093,6 +1115,24 @@ class MaterialContentApproval(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class PackagingSettingsRevision(Base):
+    __tablename__ = "packaging_settings_revisions"
+    __table_args__ = (
+        UniqueConstraint("actor_id", "request_key", name="uq_packaging_settings_actor_request"),
+        CheckConstraint("version >= 1", name="ck_packaging_settings_version"),
+        CheckConstraint("length(storage_timezone) BETWEEN 1 AND 100", name="ck_packaging_settings_timezone"),
+        _review_hash_constraint("request_hash", "ck_packaging_settings_request_hash"),
+    )
+    version: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
+    request_key: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    cutoff_date: Mapped[date] = mapped_column(Date, nullable=False)
+    storage_timezone: Mapped[str] = mapped_column(String(100), nullable=False)
+    response_snapshot: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class MaterialPackagingPolicy(Base):
     __tablename__ = "material_packaging_policies"
     __table_args__ = (
@@ -1162,8 +1202,6 @@ class PublicationBatchItem(Base):
             name="fk_publication_batch_items_technical", ondelete="RESTRICT"),
         ForeignKeyConstraint(["material_id", "publication_approval_id"], ["material_approvals.material_id", "material_approvals.id"],
             name="fk_publication_batch_items_publication", ondelete="RESTRICT"),
-        ForeignKeyConstraint(["material_id", "content_context_hash"], ["material_content_approvals.material_id", "material_content_approvals.context_hash"],
-            name="fk_publication_batch_items_content", ondelete="RESTRICT"),
     )
     batch_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("publication_batches.id", ondelete="RESTRICT"), primary_key=True)
     material_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("pbr_materials.id", ondelete="RESTRICT"), primary_key=True)
@@ -1174,8 +1212,8 @@ class PublicationBatchItem(Base):
     snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     technical_check_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
     metadata_snapshot_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
-    technical_approval_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
-    publication_approval_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    technical_approval_id: Mapped[UUID | None] = mapped_column(Uuid)
+    publication_approval_id: Mapped[UUID | None] = mapped_column(Uuid)
     snapshot: Mapped[dict] = mapped_column(_JSON_DOCUMENT, nullable=False)
 
 
@@ -1770,7 +1808,7 @@ for _catalog_type in (OnlineCategory, BrandCollection):
     event.listen(_catalog_type, "before_delete", _reject_review_history_mutation)
 
 
-for _review_history_type in (CompanyChangeEvent, MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow, MaterialAiDraft, PublicationBatch, PublicationBatchItem, MaterialPackagingPolicy, MaterialPackagingExecution, MaterialPackagingDispatch, MaterialPackagingObservation, PublicationStagingJob, PublicationStagingItem, PublicationStagingClose, PublicationStagingDispatch, PublicationStagingTransfer, PublicationStagingObservation, PublicationStagingResult):
+for _review_history_type in (PackagingSettingsRevision, CompanyChangeEvent, MaterialInventory, MaterialAuditEvent, MaterialTechnicalCheck, MaterialApproval, MaterialNumberReservation, MaterialIdentityHistory, CatalogAuditEvent, MaterialContentRevision, MaterialContentApproval, MaterialImportBatch, MaterialImportRow, MaterialAiDraft, PublicationBatch, PublicationBatchItem, MaterialPackagingPolicy, MaterialPackagingExecution, MaterialPackagingDispatch, MaterialPackagingObservation, PublicationStagingJob, PublicationStagingItem, PublicationStagingClose, PublicationStagingDispatch, PublicationStagingTransfer, PublicationStagingObservation, PublicationStagingResult):
     event.listen(_review_history_type, "before_update", _reject_review_history_mutation)
     event.listen(_review_history_type, "before_delete", _reject_review_history_mutation)
 
@@ -1782,3 +1820,16 @@ event.listen(ResourceCommand, "before_update", _reject_review_history_mutation)
 event.listen(ResourceCommand, "before_delete", _reject_review_history_mutation)
 event.listen(MaterialLifecycleEvent, "before_update", _reject_review_history_mutation)
 event.listen(MaterialLifecycleEvent, "before_delete", _reject_review_history_mutation)
+
+
+@event.listens_for(MaterialMetadataOperation, "before_update")
+def _protect_metadata_operation(_mapper, _connection, item):
+    attributes = sa_inspect(item).attrs
+    fixed = ("id", "material_id", "actor_id", "brand_id", "folder_path", "request_key", "request_hash", "request_payload", "created_at")
+    prior_status = attributes.status.history.deleted
+    if any(attributes[field].history.has_changes() for field in fixed) or (
+            prior_status and prior_status[0] != "RUNNING") or (not prior_status and item.status != "RUNNING"):
+        raise ImmutableAuditSnapshotError("Metadata operation authorization and terminal receipts are immutable.")
+
+
+event.listen(MaterialMetadataOperation, "before_delete", _reject_review_history_mutation)

@@ -18,7 +18,7 @@ from test_technical_client import technical_payload
 PATH = "/api/publication-batches/preview"
 
 
-def prepare_candidate(case, worker, path, *, empty=False, report=None):
+def prepare_candidate(case, worker, path, *, empty=False, report=None, human_approvals=True):
     material = next(item for item in case.materials if path.endswith(str(item.id)))
     if report is not None:
         report = json.loads(json.dumps(report).replace(report["inventory"]["folder_name"], material.technical_identity))
@@ -52,6 +52,7 @@ def prepare_candidate(case, worker, path, *, empty=False, report=None):
         assert admin.post(path + "/content", json=content_payload(category_ids=[category.json()["id"]], credits=10,
             description=None if empty else "Reviewed content", tags=[] if empty else ["stone"])).status_code == 200
         view = run(admin, path).json()
+        if not human_approvals: return material
         acknowledgment = {"warnings_acknowledged": True, "note": "Reviewed synthetic source warnings"} if report and report["warnings"] else {}
         technical = admin.post(path + "/approvals", json=approval_payload(view, **acknowledgment))
         assert technical.status_code == 200
@@ -103,13 +104,13 @@ def test_missing_production_review_metadata_and_decisions_report_blockers(access
         result = preview(client, access_case.materials[0].id)
     assert result["can_prepare"] is False
     errors = result["items"][0]["errors"]
-    assert {"PRODUCTION_DONE_REQUIRED", "CURRENT_TECHNICAL_REVIEW_REQUIRED", "METADATA_SNAPSHOT_REQUIRED",
-        "TECHNICAL_APPROVAL_REQUIRED", "PUBLICATION_APPROVAL_REQUIRED", "CONTENT_APPROVAL_REQUIRED"} <= set(errors)
+    assert {"PRODUCTION_DONE_REQUIRED", "CURRENT_TECHNICAL_REVIEW_REQUIRED", "METADATA_SNAPSHOT_REQUIRED"} <= set(errors)
+    assert not any(code.endswith("APPROVAL_REQUIRED") for code in errors)
 
 
 @pytest.mark.parametrize("change,expected", [("metadata-current", "METADATA_CURRENT_SNAPSHOT_MISMATCH"),
     ("source", "METADATA_SOURCE_REVISION_MISMATCH"), ("master", "METADATA_MASTER_REVISION_MISMATCH"),
-    ("missing-color", "EXPORT_COLOR_INVALID"), ("content", "CONTENT_APPROVAL_REQUIRED"),
+    ("missing-color", "EXPORT_COLOR_INVALID"),
     ("reopen", "PRODUCTION_DONE_REQUIRED")])
 def test_stale_or_incomplete_inputs_change_preview_and_block_preparation(approval_case, change, expected):
     case, worker, path = approval_case
@@ -187,8 +188,8 @@ def test_preview_rechecks_session_expiry_after_domain_work(access_case, monkeypa
     case = access_case
     original_prepare = publication_preflight.prepare_publication
     original_now = access.database_now
-    def expire_after_preparation(*args):
-        prepared = original_prepare(*args)
+    def expire_after_preparation(*args, **kwargs):
+        prepared = original_prepare(*args, **kwargs)
         monkeypatch.setattr(access, "database_now", lambda session: original_now(session) + timedelta(days=365))
         return prepared
     with case.client("ADMIN") as client:

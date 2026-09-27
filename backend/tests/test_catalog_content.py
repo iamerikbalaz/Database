@@ -5,10 +5,11 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import select
 
-from app.catalog import ContentUpdate, CategoryCreate
+from app.catalog import ContentUpdate, CategoryCreate, CatalogActivityUpdate, CatalogTableUpdate
 from app.db.models import (BrandCollection, CatalogAuditEvent, MaterialContentRevision, MaterialReviewState,
-    MaterialFileOperation, PBRMaterial, PublishedBrand)
+    MaterialAuditEvent, MaterialFileOperation, PBRMaterial, PublishedBrand)
 from app.main import create_app
+from app.material_review import canonical_hash
 from test_application_access import access_case
 from test_material_identity import IdentityStub, prepare
 
@@ -39,6 +40,55 @@ def test_canonical_content_preserves_plain_text_and_deduplicates_individual_tags
         ContentUpdate(**content_payload(credits=True))
     with pytest.raises(ValidationError):
         ContentUpdate(**content_payload(tags=["a:b"]))
+
+
+@pytest.mark.parametrize("explicit_null", [False, True])
+def test_content_without_reason_keeps_audit_and_exact_replay_after_later_edit(access_case, explicit_null):
+    case = access_case; material = case.materials[0]; path = f"/api/materials/{material.id}/content"
+    payload = {"idempotency_key": str(uuid4()), "expected_revision": 0, "description": "First draft"}
+    if explicit_null: payload["reason"] = None
+    with case.client("ADMIN") as client:
+        first = client.post(path, json=payload)
+        assert first.status_code == 200
+        later = client.post(path, json={"idempotency_key": str(uuid4()), "expected_revision": 1, "description": "Later draft"})
+        assert later.status_code == 200 and later.json()["revision"] == 2
+        assert client.post(path, json=payload).json() == first.json()
+        assert client.get(path).json()["description"] == "Later draft"
+        history = client.get(path + "-history").json()
+        assert len(history) == 2 and all(item["reason"] == "Publication content updated" for item in history)
+    with case.database.session() as session:
+        events = list(session.scalars(select(MaterialAuditEvent).where(MaterialAuditEvent.material_id == material.id,
+            MaterialAuditEvent.event_type == "CONTENT_SAVED")))
+        assert len(events) == 2 and all(event.result["audit"]["reason"] == "Publication content updated" for event in events)
+
+
+def test_legacy_explicit_reason_receipt_retains_original_request_hash(access_case):
+    case = access_case; material = case.materials[0]; path = f"/api/materials/{material.id}/content"
+    request_key = uuid4()
+    payload = {"idempotency_key": str(request_key), "expected_revision": 3,
+        "description": "Historical draft", "reason": "Older explicit explanation"}
+    # Previous ContentUpdate hashing included all default content fields. Seed
+    # that immutable receipt independently of the current request model.
+    legacy_hash = canonical_hash({"operation": "CONTENT_SAVED", "material_id": str(material.id),
+        "payload": {**payload, "credits": None, "tags": [], "category_ids": [], "collection_ids": []}})
+    saved_body = {"material_id": str(material.id), "revision": 4, "description": "Historical draft", "credits": None,
+        "tags": [], "categories": [], "collections": [], "content_status": "MANUAL_DRAFT"}
+    with case.database.session() as session:
+        session.add(MaterialAuditEvent(material_id=material.id, actor_id=case.users["ADMIN"].id, event_type="CONTENT_SAVED",
+            generation=0, revision_hash=None, request_key=request_key, request_hash=legacy_hash,
+            result={"status_code": 200, "body": saved_body, "audit": {"revision": 4, "reason": payload["reason"]}}))
+        session.commit()
+    with case.client("ADMIN") as client:
+        replay = client.post(path, json=payload)
+        assert replay.status_code == 200 and replay.json() == saved_body
+        assert client.post(path, json={**payload, "reason": "Different explanation"}).status_code == 409
+        assert client.get(path).json()["revision"] == 0
+
+
+@pytest.mark.parametrize("model", [CatalogActivityUpdate, CatalogTableUpdate])
+def test_catalog_changes_still_require_a_reason(model):
+    with pytest.raises(ValidationError):
+        model(idempotency_key=uuid4(), expected_version=1, is_active=False)
 
 
 @pytest.mark.parametrize("role,allowed", [("PROCESSOR", False), ("LEADERSHIP", False), ("PRODUCTION_LEAD", True), ("ADMIN", True)])

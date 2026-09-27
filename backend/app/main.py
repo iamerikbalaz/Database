@@ -22,18 +22,23 @@ from app.api.material_approvals import build_material_approvals_router
 from app.technical_client import TechnicalClient, WorkerTechnicalClient
 from app.identity_client import IdentityClient, WorkerIdentityClient
 from app.api.material_identity import build_material_identity_router
+from app.api.source_metadata import build_source_metadata_router
+from app.metadata_client import WorkerMetadataClient
 from app.api.catalog import build_catalog_router
 from app.api.content_approvals import build_content_approvals_router
 from app.api.material_previews import build_material_previews_router
 from app.preview_client import PreviewClient, WorkerPreviewClient
 from app.api.material_imports import build_material_imports_router
 from app.api.folder_discovery import build_folder_discovery_router
+from app.api.folder_contents import build_folder_contents_router
+from app.folder_contents import WorkerFolderContentsClient
 from app.discovery_client import DiscoveryClient, WorkerDiscoveryClient
 from app.api.ai_content import build_ai_content_router
 from app.api.ai_service import build_ai_service_router
 from app.publication_preflight import build_publication_preview_router
 from app.api.publication_batches import build_publication_batches_router
 from app.api.packaging_policy import build_packaging_policy_router
+from app.api.packaging_settings import build_packaging_settings_router
 from app.api.packaging_jobs import build_packaging_jobs_router
 from app.packaging_client import PackagingClient, WorkerPackagingClient
 from app.api.publication_staging import build_staging_preview_router
@@ -67,6 +72,8 @@ def create_app(
     packaging_client: PackagingClient | None = None,
     gcs_client: GcsClient | None = None,
     notion_reader: NotionReader | None = None,
+    metadata_client=None,
+    folder_contents_client=None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     app_database = database or Database(app_settings.resolved_database_url)
@@ -97,8 +104,9 @@ def create_app(
     application.include_router(build_material_imports_router(app_database))
     application.include_router(build_ai_content_router(app_database))
     application.include_router(build_ai_service_router(app_database))
-    application.include_router(build_publication_preview_router(app_database))
-    application.include_router(build_publication_batches_router(app_database))
+    application.include_router(build_publication_preview_router(app_database, app_settings))
+    application.include_router(build_publication_batches_router(app_database, app_settings))
+    application.include_router(build_packaging_settings_router(app_database, app_settings))
     application.include_router(build_staging_preview_router(app_database, app_settings))
     application.include_router(build_staging_jobs_router(app_database, app_settings))
     application.include_router(build_staging_history_router(app_database, app_settings),
@@ -121,6 +129,8 @@ def create_app(
     application.include_router(build_material_archives_router(app_database))
     application.include_router(build_folder_discovery_router(app_database,
         discovery_client or WorkerDiscoveryClient(app_settings.worker_base_url)))
+    application.include_router(build_folder_contents_router(app_database,
+        folder_contents_client or WorkerFolderContentsClient(app_settings.worker_base_url)))
     application.include_router(build_content_approvals_router(app_database))
     application.include_router(build_material_previews_router(app_database,
         preview_client or WorkerPreviewClient(app_settings.worker_base_url)))
@@ -134,6 +144,10 @@ def create_app(
     application.include_router(build_material_identity_router(app_database,
         identity_client or WorkerIdentityClient(app_settings.worker_base_url, app_settings.worker_mutation_token,
                                                app_settings.source_mutations_enabled),
+          mutations_enabled=app_settings.source_mutations_enabled))
+    application.include_router(build_source_metadata_router(app_database,
+        metadata_client or WorkerMetadataClient(app_settings.worker_base_url, app_settings.worker_mutation_token,
+                                                app_settings.source_mutations_enabled),
         mutations_enabled=app_settings.source_mutations_enabled))
 
     @application.middleware("http")

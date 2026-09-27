@@ -22,7 +22,7 @@ class LifecycleCommand(ApiSchema):
     request_key: UUID
     expected_version: int = Field(ge=0, le=2147483646, strict=True)
     expected_input_sha256: Sha256
-    reason: str = Field(min_length=1, max_length=2000, strict=True)
+    reason: str = Field(default="Archived property changed.", min_length=1, max_length=2000, strict=True)
     acknowledge: bool = Field(strict=True)
 
     @field_validator("request_key")
@@ -75,7 +75,7 @@ def _input_hash(session, material):
 def _eligible(session, material, action):
     if material.is_archived != (action == "RESTORE"):
         raise HTTPException(409, {"code": "MATERIAL_LIFECYCLE_STATE_CHANGED"})
-    if material.is_published or material.publication_status != "NOT_PUBLISHED":
+    if material.publication_status not in {"NOT_PUBLISHED", "PUBLISHED_CURRENT", "PUBLISHED_UPDATE_REQUIRED"}:
         raise HTTPException(409, {"code": "MATERIAL_LIFECYCLE_PUBLICATION_BLOCKED"})
     review = session.get(MaterialReviewState, material.id)
     if _version(material) >= 2147483647 or review and review.generation >= 9223372036854775807:
@@ -182,14 +182,13 @@ def build_material_archives_router(database):
             if review is None:
                 review = MaterialReviewState(material_id=material_id, generation=0)
                 session.add(review); session.flush()
+            # Archived is a visibility property; preserve user-entered readiness
+            # and source metadata while invalidating internal technical evidence.
+            checked_status = material.checked_status
             invalidate_review(session, material, actor.id, "MATERIAL_" + payload.action, record_event=False)
+            material.checked_status = checked_status
             review.checked_at = None
-            material.workflow_status = "IN_PROGRESS"
             material.validation_status = "NOT_CHECKED"
-            metadata = session.get(PBRMaterialMetadata, material_id)
-            for field in ("current_snapshot_id", "source_filename", "source_sha256", "source_content", "hex_color", "width_cm", "height_cm", "master_resolution", "loaded_at"):
-                setattr(metadata, field, None)
-            metadata.status = "NOT_SCANNED"; metadata.warnings = []
             now = max(database_now(session), _aware(material.updated_at))
             lifecycle = material.lifecycle_state
             if lifecycle:

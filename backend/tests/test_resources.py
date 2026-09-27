@@ -125,7 +125,9 @@ def test_published_brand_crud_and_unique_values(client: TestClient) -> None:
     assert brand["next_sequence_number"] == 1
     assert brand["is_active"] is True
     assert client.get(f"/api/brands/{brand['id']}").json() == brand
-    assert client.get("/api/brands").json() == [brand]
+    all_brands = client.get("/api/brands").json()
+    assert brand in all_brands
+    assert len(all_brands) == 2 and any(item["name"] == company["name"] for item in all_brands)
 
     response = client.patch(
         f"/api/brands/{brand['id']}",

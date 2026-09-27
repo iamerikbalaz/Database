@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapte
 from app.import_sources import ImportSourceError, MAX_UPLOAD_BYTES, SourceTable, check_upload, read_csv
 from app.import_workbooks import read_xlsx, xlsx_sheets
 from app.material_naming import match_identity
+from app.import_properties import PROPERTY_COLUMNS, parse_properties
 from app.inventory_client import validate_relative_path
 from app.schemas import Name, CategoryCode, Sha256
 
@@ -59,6 +60,12 @@ class ImportColumns(ImportModel):
     brand: Column
     processor: Column
     folder: Column | None = None
+    color: Column | None = None
+    sample_size: Column | None = None
+    done: Column | None = None
+    checked: Column | None = None
+    note: Column | None = None
+    brand_identifier: Column | None = None
 
     @model_validator(mode="after")
     def distinct(self):
@@ -173,13 +180,14 @@ class PreparedImportRow:
     brand_id: UUID
     processor_id: UUID
     folder_path: str | None = field(default=None, repr=False)
+    properties: dict | None = field(default=None, repr=False)
 
     def public_values(self):
         return {"source_row": self.source_row, "technical_identity": self.technical_identity,
                 "material_name": self.material_name, "sequence_number": self.sequence_number,
                 "main_category_code": self.main_category_code, "project_id": str(self.project_id) if self.project_id is not None else None,
                 "published_brand_id": str(self.brand_id), "assigned_processor_id": str(self.processor_id),
-                "folder_path": self.folder_path}
+                "folder_path": self.folder_path, **({"properties": self.properties} if self.properties is not None else {})}
 
 
 def prepare_rows(table: SourceTable, columns: ImportColumns, links: ImportLinks):
@@ -228,10 +236,13 @@ def prepare_rows(table: SourceTable, columns: ImportColumns, links: ImportLinks)
                 issue(group, "IMPORT_REFERENCE_UNMAPPED")
             else:
                 references[group] = identifier
+        extra = {key: row.values[positions[key]] for key in PROPERTY_COLUMNS if key in positions}
+        properties, property_findings = parse_properties(extra)
+        for field_name, code in property_findings: issue(field_name, code)
         if len(findings) != start:
             continue
         item = PreparedImportRow(row.number, identity, name, prefix, int(number), category,
-                                 references["project"], references["brand"], references["processor"], folder)
+                                 references["project"], references["brand"], references["processor"], folder, properties if extra else None)
         if identity in seen_identities or (item.brand_id, item.sequence_number) in seen_numbers:
             issue("identity", "IMPORT_DUPLICATE_IDENTITY_OR_NUMBER")
             continue

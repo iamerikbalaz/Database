@@ -50,6 +50,8 @@ def test_selected_values_and_clearing_commit_with_exact_atomic_provenance(notion
         recovery = client.get(f"/api/companies/{item.identifier}/notion-adoptions/{body['request_key']}")
         assert recovery.status_code == 200 and recovery.json() == saved and recovery.headers["cache-control"] == "no-store"
         assert client.get(f"/api/companies/{item.identifier}/history").json()["items"] == [event]
+        brands = client.get("/api/brands", params={"company_id": str(item.identifier)}).json()
+        assert any(brand["name"] == event["after"]["name"] for brand in brands)
     assert snapshot(item)["name"] == event["after"]["name"] and len(events(item)) == 1
     assert all(request.method == "GET" for request in item.server.requests)
 

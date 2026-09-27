@@ -82,7 +82,7 @@ def test_validation_replay_is_exact_and_reused_key_cannot_change_input(approval_
 
 
 @pytest.mark.parametrize("role,technical,publication,check", [("ADMIN", 200, 200, 200), ("PRODUCTION_LEAD", 200, 403, 200),
-    ("LEADERSHIP", 403, 200, 403), ("PROCESSOR", 403, 403, 200), ("OTHER", 403, 403, 404)])
+    ("LEADERSHIP", 403, 200, 200), ("PROCESSOR", 403, 403, 200), ("OTHER", 403, 403, 404)])
 def test_approval_roles_are_enforced_by_server(approval_case, role, technical, publication, check):
     case, worker, path = approval_case
     with case.client("ADMIN") as admin:

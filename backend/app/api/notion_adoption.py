@@ -139,7 +139,7 @@ def build_notion_adoption_router(database, reader, settings):
 
         def finish():
             with database.session() as session:
-                actor = access.check(session, ADMIN)
+                actor = access.check(session, ADMIN, exclusive=True)
                 # Another request may have committed during IO, including a failed
                 # read. Authorization and exact replay always precede stale checks.
                 replay = _replay(session, actor.id, company_id, payload, digest)
@@ -156,6 +156,8 @@ def build_notion_adoption_router(database, reader, settings):
                 for field in payload.selected_fields: setattr(company, field, values[field])
                 source = observed.model_dump(mode="json", exclude={"values"}) | {"selected_fields": payload.selected_fields}
                 try:
+                    from app.company_brands import ensure_company_brand
+                    ensure_company_brand(session, company, actor.id)
                     event = append_company_change(session, company, actor.id, before, action="NOTION_ADOPTED",
                         reason=payload.reason, source=source, request_key=payload.request_key, request_hash=digest)
                     result = _result(event)

@@ -25,7 +25,7 @@ class PackagingReservation(ApiSchema):
     idempotency_key: UUID
     batch_id: UUID
     expected_snapshot_hash: Sha256
-    expected_policy_id: UUID
+    expected_policy_id: UUID | None = None
     reason: Reason
 
 

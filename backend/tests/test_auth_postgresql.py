@@ -521,7 +521,7 @@ def test_postgresql_auth_user_delete_cascades(constraint_session: tuple[Session,
 class _AccessGateObservation(_LockObservation):
     @staticmethod
     def _credentials_lock(statement: str) -> bool:
-        return 'PG_ADVISORY_XACT_LOCK_SHARED' in statement.upper()
+        return 'PG_ADVISORY_XACT_LOCK' in statement.upper()
 
 
 @pytest.mark.parametrize('change,expected', [('role', 403), ('active', 401), ('password', 403), ('revoked', 401)])

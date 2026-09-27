@@ -10,6 +10,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.material_approvals import PUBLICATION_APPROVERS
+from app.api.material_review import _material, _state
 from app.auth.access import AccessDependency
 from app.auth.service import _aware
 from app.catalog import Reason
@@ -17,12 +18,14 @@ from app.db.models import MaterialAuditEvent, PublicationBatch, PublicationBatch
 from app.material_review import canonical_hash
 from app.publication_csv import Digest, render_publication_csv
 from app.publication_preflight import PublicationSelection, prepare_publication
+from app.packaging_policy import ensure_automatic_policy
+from app.packaging_settings import current_settings, lock_settings
 
 
 class PublicationCreate(PublicationSelection):
     idempotency_key: UUID
     expected_preview_hash: Digest
-    reason: Reason
+    reason: Reason | None = None
     warnings_acknowledged: Annotated[bool, Field(strict=True)] = False
 
 
@@ -38,7 +41,8 @@ def _view(session, batch):
     return {**_summary(batch), "reason": batch.reason, "warnings_acknowledged": batch.warnings_acknowledged,
         "warnings": batch.warnings, "items": [{"material_id": str(item.material_id), "ordinal": item.ordinal,
             "snapshot_hash": item.snapshot_hash, "row": item.snapshot["csv_row"],
-            "technical_approval_id": str(item.technical_approval_id), "publication_approval_id": str(item.publication_approval_id),
+            "technical_approval_id": str(item.technical_approval_id) if item.technical_approval_id else None,
+            "publication_approval_id": str(item.publication_approval_id) if item.publication_approval_id else None,
             "content_approval_id": item.snapshot["content_approval_id"], "metadata_snapshot_id": str(item.metadata_snapshot_id)} for item in items]}
 
 
@@ -48,7 +52,7 @@ def _batch(session, batch_id):
     return batch
 
 
-def build_publication_batches_router(database):
+def build_publication_batches_router(database, settings):
     router = APIRouter(prefix="/api/publication-batches", tags=["publication preparation"])
 
     @router.post("")
@@ -61,7 +65,9 @@ def build_publication_batches_router(database):
             if prior:
                 if prior.request_hash != request_hash: raise HTTPException(409, {"code": "PUBLICATION_REQUEST_CONFLICT"})
                 return JSONResponse(status_code=201, content=_view(session, prior))
-            prepared = prepare_publication(session, payload, access)
+            lock_settings(session)
+            config = current_settings(session, settings)
+            prepared = prepare_publication(session, payload, access, packaging_settings=config)
             if prepared.preview["preview_hash"] != payload.expected_preview_hash:
                 raise HTTPException(409, {"code": "PUBLICATION_PREVIEW_CHANGED"})
             if not prepared.preview["can_prepare"]:
@@ -73,14 +79,16 @@ def build_publication_batches_router(database):
             access.check(session, PUBLICATION_APPROVERS)
             batch = PublicationBatch(actor_id=actor.id, request_key=payload.idempotency_key, request_hash=request_hash,
                 snapshot_hash=prepared.preview["preview_hash"], csv_sha256=artifact.sha256, csv_bytes=artifact.data,
-                row_count=len(artifact.rows), reason=payload.reason, warnings_acknowledged=payload.warnings_acknowledged, warnings=warnings)
+                row_count=len(artifact.rows), reason=payload.reason or "Publication preparation", warnings_acknowledged=payload.warnings_acknowledged, warnings=warnings)
             session.add(batch); session.flush()
             for ordinal, digest in enumerate(artifact.rows, 1):
                 snapshot = prepared.snapshots[digest.material_id]
+                ensure_automatic_policy(session, _material(session, digest.material_id, access, lock=True),
+                    _state(session, digest.material_id), actor.id, config)
                 item = PublicationBatchItem(batch_id=batch.id, material_id=digest.material_id, ordinal=ordinal,
                     generation=snapshot["generation"], revision_hash=digest.revision_hash, content_context_hash=digest.content_context_hash,
                     snapshot_hash=canonical_hash(snapshot), snapshot=snapshot,
-                    **{field: UUID(snapshot[field]) for field in ("technical_check_id", "metadata_snapshot_id",
+                    **{field: UUID(snapshot[field]) if snapshot[field] else None for field in ("technical_check_id", "metadata_snapshot_id",
                         "technical_approval_id", "publication_approval_id")})
                 session.add(item)
                 session.add(MaterialAuditEvent(material_id=item.material_id, actor_id=actor.id,

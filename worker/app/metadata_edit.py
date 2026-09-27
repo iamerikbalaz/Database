@@ -1,4 +1,4 @@
-"""Bounded, explicit edits of root production metadata; identity keys stay opaque."""
+"""Bounded root metadata edits with durable replay and database identity fields."""
 from decimal import Decimal
 import hashlib
 import json
@@ -7,7 +7,6 @@ import re
 import stat
 
 from app.file_journal import JournalError, open_journal, rename_noreplace
-from app.preflight import MAX_METADATA_BYTES, _reject_constant, _unique_object
 from app.secure_filesystem import _metadata_bytes, open_material_directory
 from app.source_metadata import dimension_fits_storage, normalize_hex, parse_source_metadata_bytes
 
@@ -34,44 +33,11 @@ def normalize_values(values):
     return result
 
 
-def _serialize(value, depth=0):
-    if depth > 64: raise JournalError("METADATA_FORMAT_UNSUPPORTED")
-    if isinstance(value, Decimal): return str(value)
-    if isinstance(value, dict):
-        return "{" + ",".join(json.dumps(k, ensure_ascii=True) + ":" + _serialize(v, depth + 1) for k, v in value.items()) + "}"
-    if isinstance(value, list): return "[" + ",".join(_serialize(v, depth + 1) for v in value) + "]"
-    return json.dumps(value, ensure_ascii=True, allow_nan=False)
-
-
-def rewrite_metadata(raw, values):
+def rewrite_metadata(raw, values, identity=None):
+    from app.metadata_document import rewrite_metadata_json
     values = normalize_values(values)
-    if raw is None:
-        data = {}
-    else:
-        if len(raw) > MAX_METADATA_BYTES: raise JournalError("SOURCE_METADATA_TOO_LARGE")
-        parsed = parse_source_metadata_bytes(raw)
-        if parsed.status == "INVALID": raise JournalError("METADATA_FORMAT_UNSUPPORTED")
-        try:
-            text = raw.decode("utf-8")
-            if text.lstrip().startswith("{"):
-                data = json.loads(text, parse_float=Decimal, parse_int=Decimal,
-                                  parse_constant=_reject_constant, object_pairs_hook=_unique_object)
-            else:
-                # Preserve every legacy line when migrating the dimensions-only format.
-                data = {"LEGACY_SOURCE_TEXT": text}
-            if not isinstance(data, dict): raise ValueError()
-            for key in ("COLOR", "TEXTURE_SIZE"):
-                if key in data and not isinstance(data[key], dict): raise ValueError()
-            if "cm" in data.get("TEXTURE_SIZE", {}) and not isinstance(data["TEXTURE_SIZE"]["cm"], dict): raise ValueError()
-        except (ValueError, UnicodeError, RecursionError): raise JournalError("METADATA_FORMAT_UNSUPPORTED") from None
-    color = data.setdefault("COLOR", {})
-    cm = data.setdefault("TEXTURE_SIZE", {}).setdefault("cm", {})
-    for parent, key, value in ((color, "hex", values["hex_color"]), (cm, "width", values["width_cm"]), (cm, "height", values["height_cm"])):
-        if value is None: parent.pop(key, None)
-        else: parent[key] = value if key == "hex" else Decimal(value)
-    result = (_serialize(data) + "\n").encode("utf-8")
-    if len(result) > MAX_METADATA_BYTES: raise JournalError("SOURCE_METADATA_TOO_LARGE")
-    return result
+    try: return rewrite_metadata_json(raw, values, identity)
+    except ValueError as exc: raise JournalError(str(exc)) from None
 
 
 def _signature(info):
@@ -83,32 +49,32 @@ def _identity(fd):
     return [info.st_dev, info.st_ino]
 
 
-def _read(fd):
-    try: before = os.stat("metadata.txt", dir_fd=fd, follow_symlinks=False)
+def _read(fd, source_filename="metadata.txt"):
+    try: before = os.stat(source_filename, dir_fd=fd, follow_symlinks=False)
     except FileNotFoundError: before = None
     if before is not None and (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1):
         raise JournalError("SOURCE_METADATA_UNSAFE_FILE")
-    raw, error = _metadata_bytes(fd)
+    raw, error = _metadata_bytes(fd, source_filename)
     if error and error[0] != "MISSING": raise JournalError("SOURCE_METADATA_" + error[0])
-    try: after = os.stat("metadata.txt", dir_fd=fd, follow_symlinks=False)
+    try: after = os.stat(source_filename, dir_fd=fd, follow_symlinks=False)
     except FileNotFoundError: after = None
     if _signature(before) != _signature(after): raise JournalError("METADATA_SOURCE_CHANGED")
     return raw, before
 
 
-def metadata_view(raw, folder_name):
-    parsed = parse_source_metadata_bytes(raw)
-    return {"schema_version": 1, "folder_name": folder_name, "sha256": parsed.sha256,
+def metadata_view(raw, folder_name, source_filename="metadata.txt"):
+    parsed = parse_source_metadata_bytes(raw, source_filename=source_filename)
+    return {"schema_version": 1, "source_filename": source_filename, "folder_name": folder_name, "sha256": parsed.sha256,
             "status": parsed.status, "hex_color": parsed.hex_color,
             "width_cm": str(parsed.width_cm) if parsed.width_cm is not None else None,
             "height_cm": str(parsed.height_cm) if parsed.height_cm is not None else None,
             "raw_content": parsed.raw_content}
 
 
-def inspect_metadata(root, parts):
+def inspect_metadata(root, parts, source_filename="metadata.json"):
     with open_material_directory(root, parts) as fd:
-        raw, _ = _read(fd)
-        view = metadata_view(raw, parts[-1])
+        raw, _ = _read(fd, source_filename)
+        view = metadata_view(raw, parts[-1], source_filename)
         try: rewrite_metadata(raw, {name: view[name] for name in FIELDS}); editable = True
         except JournalError: editable = False
         return {**view, "editable": editable}
@@ -124,7 +90,12 @@ def _reject(journal, request_hash, operation_id, code):
     return result
 
 
-def execute_metadata_edit(root, journal_root, operation_id, parts, expected_sha256, values, *, enabled=False):
+def execute_metadata_edit(root, journal_root, operation_id, parts, expected_sha256, values, *, enabled=False, source_filename="metadata.txt", identity=None):
+    if source_filename not in {"metadata.txt", "metadata.json"}: raise JournalError("METADATA_VALUES_INVALID")
+    from app.metadata_document import validate_identity
+    try: identity = validate_identity(identity)
+    except ValueError as exc: raise JournalError(str(exc)) from None
+    if identity is not None and (not parts or identity["FOLDER"] != parts[-1]): raise JournalError("METADATA_VALUES_INVALID")
     if enabled is not True: raise JournalError("SOURCE_MUTATIONS_DISABLED")
     if (not parts or any(not p or p in {".", ".."} or any(c in p for c in "/\\:\x00") for p in parts)
             or expected_sha256 is not None and re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is None):
@@ -132,8 +103,11 @@ def execute_metadata_edit(root, journal_root, operation_id, parts, expected_sha2
     values = normalize_values(values)
     if journal_root.resolve().is_relative_to(root.resolve()) or root.resolve().is_relative_to(journal_root.resolve()):
         raise JournalError("JOURNAL_ROOT_OVERLAPS_SOURCE")
-    request_hash = hashlib.sha256(json.dumps({"kind": "metadata-edit-1", "parts": parts,
-        "expected_sha256": expected_sha256, "values": values}, sort_keys=True).encode()).hexdigest()
+    request_body = {"kind": "metadata-edit-1", "parts": parts, "expected_sha256": expected_sha256, "values": values}
+    # Original txt operation hashes remain replayable after the JSON rollout.
+    if source_filename != "metadata.txt" or identity is not None:
+        request_body.update(source_filename=source_filename, identity=identity)
+    request_hash = hashlib.sha256(json.dumps(request_body, sort_keys=True).encode()).hexdigest()
     with open_journal(journal_root, operation_id) as journal, open_material_directory(root, parts) as fd:
         import fcntl
         try: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -143,7 +117,7 @@ def execute_metadata_edit(root, journal_root, operation_id, parts, expected_sha2
             if state.get("request_hash") != request_hash: raise JournalError("JOURNAL_REQUEST_CONFLICT")
             if state["status"] in {"COMPLETED", "REJECTED"}: return state["result"]
             if state["identity"] != _identity(fd): raise JournalError("METADATA_SOURCE_CHANGED")
-        try: raw, info = _read(fd)
+        try: raw, info = _read(fd, source_filename)
         except JournalError as exc:
             if state is not None: raise
             return _reject(journal, request_hash, operation_id, str(exc))
@@ -151,7 +125,7 @@ def execute_metadata_edit(root, journal_root, operation_id, parts, expected_sha2
         if state is None:
             if digest != expected_sha256:
                 return _reject(journal, request_hash, operation_id, "METADATA_SOURCE_CHANGED")
-            try: desired = rewrite_metadata(raw, values)
+            try: desired = rewrite_metadata(raw, values, identity)
             except JournalError as exc: return _reject(journal, request_hash, operation_id, str(exc))
             state = {"request_hash": request_hash, "status": "PREPARED", "identity": _identity(fd),
                      "desired": desired.decode("utf-8"), "sha256": hashlib.sha256(desired).hexdigest(),
@@ -186,7 +160,7 @@ def execute_metadata_edit(root, journal_root, operation_id, parts, expected_sha2
                     remaining = remaining[count:]
                 os.fsync(temporary_fd)
             finally: os.close(temporary_fd)
-            current, current_info = _read(fd)
+            current, current_info = _read(fd, source_filename)
             if _signature(info) != _signature(current_info) or current != raw: raise JournalError("METADATA_SOURCE_CHANGED")
             with open_material_directory(root, parts) as check_fd:
                 if _identity(check_fd) != _identity(fd): raise JournalError("METADATA_SOURCE_CHANGED")
@@ -194,12 +168,12 @@ def execute_metadata_edit(root, journal_root, operation_id, parts, expected_sha2
             if ([temporary_info.st_dev, temporary_info.st_ino] != state["temporary_identity"]
                     or not stat.S_ISREG(temporary_info.st_mode) or temporary_info.st_nlink != 1):
                 raise JournalError("METADATA_SOURCE_CHANGED")
-            if info is None: rename_noreplace(fd, temporary, fd, "metadata.txt")
-            else: os.replace(temporary, "metadata.txt", src_dir_fd=fd, dst_dir_fd=fd)
+            if info is None: rename_noreplace(fd, temporary, fd, source_filename)
+            else: os.replace(temporary, source_filename, src_dir_fd=fd, dst_dir_fd=fd)
             os.fsync(fd); _after_replace()
-        verified, _ = _read(fd)
+        verified, _ = _read(fd, source_filename)
         if verified != desired: raise JournalError("METADATA_SOURCE_CHANGED")
         result = {"operation_id": operation_id, "status": "COMPLETED", "failure_code": None,
-                  "metadata": metadata_view(desired, parts[-1])}
+                  "metadata": metadata_view(desired, parts[-1], source_filename)}
         state.update(status="COMPLETED", result=result); journal.write(state)
         return result

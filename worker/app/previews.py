@@ -13,7 +13,7 @@ from threading import BoundedSemaphore
 import time
 
 from app.inventory import _safe_name, _signature
-from app.preview_decode import MAX_SOURCE_BYTES, MAX_OUTPUT_BYTES, MAX_OUTPUT_SIDE, FORMATS
+from app.preview_decode import MAX_SOURCE_BYTES, MAX_OUTPUT_BYTES, MAX_OUTPUT_SIDE, MAX_PIXELS, FORMATS
 from app.secure_filesystem import _directory_flags, _metadata_flags, open_material_directory
 
 EXTENSIONS = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "tif": "TIFF", "tiff": "TIFF", "webp": "WEBP"}
@@ -160,11 +160,17 @@ def _decode(fd, size=1024):
         value = json.loads(result.stdout)
         if not isinstance(value, dict): raise ValueError()
         if "error" in value: raise PreviewError(value["error"])
-        if (result.returncode != 0 or set(value) != {"source_sha256", "source_format", "width", "height", "media_type", "sha256", "data"}
+        required = {"source_sha256", "source_format", "width", "height", "media_type", "sha256", "data"}
+        dimensions = {"original_width", "original_height"}
+        if (result.returncode != 0 or set(value) not in (required, required | dimensions)
                 or value["source_format"] not in FORMATS or value["media_type"] != "image/jpeg"
                 or any(type(value[key]) is not int or not 1 <= value[key] <= size for key in ("width", "height"))
                 or any(not isinstance(value[key], str) or re.fullmatch(r"[a-f0-9]{64}", value[key]) is None for key in ("sha256", "source_sha256"))):
             raise ValueError()
+        if dimensions <= set(value):
+            if (any(type(value[key]) is not int or not 1 <= value[key] <= 32768 for key in dimensions)
+                    or value["original_width"] * value["original_height"] > MAX_PIXELS):
+                raise ValueError()
         data = base64.b64decode(value["data"], validate=True)
         if not 0 < len(data) <= MAX_OUTPUT_BYTES or not data.startswith(b"\xff\xd8\xff") or not data.endswith(b"\xff\xd9") or hashlib.sha256(data).hexdigest() != value["sha256"]:
             raise ValueError()

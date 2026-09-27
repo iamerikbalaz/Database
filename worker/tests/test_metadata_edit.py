@@ -137,3 +137,22 @@ def test_worker_api_requires_gate_token_and_exact_fields(folders):
         assert response.status_code == 200 and response.json()["status"] == "COMPLETED"
     with TestClient(create_app(root, mutations_enabled=False)) as client:
         assert client.post("/internal/material-metadata-edit", json=request).status_code == 503
+
+
+def test_json_is_created_beside_untouched_legacy_and_receipt_binds_filename(folders):
+    root, material, journal = folders
+    legacy = material / "metadata.txt"; legacy.write_bytes(b"texture size: 1x2 cm")
+    identity = {"FOLDER": material.name, "MANUFACTURER": "Test", "PRODUCT_NUMBER": "0001",
+        "PRODUCT_NAME": "Test sample", "CATEGORY": "G01", "BASE_NAME": material.name.rsplit("_", 1)[0]}
+    key = str(uuid4())
+    result = execute_metadata_edit(root, journal, key, (material.name,), None, VALUES,
+        enabled=True, source_filename="metadata.json", identity=identity)
+    assert result["status"] == "COMPLETED"
+    assert result["metadata"]["source_filename"] == "metadata.json"
+    assert json.loads((material / "metadata.json").read_bytes())["FOLDER"] == material.name
+    assert legacy.read_bytes() == b"texture size: 1x2 cm"
+    assert inspect_metadata(root, (material.name,))["sha256"] == result["metadata"]["sha256"]
+    assert execute_metadata_edit(root, journal, key, (material.name,), None, VALUES,
+        enabled=True, source_filename="metadata.json", identity=identity) == result
+    with pytest.raises(JournalError, match="JOURNAL_REQUEST_CONFLICT"):
+        save(folders, key)

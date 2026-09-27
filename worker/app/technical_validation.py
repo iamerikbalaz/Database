@@ -82,8 +82,9 @@ def _validate_material(root: Path, parts: tuple[str, ...]) -> dict:
                     name = entry["path"][len(master) + 1:]
                     if entry["kind"] != "file" or "/" in name:
                         errors.append(finding("MASTER_NESTED_DIRECTORY", entry["path"])); continue
-                    # metadata.txt is copied unchanged alongside maps in derived packages.
-                    if name == "metadata.txt": continue
+                    # Production metadata is copied alongside maps, distinct
+                    # from the generated manifest at the archive root.
+                    if name in {"metadata.txt", "metadata.json"}: continue
                     match = pattern.fullmatch(name)
                     if match is None or match[2].lower() not in FORMATS:
                         errors.append(finding("MAP_FILENAME_INVALID", entry["path"])); continue
@@ -128,10 +129,10 @@ def _validate_material(root: Path, parts: tuple[str, ...]) -> dict:
     if not any(entry["kind"] == "file" and entry["path"].startswith("PREVIEW/") for entry in inventory["entries"]):
         warnings.append(finding("PREVIEW_MISSING"))
     metadata = inspect_material_secure(root, parts)
-    metadata_entry = next((entry for entry in inventory["entries"] if entry["path"] == "metadata.txt"), None)
+    metadata_entry = next((entry for entry in inventory["entries"] if entry["path"] == metadata.source_filename), None)
     if metadata.sha256 is not None and (metadata_entry is None or metadata.sha256 != metadata_entry["sha256"]):
         raise InventoryError("INVENTORY_SOURCE_CHANGED")
-    warnings.extend(finding(item.code, "metadata.txt") for item in metadata.warnings)
+    warnings.extend(finding(item.code, metadata.source_filename) for item in metadata.warnings)
     warnings.extend(finding(item.code, master or "") for item in metadata.master_warnings)
     errors.extend(finding(item.code, master or "") for item in [*metadata.errors, *metadata.master_errors])
     if time.monotonic() > deadline: raise InventoryError("INVENTORY_TIME_LIMIT")

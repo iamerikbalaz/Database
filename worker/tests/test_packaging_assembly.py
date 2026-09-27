@@ -108,6 +108,23 @@ def test_exact_square_master_is_copied_byte_for_byte_without_converter(tmp_path,
                 assert archive.read(bundle.plan.resolutions[0].archive_root + "/" + item.operation.destination) == (source[2] / item.operation.source).read_bytes()
 
 
+def test_source_json_and_generated_web_manifest_remain_distinct_in_verified_archive(tmp_path):
+    source = make(tmp_path, size=(1024, 1024), master="1K")
+    document = b'{"COLOR":{"hex":"#ABCDEF"},"TEXTURE_SIZE":{"cm":{"width":10.2,"height":20.3}}}'
+    (source[2] / "metadata.txt").unlink()
+    (source[2] / "metadata.json").write_bytes(document)
+    source = (*source[:3], validate_material(source[0], (IDENTITY,)))
+    before = snapshot(source[2])
+    with staged(source) as inputs, assemble_packages(inputs, workspace_root=source[1], storage_timezone="UTC") as bundle:
+        with bundle.open_archive(bundle.archives[0].filename) as fd, os.fdopen(os.dup(fd), "rb") as stream, zipfile.ZipFile(stream) as archive:
+            prefix = bundle.plan.resolutions[0].archive_root
+            assert archive.read(prefix + "/1K/metadata.json") == document
+            manifest = json.loads(archive.read(prefix + "/metadata.json"))
+            assert set(manifest) == {"WEB_APP_PART", "DESKTOP_APP_PART"}
+            assert archive.testzip() is None
+    assert snapshot(source[2]) == before
+
+
 @pytest.mark.parametrize("size,master,expected", [((3072, 1105), "4K", ["3K", "2K", "1K"]), ((4096, 1473), "2K", ["2K", "1K"])])
 def test_nonstandard_and_capped_masters_generate_only_planned_resolutions(tmp_path, size, master, expected):
     source = make(tmp_path, size=size, master=master)

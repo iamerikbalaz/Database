@@ -151,21 +151,22 @@ def plan_identity_change(root: Path, source_parts: tuple[str, ...], target: Iden
                 if entry.name.casefold() == destination[-1].casefold():
                     is_source = destination[:-1] == source_parts[:-1] and entry.name == source_parts[-1]
                     if not is_source: errors.append({"code": "IDENTITY_TARGET_COLLISION", "path": target_path})
-        raw, metadata_error = _metadata_bytes(source_fd)
+        metadata_filename = "metadata.json" if any(item["path"] == "metadata.json" for item in inventory["entries"]) else "metadata.txt"
+        raw, metadata_error = _metadata_bytes(source_fd, metadata_filename)
     metadata = {"before_hash": None, "after_hash": None, "changed_fields": []}
     if metadata_error:
-        finding = {"code": "SOURCE_METADATA_" + metadata_error[0], "path": "metadata.txt"}
+        finding = {"code": "SOURCE_METADATA_" + metadata_error[0], "path": metadata_filename}
         (warnings if metadata_error[0] == "MISSING" else errors).append(finding)
     else:
         before_hash = hashlib.sha256(raw).hexdigest()
-        original = next((item for item in inventory["entries"] if item["path"] == "metadata.txt"), None)
+        original = next((item for item in inventory["entries"] if item["path"] == metadata_filename), None)
         if original is None or original["sha256"] != before_hash: raise InventoryError("INVENTORY_SOURCE_CHANGED")
         metadata["before_hash"] = before_hash
         try:
             rewritten, fields = rewrite_metadata(raw, source_parts[-1], target)
             metadata.update(after_hash=hashlib.sha256(rewritten).hexdigest(), changed_fields=fields)
         except IdentityPlanError as exc:
-            errors.append({"code": str(exc), "path": "metadata.txt"})
+            errors.append({"code": str(exc), "path": metadata_filename})
     latest = inventory_material(root, source_parts)
     if latest["source_revision_hash"] != inventory["source_revision_hash"]: raise InventoryError("INVENTORY_SOURCE_CHANGED")
     result = {"schema_version": 1, "planner_version": "identity-plan-1", "source_path": source_path,

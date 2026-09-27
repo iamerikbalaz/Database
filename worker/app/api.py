@@ -75,6 +75,8 @@ class MaterialMetadataEditRequest(MaterialPreflightRequest):
     operation_id: str
     expected_sha256: str | None
     values: dict[str, str | None]
+    source_filename: Literal["metadata.txt", "metadata.json"] = "metadata.txt"
+    identity: dict[str, str] | None = None
 
 
 class MaterialPreviewRequest(MaterialPreflightRequest):
@@ -217,7 +219,8 @@ def _error_response(
 
 
 def _safe_finding(finding: Finding, folder_path: str, *, metadata: bool) -> FindingResponse:
-    path = f"{folder_path}/metadata.txt" if metadata else folder_path
+    filename = finding.path if finding.path in {"metadata.txt", "metadata.json"} else "metadata.txt"
+    path = f"{folder_path}/{filename}" if metadata else folder_path
     if finding.code == "NON_STANDARD_RESOLUTION":
         path = f"{folder_path}/{Path(finding.path).name}"
 
@@ -452,7 +455,8 @@ def create_app(
             raise HTTPException(422, {"code": "INVALID_REQUEST"}) from None
         try:
             return execute_metadata_edit(_configured_root(configured_root), Path(private_journal), payload.operation_id,
-                parts, payload.expected_sha256, payload.values, enabled=True)
+                parts, payload.expected_sha256, payload.values, enabled=True,
+                source_filename=payload.source_filename, identity=payload.identity)
         except JournalError as exc:
             raise HTTPException(409 if str(exc) in {"JOURNAL_BUSY", "METADATA_SOURCE_CHANGED", "JOURNAL_REQUEST_CONFLICT"} else 503,
                                 {"code": str(exc)}) from None

@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import re
+import time
 from typing import Annotated, Literal, Protocol, Self
 from urllib.parse import urlsplit
 
@@ -73,6 +74,8 @@ class PreviewImage(BaseModel):
     source_format: Literal["JPEG", "PNG", "TIFF", "WEBP"]
     width: Annotated[int, Field(ge=1, le=1024)]
     height: Annotated[int, Field(ge=1, le=1024)]
+    original_width: Annotated[int, Field(ge=1, le=100000)] | None = None
+    original_height: Annotated[int, Field(ge=1, le=100000)] | None = None
     media_type: Literal["image/jpeg"]
     sha256: Sha256
     data: Annotated[str, Field(max_length=2800000, repr=False)]
@@ -80,6 +83,8 @@ class PreviewImage(BaseModel):
     @model_validator(mode="after")
     def check(self) -> Self:
         validate_preview_name(self.name); validate_relative_path(self.folder_name)
+        if (self.original_width is None) != (self.original_height is None):
+            raise ValueError("Incomplete original dimensions")
         if "/" in self.folder_name: raise ValueError("Invalid preview folder")
         data = self.image_bytes()
         if (not 0 < len(data) <= MAX_IMAGE_BYTES or not data.startswith(b"\xff\xd8\xff") or not data.endswith(b"\xff\xd9")
@@ -104,6 +109,19 @@ class WorkerPreviewClient:
         self.base_url = base_url.rstrip("/")
 
     def _read(self, suffix, payload):
+        # A cancelled browser request may briefly keep a decoder slot occupied.
+        # Retry only an explicit capacity rejection, with a small fixed budget;
+        # source changes, access failures and decoder failures are never retried.
+        delays = (0.1, 0.25)
+        for attempt in range(len(delays) + 1):
+            try:
+                return self._read_once(suffix, payload)
+            except PreviewClientError as exc:
+                if exc.code != "PREVIEW_BUSY" or attempt == len(delays):
+                    raise
+                time.sleep(delays[attempt])
+
+    def _read_once(self, suffix, payload):
         try:
             validate_relative_path(payload["folder_path"])
             if len(payload["folder_path"]) > 2048: raise ValueError()

@@ -26,6 +26,7 @@ def test_gallery_thumbnail_sizes_preserve_square_preview_and_original_bytes(tmp_
     original = path.read_bytes(); before = path.stat().st_mtime_ns
     value = render_preview(tmp_path, (IDENTITY,), path.name, hashlib.sha256(original).hexdigest(), size)
     assert (value["width"], value["height"]) == (size, size)
+    assert (value["original_width"], value["original_height"]) == (1200, 1200)
     with Image.open(io.BytesIO(base64.b64decode(value["data"]))) as image:
         image.load(); assert image.size == (size, size)
     assert path.read_bytes() == original and path.stat().st_mtime_ns == before
@@ -64,6 +65,7 @@ def test_actual_listing_and_decode_preserve_source_and_strip_private_metadata(tm
     value = render(tmp_path, path)
     data = base64.b64decode(value["data"])
     assert value["width"] == 512 and value["height"] == 1024  # EXIF orientation applied
+    assert (value["original_width"], value["original_height"]) == (1600, 800)
     assert value["sha256"] == hashlib.sha256(data).hexdigest()
     assert b"PRIVATE_SYNTHETIC" not in data
     assert str(tmp_path) not in json.dumps(value)
@@ -79,6 +81,7 @@ def test_all_supported_actual_images_render_without_upscaling(tmp_path, extensio
     path = make(tmp_path, extension, size=(80, 40), mode=mode)
     value = render(tmp_path, path)
     assert value["width"] == 80 and value["height"] == 40
+    assert (value["original_width"], value["original_height"]) == (80, 40)
 
 
 @POSIX
@@ -218,6 +221,29 @@ def test_decoder_failure_diagnostics_do_not_escape(tmp_path, monkeypatch):
         assert "PRIVATE_SYNTHETIC_MARKER" not in str(error.value)
 
 
+@pytest.mark.parametrize("dimensions", [{}, {"original_width": 1200, "original_height": 1200}])
+def test_decoder_accepts_legacy_response_or_complete_original_dimensions(monkeypatch, dimensions):
+    data = b"\xff\xd8\xff\xd9"
+    value = {"source_sha256": "a" * 64, "source_format": "PNG", "width": 256, "height": 256,
+        "media_type": "image/jpeg", "sha256": hashlib.sha256(data).hexdigest(),
+        "data": base64.b64encode(data).decode(), **dimensions}
+    monkeypatch.setattr("app.previews.subprocess.run", lambda *_, **__: SimpleNamespace(stdout=json.dumps(value).encode(), returncode=0))
+    assert _decode(3, 256) == value
+
+
+@pytest.mark.parametrize("dimensions", [{"original_width": 1200}, {"original_height": 1200},
+    {"original_width": None, "original_height": 1200}, {"original_width": True, "original_height": 1200},
+    {"original_width": 1200.0, "original_height": 1200}, {"original_width": 0, "original_height": 1200},
+    {"original_width": 32769, "original_height": 1}, {"original_width": 8192, "original_height": 8192}])
+def test_decoder_rejects_incomplete_or_unbounded_original_dimensions(monkeypatch, dimensions):
+    data = b"\xff\xd8\xff\xd9"
+    value = {"source_sha256": "a" * 64, "source_format": "PNG", "width": 256, "height": 256,
+        "media_type": "image/jpeg", "sha256": hashlib.sha256(data).hexdigest(),
+        "data": base64.b64encode(data).decode(), **dimensions}
+    monkeypatch.setattr("app.previews.subprocess.run", lambda *_, **__: SimpleNamespace(stdout=json.dumps(value).encode(), returncode=0))
+    with pytest.raises(PreviewError, match="PREVIEW_DECODER_FAILED"): _decode(3, 256)
+
+
 def test_busy_preview_does_not_queue_and_slots_release_after_failure(tmp_path, monkeypatch):
     with PREVIEW_SLOTS, PREVIEW_SLOTS:
         response = TestClient(create_app(tmp_path)).post("/internal/material-previews", json={"folder_path": IDENTITY})
@@ -237,6 +263,7 @@ def test_worker_preview_http_uses_safe_bounded_contract(tmp_path):
     body = {"folder_path": IDENTITY, "name": path.name, "expected_sha256": listing.json()["items"][0]["sha256"]}
     response = client.post("/internal/material-preview", json=body)
     assert response.status_code == 200 and response.json()["media_type"] == "image/jpeg"
+    assert (response.json()["original_width"], response.json()["original_height"]) == (1600, 800)
     assert client.post("/internal/material-preview", json={**body, "expected_sha256": "0" * 64}).status_code == 409
     assert client.post("/internal/material-preview", json={**body, "name": "../secret.png"}).status_code == 422
     assert str(tmp_path) not in response.text

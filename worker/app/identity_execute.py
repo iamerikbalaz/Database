@@ -55,16 +55,17 @@ def _rename_step(root, step, *, reverse=False):
     if not _matches(_entry(root, target), step["identity"]): raise JournalError("IDENTITY_ENTRY_CHANGED")
 
 
-def _read_metadata_at(root, path):
+def _read_metadata_at(root, path, filename="metadata.txt"):
     with open_material_directory(root, tuple(path.split("/"))) as fd:
-        raw, error = _metadata_bytes(fd)
+        raw, error = _metadata_bytes(fd, filename)
         if error: raise JournalError("IDENTITY_METADATA_CHANGED")
-        info = os.stat("metadata.txt", dir_fd=fd, follow_symlinks=False)
+        info = os.stat(filename, dir_fd=fd, follow_symlinks=False)
         return raw, info
 
 
 def _replace_metadata(root, step, raw, expected, *, reverse=False, journal=None, state=None):
-    current, info = _read_metadata_at(root, step["directory"])
+    filename = step.get("source_filename", "metadata.txt")
+    current, info = _read_metadata_at(root, step["directory"], filename)
     desired = hashlib.sha256(raw).hexdigest()
     current_hash = hashlib.sha256(current).hexdigest()
     temporary = step["temporary"]
@@ -100,10 +101,10 @@ def _replace_metadata(root, step, raw, expected, *, reverse=False, journal=None,
             os.fsync(temporary_fd)
         finally: os.close(temporary_fd)
         # Refuse an external replacement between reading and the atomic write.
-        if (_file_signature(os.stat("metadata.txt", dir_fd=fd, follow_symlinks=False)) != _file_signature(info)
+        if (_file_signature(os.stat(filename, dir_fd=fd, follow_symlinks=False)) != _file_signature(info)
                 or not _matches(os.stat(temporary, dir_fd=fd, follow_symlinks=False), step["temporary_identity"])):
             raise JournalError("IDENTITY_METADATA_CHANGED")
-        os.replace(temporary, "metadata.txt", src_dir_fd=fd, dst_dir_fd=fd); os.fsync(fd)
+        os.replace(temporary, filename, src_dir_fd=fd, dst_dir_fd=fd); os.fsync(fd)
 
 
 def _restore_directory_times(root, state, *, original):
@@ -156,15 +157,16 @@ def _prepare(root, source_parts, target, operation_id, expected_hash, journal, r
     if plan["metadata"]["changed_fields"]:
         if _entry(root, source_path + "/.reawote-metadata-" + operation_id) is not None:
             raise JournalError("JOURNAL_TARGET_EXISTS")
-        raw, info = _read_metadata_at(root, source_path)
+        metadata_filename = "metadata.json" if any(item["path"] == "metadata.json" for item in inventory["entries"]) else "metadata.txt"
+        raw, info = _read_metadata_at(root, source_path, metadata_filename)
         rewritten, _ = rewrite_metadata(raw, source_parts[-1], target)
         if hashlib.sha256(raw).hexdigest() != plan["metadata"]["before_hash"] or hashlib.sha256(rewritten).hexdigest() != plan["metadata"]["after_hash"]:
             raise JournalError("IDENTITY_PLAN_CHANGED")
         journal.backup_metadata(raw)
-        steps.append({"kind": "metadata", "directory": temp_root, "temporary": ".reawote-metadata-" + operation_id,
+        steps.append({"kind": "metadata", "source_filename": metadata_filename, "directory": temp_root, "temporary": ".reawote-metadata-" + operation_id,
             "before_hash": plan["metadata"]["before_hash"], "after_hash": plan["metadata"]["after_hash"],
             "uid": info.st_uid, "gid": info.st_gid, "mode": stat.S_IMODE(info.st_mode), "mtime_ns": info.st_mtime_ns, "atime_ns": info.st_atime_ns})
-        metadata_entry = next(item for item in expected_inventory["entries"] if item["path"] == "metadata.txt")
+        metadata_entry = next(item for item in expected_inventory["entries"] if item["path"] == metadata_filename)
         metadata_entry.update(size=len(rewritten), sha256=plan["metadata"]["after_hash"])
     steps.append({"kind": "rename", "source": temp_root, "target": target.path, "identity": _identity(root_info)})
     expected_inventory["entries"].sort(key=lambda item: item["path"])

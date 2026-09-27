@@ -56,3 +56,11 @@ def test_error_report_can_retain_partial_image_facts():
     payload = technical_payload()
     payload.update(images=[], errors=[{"code": "IMAGE_UNREADABLE", "path": payload["images"][0]["path"]}], can_approve=False)
     assert not TechnicalReport.model_validate_json(json.dumps(payload)).can_approve
+
+
+def test_json_production_metadata_is_allowed_beside_verified_master_maps():
+    payload = technical_payload()
+    payload["inventory"]["entries"].append({"path": "4K/metadata.json", "kind": "file", "size": 1, "sha256": "e" * 64})
+    payload["inventory"]["total_bytes"] += 1
+    rehash(payload["inventory"])
+    assert TechnicalReport.model_validate_json(json.dumps(payload)).can_approve

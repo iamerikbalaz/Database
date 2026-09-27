@@ -199,8 +199,9 @@ def _assemble(staged, fd, path, storage_timezone, budget):
                 providers[name] = ("artifact", item)
                 entries.append(ZipEntry(name, item.size, item.sha256, item.modified_ns))
             else:
-                source_path = "metadata.txt" if name == resolution.name + "/metadata.txt" else name
-                proof = plan.production_metadata if source_path == "metadata.txt" else next((p for p in plan.previews if p.path == source_path), None)
+                is_metadata = plan.production_metadata is not None and name == resolution.name + "/" + plan.production_metadata.path
+                source_path = plan.production_metadata.path if is_metadata else name
+                proof = plan.production_metadata if is_metadata else next((p for p in plan.previews if p.path == source_path), None)
                 _check(proof is not None)
                 with staged.open_input(source_path, max_seconds=min(120, budget.seconds())) as source: modified = os.fstat(source).st_mtime_ns
                 providers[name] = ("input", source_path)

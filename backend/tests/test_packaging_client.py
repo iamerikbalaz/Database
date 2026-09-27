@@ -64,6 +64,22 @@ def test_actual_service_fixtures_bind_request_report_layout_and_all_proofs(name)
         assert all(item.conversion is None for item in result.stored.payload.bundle.maps)
 
 
+def test_layout_accepts_json_production_metadata_separately_from_web_manifest():
+    from app.packaging_contract import _verify_layout
+    from app.technical_client import TechnicalReport
+    from test_inventory_client import rehash as rehash_inventory
+    value = fixture()
+    for entry in value["report"]["inventory"]["entries"]:
+        if entry["path"] == "metadata.txt": entry["path"] = "metadata.json"
+    rehash_inventory(value["report"]["inventory"])
+    result = PackagingResult.model_validate_json(json.dumps(value["result"]))
+    for archive in result.stored.payload.bundle.archives:
+        for entry in archive.entries:
+            if entry.path.endswith("/metadata.txt"): entry.path = entry.path[:-len("metadata.txt")] + "metadata.json"
+    report = TechnicalReport.model_validate_json(json.dumps(value["report"]))
+    _verify_layout(prepared(value).request, report, result.stored.payload)
+
+
 def test_private_transport_prepares_executes_and_reconciles_without_proxies_or_redirects(monkeypatch):
     value = fixture(); service = client(); calls = []
     def stream(method, url, **kwargs):

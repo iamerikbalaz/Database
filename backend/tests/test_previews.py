@@ -18,6 +18,33 @@ from test_material_operations import StreamingResponse
 PIXELS = b"\xff\xd8\xff\xe0synthetic-transport-fixture\xff\xd9"
 
 
+def test_busy_preview_retries_exact_request_with_a_bounded_delay(monkeypatch):
+    client = WorkerPreviewClient("http://worker")
+    calls, delays = [], []
+    payload = {"folder_path": "library/SAFE_0001_G03"}
+    def read(suffix, body):
+        calls.append((suffix, body))
+        if len(calls) < 3: raise PreviewClientError("PREVIEW_BUSY")
+        return b"ready"
+    monkeypatch.setattr(client, "_read_once", read)
+    monkeypatch.setattr("app.preview_client.time.sleep", delays.append)
+    assert client._read("/internal/material-previews", payload) == b"ready"
+    assert delays == [0.1, 0.25]
+    assert len(calls) == 3 and all(body is payload for _, body in calls)
+
+
+@pytest.mark.parametrize("failure,attempts", [("PREVIEW_BUSY", 3), ("PREVIEW_SOURCE_CHANGED", 1), ("PREVIEW_UNAVAILABLE", 1), ("PREVIEW_DECODER_FAILED", 1)])
+def test_preview_retries_never_hide_persistent_or_noncapacity_failure(monkeypatch, failure, attempts):
+    client = WorkerPreviewClient("http://worker"); calls = []
+    def read(*args):
+        calls.append(args); raise PreviewClientError(failure)
+    monkeypatch.setattr(client, "_read_once", read)
+    monkeypatch.setattr("app.preview_client.time.sleep", lambda delay: None)
+    with pytest.raises(PreviewClientError) as caught:
+        client._read("/internal/material-previews", {"folder_path": "SAFE_0001_G03"})
+    assert caught.value.code == failure and len(calls) == attempts
+
+
 def listing_payload(identity="SAFE_0001_G03"):
     return {"schema_version": 1, "folder_name": identity, "missing": False, "ignored_entries": 0,
         "items": [{"name": "Synthetic preview.png", "size": 20, "sha256": "a" * 64}]}

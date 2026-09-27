@@ -111,6 +111,20 @@ def test_dimensions_obey_database_contract_without_rounding(value, accepted, for
     assert ("SOURCE_METADATA_DIMENSION_UNSUPPORTED" in codes(result)) is not accepted
 
 
+def test_canonical_json_precedes_legacy_and_unsafe_json_does_not_fall_back(tmp_path):
+    path = material(tmp_path, b"texture size: 1x2 cm")
+    raw = b'{"COLOR":{"hex":"#AABBCC"},"TEXTURE_SIZE":{"cm":{"width":10.2,"height":20.3}}}'
+    canonical = path / "metadata.json"; canonical.write_bytes(raw)
+    result = inspect(path)
+    assert result.source_filename == "metadata.json" and result.status == "VALID"
+    assert result.width_cm == Decimal("10.2") and result.sha256 == hashlib.sha256(raw).hexdigest()
+    canonical.unlink(); canonical.mkdir()
+    result = inspect(path)
+    assert result.source_filename == "metadata.json" and result.status == "INVALID"
+    assert result.width_cm is None
+    assert result.sha256 is None
+
+
 @pytest.mark.parametrize("value", ["1e999999999", "1e-999999999"])
 def test_extreme_json_exponents_warn_without_decimal_exceptions(value):
     raw = ('{"TEXTURE_SIZE":{"cm":{"width":' + value + ',"height":2}}}').encode()
@@ -140,7 +154,7 @@ def test_unknown_color_line_is_not_silently_interpreted(tmp_path):
 def test_only_root_source_file_is_read(tmp_path, monkeypatch):
     path = material(tmp_path)
     manifest = b'{"WEB_APP_PART":{},"DESKTOP_APP_PART":{},}'
-    for other in (path / "web-manifest.json", path / "metadata.json", path / "16K" / "metadata.txt"):
+    for other in (path / "web-manifest.json", path / "16K" / "metadata.json", path / "16K" / "metadata.txt"):
         other.write_bytes(manifest)
     original = Path.open
     def root_only(self, *args, **kwargs):
@@ -149,9 +163,9 @@ def test_only_root_source_file_is_read(tmp_path, monkeypatch):
     with monkeypatch.context() as patch:
         patch.setattr(Path, "open", root_only)
         assert inspect(path).status == "MISSING"
-    (path / "metadata.txt").write_bytes(manifest)
+    (path / "metadata.json").write_bytes(manifest)
     result = inspect(path)
-    assert result.status == "INVALID"
+    assert result.status == "INVALID" and result.source_filename == "metadata.json"
     assert result.width_cm is result.height_cm is result.hex_color is None
     assert result.can_continue
 

@@ -165,16 +165,18 @@ def _build(report, expected, policy):
     width, height = color["width"], color["height"]
     _require(all((image["width"], image["height"]) == (width, height) for _, _, image in parsed), "PACKAGING_DIMENSIONS_MISMATCH")
     image_paths = {image["path"] for _, _, image in parsed}
-    _require({path for path in by_path if path.startswith(master + "/")} <= image_paths | {master + "/metadata.txt"}, "PACKAGING_UNREVIEWED_MASTER_ENTRY")
+    _require({path for path in by_path if path.startswith(master + "/")} <= image_paths | {master + "/metadata.txt", master + "/metadata.json"}, "PACKAGING_UNREVIEWED_MASTER_ENTRY")
     actual_k = max(width, height) // 1024
     _require(actual_k >= 1, "PACKAGING_MASTER_BELOW_1K")
     effective_k = min(int(master[:-1]), actual_k)
     effective = f"{effective_k}K"
     effective_width, effective_height = _fit(width, height, effective_k * 1024)
-    metadata = by_path.get("metadata.txt")
+    metadata_filename = "metadata.json" if "metadata.json" in by_path else "metadata.txt"
+    metadata = by_path.get(metadata_filename)
     _require(metadata is None or (metadata["kind"] == "file" and metadata["size"] <= MAX_METADATA_BYTES))
-    nested_metadata = by_path.get(master + "/metadata.txt")
-    _require(nested_metadata is None or (metadata is not None and nested_metadata["kind"] == "file" and nested_metadata["sha256"] == metadata["sha256"]), "PACKAGING_METADATA_COLLISION")
+    for filename in ("metadata.txt", "metadata.json"):
+        nested_metadata = by_path.get(master + "/" + filename)
+        _require(nested_metadata is None or (metadata is not None and nested_metadata["kind"] == "file" and nested_metadata["sha256"] == metadata["sha256"]), "PACKAGING_METADATA_COLLISION")
     previews = tuple(CopiedInput(entry["path"], entry["size"], entry["sha256"]) for entry in entries if entry["path"].startswith("PREVIEW/") and entry["kind"] == "file")
     directories = tuple(sorted(entry["path"] + "/" for entry in entries if (entry["path"] == "PREVIEW" or entry["path"].startswith("PREVIEW/")) and entry["kind"] == "directory"))
     resolutions = []
@@ -191,8 +193,8 @@ def _build(report, expected, policy):
             action = "COPY" if number == effective_k and width == height == number * 1024 else "RESIZE"
             operations.append(MapOperation(image["path"], destination, image["sha256"], shortcut, image["format"], image["bits"], target_width, target_height, action, number != effective_k))
         archive_entries = tuple(sorted(["metadata.json", name + "/", *directories, *(item.path for item in previews),
-            *(item.destination for item in operations), *([name + "/metadata.txt"] if metadata is not None else [])]))
+            *(item.destination for item in operations), *([name + "/" + metadata_filename] if metadata is not None else [])]))
         resolutions.append(PackageResolution(name, target_width, target_height, archive_root + ".zip", archive_root, tuple(operations), archive_entries))
     return PackagingPlan(1, identity, expected, policy, master, effective, tuple(resolutions), tuple(sorted(previews, key=lambda item: item.path)), directories,
-        CopiedInput("metadata.txt", metadata["size"], metadata["sha256"]) if metadata else None,
+        CopiedInput(metadata_filename, metadata["size"], metadata["sha256"]) if metadata else None,
         tuple(code for code, needed in (("PRODUCTION_METADATA_MISSING", metadata is None), ("PREVIEW_MISSING", not previews)) if needed))

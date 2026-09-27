@@ -59,6 +59,17 @@ def test_pure_plan_preserves_inputs_and_complete_archive_layout():
     assert manifest["WEB_APP_PART"]["TEXTURE_RESOLUTIONS"] == {"4K": "4096x4096", "2K": "2048x2048", "1K": "1024x1024"}
 
 
+def test_json_production_source_is_separate_from_generated_archive_manifest():
+    value = report()
+    next(item for item in value["inventory"]["entries"] if item["path"] == "metadata.txt")["path"] = "metadata.json"
+    result = plan(rehash(value))
+    assert result.production_metadata.path == "metadata.json"
+    for resolution in result.resolutions:
+        assert "metadata.json" in resolution.archive_entries
+        assert resolution.name + "/metadata.json" in resolution.archive_entries
+        assert resolution.name + "/metadata.txt" not in resolution.archive_entries
+
+
 @pytest.mark.parametrize("width,height,master,effective,dimensions", [
     (16384, 5890, "16K", "16K", [(16384, 5890), (8192, 2945), (4096, 1473), (2048, 736), (1024, 368)]),
     (5890, 16384, "16K", "16K", [(5890, 16384), (2945, 8192), (1473, 4096), (736, 2048), (368, 1024)]),

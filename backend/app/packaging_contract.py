@@ -273,7 +273,8 @@ def _verify_layout(request, report, payload):
     _require(len(bundle.archives) == len(numbers) and len(bundle.maps) == len(images) * len(numbers))
     preview_files = {path: item for path, item in source_files.items() if path.startswith("PREVIEW/")}
     required_sources = {image.path for image in images} | set(preview_files)
-    if "metadata.txt" in source_files: required_sources.add("metadata.txt")
+    metadata_filename = "metadata.json" if "metadata.json" in source_files else "metadata.txt"
+    if metadata_filename in source_files: required_sources.add(metadata_filename)
     _require(sum(source_files[path].size for path in required_sources) <= request.limits.staged_bytes)
     preview_dirs = sorted(entry.path + "/" for entry in inventory.entries if entry.kind == "directory"
         and (entry.path == "PREVIEW" or entry.path.startswith("PREVIEW/")))
@@ -293,8 +294,8 @@ def _verify_layout(request, report, payload):
         expected = {root: (0, None), root + resolution + "/": (0, None), root + "metadata.json": (len(manifest), manifest_hash)}
         expected.update({root + path: (0, None) for path in preview_dirs})
         expected.update({root + path: (item.size, item.sha256) for path, item in preview_files.items()})
-        metadata = source_files.get("metadata.txt")
-        if metadata: expected[root + resolution + "/metadata.txt"] = (metadata.size, metadata.sha256)
+        metadata = source_files.get(metadata_filename)
+        if metadata: expected[root + resolution + "/" + metadata_filename] = (metadata.size, metadata.sha256)
         for offset, image in enumerate(images):
             item = bundle.maps[index * len(images) + offset]; operation = item.operation
             extension = image.path.rsplit(".", 1)[-1]

@@ -62,6 +62,29 @@ def test_confirmed_operation_preserves_uuid_independent_files_and_replays_once(o
 
 
 @POSIX
+@pytest.mark.parametrize("rollback", [False, True])
+def test_json_identity_and_references_follow_confirmed_rename_with_recovery(operation, monkeypatch, rollback):
+    root, journals, original, _, key = operation
+    old = original / "metadata.txt"; canonical = original / "metadata.json"
+    canonical.write_bytes(old.read_bytes()); old.unlink()
+    before = contents(original)
+    plan = plan_identity_change(root, ("old-brand", OLD), TARGET)
+    if rollback:
+        def crash(index):
+            if index == 10: raise OSError("Synthetic interruption after JSON rewrite")
+        monkeypatch.setattr("app.identity_execute._after_step", crash)
+    result = run((root, journals, original, plan, key))
+    if rollback:
+        assert result["status"] == "ROLLED_BACK"
+        assert contents(original) == before
+    else:
+        assert result["status"] == "COMPLETED"
+        document = json.loads((root / TARGET.path / "metadata.json").read_bytes())
+        assert document["FOLDER"] == NEW
+        assert OLD not in json.dumps(document)
+
+
+@POSIX
 @pytest.mark.parametrize("fault_step", range(11))
 def test_every_injected_step_failure_rolls_back_names_metadata_and_timestamps(operation, monkeypatch, fault_step):
     root, _, original, plan, _ = operation

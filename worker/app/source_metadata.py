@@ -1,4 +1,4 @@
-"""Read only the observed production metadata.txt format, never a web manifest."""
+"""Read production metadata.json or legacy metadata.txt, never a web manifest."""
 
 import hashlib
 import json
@@ -75,6 +75,7 @@ def dimension_fits_storage(value: Decimal) -> bool:
 def parse_source_metadata_bytes(
     raw: bytes | None,
     *,
+    source_filename: Literal["metadata.txt", "metadata.json"] = "metadata.txt",
     metadata_error: tuple[str, str] | None = None,
     master_resolution: str | None = None,
     master_modified_at: str | None = None,
@@ -84,6 +85,7 @@ def parse_source_metadata_bytes(
 ) -> SourceMetadataResult:
     """Parse bytes supplied by a secure opener; never open a filesystem path."""
     result = SourceMetadataResult(
+        source_filename=source_filename,
         master_resolution=master_resolution,
         master_modified_at=master_modified_at,
         selected_zip_policy=selected_zip_policy,
@@ -108,7 +110,7 @@ def parse_source_metadata_bytes(
     if metadata_error is not None:
         return stop(*metadata_error)
     if raw is None:
-        return stop("MISSING", "Root metadata.txt does not exist")
+        return stop("MISSING", "Root " + source_filename + " does not exist")
     if len(raw) > MAX_METADATA_BYTES:
         return stop("TOO_LARGE", "Source metadata exceeds the 4 MiB limit")
 

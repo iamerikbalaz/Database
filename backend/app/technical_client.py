@@ -76,7 +76,8 @@ class TechnicalReport(BaseModel):
                 raise ValueError("Color map is required")
             master_paths = {entry.path for entry in inventory.entries if entry.path.startswith(master + "/")}
             expected_paths = {image.path for image in self.images}
-            if master_paths - {master + "/metadata.txt"} != expected_paths:
+            metadata_paths = {path for path in (master + "/metadata.txt", master + "/metadata.json") if path in files}
+            if master_paths - metadata_paths != expected_paths:
                 raise ValueError("Master entries are not fully verified")
             for image in self.images:
                 from app.material_naming import map_bases

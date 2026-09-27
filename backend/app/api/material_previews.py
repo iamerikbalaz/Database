@@ -55,6 +55,8 @@ def build_material_previews_router(database, client: PreviewClient):
                       else client.image(folder, name, expected_sha256, size))
         return Response(result.image_bytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff", "Content-Disposition": 'inline; filename="preview.jpg"',
-            "X-Preview-Width": str(result.width), "X-Preview-Height": str(result.height), "X-Preview-Sha256": result.sha256})
+            "X-Preview-Width": str(result.width), "X-Preview-Height": str(result.height), "X-Preview-Sha256": result.sha256,
+            **({"X-Preview-Original-Width": str(result.original_width), "X-Preview-Original-Height": str(result.original_height)}
+               if result.original_width is not None else {})})
 
     return router

@@ -67,6 +67,7 @@ def decode(fd: int, size: int = 1024) -> dict:
                 return {"error": "PREVIEW_SOURCE_CHANGED"}
             return {"source_sha256": digest.hexdigest(), "source_format": source_format,
                 "width": clean.width, "height": clean.height, "media_type": "image/jpeg",
+                "original_width": width, "original_height": height,
                 "sha256": hashlib.sha256(data).hexdigest(), "data": base64.b64encode(data).decode("ascii")}
 
 

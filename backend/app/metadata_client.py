@@ -47,6 +47,7 @@ class MetadataValues(StrictModel):
 
 class SourceMetadata(StrictModel):
     schema_version: Annotated[int, Field(ge=1, le=1)]
+    source_filename: Literal["metadata.txt", "metadata.json"] = "metadata.txt"
     folder_name: FolderName
     status: Literal["MISSING", "VALID", "WARNING", "INVALID"]
     sha256: Sha256 | None
@@ -121,6 +122,7 @@ class WorkerMetadataClient(WorkerInventoryClient):
         result = self._request("/internal/material-metadata-edit", request, MetadataResult, mutation=True)
         if result.operation_id != request["operation_id"]: raise MetadataClientError()
         if result.metadata:
+            if result.metadata.source_filename != request.get("source_filename", "metadata.txt"): raise MetadataClientError()
             values = MetadataValues(**{name: getattr(result.metadata, name) for name in MetadataValues.model_fields})
             if (result.metadata.folder_name != request["folder_path"].rsplit("/", 1)[-1]
                     or values.model_dump() != request["values"] or result.metadata.status not in {"VALID", "WARNING"}):
@@ -135,6 +137,8 @@ class WorkerMetadataClient(WorkerInventoryClient):
                 def invalid_constant(_): raise ValueError()
                 document = json.loads(result.metadata.raw_content, parse_float=Decimal, parse_int=Decimal,
                                       parse_constant=invalid_constant, object_pairs_hook=unique)
+                if request.get("identity") and any(document.get(key) != value for key, value in request["identity"].items()):
+                    raise ValueError()
                 color = document.get("COLOR", {})
                 dimensions = document.get("TEXTURE_SIZE", {}).get("cm", {})
                 if any(name in dimensions and not isinstance(dimensions[name], Decimal) for name in ("width", "height")):

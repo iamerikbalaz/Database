@@ -199,17 +199,25 @@ def _resolution_info(material_fd: int) -> tuple[
     )
 
 
-def _metadata_bytes(material_fd: int) -> tuple[bytes | None, tuple[str, str] | None]:
+def metadata_source_filename(material_fd: int) -> str:
+    """JSON is canonical; fall back only when it is absent, never when unsafe."""
+    try: os.stat("metadata.json", dir_fd=material_fd, follow_symlinks=False)
+    except FileNotFoundError: return "metadata.txt"
+    return "metadata.json"
+
+
+def _metadata_bytes(material_fd: int, filename: str = "metadata.txt") -> tuple[bytes | None, tuple[str, str] | None]:
+    if filename not in {"metadata.txt", "metadata.json"}: raise ValueError("Unsupported metadata filename")
     try:
-        metadata_fd = os.open("metadata.txt", _metadata_flags(), dir_fd=material_fd)
+        metadata_fd = os.open(filename, _metadata_flags(), dir_fd=material_fd)
     except FileNotFoundError:
-        return None, ("MISSING", "Root metadata.txt does not exist")
+        return None, ("MISSING", "Root " + filename + " does not exist")
     except OSError as exc:
         status_name = "UNSAFE_FILE" if exc.errno in {errno.ELOOP, errno.ENOTDIR} else "UNREADABLE"
         message = (
             "Source metadata must be a plain regular file"
             if status_name == "UNSAFE_FILE"
-            else "Root metadata.txt could not be securely opened"
+            else "Root " + filename + " could not be securely opened"
         )
         return None, (status_name, message)
 
@@ -217,7 +225,7 @@ def _metadata_bytes(material_fd: int) -> tuple[bytes | None, tuple[str, str] | N
         try:
             info = os.fstat(metadata_fd)
         except OSError:
-            return None, ("UNREADABLE", "Root metadata.txt could not be inspected")
+            return None, ("UNREADABLE", "Root " + filename + " could not be inspected")
         if not stat.S_ISREG(info.st_mode):
             return None, ("UNSAFE_FILE", "Source metadata must be a plain regular file")
         if info.st_size > MAX_METADATA_BYTES:
@@ -228,7 +236,7 @@ def _metadata_bytes(material_fd: int) -> tuple[bytes | None, tuple[str, str] | N
         try:
             raw = _read_bounded(metadata_fd)
         except OSError:
-            return None, ("UNREADABLE", "Root metadata.txt could not be read")
+            return None, ("UNREADABLE", "Root " + filename + " could not be read")
         if len(raw) > MAX_METADATA_BYTES:
             return None, ("TOO_LARGE", "Source metadata grew beyond the 4 MiB limit")
         return raw, None
@@ -303,9 +311,11 @@ def inspect_material_secure(
             select_zip_policy(modified_ns, boundary=boundary)
             if modified_ns is not None else None
         )
-        raw, metadata_error = _metadata_bytes(material_fd)
+        filename = metadata_source_filename(material_fd)
+        raw, metadata_error = _metadata_bytes(material_fd, filename)
         return parse_source_metadata_bytes(
             raw,
+            source_filename=filename,
             metadata_error=metadata_error,
             master_resolution=master,
             master_modified_at=modified_at,

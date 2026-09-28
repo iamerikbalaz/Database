@@ -1,4 +1,4 @@
-# Materials: editable list (2026-09-25)
+# Materials: editable list and gallery (2026-09-28)
 
 ## User workflow
 
@@ -20,6 +20,15 @@
   Active operations and existing brand collections still block unsafe transfers.
 - The table header checkbox selects or clears every filtered row; duplicate
   selection buttons are omitted.
+- Row highlighting is separate from checkbox selection. Click a noninteractive
+  part of a row to highlight it, Shift-click to highlight a contiguous visible
+  range, Ctrl/Cmd-click to add or remove individual rows, or Ctrl/Cmd+Shift-click
+  to add a range. **Select highlighted** adds those rows to the checked selection.
+  Inline controls, checkboxes and material links retain their normal behavior.
+- List and Gallery share checked material IDs. Gallery cards expose the same
+  checkboxes and header selection. Switching views retains selection; changing
+  filters clears it. A refresh prunes IDs no longer in the result, preventing
+  hidden records from entering a later bulk operation.
 - Bulk selection covers every record returned by the current filters, including
   offscreen rows. The current API returns the complete filtered list without
   pagination. No server-side implicit “all records” mutation is performed.
@@ -27,31 +36,54 @@
   replacement is stated explicitly in the review. Identity changes need their
   individual source plans.
 
-## Search, previews and publication preparation (2026-09-26)
+## Search and color filters
 
 The shared search matches material name, technical identity and Note. Matching
 is case-insensitive and literal, so a note such as `#Autumn #Review_100%` can be
 found using either tag without treating `_` or `%` as wildcards. Existing filters
 and processor assignment restrictions still apply.
 
+Color is a multi-select combobox containing descriptive names and colored
+squares. Its 18 HEX values match the [REAWOTE texture gallery](https://reawote.com/textures)
+palette verified on 2026-09-28; readable English descriptions are local UI labels.
+Several colors mean **any selected color**, combined with all other filters.
+The API accepts repeated `color_hex=%23FFFFFF` parameters (maximum 32), matches
+the stored metadata color exactly, and rejects malformed HEX values. No color
+selection means all colors, including materials without a recorded color.
+
+## Preview ordering
+
 Material detail opens the preview gallery immediately below the title, selecting
-FABRIC_1.png, then SPHERE_1.png, then the first available supported image. The
-image selector, reload action, bounded image conversion and object URL cleanup
-remain available.
+FABRIC_1.png or SPHERE_1.png first when available. Subsequent previews follow
+their numeric suffix, so `_2` precedes `_10`. Arrows cycle through the previews;
+reload returns to the primary preview. Bounded image conversion and object URL
+cleanup remain available.
 
-Administrators and leadership can start publication preparation from the current
-filtered list/gallery or a selected list subset. The IDs are frozen when the
-workspace opens; changing filters or selecting a different set requires returning
-to Materials. Batches support at most 100 records and never silently truncate a
-larger selection. Preview reports the existing technical/content approval
-requirements before immutable CSV creation. Saved batches expose their existing
-per-material ZIP jobs, accepted artifact downloads and storage preparation.
-Batch history also opens directly from Materials with no selected records.
+## Selected offline publication preparation
 
-The human Published checkbox remains manual evidence. Preparing ZIP/CSV does not
-mark it published, upload files or approve material content. CSV writes preserve
-their request after an unknown outcome, including after a later access rejection,
-so recovery resends the same payload/key instead of creating another batch.
+Administrators and production leads use **Prepare selected for publication**
+from either List or Gallery. The workspace freezes up to 100 explicitly checked
+material IDs; it never silently truncates a larger selection. Materials has no
+Prepare filtered action or Publication batches button. Leadership remains
+read-only, and processors cannot create publication exports.
+
+The workspace offers an optional automatic file check and **Review materials**,
+which reports missing publication data and warnings. **Prepare publication**
+opens the Windows destination folder picker. A successful export creates a new
+uniquely named `REAWOTE-publication-...` subfolder there containing `materials.csv`,
+the verified resolution ZIP archives and `export-receipt.json`. Existing files
+are never replaced. Failed preparations are not exposed as a complete export.
+ZIP methodology uses the global packaging cutoff/timezone settings.
+
+This local workflow does not require the older content/technical approval UI.
+Packaging still validates its source inputs and artifact integrity. It performs
+no Google Storage upload; the user uploads the generated CSV and archives manually.
+
+After generation, a dialog asks whether to mark the exported materials Published.
+**Not now** leaves the flags unchanged. Confirmation is an audited manual decision,
+separate from uploading files. The server checks the exported selection and current
+source/data before changing any flag. Unknown outcomes retain the exact request
+for recovery instead of silently creating another export or repeating a write.
 
 ## Meaning of the fields
 
@@ -59,6 +91,7 @@ so recovery resends the same payload/key instead of creating another batch.
 | --- | --- |
 | Status | In progress / Done; one workflow field |
 | Checked | no / OK / Correction; explicitly human review |
+| Automatic file check | not checked / OK (green) / issues (red); server-produced, read-only |
 | Published | Yes / No; manual evidence, no upload or importer action |
 | Archived | Yes / No; logical archive with a recorded archive date, ADMIN only |
 | Note | Optional multiline text; independent of publication description |
@@ -71,8 +104,8 @@ a source/content review also reset Checked; automatic technical validation never
 grants human OK. Note and Published edits do not invalidate approvals.
 
 The old validation/publication state columns remain internal pipeline data and
-historical evidence. The main list/detail present the simplified human fields;
-the optional File check column retains diagnostics. Detail uses the same editable
+historical evidence. **Automatic file check** replaces the old File check label
+and uses its own derived result, independent of manual Checked. Detail uses the same editable
 property controls as the table. Source review, AI/service controls, content approval,
 per-material ZIP policy and snapshot history panels are omitted; backend history
 and legacy endpoints remain available.
@@ -85,6 +118,29 @@ that packet and stop the remaining rows until recovered. No reason entry is requ
 Changing Archived preserves Status, Checked, Published and current metadata.
 Every endpoint rechecks current authorization, archival state and active-operation
 locks, independently of what the browser enables.
+
+## Automatic file checks and reports
+
+Administrators, production leads and assigned processors can run a check from
+the material card or **Check selected materials** in Materials. A bulk check
+freezes at most 100 selected IDs and their revisions; authorization and current
+versions are rechecked before results are saved. Users cannot set check status,
+timestamp or report through ordinary property updates.
+
+Final validation rules are intentionally deferred to the next iteration. The
+current BASIC_V1 check reports observed structural/metadata issues as **issues**;
+a clean preliminary result remains **not checked**, not an unsupported green OK.
+It does not change Status, human Checked or Published. Relevant later material
+changes invalidate the observation.
+
+Bulk checks create a UTF-8 TXT report in
+`%LOCALAPPDATA%\REAWOTE\Reports\Checks` and open it in Notepad. This persistent
+per-user folder is outside the source library and survives routine temporary-file
+cleanup. The UI shows the report path and retains a download option if desktop
+saving or opening is unavailable. Filenames include a timestamp and unique ID.
+The full report remains in the database, audit history and check result/TXT;
+ordinary material lists and property-write receipts carry only its status,
+timestamp, profile and completeness flag. Large reports do not block later edits.
 
 ## Write and recovery contract
 
@@ -130,6 +186,14 @@ Downgrade refuses populated human fields or history written in the new format.
 Seeded categories are retained because they may already be referenced. A normal
 upgrade leaves material names, folder links, sequence numbers and existing data
 unchanged. No source file access or writes are performed by the migration.
+
+Migration 0033 adds the separate automatic check status, timestamp, report,
+profile and completeness flag. Existing records start as not checked without
+changing their human Checked, workflow, Published or metadata. PostgreSQL limits
+the derived status to the three documented values. The exact-response guard is
+extended for new material write receipts; existing receipt JSON and hashes stay
+unchanged. Downgrade refuses to discard recorded automatic check results or
+receipt history containing the new fields.
 
 The R100 local acceptance app still uses a dated derived-preview snapshot and
 has no live NAS worker connection. Ordinary database cell edits work there;

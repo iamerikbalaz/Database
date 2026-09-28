@@ -39,6 +39,9 @@ opakování testů, migrační hranice a konkrétní zbývající vstupy. Kontra
 - [Kategorie, kolekce a verzovaný obsah](docs/catalog-content.md).
 - [Schválení uloženého obsahu](docs/content-approvals.md).
 - [Seznam materiálů a galerie náhledů](docs/preview-gallery.md).
+- [Filtry, výběr řádků a hromadné změny Materials](docs/material-table.md).
+- [Automatická kontrola materiálů a lokální TXT reporty](docs/automatic-file-check.md).
+- [Příprava vybraných materiálů do CSV a ZIP pro ruční nahrání](docs/offline-publication.md).
 - [Vizuální styl REAWOTE, logo a lokální fonty](docs/brand-interface.md).
 - [Schválené publikační dávky a uložené CSV](docs/publication-batches.md).
 - [Spouštění, obnova a uzavření ZIP packagingu](docs/packaging-actions.md).

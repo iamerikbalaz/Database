@@ -1,6 +1,91 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-28, material card corrections)
+## Latest checkpoint (2026-09-28, Materials selection and offline publication)
+
+Continued `codex/autonomous-pbr-completion` from `401a23c`. A fresh fetch confirmed
+`origin/main` is still `88a1f99d748d2a0edbb1fce509e13d18bfc03908`. Changes stay on
+the development branch; no main merge, production database or original NAS writes.
+
+### Delivered
+
+- Materials has a named, swatch-based multi-color filter using the 18 REAWOTE
+  platform HEX values. Colors are ORed together and combined with other filters.
+- List rows support click, Shift range, Ctrl/Cmd toggle and Ctrl+Shift additive
+  range highlighting. **Select highlighted** adds those rows to checkbox
+  selection. Interactive cells retain their editing behavior. Selection survives
+  switching between list and gallery; changing filters clears the selection.
+- Read-only **Automatic file check** replaces File check. Card and selected bulk
+  checks record the actor, timestamp, observations and profile; source changes
+  invalidate the result. See [automatic-file-check.md](automatic-file-check.md).
+  Current BASIC_V1 rules are preliminary: observed defects show **issues**,
+  otherwise **not checked** remains until complete rules are agreed. **OK** is
+  reserved for that complete profile. Human Checked remains independent.
+- **Prepare selected for publication** replaces the filtered-publication and
+  publication-batches actions in Materials. The selected workflow offers optional
+  automatic checking, **Review materials**, then **Prepare publication** with a
+  native destination picker. It creates a unique subfolder with CSV, all ZIPs
+  and a receipt, then asks whether to mark Published. Upload remains manual.
+- Offline export uses the existing Linux packaging engine and global A/B policy.
+  Historical DIFF/METAL/SPEC/ID/MASK maps are retained. Frozen input, idempotent
+  requests, final authorization/version checks and source hash checks protect
+  export and the later all-or-none Published confirmation. See
+  [offline-publication.md](offline-publication.md).
+
+### Local runtime and provenance
+
+The 50-copy instance remains at `http://127.0.0.1:53033/materials`. An owned
+database backup precedes migration **20260928_0033**. Its receipt guard preserves
+both historical and intermediate receipts without rewriting their JSON/hash;
+normal edits exclude full potentially large reports. The current guard was
+forward-applied and Alembic/schema drift checked on this test database.
+
+The runtime pins the tested immutable packaging image. A persisted map binds
+**49 material UUIDs** to original master-folder timestamps from the verified
+pre-copy inventory, so renaming/copying does not choose the wrong ZIP policy.
+One material contains SOURCE only and has no master timestamp to capture. The
+map is loaded on restart rather than recalculated from current directory times.
+Source files are not modified by inspection or export.
+
+The active test records do not yet have the Credits values needed for publication.
+Review reports the missing values. Export acceptance used a disposable database
+clone with explicitly synthetic publication content; these values and Published
+flags were not written into the active 50-record database.
+
+### Verification
+
+- Frontend: **1067 tests passed**, lint, TypeScript and production build passed;
+  **51 final focused tests** passed after the last UI/report corrections.
+- Broad Windows backend run: **2442 cases passed across the partitioned run and
+  corrected migration-head rerun**; 483 environment-dependent cases skipped in
+  that run. The stale expected migration head was corrected, then its module,
+  Alembic and automatic-check tests passed together (**68 cases**).
+- Dedicated PostgreSQL runs: **10 receipt/migration/concurrency cases**, **17
+  automatic-check API cases**, **11 publication API cases**, and **27 auth cases**
+  passed without selected skips. Large reports, old receipt replay, timestamp
+  normalization and rejected forged derived fields are covered.
+- Offline backend/native: **28 API/Windows tests**, **101 contract tests** and
+  **65 Linux packaging/validation cases** passed. The Linux count includes the
+  full run and one corrected test-fixture rerun.
+- Actual export produced a one-row CSV and **4K/2K/1K ZIPs** from the Terratinta
+  copy. All 13 source files remained identical. Original 2024 provenance selected
+  method A and every ZIP entry had the expected 1 January 2026 timestamp.
+  Published confirmation and exact replay passed only in the disposable clone.
+- End-to-end: **25 fresh + 25 after restart** passed on final migration code.
+  Legacy publication checks remain covered via its existing route and explicit
+  selection. Owned test containers/networks were cleaned up.
+- Browser inspection verified multi-color filtering, Shift/Ctrl highlighting,
+  checkbox selection across list/gallery, and real missing-content review.
+  A real two-material bulk check saved its BOM-encoded TXT and launched Notepad;
+  the UI displayed the exact saved path. Windows MSIX report redirection was
+  corrected without weakening source-path checks; **11 native report tests**
+  passed, including refusal of a real junction to an unrelated directory.
+  Native folder-picker interaction is covered by adapter tests; final Windows
+  export acceptance uses the same native destination-grant boundary.
+
+Final automatic map-validation rules remain the next iteration. Private export
+job artifacts are retained for diagnosis; automatic cleanup is not implemented.
+
+## Previous checkpoint (2026-09-28, material card corrections)
 
 Continued the existing development branch from `977ae76`. No schema migration,
 main merge or production deployment is needed for these corrections.

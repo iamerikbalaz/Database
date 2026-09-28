@@ -145,8 +145,14 @@ paths. Only one picker can run at a time; it has a bounded timeout.
 
 Use `POST /identity-plan` followed by `POST /identity-confirm` for a move, rename,
 category change or rebrand. The proposal binds the source inventory, destination,
-name and database revision. Confirmation retains the existing ADMIN/PRODUCTION_LEAD,
-unpublished, `IN_PROGRESS` and active-operation guards. A move within the same
+name, workflow status and database revision. Confirmation requires
+ADMIN/PRODUCTION_LEAD, an unpublished material and no conflicting active operation.
+An explicit name-only change also accepts `DONE` when brand, category and parent
+stay unchanged; it preserves `DONE` while resetting Checked and stale technical
+proof. Rebrand, category and parent changes still require `IN_PROGRESS`.
+**Edit Name** has one **Confirm rename** action after entering the new name and
+reading the source-change warning. Planning and hash verification run internally;
+there is no separate **Preview changes** step. A move within the same
 brand keeps the material number. A rebrand reserves a new target-brand number.
 The identity workflow updates matching filenames and supported JSON identity
 references together. See [identity operations](identity-operations.md).
@@ -168,7 +174,10 @@ the new same-name company brand if needed, without rewriting source metadata.
 ## Library save and basic check
 
 The library editor saves Color HEX, width and height to root `metadata.json`.
-Identity fields come from the database; unknown supported document content and
+Identity fields come from the database and the complete named folder identity;
+all hyphen-separated words remain uppercase. The document includes every section
+of the supplied production template. Missing measurements stay null; safe file
+inventory can fill resolution/map facts. Unknown supported document content and
 precise numbers are preserved. Unified saves also finalize publication content
 in the same database completion transaction after verified source success. See
 [editable source metadata](editable-source-metadata.md).

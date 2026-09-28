@@ -21,7 +21,9 @@ authenticated worker mutation route requires separate explicit configuration.
 ## Conservative rules
 
 - New identities use `<prefix>_<NNNN>_<material-name>_<category>`; persisted
-  three-part identities remain readable. Imported names retain exact spelling.
+  three-part identities remain readable. Named imports use the entire uppercase
+  folder-name component, preserving every hyphen-separated word. Legacy
+  three-part imports retain their explicit workbook name.
   Rebrand/category proposals preserve an existing name component. Plan targets
   use portable ASCII components, sequence 0001–9999 and existing category rules.
   The optional `material_name` proposal field changes the display name and
@@ -92,7 +94,7 @@ Validate filesystem behavior exclusively with owned synthetic folders.
 - `POST /api/materials/{id}/identity-plan` is a read-only observed proposal. It
   derives the identity from the selected brand, next available four-digit number,
   preserved material-name component and category. The destination parent must already exist. Its proposal hash binds
-  the entire worker plan, generation and old/new database contexts. Planning
+  the entire worker plan, generation, source workflow status and old/new database contexts. Planning
   neither reserves a number nor creates an operation record.
 - `POST .../identity-confirm` requires a production lead/admin, the displayed
   proposal hash/generation, an idempotency key, reason and warning acknowledgment.
@@ -110,8 +112,9 @@ Validate filesystem behavior exclusively with owned synthetic folders.
   and append identity history. Recorded color and sample dimensions remain
   available as fallback values. Current snapshot linkage, source bytes/hash,
   filename, load time and master resolution are cleared; metadata becomes
-  NOT_SCANNED until fresh observation. Historical metadata and approvals remain intact. The material remains
-  IN_PROGRESS and requires fresh technical checks. Once authorized source work has
+  NOT_SCANNED until fresh observation. Historical metadata and approvals remain intact.
+  The material retains its original workflow status and requires fresh technical
+  checks; Checked resets to no. Once authorized source work has
   started, consistency finalization completes even if the initiating account is
   later disabled; this does not authorize any new user action.
 - REJECTED is a durable worker outcome before any source action. ROLLED_BACK proves
@@ -124,13 +127,20 @@ Validate filesystem behavior exclusively with owned synthetic folders.
   100 records. Pagination for older history remains backlog. PostgreSQL makes
   number/history ledgers append-only and protects recorded authorization inputs
   and terminal operation outcomes against updates/deletion/truncation.
-- The UI displays old/new paths, all affected file/directory names, metadata field
-  names and hashes, warnings, number reservation and approval invalidation. An
+- The general identity UI displays old/new paths, affected file/directory names,
+  metadata fields, warnings, number reservation and approval invalidation.
+  The material card's name-only dialog instead offers a name input, a source-change
+  warning and one **Confirm rename** button. It performs plan/confirm internally
+  with the same guards. An
   unknown confirmation outcome keeps the same key and freezes its inputs for retry.
   Other roles may inspect history but cannot plan/confirm/recover.
 
-Conservative product decisions: only linked IN_PROGRESS materials can use this
-operation. DONE requires an explicit reopen first. Published identities stay
+Linked IN_PROGRESS materials can use the full operation. A linked DONE material
+can also use an explicit name-only operation if brand, category and parent remain
+unchanged. It retains DONE, resets Checked and invalidates source proof; there is
+no hidden reopen. Other DONE identity changes require an explicit reopen first.
+Changing workflow status between planning and confirmation invalidates the plan.
+Published identities stay
 blocked pending online importer verification. Unlinked category edits retain the
 existing PATCH contract and now append identity history. Migration 0009 backfills
 known current allocations without changing existing brand counter high-water marks;

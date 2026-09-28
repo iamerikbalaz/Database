@@ -1,6 +1,83 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-28, material card and local file editing)
+## Latest checkpoint (2026-09-28, material card corrections)
+
+Continued the existing development branch from `977ae76`. No schema migration,
+main merge or production deployment is needed for these corrections.
+
+### Delivered
+
+- **Edit Name** now has one confirmation after the name/source-change warning.
+  The server still plans and verifies the source changes internally. An
+  unpublished Done material can be renamed without changing its workflow status;
+  Checked and stale technical proof reset. Moving, rebranding and category changes
+  retain the In-progress requirement.
+  Names can be extended or shortened without the new name being mistaken for
+  an old JSON reference. Unknown unmapped references still block the operation.
+  Generic unlinked-record edits also cannot change a published identity.
+- Named imports and newly created materials use the full uppercase material
+  component. `ROUBAL_0001_TILES-ORANGE_B01` produces `TILES-ORANGE`, including
+  every word; numeric names such as `20-08` are preserved too. Unlinked name edits
+  update their generated identity consistently.
+- Source JSON uses the full supplied production template with matching section
+  order and indentation. Current measurements and extra data are preserved;
+  unknown measurements remain null. Verified filename inventory fills missing
+  map/resolution/source facts without reading the texture bytes. Both native and
+  Linux writers retain their existing durable journal and recovery rules.
+- The Color HEX combobox shows swatches both in the selection and every option,
+  with keyboard navigation and custom recorded values. Preview ordering starts
+  with FABRIC_1/SPHERE_1 and then follows numeric suffixes; reload restores the
+  primary image.
+
+### Copied-data correction
+
+The existing 50-material Desktop `Test_data` instance remains at
+`http://127.0.0.1:53033/materials`. An owned database backup and per-file receipts
+precede the audited correction. **46 shortened names** were corrected in the
+database, and **all 50 JSON documents** now have the full production shape.
+Existing colors, dimensions and user workflow/Checked labels were preserved for
+this structural backfill. No material folder was renamed by the backfill.
+Final hash verification confirmed **all 937 original copied files unchanged**.
+Private plans, backups and reports remain in the ignored local runtime directory.
+
+An actual Windows HTTP/API acceptance test renamed one Done copy to a name with
+an appended suffix and back. Both source operations completed. Done stayed Done,
+Checked reset to no and was then restored through the normal audited table API.
+The original name/path, all **12 original files** and exact metadata JSON bytes
+were restored; the temporary destination no longer exists. The audit retains the
+test operations. No direct database edit was used for this round trip.
+
+The normal user rename/save behavior still resets Checked; the backfill's
+historical-label preservation is not a new bypass for source editing.
+
+### Verification
+
+- Frontend full unit suite: **1012 passed**; lint, E2E TypeScript and production
+  build passed. Browser inspection confirmed real swatches, complete names,
+  enabled Done-name input, one confirmation and SPHERE_1/WALL_2/FLOOR_3 ordering.
+- Targeted PostgreSQL identity/metadata/resource suite: **59 passed**, including
+  all **27 authentication checks**, with no selected skips. The Done rename test
+  covers status preservation, Checked reset, exact replay and guarded moves.
+- Native Windows filesystem suite: **31 passed**, following correction of a
+  directory-sharing conflict in filename-only inventory.
+- Naming/import regression suite: **128 passed**; affected generic-name/history
+  checks: **76 passed**. Linux metadata/identity checks: **213 passed**, followed
+  by **52 passed** for the final pretty-printed identity rewrite.
+- The full-template null-dimension transport fix passed **62 focused tests**.
+  Final published-identity guards passed **137 tests**. The final suffix-rename
+  fix passed **103 backend tests including all 31 native Windows checks**, and
+  **216 Linux worker tests**, with no skips.
+- Final end-to-end run on all final source changes: **25 fresh + 25 retained**
+  scenarios passed. It exercises swatch selection, combined JSON/content save
+  with missing dimensions, one-confirm suffix rename on Done/OK, exact replay,
+  changed real filenames/JSON and retained results after service restart.
+  Screenshots were visually inspected. Owned containers/networks were removed;
+  synthetic evidence volumes remain. Regular/demo environments were unchanged.
+
+No original NAS writes are part of this work. The local technical-check and
+packaging boundaries from the preceding checkpoint still apply.
+
+## Previous checkpoint (2026-09-28, material card and local file editing)
 
 Continued `codex/autonomous-pbr-completion` from `29473b3`. A fresh fetch confirmed
 `origin/main` remains `88a1f99d748d2a0edbb1fce509e13d18bfc03908`; the original

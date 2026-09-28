@@ -25,7 +25,7 @@ IDENTITY_CODES = INVENTORY_CODES | frozenset({
 })
 MAX_IDENTITY_RESPONSE_BYTES = 32 * 1024 * 1024
 METADATA_FIELDS = {"FOLDER", "MANUFACTURER", "PRODUCT_NAME", "CATEGORY", "PRODUCT_NUMBER", "BASE_NAME",
-                   "TEXTURE_SIZE_SOURCE", "COLOR.measured_from", "SOURCE.SBS"}
+                   "TEXTURE_SIZE_SOURCE", "COLOR.measured_from", "SOURCE.SBS", "RESOLUTIONS.UNRECOGNIZED"}
 
 
 class IdentityClientError(RuntimeError):
@@ -66,7 +66,7 @@ class IdentityChange(StrictModel):
 class IdentityMetadata(StrictModel):
     before_hash: Sha256 | None
     after_hash: Sha256 | None
-    changed_fields: Annotated[list[str], Field(max_length=9)]
+    changed_fields: Annotated[list[str], Field(max_length=10)]
 
     @model_validator(mode="after")
     def check(self) -> Self:

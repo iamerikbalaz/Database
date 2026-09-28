@@ -46,6 +46,10 @@ def test_create_edit_and_exact_replay(library):
     listing = library.listing(FOLDER)
     assert listing.omitted_entries == 0
     assert {item.name for item in listing.entries} == {"4K", "metadata.json"}
+    document = json.loads(library.fs.read(FOLDER + "/metadata.json"))
+    assert document["RESOLUTIONS"]["4K"] == {"MAPS_SHORTCUTS": ["COL"], "FILE_COUNT": 1, "UNRECOGNIZED": []}
+    assert document["SOURCE"] == {"SBS": None, "CROPS": [], "REFERENCES": False, "ARCHIVE": False}
+    assert document["COLOR"]["runner_up"] == {"hex": None, "delta_e": None}
 
 
 @pytest.mark.parametrize("length", [1, 2, 3, 7, 16, 31, 63, 99, 140])

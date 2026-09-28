@@ -141,7 +141,7 @@ class WorkerMetadataClient(WorkerInventoryClient):
                     raise ValueError()
                 color = document.get("COLOR", {})
                 dimensions = document.get("TEXTURE_SIZE", {}).get("cm", {})
-                if any(name in dimensions and not isinstance(dimensions[name], Decimal) for name in ("width", "height")):
+                if any(dimensions.get(name) is not None and not isinstance(dimensions[name], Decimal) for name in ("width", "height")):
                     raise ValueError()
                 source_values = {"hex_color": color.get("hex"), **{
                     name + "_cm": str(dimensions[name]) if isinstance(dimensions.get(name), Decimal) else None

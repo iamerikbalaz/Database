@@ -200,7 +200,12 @@ class LocalMetadata:
                         if current.sha256 != request["expected_sha256"]:
                             result = {"operation_id": request["operation_id"], "status": "REJECTED", "failure_code": "METADATA_SOURCE_CHANGED", "metadata": None}
                             state["result"] = result; library.write_state(key, state); return MetadataResult.model_validate(result)
-                        raw = rewrite_metadata_json(current.raw_content.encode() if current.raw_content is not None else None, values, request.get("identity"))
+                        # File facts use a complete handle-verified tree. Texture
+                        # bytes need not be hashed to describe their filenames.
+                        # Release these handles before the atomic metadata swap.
+                        with library.fs.tree(folder, hash_files=False, for_rename=False) as (_, inventory, _):
+                            raw = rewrite_metadata_json(current.raw_content.encode() if current.raw_content is not None else None,
+                                values, request.get("identity"), inventory=inventory)
                         state.update(before=current.sha256, after=base64.b64encode(raw).decode(), after_hash=digest(raw))
                         temporary = journal / "new.json"
                         if temporary.exists():

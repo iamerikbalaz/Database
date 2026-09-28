@@ -17,8 +17,11 @@ def _encode(value, depth=0):
     if depth > 64: raise MetadataIdentityError("METADATA_REWRITE_UNSUPPORTED")
     if isinstance(value, JsonNumber): return str(value)
     if isinstance(value, dict):
-        return "{" + ",".join(json.dumps(key, ensure_ascii=True) + ":" + _encode(item, depth + 1) for key, item in value.items()) + "}"
-    if isinstance(value, list): return "[" + ",".join(_encode(item, depth + 1) for item in value) + "]"
+        if not value: return "{}"
+        return "{\n" + ",\n".join("    " * (depth + 1) + json.dumps(key, ensure_ascii=True) + ": " + _encode(item, depth + 1) for key, item in value.items()) + "\n" + "    " * depth + "}"
+    if isinstance(value, list):
+        if not value: return "[]"
+        return "[\n" + ",\n".join("    " * (depth + 1) + _encode(item, depth + 1) for item in value) + "\n" + "    " * depth + "]"
     return json.dumps(value, ensure_ascii=True, allow_nan=False)
 
 
@@ -41,42 +44,69 @@ def rewrite_identity_metadata(raw: bytes, old_identity: str, *, new_identity: st
         data = json.loads(text, parse_float=JsonNumber, parse_int=JsonNumber,
                           parse_constant=_reject_constant, object_pairs_hook=_unique_object)
         if not isinstance(data, dict) or any(key in data for key in ("WEB_APP_PART", "DESKTOP_APP_PART")): raise ValueError()
-        changes = []
+        changes = []; rewritten_fields = set()
         def change(container, key, value, label):
+            rewritten_fields.add((id(container), key))
             if container[key] != value or type(container[key]) is not type(value):
                 container[key] = value; changes.append(label)
         for field, value in (("FOLDER", new_identity), ("MANUFACTURER", brand_name),
                              ("PRODUCT_NAME", material_name), ("CATEGORY", new_match["category"])):
             if field not in data: continue
-            if type(data[field]) is not str: raise ValueError()
-            if field == "FOLDER" and data[field] != old_identity: raise ValueError()
-            if field == "CATEGORY" and data[field] != old_match["category"]: raise ValueError()
+            if data[field] is not None and type(data[field]) is not str: raise ValueError()
+            if field == "FOLDER" and data[field] not in {None, old_identity}: raise ValueError()
+            if field == "CATEGORY" and data[field] not in {None, old_match["category"]}: raise ValueError()
             change(data, field, value, field)
         if "PRODUCT_NUMBER" in data:
             number = data["PRODUCT_NUMBER"]
-            if not isinstance(number, str) or not number.isascii() or not number.isdigit() or int(number) != int(old_match["number"]): raise ValueError()
+            if number is not None and (not isinstance(number, str) or not number.isascii() or not number.isdigit() or int(number) != int(old_match["number"])): raise ValueError()
             replacement = JsonNumber(str(int(new_match["number"]))) if isinstance(number, JsonNumber) else new_match["number"]
             change(data, "PRODUCT_NUMBER", replacement, "PRODUCT_NUMBER")
         if "BASE_NAME" in data:
-            if data["BASE_NAME"] == old_identity: replacement = new_identity
+            if data["BASE_NAME"] is None: replacement = base_name(new_identity)
+            elif data["BASE_NAME"] == old_identity: replacement = new_identity
             elif data["BASE_NAME"] == old_identity.rsplit("_", 1)[0]: replacement = new_identity.rsplit("_", 1)[0]
             else: raise ValueError()
             change(data, "BASE_NAME", replacement, "BASE_NAME")
         references = [(data, "TEXTURE_SIZE_SOURCE", "TEXTURE_SIZE_SOURCE")]
         for section, field in (("COLOR", "measured_from"), ("SOURCE", "SBS")):
             if isinstance(data.get(section), dict): references.append((data[section], field, section + "." + field))
+        def rewrite_reference_component(match):
+            component = match[0]; suffix = component
+            for old, _ in ((old_identity, new_identity), (base_name(old_identity), base_name(new_identity))):
+                if component == old or component.startswith((old + "_", old + ".")):
+                    suffix = component[len(old):]; break
+            # Only the recognized identity prefix is rewritten. Any further
+            # old reference embedded in a suffix/unmatched component is unsafe.
+            if any(old != new and old in suffix for old, new in (
+                    (old_identity, new_identity), (base_name(old_identity), base_name(new_identity)))):
+                raise MetadataIdentityError("METADATA_UNMAPPED_REFERENCE")
+            return renamed_component(component, old_identity, new_identity)
         for container, field, label in references:
             if field not in container or container[field] is None: continue
             if type(container[field]) is not str: raise ValueError()
-            value = re.sub(r"[^/\\]+", lambda match: renamed_component(match[0], old_identity, new_identity), container[field])
+            value = re.sub(r"[^/\\]+", rewrite_reference_component, container[field])
             change(container, field, value, label)
+        # These are filenames recorded by the complete metadata schema, unlike
+        # arbitrary user fields which must still block an unmapped reference.
+        resolutions = data.get("RESOLUTIONS", {})
+        if not isinstance(resolutions, dict): raise ValueError()
+        for resolution, entry in resolutions.items():
+            if not isinstance(entry, dict): raise ValueError()
+            names = entry.get("UNRECOGNIZED", [])
+            if not isinstance(names, list) or any(type(name) is not str for name in names): raise ValueError()
+            if "UNRECOGNIZED" in entry:
+                value = [re.sub(r"[^/\\]+", rewrite_reference_component, name) for name in names]
+                change(entry, "UNRECOGNIZED", value, "RESOLUTIONS.UNRECOGNIZED")
         def ensure_no_old_reference(value, depth=0):
             if depth > 64: raise ValueError()
             if isinstance(value, dict):
                 for key, item in value.items():
                     if any(old != new and old in key for old, new in (
                             (old_identity, new_identity), (base_name(old_identity), base_name(new_identity)))): raise ValueError()
-                    ensure_no_old_reference(item, depth + 1)
+                    # Explicitly rewritten values may legitimately contain the
+                    # old name as part of the new name. Unknown fields may not.
+                    if (id(value), key) not in rewritten_fields:
+                        ensure_no_old_reference(item, depth + 1)
             elif isinstance(value, list):
                 for item in value: ensure_no_old_reference(item, depth + 1)
             elif type(value) is str:
@@ -86,7 +116,7 @@ def rewrite_identity_metadata(raw: bytes, old_identity: str, *, new_identity: st
         ensure_no_old_reference(data)
         rewritten = (_encode(data) + "\n").encode("utf-8") if changes else raw
         if len(rewritten) > MAX_METADATA_BYTES: raise ValueError()
-        return rewritten, sorted(changes)
+        return rewritten, sorted(set(changes))
     except MetadataIdentityError: raise
     except (ValueError, TypeError, KeyError, RecursionError, OverflowError):
         raise MetadataIdentityError("METADATA_REWRITE_UNSUPPORTED") from None

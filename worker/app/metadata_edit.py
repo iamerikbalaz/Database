@@ -33,11 +33,12 @@ def normalize_values(values):
     return result
 
 
-def rewrite_metadata(raw, values, identity=None):
+def rewrite_metadata(raw, values, identity=None, *, inventory=None):
     from app.metadata_document import rewrite_metadata_json
     values = normalize_values(values)
-    try: return rewrite_metadata_json(raw, values, identity)
-    except ValueError as exc: raise JournalError(str(exc)) from None
+    try: return rewrite_metadata_json(raw, values, identity, inventory=inventory)
+    except ValueError as exc:
+        raise JournalError("METADATA_FORMAT_UNSUPPORTED" if str(exc) == "METADATA_INVENTORY_INVALID" else str(exc)) from None
 
 
 def _signature(info):
@@ -125,7 +126,12 @@ def execute_metadata_edit(root, journal_root, operation_id, parts, expected_sha2
         if state is None:
             if digest != expected_sha256:
                 return _reject(journal, request_hash, operation_id, "METADATA_SOURCE_CHANGED")
-            try: desired = rewrite_metadata(raw, values, identity)
+            try:
+                entries = None
+                if source_filename == "metadata.json":
+                    from app.metadata_inventory import metadata_inventory
+                    entries = metadata_inventory(root, parts, fd)
+                desired = rewrite_metadata(raw, values, identity, inventory=entries)
             except JournalError as exc: return _reject(journal, request_hash, operation_id, str(exc))
             state = {"request_hash": request_hash, "status": "PREPARED", "identity": _identity(fd),
                      "desired": desired.decode("utf-8"), "sha256": hashlib.sha256(desired).hexdigest(),

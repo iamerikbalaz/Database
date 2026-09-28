@@ -49,8 +49,49 @@ def test_pure_metadata_rewrite_updates_only_documented_identity_fields():
 def test_metadata_rewrite_keeps_exact_number_tokens_and_numeric_product_number():
     raw = ('{"FOLDER":"' + OLD + '","PRODUCT_NUMBER":1,"exact":123456789.123456789123456789,"small":1e-10000}').encode()
     rewritten, _ = rewrite_metadata(raw, OLD, TARGET)
-    assert b'"exact":123456789.123456789123456789' in rewritten and b'"small":1e-10000' in rewritten
-    assert b'"PRODUCT_NUMBER":12' in rewritten
+    assert b'"exact": 123456789.123456789123456789' in rewritten and b'"small": 1e-10000' in rewritten
+    assert b'"PRODUCT_NUMBER": 12' in rewritten
+
+
+def test_complete_metadata_schema_keeps_measurements_and_updates_known_unrecognized_filenames():
+    from app.metadata_document import rewrite_metadata_json
+    identity = {"FOLDER": OLD, "MANUFACTURER": "Old brand", "PRODUCT_NUMBER": "0001",
+        "PRODUCT_NAME": "Old product", "CATEGORY": "G03", "BASE_NAME": OLD.rsplit("_", 1)[0]}
+    raw = rewrite_metadata_json(None, {"hex_color": "#ABCDEF", "width_cm": "12.957", "height_cm": "13.845"}, identity,
+        inventory=[{"path": "4K", "kind": "directory"}, {"path": f"4K/{OLD}_notes.txt", "kind": "file"}])
+    result, fields = rewrite_metadata(raw, OLD, TARGET)
+    before, after = json.loads(raw), json.loads(result)
+    assert result.startswith(b'{\n    "FOLDER":')
+    assert b'\n        "runner_up": {\n            "hex": null,' in result
+    assert list(after) == list(before)
+    assert set(after) == set(before)
+    assert after["COLOR"] == before["COLOR"] and after["TEXTURE_SIZE"] == before["TEXTURE_SIZE"]
+    assert after["RESOLUTIONS"]["4K"]["UNRECOGNIZED"] == [NEW + "_notes.txt"]
+    assert "RESOLUTIONS.UNRECOGNIZED" in fields
+
+
+@pytest.mark.parametrize("new_name", ["HEXA-GREEN-ECHO-MATT-V51-TEST", "HEXA", "HEXA-GREEN-ECHO-MATT.REVISED"])
+def test_name_extension_and_shortening_do_not_relax_unknown_reference_checks(new_name):
+    old = "TERRATINTA_0002_HEXA-GREEN-ECHO-MATT_B03"
+    old_base = old.rsplit("_", 1)[0]
+    new = f"TERRATINTA_0002_{new_name}_B03"
+    target = IdentityTarget("brand/" + new, "Terratinta", new_name)
+    data = {"FOLDER": old, "BASE_NAME": old_base, "PRODUCT_NUMBER": "0002", "PRODUCT_NAME": "HEXA-GREEN-ECHO-MATT",
+        "CATEGORY": "B03", "MANUFACTURER": "Terratinta", "SOURCE": {"SBS": f"SOURCE/{old_base}_B01.sbs"},
+        "TEXTURE_SIZE": {"cm": {"width": 12.957, "height": 13.845}},
+        "RESOLUTIONS": {"4K": {"UNRECOGNIZED": [old_base + "_notes.txt"]}}}
+    def apply(value): return rewrite_metadata(json.dumps(value).encode(), old, target)
+    result, _ = apply(data)
+    after = json.loads(result)
+    assert after["FOLDER"] == new and after["BASE_NAME"] == new.rsplit("_", 1)[0]
+    assert after["SOURCE"]["SBS"] == f"SOURCE/TERRATINTA_0002_{new_name}_B01.sbs"
+    assert after["RESOLUTIONS"]["4K"]["UNRECOGNIZED"] == [f"TERRATINTA_0002_{new_name}_notes.txt"]
+    assert after["TEXTURE_SIZE"] == data["TEXTURE_SIZE"]
+    with pytest.raises(IdentityPlanError, match="METADATA_UNMAPPED_REFERENCE"):
+        apply({**data, "unknown": [old_base + "_COL_4K.jpg"]})
+    for reference in ("prefix-" + old_base + ".sbs", old + "_" + old + ".sbs"):
+        with pytest.raises(IdentityPlanError, match="METADATA_UNMAPPED_REFERENCE"):
+            apply({**data, "SOURCE": {"SBS": reference}})
 
 
 def test_observed_dimensions_text_is_kept_byte_exact():

@@ -37,6 +37,51 @@ def test_identity_only_rewrite_preserves_exact_numbers_provenance_and_path_separ
     assert OLD not in result.decode()
 
 
+def test_generated_complete_schema_survives_rename_and_known_inventory_references_follow_it():
+    from app.metadata_document import rewrite_metadata_json
+    from app.identity_client import IdentityMetadata
+    identity = {"FOLDER": OLD, "MANUFACTURER": "SWISSPEARL", "PRODUCT_NUMBER": "0001",
+        "PRODUCT_NAME": "OLD NAME", "CATEGORY": "G03", "BASE_NAME": OLD.rsplit("_", 1)[0]}
+    raw = rewrite_metadata_json(None, {"hex_color": "#999999", "width_cm": "12.957", "height_cm": "13.845"}, identity,
+        inventory=[{"path": "4K", "kind": "directory"}, {"path": f"4K/{OLD}_notes.txt", "kind": "file"},
+            {"path": "2K", "kind": "directory"}, {"path": f"2K/{OLD}_readme.txt", "kind": "file"}])
+    result, fields = rewrite(raw)
+    before, after = json.loads(raw), json.loads(result)
+    assert result.startswith(b'{\n    "FOLDER":')
+    assert b'\n        "runner_up": {\n            "hex": null,' in result
+    assert list(after) == list(before)
+    assert set(after) == set(before)
+    assert after["COLOR"] == before["COLOR"] and after["TEXTURE_SIZE"] == before["TEXTURE_SIZE"]
+    assert after["RESOLUTIONS"]["4K"]["UNRECOGNIZED"] == [NEW + "_notes.txt"]
+    assert after["RESOLUTIONS"]["2K"]["UNRECOGNIZED"] == [NEW + "_readme.txt"]
+    assert fields.count("RESOLUTIONS.UNRECOGNIZED") == 1
+    IdentityMetadata(before_hash=hashlib.sha256(raw).hexdigest(), after_hash=hashlib.sha256(result).hexdigest(), changed_fields=fields)
+
+
+@pytest.mark.parametrize("new_name", ["OLD-NAME-V51-TEST", "OLD", "OLD-NAME.REVISED"])
+def test_name_extension_and_shortening_preserve_only_explicitly_rewritten_references(new_name):
+    target = f"SWISSPEARL_0001_{new_name}_G03"
+    data = json.loads(document())
+    data["SOURCE"]["SBS"] = "SOURCE/SWISSPEARL_0001_OLD-NAME_B01.sbs"
+    data["RESOLUTIONS"] = {"4K": {"UNRECOGNIZED": ["SWISSPEARL_0001_OLD-NAME_notes.txt"]}}
+    def apply(value):
+        return rewrite_identity_metadata(json.dumps(value).encode(), OLD, new_identity=target,
+            brand_name="SWISSPEARL", material_name=new_name)
+    result, _ = apply(data)
+    after = json.loads(result)
+    assert after["FOLDER"] == target and after["BASE_NAME"] == target.rsplit("_", 1)[0]
+    assert after["SOURCE"]["SBS"] == f"SOURCE/SWISSPEARL_0001_{new_name}_B01.sbs"
+    assert after["RESOLUTIONS"]["4K"]["UNRECOGNIZED"] == [f"SWISSPEARL_0001_{new_name}_notes.txt"]
+    assert after["TEXTURE_SIZE"] == data["TEXTURE_SIZE"]
+    # Unknown references must not be globally masked just because the target
+    # contains the old name, nor accidentally hidden by a shorter target.
+    with pytest.raises(MetadataIdentityError, match="METADATA_UNMAPPED_REFERENCE"):
+        apply({**data, "unknown": ["SWISSPEARL_0001_OLD-NAME_COL_4K.jpg"]})
+    for reference in ("prefix-SWISSPEARL_0001_OLD-NAME.sbs", OLD + "_" + OLD + ".sbs"):
+        with pytest.raises(MetadataIdentityError, match="METADATA_UNMAPPED_REFERENCE"):
+            apply({**data, "SOURCE": {"SBS": reference}})
+
+
 @pytest.mark.parametrize("value", [{"unknown": OLD}, {"unknown": ["SWISSPEARL_0001_OLD-NAME_COL_4K.png"]}])
 def test_unknown_old_references_block_plan_instead_of_leaving_stale_paths(value):
     raw = json.dumps({"FOLDER": OLD, **value}).encode()

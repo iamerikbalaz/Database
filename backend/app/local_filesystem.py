@@ -141,14 +141,14 @@ class LocalFilesystem:
             with self.opened(path) as handle: return self.read_handle(handle, limit=limit)
 
     @contextmanager
-    def tree(self, relative):
+    def tree(self, relative, *, hash_files=True, for_rename=True):
         """Hold every source entry stable until the planned rename is complete."""
         path = self.path(relative)
         if path == self.root: raise LocalFilesError("LOCAL_PATH_UNSAFE")
         parent = path.parent.relative_to(self.root).as_posix()
         with self.directory("" if parent == "." else parent), ExitStack() as stack:
             handles = {}; entries = []
-            handles[""] = stack.enter_context(self.opened(path, directory=True, rename=True))
+            handles[""] = stack.enter_context(self.opened(path, directory=True, rename=for_rename))
             pending = [(path, "")]
             while pending:
                 directory, prefix = pending.pop()
@@ -161,9 +161,9 @@ class LocalFilesystem:
                         if getattr(info, "st_file_attributes", 0) & 0x400 or not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
                             raise LocalFilesError("LOCAL_PATH_UNSAFE")
                         is_dir = stat.S_ISDIR(info.st_mode)
-                        handle = stack.enter_context(self.opened(Path(entry.path), directory=is_dir, rename=True))
+                        handle = stack.enter_context(self.opened(Path(entry.path), directory=is_dir, rename=for_rename))
                         handles[sub] = handle
-                        digest = None if is_dir else self.read_handle(handle, limit=32 * 1024**3, digest_only=True)
+                        digest = None if is_dir or not hash_files else self.read_handle(handle, limit=32 * 1024**3, digest_only=True)
                         entries.append({"path": sub, "kind": "directory" if is_dir else "file", "size": 0 if is_dir else info.st_size,
                                         "sha256": digest})
                         if is_dir: pending.append((Path(entry.path), sub))

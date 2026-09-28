@@ -1,4 +1,5 @@
 import json
+import hashlib
 from uuid import uuid4
 
 import httpx
@@ -6,6 +7,7 @@ from pydantic import SecretStr
 import pytest
 
 from app.metadata_client import MetadataClientError, WorkerMetadataClient
+from app.metadata_document import rewrite_metadata_json
 from test_material_operations import StreamingResponse
 from test_source_metadata_edit import VALUES, source
 
@@ -23,6 +25,40 @@ def test_private_transport_token_and_request_binding(monkeypatch):
             "failure_code": None, "metadata": source(REQUEST["folder_path"])}).encode()])
     monkeypatch.setattr(httpx, "stream", transport)
     assert WorkerMetadataClient("http://worker", SecretStr("s" * 40), True).execute(REQUEST).status == "COMPLETED"
+
+
+@pytest.mark.parametrize("values", [
+    {"hex_color": "#ABCDEF", "width_cm": None, "height_cm": None},
+    {"hex_color": None, "width_cm": None, "height_cm": None},
+    {"hex_color": "#ABCDEF", "width_cm": "12.5", "height_cm": None},
+])
+def test_complete_template_explicit_null_dimensions_are_valid_worker_completion(monkeypatch, values):
+    identity = {"FOLDER": "TEST_0001_G01", "MANUFACTURER": "Test", "PRODUCT_NUMBER": "0001",
+        "PRODUCT_NAME": "Test", "CATEGORY": "G01", "BASE_NAME": "TEST_0001"}
+    request = {**REQUEST, "values": values, "identity": identity, "source_filename": "metadata.json"}
+    raw = rewrite_metadata_json(None, values, identity)
+    body = {"operation_id": request["operation_id"], "status": "COMPLETED", "failure_code": None,
+        "metadata": {"schema_version": 1, "source_filename": "metadata.json", "folder_name": identity["FOLDER"],
+            "status": "WARNING", "sha256": hashlib.sha256(raw).hexdigest(), "raw_content": raw.decode(), **values}}
+    monkeypatch.setattr(httpx, "stream", lambda *args, **kwargs: StreamingResponse([json.dumps(body).encode()]))
+    result = WorkerMetadataClient("http://worker", SecretStr("s" * 40), True).execute(request)
+    assert result.status == "COMPLETED" and result.metadata.height_cm is None
+    assert json.loads(result.metadata.raw_content)["TEXTURE_SIZE"]["cm"]["height"] is None
+
+
+@pytest.mark.parametrize("unsupported", [True, False, "12.5", [], {}, "NaN"])
+def test_null_dimension_support_does_not_accept_unsupported_json_types(monkeypatch, unsupported):
+    values = {"hex_color": "#ABCDEF", "width_cm": None, "height_cm": None}
+    request = {**REQUEST, "values": values, "source_filename": "metadata.json"}
+    document = json.loads(rewrite_metadata_json(None, values))
+    document["TEXTURE_SIZE"]["cm"]["width"] = unsupported
+    raw = json.dumps(document).encode()
+    body = {"operation_id": request["operation_id"], "status": "COMPLETED", "failure_code": None,
+        "metadata": {"schema_version": 1, "source_filename": "metadata.json", "folder_name": "TEST_0001_G01",
+            "status": "WARNING", "sha256": hashlib.sha256(raw).hexdigest(), "raw_content": raw.decode(), **values}}
+    monkeypatch.setattr(httpx, "stream", lambda *args, **kwargs: StreamingResponse([json.dumps(body).encode()]))
+    with pytest.raises(MetadataClientError):
+        WorkerMetadataClient("http://worker", SecretStr("s" * 40), True).execute(request)
 
 
 @pytest.mark.parametrize("change", ["operation", "folder", "hash", "color", "bytes", "extra", "version", "unicode_size"])

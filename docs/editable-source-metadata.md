@@ -9,6 +9,28 @@ verified source success. The native Windows adapter supports this workflow;
 its installation, filesystem boundary and recovery procedure are documented in
 [Windows desktop material library](desktop-material-library.md).
 
+### Production JSON shape
+
+Creating or saving root `metadata.json` fills the complete supplied production
+template, including resolution, crop, source, physical-size and color sections.
+Its ordering and four-space indentation match the sample. The sample's material
+values are not reused: identity comes from the current record/folder, editable
+values come from the editor/import, and unknown measurements remain null.
+Existing supported extra keys and precise numeric tokens are preserved.
+
+A bounded, verified inventory of relative paths supplies missing file-derived
+facts such as resolution folders, map shortcuts/counts, SBS and source folders.
+It does not decode or hash multi-gigabyte texture maps during a metadata save and
+does not claim a new color measurement or measured source. Both native Windows
+and Linux worker writers use the same document rules. Populated existing evidence
+is retained; incomplete or unsafe inventories cannot assert file-derived facts.
+Inches can be derived from known centimeter dimensions. Clearing a color resets
+its measurement proof while retaining the template's nested keys.
+
+Color HEX uses a keyboard-accessible swatch combobox, including No color and
+existing custom values. The material name is the entire uppercase component
+between the folder's number and category; `TILES-ORANGE` stays `TILES-ORANGE`.
+
 The `metadata.txt`, Linux-only writer and separate-content details below describe
 the earlier worker contract retained for compatibility. They do not restrict the
 current native JSON editor.

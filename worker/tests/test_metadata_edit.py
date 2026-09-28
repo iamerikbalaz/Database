@@ -156,3 +156,36 @@ def test_json_is_created_beside_untouched_legacy_and_receipt_binds_filename(fold
         enabled=True, source_filename="metadata.json", identity=identity) == result
     with pytest.raises(JournalError, match="JOURNAL_REQUEST_CONFLICT"):
         save(folders, key)
+
+
+def test_json_creation_enriches_complete_template_from_verified_filename_inventory(folders):
+    root, material, journal = folders
+    (material / "8K").mkdir(); (material / "SOURCE").mkdir()
+    for shortcut in ("COL", "DIFF", "ID", "SPEC"):
+        (material / "8K" / f"TEST_0001_{shortcut}_8K.jpg").write_bytes(b"Not decoded or copied as image measurements")
+    (material / "SOURCE" / f"{material.name}.sbs").write_bytes(b"Not decoded or used as sample-size provenance")
+    identity = {"FOLDER": material.name, "MANUFACTURER": "Test", "PRODUCT_NUMBER": "0001",
+        "PRODUCT_NAME": "Test sample", "CATEGORY": "G01", "BASE_NAME": "TEST_0001"}
+    result = execute_metadata_edit(root, journal, str(uuid4()), (material.name,), None, VALUES,
+        enabled=True, source_filename="metadata.json", identity=identity)
+    assert result["status"] == "COMPLETED"
+    document = json.loads((material / "metadata.json").read_bytes())
+    assert document["MAPS_SHORTCUTS"] == ["COL", "DIFF", "ID", "SPEC"]
+    assert document["RESOLUTIONS"]["8K"] == {"MAPS_SHORTCUTS": ["COL", "DIFF", "ID", "SPEC"], "FILE_COUNT": 4, "UNRECOGNIZED": []}
+    assert document["SOURCE"] == {"CROPS": [], "SBS": f"SOURCE/{material.name}.sbs", "REFERENCES": False, "ARCHIVE": False}
+    assert document["TEXTURE_SIZE_SOURCE"] is None and document["COLOR"]["measured_from"] is None
+    assert document["COLOR"]["runner_up"] == {"hex": None, "delta_e": None}
+
+
+@pytest.mark.parametrize("kind", ["symlink", "hardlink", "fifo"])
+def test_json_generation_rejects_unsafe_inventory_without_writing_metadata(folders, tmp_path, kind):
+    root, material, journal = folders
+    outside = tmp_path / "outside"; outside.write_bytes(b"Do not read")
+    entry = material / "unsafe"
+    if kind == "symlink": entry.symlink_to(outside)
+    elif kind == "hardlink": os.link(outside, entry)
+    else: os.mkfifo(entry)
+    result = execute_metadata_edit(root, journal, str(uuid4()), (material.name,), None, VALUES,
+        enabled=True, source_filename="metadata.json")
+    assert result["status"] == "REJECTED" and result["failure_code"] == "SOURCE_METADATA_UNSAFE_FILE"
+    assert not (material / "metadata.json").exists() and outside.read_bytes() == b"Do not read"

@@ -1,0 +1,81 @@
+{
+    "FOLDER": "SWISSPEARL_0001_4111-REFLEX-CRYSTAL_G03",
+    "MANUFACTURER": "SWISSPEARL",
+    "PRODUCT_NUMBER": "0001",
+    "PRODUCT_NAME": "4111-REFLEX-CRYSTAL",
+    "CATEGORY": "G03",
+    "BASE_NAME": "SWISSPEARL_0001_4111-REFLEX-CRYSTAL",
+    "TEXTURE_SIZE": {
+        "cm": {
+            "width": 12.957,
+            "height": 13.845
+        },
+        "in": {
+            "width": 5.1011,
+            "height": 5.4507
+        },
+        "method": "sbs_crop_matrix_inverse"
+    },
+    "TEXTURE_SIZE_SOURCE": "SWISSPEARL_0001_4111-REFLEX-CRYSTAL_G03.sbs",
+    "COLOR": {
+        "hex": "#999999",
+        "delta_e": 5.86,
+        "runner_up": {
+            "hex": "#CCCC99",
+            "delta_e": 17.25
+        },
+        "average_hex": "#ABABA7",
+        "average_rgb": [
+            171,
+            171,
+            167
+        ],
+        "method": "chromatic",
+        "measured_from": "SWISSPEARL_0001_4111-REFLEX-CRYSTAL_COL_4K.jpg",
+        "alternatives": {
+            "mean": "#999999",
+            "median": "#999999",
+            "dominant": "#999999",
+            "chromatic": "#999999"
+        }
+    },
+    "MAPS_SHORTCUTS": [
+        "AO",
+        "COL",
+        "DISP",
+        "DISP16",
+        "GLOSS",
+        "METAL",
+        "NRM",
+        "NRM16",
+        "ROUGH"
+    ],
+    "RESOLUTIONS": {
+        "4K": {
+            "MAPS_SHORTCUTS": [
+                "AO",
+                "COL",
+                "DISP",
+                "DISP16",
+                "GLOSS",
+                "METAL",
+                "NRM",
+                "NRM16",
+                "ROUGH"
+            ],
+            "FILE_COUNT": 9,
+            "UNRECOGNIZED": []
+        }
+    },
+    "SOURCE": {
+        "CROPS": [
+            "col",
+            "disp",
+            "nrm"
+        ],
+        "SBS": "SWISSPEARL_0001_4111-REFLEX-CRYSTAL_G03.sbs",
+        "REFERENCES": false,
+        "ARCHIVE": false
+    },
+    "WARNINGS": []
+}

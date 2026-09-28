@@ -64,3 +64,16 @@ def test_json_production_metadata_is_allowed_beside_verified_master_maps():
     payload["inventory"]["total_bytes"] += 1
     rehash(payload["inventory"])
     assert TechnicalReport.model_validate_json(json.dumps(payload)).can_approve
+
+
+@pytest.mark.parametrize("shortcut", ["DIFF", "METAL", "SPEC", "ID", "MASK"])
+def test_historical_map_codes_have_complete_bounded_image_proofs(shortcut):
+    payload = technical_payload()
+    image = {**payload["images"][0], "map": shortcut,
+        "path": "4K/SAFE_0001_G03_" + shortcut + "_4K.png", "sha256": "d" * 64}
+    payload["images"].append(image)
+    payload["inventory"]["entries"].append({"path": image["path"], "kind": "file", "size": 100, "sha256": image["sha256"]})
+    payload["inventory"]["total_bytes"] += 100
+    rehash(payload["inventory"])
+    result = TechnicalReport.model_validate_json(json.dumps(payload))
+    assert result.can_approve and {item.map for item in result.images} == {"COL", shortcut}

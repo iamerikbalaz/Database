@@ -14,7 +14,9 @@ from app.image_probe import MAX_PIXELS, MAX_SIDE
 from app.material_naming import map_bases
 from app.secure_filesystem import _metadata_flags, inspect_material_secure, open_material_directory
 
-MAPS = frozenset({"AO", "COL", "DISP16", "DISP", "GLOSS", "NRM16", "NRM", "ROUGH"})
+# Historical production materials also carry diffuse, metal, specular, ID and
+# mask maps. The archived ZIP scripts process these identically to other maps.
+MAPS = frozenset({"AO", "COL", "DIFF", "DISP16", "DISP", "GLOSS", "ID", "MASK", "METAL", "NRM16", "NRM", "ROUGH", "SPEC"})
 FORMATS = {"png": "PNG", "jpg": "JPEG", "jpeg": "JPEG", "tif": "TIFF", "tiff": "TIFF", "webp": "WEBP"}
 PROBE_ERRORS = frozenset({"IMAGE_DIMENSION_LIMIT", "IMAGE_MULTIFRAME_UNSUPPORTED", "IMAGE_UNREADABLE",
     "IMAGE_BIT_DEPTH_UNSUPPORTED", "IMAGE_MODE_UNSUPPORTED", "IMAGE_SOURCE_CHANGED", "IMAGE_PROBE_UNAVAILABLE",

@@ -468,6 +468,7 @@ class PBRMaterial(TimestampMixin, Base):
     __tablename__ = "pbr_materials"
     __table_args__ = (
         CheckConstraint("checked_status IN ('no', 'OK', 'Correction')", name="ck_pbr_materials_checked_status"),
+        CheckConstraint("automatic_file_check_status IN ('NOT_CHECKED', 'OK', 'ISSUES')", name="ck_material_automatic_file_check_status"),
         CheckConstraint(
             "sequence_number BETWEEN 1 AND 9999",
             name="ck_pbr_materials_sequence_number_range",
@@ -521,6 +522,12 @@ class PBRMaterial(TimestampMixin, Base):
     folder_path: Mapped[str | None] = mapped_column(String(2048), unique=True)
     checked_status: Mapped[str] = mapped_column(String(16), nullable=False, default="no", server_default=text("'no'"), index=True)
     note: Mapped[str | None] = mapped_column(Text)
+    automatic_file_check_status: Mapped[str] = mapped_column(String(16), nullable=False,
+        default="NOT_CHECKED", server_default=text("'NOT_CHECKED'"))
+    automatic_file_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    automatic_file_check_report: Mapped[str | None] = mapped_column(Text)
+    automatic_file_check_profile: Mapped[str | None] = mapped_column(String(32))
+    automatic_file_check_complete: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     workflow_status: Mapped[str] = mapped_column(
         String(32),
         nullable=False,

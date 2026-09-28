@@ -2331,7 +2331,7 @@ def _persist_material_at_schema(session, material):
     # Older migration fixtures use their historical schema, before the current
     # ORM's additive tracking columns exist.
     from sqlalchemy import Table, MetaData
-    if "checked_status" in {column["name"] for column in inspect(session.connection()).get_columns("pbr_materials")}:
+    if "automatic_file_check_status" in {column["name"] for column in inspect(session.connection()).get_columns("pbr_materials")}:
         material.metadata_state = PBRMaterialMetadata(); session.add(material)
     else:
         legacy = Table("pbr_materials", MetaData(), autoload_with=session.connection())

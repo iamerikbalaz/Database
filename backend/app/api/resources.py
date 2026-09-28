@@ -556,6 +556,10 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             statement = select(PBRMaterial).options(selectinload(PBRMaterial.lifecycle_state)).where(archived if filters.is_archived else ~archived)
             if access.user.role == "PROCESSOR":
                 statement = statement.where(PBRMaterial.assigned_processor_id == access.user.id)
+            if filters.color_hex:
+                statement = statement.where(PBRMaterial.metadata_state.has(
+                    PBRMaterialMetadata.hex_color.in_(filters.color_hex)
+                ))
             for field_name in (
                 "project_id",
                 "published_brand_id",

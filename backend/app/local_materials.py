@@ -131,7 +131,9 @@ class LocalMaterialLibrary:
         finally: self.picker_lock.release()
 
     def check(self, folder):
-        with self.lock:
+        # Pin all existing source files without hashing large texture payloads.
+        # These read handles prevent writes/renames during the observation.
+        with self.lock, self.fs.tree(folder, hash_files=False, for_rename=False) as (_, before, _):
             count = 0; size = 0; issues = []; pending = [folder]
             while pending:
                 listed = self.listing(pending.pop())
@@ -145,12 +147,21 @@ class LocalMaterialLibrary:
             if metadata.status != "VALID": issues.append("metadata.json: " + metadata.status)
             previews = self.previews.listing(folder)
             if not previews.items: issues.append("No supported previews in PREVIEW.")
+            with self.fs.tree(folder, hash_files=False, for_rename=False) as (_, after, _):
+                if before != after: raise LocalFilesError("LOCAL_SOURCE_CHANGED")
             report = "\n".join(["Basic material data check", datetime.now(timezone.utc).isoformat(),
                 "Folder: " + self.absolute(folder), f"Entries: {count}; file bytes: {size}",
                 f"metadata.json: {metadata.status}", f"Preview images: {len(previews.items)}", "",
                 "Issues:", *(issues or ["No issues in the basic checks."]), "",
                 "These checks inspect the folder tree, metadata and preview availability. Final map/ZIP validation rules are not configured yet."])
             return {"report": report, "issues": issues}
+
+    def save_check_report(self, report, *, open_report=True):
+        from app.local_check_reports import LocalCheckReports
+        reports = LocalCheckReports()
+        if reports.root.is_relative_to(self.fs.root) or self.fs.root.is_relative_to(reports.root):
+            raise LocalFilesError("LOCAL_REPORT_SOURCE_OVERLAP")
+        return reports.save(report, open_report=open_report)
 
     def journal_state(self, operation_id, request):
         key = str(UUID(operation_id)); directory = self.journal.root / key

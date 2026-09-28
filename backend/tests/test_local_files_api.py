@@ -65,7 +65,7 @@ def test_local_routes_use_authenticated_material_scope(local_case, role):
         for method, suffix, action in ROUTES:
             library.calls.clear()
             response = client.request(method, url + suffix)
-            expected = 401 if role is None else 403 if action == "select_destination" and role not in {"ADMIN", "PRODUCTION_LEAD"} else 404 if role == "OTHER" else 200
+            expected = 401 if role is None else 403 if ((action == "select_destination" and role not in {"ADMIN", "PRODUCTION_LEAD"}) or (action == "check" and role == "LEADERSHIP")) else 404 if role == "OTHER" else 200
             assert response.status_code == expected, (role, suffix, response.text)
             assert response.headers["cache-control"] == "no-store"
             if expected != 200:

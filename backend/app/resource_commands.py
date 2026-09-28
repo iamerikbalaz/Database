@@ -37,6 +37,12 @@ KINDS = {
 PRIVILEGES = {"ADMIN": ADMIN, "CATALOG": CATALOG_MANAGERS, "MATERIAL_NAME": MATERIAL_EDITORS}
 
 
+class _LegacyMaterialReceiptRead(PBRMaterialRead):
+    # Pre-release 0033 receipts included the full report. Keep those immutable
+    # responses replayable, while new list/read/write responses omit the report.
+    automatic_file_check_report: str | None = None
+
+
 def command_for_actor(session, actor_id, key):
     return session.scalar(select(ResourceCommand).where(ResourceCommand.actor_id == actor_id, ResourceCommand.request_key == key))
 
@@ -58,6 +64,8 @@ def authorize_receipt(session, access, receipt):
 def saved_response(receipt):
     try:
         schema = KINDS[receipt.kind][1]
+        if receipt.kind == "MATERIAL" and "automatic_file_check_report" in receipt.response_snapshot:
+            schema = _LegacyMaterialReceiptRead
         result = schema.model_validate(receipt.response_snapshot).model_dump(mode="json", exclude_unset=True)
         if result != receipt.response_snapshot or result["id"] != str(getattr(receipt, KINDS[receipt.kind][2])) or canonical_hash(result) != receipt.response_hash:
             raise ValueError("Invalid command receipt")

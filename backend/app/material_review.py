@@ -42,6 +42,13 @@ def read_review(state: MaterialReviewState | None) -> dict:
 def invalidate_review(session: Session, material: PBRMaterial, actor_id: UUID,
                       reason: str, *, record_event: bool = True) -> MaterialReviewState | None:
     material.checked_status = "no"
+    # This is independently produced by file inspection, never by the human
+    # Checked property or the older workflow validation/approval machinery.
+    material.automatic_file_check_status = "NOT_CHECKED"
+    material.automatic_file_checked_at = None
+    material.automatic_file_check_report = None
+    material.automatic_file_check_profile = None
+    material.automatic_file_check_complete = False
     state = session.get(MaterialReviewState, material.id)
     if state is None:
         return None  # No inventory or approval exists yet to invalidate.

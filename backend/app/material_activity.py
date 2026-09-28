@@ -17,6 +17,7 @@ SOURCES = {
     "import": MaterialImportBatch,
 }
 LABELS = {"material_name": "Name", "main_category_code": "Main category", "workflow_status": "Status",
+    "automatic_file_check_status": "Automatic file check",
     "checked_status": "Checked", "is_published": "Published", "is_archived": "Archived", "note": "Note",
     "project_id": "Project", "published_brand_id": "Brand", "assigned_processor_id": "Processor",
     "folder_path": "Folder", "technical_identity": "Technical identity", "description": "Description",

@@ -291,6 +291,10 @@ class PBRMaterialUpdate(ApiSchema):
 
 
 class PBRMaterialRead(PBRMaterialFields):
+    automatic_file_check_status: Literal["NOT_CHECKED", "OK", "ISSUES"] = "NOT_CHECKED"
+    automatic_file_checked_at: datetime | None = None
+    automatic_file_check_profile: str | None = None
+    automatic_file_check_complete: bool = False
     checked_status: Literal["no", "OK", "Correction"] = "no"
     note: str | None = None
     project_id: UUID | None
@@ -313,6 +317,7 @@ class PBRMaterialListingRead(PBRMaterialRead):
 
 
 class PBRMaterialListFilters(ApiSchema):
+    color_hex: list[HexColor] = Field(default_factory=list, max_length=32)
     is_archived: bool = False
     checked_status: Literal["no", "OK", "Correction"] | None = None
     project_id: UUID | None = None

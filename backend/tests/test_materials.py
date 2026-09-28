@@ -136,6 +136,33 @@ def setup_material_parents(client: TestClient) -> tuple[dict[str, object], dict[
     return create_project(client, company["id"]), create_brand(client, company["id"])
 
 
+def test_color_filters_match_any_selected_color_and_intersect_other_filters(material_client):
+    client, database = material_client
+    project, brand = setup_material_parents(client)
+    rows = [create_material(client, project["id"], brand["id"], material_name=f"Color {index}",
+        main_category_code="G03" if index < 3 else "B03") for index in range(4)]
+    with database.session() as session:
+        for material, color in zip(rows, ["#FFFFFF", "#FF822D", None, "#FFFFFF"]):
+            session.get(PBRMaterial, UUID(material["id"])).metadata_state.hex_color = color
+        session.commit()
+    response = client.get("/api/materials", params=[("color_hex", "#FFFFFF"), ("color_hex", "#FF822D"), ("main_category_code", "G03")])
+    assert response.status_code == 200, response.text
+    assert {row["id"] for row in response.json()} == {rows[0]["id"], rows[1]["id"]}
+    assert client.get("/api/materials", params={"color_hex": "#009999"}).json() == []
+    assert len(client.get("/api/materials").json()) == 4
+
+
+@pytest.mark.parametrize("value", ["red", "#ffffff", "#FFFFFF' OR 1=1", "#FFF", "url(x)"])
+def test_color_filters_reject_invalid_hex(material_client, value):
+    client, _ = material_client
+    assert client.get("/api/materials", params={"color_hex": value}).status_code == 422
+
+
+def test_color_filter_count_is_bounded(material_client):
+    client, _ = material_client
+    assert client.get("/api/materials", params=[("color_hex", "#FFFFFF")] * 33).status_code == 422
+
+
 def test_create_material_assigns_first_number_and_defaults(
     material_client: tuple[TestClient, Database],
 ) -> None:

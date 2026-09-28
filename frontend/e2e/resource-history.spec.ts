@@ -7,6 +7,7 @@ test("ordinary resource histories retain their actor and before/after values aft
   const auth = await (await page.request.get("/api/auth/session")).json();
   const headers = { Origin: runManifest.frontendUrl, "X-CSRF-Token": auth.csrf_token };
   const suffix = runManifest.runGuid.replaceAll("-", ""), name = "E2E audit " + suffix;
+  const materialName = "E2E-AUDIT-" + suffix.toUpperCase();
   async function create(segment: string, data: Record<string, unknown>) {
     const response = await page.request.post(`/api/${segment}`, { headers, data });
     expect(response.status()).toBe(201); return response.json();
@@ -36,7 +37,7 @@ test("ordinary resource histories retain their actor and before/after values aft
     ["BRAND", "brands", brand.id, `/brands/${brand.id}`, "Brand change history", name + " revised"],
     ["PROJECT", "projects", project.id, `/projects/${project.id}`, "Project change history", "Synthetic audit project note"],
     ["USER", "internal-users", user.id, "/settings/users", "Account profile change history", name + " revised"],
-    ["MATERIAL", "materials", material.id, `/materials/${material.id}`, "Material record change history", name + " revised"],
+    ["MATERIAL", "materials", material.id, `/materials/${material.id}`, "Material record change history", materialName + "-REVISED"],
   ] as const) {
     const response = await page.request.get(`/api/${segment}/${id}/history`); expect(response.status()).toBe(200);
     const history = await response.json(); expect(history.resource_kind).toBe(kind); expect(history.resource_id).toBe(id);
@@ -53,7 +54,7 @@ test("ordinary resource histories retain their actor and before/after values aft
     await expect(entry.getByText(expected, { exact: true })).toBeVisible();
     if (kind === "MATERIAL") await expect(entry.getByText(`Author: ${auth.user.display_name}`, { exact: true })).toBeVisible();
     else await expect(entry.getByText(`Actor: ${auth.user.id}`, { exact: true })).toBeVisible();
-    if (kind !== "PROJECT") await expect(entry.getByText(name, { exact: true })).toBeVisible();
+    if (kind !== "PROJECT") await expect(entry.getByText(kind === "MATERIAL" ? materialName : name, { exact: true })).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await panel.screenshot({ path: test.info().outputPath(`resource-history-${kind.toLowerCase()}-mobile.png`) });

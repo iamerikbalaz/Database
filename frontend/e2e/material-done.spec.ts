@@ -175,7 +175,7 @@ test("happy path persists Done metadata and snapshot after reload", async ({ pag
   await page.getByRole("link", { name: "Materials", exact: true }).click();
   await expect(page).toHaveURL(/\/materials$/);
   await page.getByRole("link", { name: state.valid.technical_identity, exact: true }).click();
-  await expect(page.getByRole("heading", { name: "E2E Valid Metadata" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: state.valid.material_name, exact: true })).toBeVisible();
   await expect(materialFact(page, "Project")).toContainText("E2E Disposable Project");
   await expect(materialFact(page, "Published brand")).toContainText("E2E Published Brand");
 
@@ -201,7 +201,7 @@ test("happy path persists Done metadata and snapshot after reload", async ({ pag
   expect(await doneResponse.json()).toMatchObject({ workflow_status: "DONE" });
   expect(await savedMetadata(page, state.valid.id, "VALID")).toMatchObject({ hex_color: "#A1B2C3" });
   await expect(materialFact(page, "Status").getByRole("combobox")).toHaveValue("DONE");
-  await expect(page.getByRole("combobox", { name: "Color HEX", exact: true })).toHaveValue("#A1B2C3");
+  await expect(page.getByRole("combobox", { name: "Color HEX", exact: true })).toHaveText(/#A1B2C3/);
 
   await waitForMaterialReads(page);
   await page.reload();
@@ -227,7 +227,7 @@ test("missing metadata remains non-blocking and its warning persists", async ({ 
   await expect(materialFact(page, "Status").getByRole("combobox")).toHaveValue("DONE");
   const metadata = await savedMetadata(page, state.missing.id, "MISSING");
   expect(metadata.warnings.some((item: { code: string }) => item.code === "SOURCE_METADATA_MISSING")).toBe(true);
-  await expect(page.getByRole("combobox", { name: "Color HEX", exact: true })).toHaveValue("");
+  await expect(page.getByRole("combobox", { name: "Color HEX", exact: true })).toHaveText(/No color/);
 });
 
 test("unsupported metadata dimensions stay nonblocking across worker, API and PostgreSQL", async ({ page }) => {

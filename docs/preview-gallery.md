@@ -8,11 +8,18 @@ display mode and size preference are saved in browser storage.
 
 Each tile uses direct PNGs from the linked material's `PREVIEW` directory.
 `FABRIC_1.png` takes priority, then `SPHERE_1.png`, case-insensitively; when neither
-exists, the first other PNG in natural filename order is shown. Small corner
+exists, the first other PNG in the numbered order below is shown. Small corner
 arrows cycle all PNGs and show the current position. Clicking the preview or its
 caption opens the detail. Missing folders/images remain explicit empty states;
 failed reads have a **Retry preview** action. The former two-material Compare
 screen and navigation item are removed; old `/compare` links open this grid.
+
+The material card and list/gallery share the same ordering. Primary
+`FABRIC_1`/`SPHERE_1` images come first, followed by the numeric suffix after the
+last underscore: for example `WALL_2`, `FLOOR_3`, `BATHROOM_10`. Ties use natural
+filename order; unnumbered files follow numbered files. Reload returns to the
+primary preview. The card caption includes the source filename and original
+pixel dimensions.
 
 Only materials returned by the current authorized/filter-scoped list are shown.
 Switching List/Gallery retains filters without requesting the list again. The

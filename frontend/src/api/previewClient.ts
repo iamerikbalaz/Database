@@ -1,6 +1,7 @@
 import { request } from "./client";
 import { boolean, record, string, uuid } from "./dto";
 import { apiUrl, notifySessionInvalidation, sessionGeneration } from "../auth/sessionTransport";
+import { orderPreviews } from "../previewOrder";
 
 const MAX_IMAGE_BYTES = 2 * 1024 ** 2;
 function integer(input: unknown, max: number, min = 0): number {
@@ -27,7 +28,7 @@ export function previewListingFromDto(input: unknown, materialId: string) {
   const missing = boolean(value.missing), ignoredEntries = integer(value.ignored_entries, 512);
   if (new Set(items.map((item) => item.name)).size !== items.length || (missing && (items.length || ignoredEntries)) ||
       items.length + ignoredEntries > 512 || items.reduce((total, item) => total + item.size, 0) > 512 * 1024 ** 2) throw new Error("Inconsistent preview listing");
-  return { items, missing, ignoredEntries };
+  return { items: orderPreviews(items), missing, ignoredEntries };
 }
 export type PreviewEntry = ReturnType<typeof previewListingFromDto>["items"][number];
 export const previewClient = {

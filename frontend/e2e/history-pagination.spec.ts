@@ -9,6 +9,7 @@ test("older content history remains reachable after restart without replacing th
   const auth = await (await page.request.get("/api/auth/session")).json();
   const headers = { Origin: runManifest.frontendUrl, "X-CSRF-Token": auth.csrf_token };
   const name = "E2E paged history " + runManifest.runGuid;
+  const materialName = "E2E-PAGED-HISTORY-" + runManifest.runGuid.toUpperCase();
   let id: string;
   if (!retainedPass) {
     const template = await (await page.request.get(`/api/materials/${runManifest.state.content.id}`)).json();
@@ -31,7 +32,7 @@ test("older content history remains reachable after restart without replacing th
     }
   } else {
     const materials = await page.request.get("/api/materials"); expect(materials.status()).toBe(200);
-    const material = (await materials.json()).find((item: { material_name: string }) => item.material_name === name);
+    const material = (await materials.json()).find((item: { material_name: string }) => item.material_name === materialName);
     expect(material).toBeTruthy(); id = material.id;
   }
   await page.goto(`/materials/${id}`);

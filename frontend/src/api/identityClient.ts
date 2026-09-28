@@ -39,7 +39,7 @@ function plan(value: unknown) {
     workerHash: hash(worker.plan_hash), sourceHash: hash(worker.source_revision_hash), ready, errors,
     warnings: list(worker.warnings, 10, finding),
     metadata: { beforeHash: metadata.before_hash === null ? null : hash(metadata.before_hash), afterHash: metadata.after_hash === null ? null : hash(metadata.after_hash),
-      fields: list(metadata.changed_fields, 9, string) },
+      fields: list(metadata.changed_fields, 10, string) },
     changes: list(worker.changes, 20000, (value) => { const item = record(value);
       if (item.kind !== "file" && item.kind !== "directory") throw new Error("Unknown rename kind");
       return { source: string(item.source), target: string(item.target), kind: item.kind,

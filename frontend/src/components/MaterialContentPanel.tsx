@@ -6,7 +6,7 @@ import { metadataClient, type MetadataObservation, type MetadataOperation, type 
 import { materialLocalClient } from "../api/materialLocalClient";
 import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
-import { materialColors } from "../data/materialColors";
+import { MaterialColorSelect } from "./MaterialColorSelect";
 import { useNavigationGuard } from "../navigationGuard";
 import { ErrorState, LoadingState } from "./PageState";
 
@@ -108,11 +108,7 @@ function ContentEditor({ material, content, categories, collections, source, onS
     <form onSubmit={event => { event.preventDefault(); void save(); }} noValidate>
       <fieldset disabled={!allowed || busy || disabled}><legend>Material data for library</legend>
         <div className="form-grid">
-          <label>Color HEX<div className="material-color-input"><span className="material-color-swatch" style={{ backgroundColor: color || "transparent" }} aria-hidden="true" />
-            <select aria-label="Color HEX" value={color} disabled={!sourceReady} onChange={event => setColor(event.target.value)}>
-              <option value="">No color</option>{color && !materialColors.includes(color) && <option value={color}>{color} (recorded value)</option>}
-              {materialColors.map(value => <option key={value} value={value}>{value}</option>)}
-            </select></div></label>
+          <MaterialColorSelect value={color} disabled={!sourceReady} onChange={setColor} />
           <label>Sample width (cm)<input aria-label="Sample width (cm)" type="number" min="0.1" max="99999999.9" step="0.1" value={width} disabled={!sourceReady}
             onChange={event => { setWidth(event.target.value); setWidthEdited(true); }} /></label>
           <label>Sample height (cm)<input aria-label="Sample height (cm)" type="number" min="0.1" max="99999999.9" step="0.1" value={height} disabled={!sourceReady}

@@ -23,7 +23,7 @@ test("approved sources and human-reviewed AI proposals retain provenance after r
       tags: ["original"], category_ids: [(await category.json()).id], collection_ids: [], reason: "Prepare synthetic adoption comparison",
     } })).status()).toBe(200);
   } else {
-    const materials = await (await page.request.get("/api/materials?search=E2E%20AI%20Provenance")).json();
+    const materials = await (await page.request.get("/api/materials?search=E2E-AI-PROVENANCE")).json();
     expect(materials).toHaveLength(1); id = materials[0].id;
   }
   const api = `/api/materials/${id}`;
@@ -114,7 +114,7 @@ test("one-material AI service access is revocable and its proposal history survi
       expect((await ai.post(`/api/ai/materials/${id}/content-drafts`, { data: proposal })).status()).toBe(401);
     } finally { await ai.dispose(); }
   } else {
-    const rows = await (await page.request.get("/api/materials?search=E2E%20AI%20Service")).json();
+    const rows = await (await page.request.get("/api/materials?search=E2E-AI-SERVICE")).json();
     expect(rows).toHaveLength(1); id = rows[0].id;
   }
   const target = `/api/materials/${id}`;

@@ -8,6 +8,7 @@ test("a lost material-create response recovers exactly once and survives restart
   const auth = await (await page.request.get("/api/auth/session")).json();
   const headers = { Origin: runManifest.frontendUrl, "X-CSRF-Token": auth.csrf_token };
   const name = "E2E recovered material " + runManifest.runGuid, key = runManifest.runGuid;
+  const materialName = "E2E-RECOVERED-MATERIAL-" + runManifest.runGuid.toUpperCase();
   let id: string;
   if (!retainedPass) {
     // Use the runner's unique UUID as this one browser command key so the second
@@ -51,11 +52,11 @@ test("a lost material-create response recovers exactly once and survives restart
     expect(sent).toBe(1); await page.unroute("**/api/materials");
     expect((await page.request.patch(`/api/materials/${id}`, { headers, data: { material_name: name + " later" } })).status()).toBe(200);
   } else {
-    const found = await page.request.get("/api/materials", { params: { search: name } }); expect(found.status()).toBe(200);
+    const found = await page.request.get("/api/materials", { params: { search: materialName } }); expect(found.status()).toBe(200);
     const materials = await found.json(); expect(materials).toHaveLength(1); id = materials[0].id;
   }
   const recovered = await page.request.get(`/api/resource-commands/${key}`); expect(recovered.status()).toBe(200);
-  const receipt = await recovered.json(); expect(receipt.resource_id).toBe(id); expect(receipt.response.material_name).toBe(name);
+  const receipt = await recovered.json(); expect(receipt.resource_id).toBe(id); expect(receipt.response.material_name).toBe(materialName);
   const original = receipt.response;
   const replay = await page.request.post("/api/materials", { headers: { ...headers, "Idempotency-Key": key }, data: {
     project_id: original.project_id, published_brand_id: original.published_brand_id, assigned_processor_id: original.assigned_processor_id,
@@ -63,7 +64,7 @@ test("a lost material-create response recovers exactly once and survives restart
   } });
   expect(replay.status()).toBe(201); expect(replay.headers()["idempotency-replayed"]).toBe("true");
   expect(await replay.json()).toEqual(original);
-  const current = await (await page.request.get(`/api/materials/${id}`)).json(); expect(current.material_name).toBe(name + " later");
+  const current = await (await page.request.get(`/api/materials/${id}`)).json(); expect(current.material_name).toBe(materialName + "-LATER");
   expect((await (await page.request.get(`/api/brands/${original.published_brand_id}`)).json()).next_sequence_number).toBe(2);
-  expect(await (await page.request.get("/api/materials", { params: { search: name } })).json()).toHaveLength(1);
+  expect(await (await page.request.get("/api/materials", { params: { search: materialName } })).json()).toHaveLength(1);
 });

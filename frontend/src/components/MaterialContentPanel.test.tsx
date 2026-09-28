@@ -140,10 +140,11 @@ it("locks the main category and saves content and source values in one durable r
   const { changed, posts } = setup("ADMIN", false, true);
   const main = await screen.findByRole("checkbox", { name: "Stone (Main category)" });
   expect(main).toBeChecked(); expect(main).toBeDisabled();
-  expect(screen.getByRole("combobox", { name: "Color HEX" })).toHaveValue("#A1B2C3");
+  expect(screen.getByRole("combobox", { name: "Color HEX" })).toHaveTextContent("#A1B2C3");
   expect(screen.getByRole("spinbutton", { name: "Sample width (cm)" })).toHaveAttribute("step", "0.1");
   fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Combined change" } });
-  fireEvent.change(screen.getByRole("combobox", { name: "Color HEX" }), { target: { value: "#999999" } });
+  fireEvent.click(screen.getByRole("combobox", { name: "Color HEX" }));
+  fireEvent.click(screen.getByRole("option", { name: "#999999" }));
   fireEvent.click(screen.getByRole("button", { name: "Save library data" }));
   await waitFor(() => expect(changed).toHaveBeenCalledOnce());
   expect(posts).toHaveLength(0);

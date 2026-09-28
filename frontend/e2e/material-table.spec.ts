@@ -9,6 +9,7 @@ test("material table edits, frozen bulk selection and lost-response recovery per
   const session = await (await page.request.get("/api/auth/session")).json();
   const headers = { Origin: runManifest.frontendUrl, "X-CSRF-Token": session.csrf_token };
   const prefix = "Table workflow ";
+  const displayPrefix = "TABLE-WORKFLOW-";
   if (!retainedPass) {
     const template = await (await page.request.get(`/api/materials/${runManifest.state.valid.id}`)).json();
     const brandResult = await page.request.post("/api/brands", { headers, data: { company_id: runManifest.state.companyId,
@@ -28,11 +29,11 @@ test("material table edits, frozen bulk selection and lost-response recovery per
     }
   }
   await page.goto("/materials"); await page.getByRole("button", { name: "List", exact: true }).click();
-  await page.getByRole("searchbox", { name: "Search materials" }).fill(prefix);
+  await page.getByRole("searchbox", { name: "Search materials" }).fill(displayPrefix);
   await expect(page.locator("tbody tr")).toHaveCount(2);
-  const records = await (await page.request.get("/api/materials", { params: { search: prefix } })).json();
+  const records = await (await page.request.get("/api/materials", { params: { search: displayPrefix } })).json();
   expect(records).toHaveLength(2);
-  const one = records.find((row: { material_name: string }) => row.material_name === prefix + "one");
+  const one = records.find((row: { material_name: string }) => row.material_name === displayPrefix + "ONE");
   if (!retainedPass) {
     await page.getByRole("checkbox", { name: "Select all visible materials" }).click();
     await page.getByRole("button", { name: "Review bulk change" }).click();
@@ -40,21 +41,21 @@ test("material table edits, frozen bulk selection and lost-response recovery per
     await dialog.getByRole("button", { name: "Apply change", exact: true }).click();
     await expect(dialog.getByText(/2 saved · 0 rejected/)).toBeVisible();
     await dialog.getByRole("button", { name: "Close report" }).click();
-    for (const name of ["one", "two"]) await expect(page.getByRole("combobox", { name: `Status for ${prefix}${name}` })).toHaveValue("DONE");
-    await page.getByRole("combobox", { name: `Checked for ${prefix}one` }).selectOption("OK");
-    await expect(page.getByRole("combobox", { name: `Checked for ${prefix}one` })).toBeEnabled();
-    await page.getByRole("combobox", { name: `Checked for ${prefix}one` }).selectOption("Correction");
-    await expect(page.getByRole("combobox", { name: `Status for ${prefix}one` })).toHaveValue("IN_PROGRESS");
-    await page.getByRole("combobox", { name: `Status for ${prefix}one` }).selectOption("DONE");
-    await expect(page.getByRole("combobox", { name: `Checked for ${prefix}one` })).toHaveValue("no");
-    await expect(page.getByRole("combobox", { name: `Status for ${prefix}one` })).toBeEnabled();
+    for (const name of ["one", "two"]) await expect(page.getByRole("combobox", { name: `Status for ${displayPrefix}${name.toUpperCase()}` })).toHaveValue("DONE");
+    await page.getByRole("combobox", { name: `Checked for ${displayPrefix}ONE` }).selectOption("OK");
+    await expect(page.getByRole("combobox", { name: `Checked for ${displayPrefix}ONE` })).toBeEnabled();
+    await page.getByRole("combobox", { name: `Checked for ${displayPrefix}ONE` }).selectOption("Correction");
+    await expect(page.getByRole("combobox", { name: `Status for ${displayPrefix}ONE` })).toHaveValue("IN_PROGRESS");
+    await page.getByRole("combobox", { name: `Status for ${displayPrefix}ONE` }).selectOption("DONE");
+    await expect(page.getByRole("combobox", { name: `Checked for ${displayPrefix}ONE` })).toHaveValue("no");
+    await expect(page.getByRole("combobox", { name: `Status for ${displayPrefix}ONE` })).toBeEnabled();
     let sentKey = "";
     const routePath = `**/api/materials/${one.id}/table`;
     await page.route(routePath, async route => {
       sentKey = route.request().headers()["idempotency-key"];
       const actual = await route.fetch(); expect(actual.status()).toBe(200); await route.abort("failed");
     });
-    await page.getByRole("textbox", { name: `Note for ${prefix}one` }).fill("Checked texture\nKeep this note");
+    await page.getByRole("textbox", { name: `Note for ${displayPrefix}ONE` }).fill("Checked texture\nKeep this note");
     await page.getByRole("button", { name: "Save note" }).click();
     await expect(page.getByRole("button", { name: "Retry same request", exact: true })).toBeVisible();
     await page.unroute(routePath);
@@ -63,17 +64,17 @@ test("material table edits, frozen bulk selection and lost-response recovery per
     const replay = await replayPromise;
     expect(replay.headers()["idempotency-replayed"]).toBe("true");
     expect(replay.request().headers()["idempotency-key"]).toBe(sentKey);
-    await expect(page.getByRole("checkbox", { name: `Published for ${prefix}one` })).toBeEnabled();
-    await page.getByRole("checkbox", { name: `Published for ${prefix}one` }).click();
-    await expect(page.getByRole("checkbox", { name: `Published for ${prefix}one` })).toBeChecked();
-    await expect(page.getByRole("checkbox", { name: `Published for ${prefix}one` })).toBeEnabled();
+    await expect(page.getByRole("checkbox", { name: `Published for ${displayPrefix}ONE` })).toBeEnabled();
+    await page.getByRole("checkbox", { name: `Published for ${displayPrefix}ONE` }).click();
+    await expect(page.getByRole("checkbox", { name: `Published for ${displayPrefix}ONE` })).toBeChecked();
+    await expect(page.getByRole("checkbox", { name: `Published for ${displayPrefix}ONE` })).toBeEnabled();
   }
-  await page.reload(); await page.getByRole("searchbox", { name: "Search materials" }).fill(prefix);
+  await page.reload(); await page.getByRole("searchbox", { name: "Search materials" }).fill(displayPrefix);
   await expect(page.locator("tbody tr")).toHaveCount(2);
-  await expect(page.getByRole("textbox", { name: `Note for ${prefix}one` })).toHaveValue("Checked texture\nKeep this note");
-  await expect(page.getByRole("checkbox", { name: `Published for ${prefix}one` })).toBeChecked();
-  await expect(page.getByRole("combobox", { name: `Checked for ${prefix}one` })).toHaveValue("no");
-  await expect(page.getByRole("combobox", { name: `Category for ${prefix}one` })).toHaveValue("K03");
+  await expect(page.getByRole("textbox", { name: `Note for ${displayPrefix}ONE` })).toHaveValue("Checked texture\nKeep this note");
+  await expect(page.getByRole("checkbox", { name: `Published for ${displayPrefix}ONE` })).toBeChecked();
+  await expect(page.getByRole("combobox", { name: `Checked for ${displayPrefix}ONE` })).toHaveValue("no");
+  await expect(page.getByRole("combobox", { name: `Category for ${displayPrefix}ONE` })).toHaveValue("K03");
   const saved = await (await page.request.get(`/api/materials/${one.id}`)).json();
   expect(saved.workflow_status).toBe("DONE"); expect(saved.publication_status).toBe("NOT_PUBLISHED");
   expect((await (await page.request.get(`/api/materials/${one.id}/metadata/snapshots`)).json())).toHaveLength(2);

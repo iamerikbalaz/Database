@@ -1409,9 +1409,17 @@ a.button {
 .material-file-tree__file small { color:var(--muted); white-space:nowrap; }
 .material-data-folder > label { display:grid; gap:.5rem; }
 .folder-absolute-path { width:100%; min-width:0; overflow-wrap:anywhere; padding:.7rem; border:1px solid var(--border); border-radius:10px; font:inherit; }
-.material-color-input { display:flex; gap:.5rem; align-items:center; }
-.material-color-input select { min-width:0; flex:1; padding:.7rem; border:1px solid var(--border); border-radius:10px; background:white; font:inherit; }
+.material-color-field { position:relative; display:grid; gap:.5rem; min-width:0; }
+.material-color-select { display:flex; align-items:center; gap:.6rem; width:100%; min-width:0; padding:.7rem; border:1px solid var(--border); border-radius:10px; background:white; color:var(--text, #1f2444); font:inherit; text-align:left; cursor:pointer; }
+.material-color-select:disabled { opacity:.6; cursor:default; }
+.material-color-select:focus-visible { outline:2px solid #394173; outline-offset:2px; }
+.material-color-chevron, .material-color-check { margin-left:auto; }
+.material-color-options { position:absolute; top:100%; left:0; right:0; z-index:20; max-height:18rem; overflow-y:auto; margin-top:4px; padding:5px; border:1px solid var(--border); border-radius:12px; background:#fff; box-shadow:0 12px 30px #1f24441f; }
+.material-color-option { display:flex; align-items:center; gap:.6rem; padding:.5rem; border-radius:8px; cursor:pointer; }
+.material-color-option--active { background:#dde0ed; }
+.material-color-option[aria-selected="true"] { font-weight:600; }
 .material-color-swatch { width:28px; height:28px; flex:0 0 28px; border:1px solid var(--border); border-radius:7px; }
+.material-color-swatch--empty { background:linear-gradient(135deg, transparent 46%, #9093b9 47%, #9093b9 53%, transparent 54%), #fff; }
 .catalog-content .checkbox-label, .checkbox-label { display:flex; align-items:center; gap:.6rem; }
 .checkbox-label input[type=checkbox], .material-property-editor input[type=checkbox], .material-archive-control input[type=checkbox] { width:16px; height:16px; min-width:16px; min-height:16px; margin:0; padding:0; flex:0 0 16px; }
 .material-name-dialog { width:min(720px, calc(100vw - 2rem)); max-height:90vh; overflow:auto; }

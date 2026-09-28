@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { previewClient, type PreviewEntry } from "../api/previewClient";
 import { useResource } from "../api/useResource";
 import { ErrorState, LoadingState } from "./PageState";
+import { orderPreviews } from "../previewOrder";
 
 function PreviewImage({ materialId, entry }: { materialId: string; entry: PreviewEntry }) {
   const [attempt, setAttempt] = useState(0);
@@ -27,23 +28,21 @@ function GalleryContents({ materialId }: { materialId: string }) {
   const load = useCallback(() => previewClient.listing(materialId), [materialId]);
   const resource = useResource(load);
   const [selectedName, setSelectedName] = useState("");
-  const selected = resource.data?.items.find((item) => item.name === selectedName)
-    ?? resource.data?.items.find((item) => item.name.toUpperCase() === "FABRIC_1.PNG")
-    ?? resource.data?.items.find((item) => item.name.toUpperCase() === "SPHERE_1.PNG")
-    ?? resource.data?.items[0];
+  const items = useMemo(() => orderPreviews(resource.data?.items ?? []), [resource.data]);
+  const selected = items.find((item) => item.name === selectedName) ?? items[0];
   return <>
     {resource.error ? <ErrorState message="The preview gallery could not be loaded. Check access, the source folder and any active identity operation." retry={resource.retry} /> : !resource.data ? <LoadingState label="Loading gallery…" /> : <>
       {resource.data.missing ? <p>The linked material has no PREVIEW folder.</p> : resource.data.items.length === 0 ? <p>No supported preview images were found.</p> : <>
         <div className="preview-navigation" aria-label="Preview image">
-          <button type="button" className="button" aria-label="Previous preview" disabled={resource.data.items.length < 2} onClick={() => { const items = resource.data!.items; setSelectedName(items[(items.indexOf(selected!) + items.length - 1) % items.length].name); }}>←</button>
-          <span>{resource.data.items.indexOf(selected!) + 1} / {resource.data.items.length}</span>
-          <button type="button" className="button" aria-label="Next preview" disabled={resource.data.items.length < 2} onClick={() => { const items = resource.data!.items; setSelectedName(items[(items.indexOf(selected!) + 1) % items.length].name); }}>→</button>
+          <button type="button" className="button" aria-label="Previous preview" disabled={items.length < 2} onClick={() => setSelectedName(items[(items.indexOf(selected!) + items.length - 1) % items.length].name)}>←</button>
+          <span>{items.indexOf(selected!) + 1} / {items.length}</span>
+          <button type="button" className="button" aria-label="Next preview" disabled={items.length < 2} onClick={() => setSelectedName(items[(items.indexOf(selected!) + 1) % items.length].name)}>→</button>
         </div>
         {selected && <PreviewImage key={`${materialId}-${selected.name}-${selected.sha256}`} materialId={materialId} entry={selected} />}
       </>}
       {resource.data.ignoredEntries > 0 && <p>{resource.data.ignoredEntries} other entries were omitted. The gallery shows images directly inside PREVIEW.</p>}
     </>}
-    <button className="button" onClick={resource.retry}>Reload preview gallery</button>
+    <button className="button" onClick={() => { setSelectedName(""); resource.retry(); }}>Reload preview gallery</button>
   </>;
 }
 

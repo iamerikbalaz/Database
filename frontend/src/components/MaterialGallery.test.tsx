@@ -52,7 +52,22 @@ it("opens the primary material preview before other alphabetically listed images
   mount(true, true);
   await screen.findByRole("img", { name: "Preview: FABRIC_1.png" });
   expect(previewClient.image).toHaveBeenCalledWith(materialDto.id, fabric, expect.any(AbortSignal));
+  fireEvent.click(screen.getByRole("button", { name: "Next preview" }));
+  await screen.findByRole("img", { name: "Preview: SPHERE_1.png" });
+});
+it("cycles by numeric suffix and reloads at the primary preview", async () => {
+  const names = ["BATHROOM_10.png", "FLOOR_3.png", "WALL_2.png", "SPHERE_1.png", "Extra.png"];
+  vi.mocked(previewClient.listing).mockResolvedValue({ items: names.map(name => ({ ...entries[0], name })), missing: false, ignoredEntries: 0 });
+  mount(true, true);
+  await screen.findByRole("img", { name: "Preview: SPHERE_1.png" });
+  expect(screen.getByText("1 / 5")).toBeVisible();
+  for (const name of ["WALL_2.png", "FLOOR_3.png", "BATHROOM_10.png", "Extra.png", "SPHERE_1.png"]) {
+    fireEvent.click(screen.getByRole("button", { name: "Next preview" }));
+    await screen.findByRole("img", { name: `Preview: ${name}` });
+  }
   fireEvent.click(screen.getByRole("button", { name: "Previous preview" }));
+  await screen.findByRole("img", { name: "Preview: Extra.png" });
+  fireEvent.click(screen.getByRole("button", { name: "Reload preview gallery" }));
   await screen.findByRole("img", { name: "Preview: SPHERE_1.png" });
 });
 it("changes selection without keeping the previous image alive", async () => {

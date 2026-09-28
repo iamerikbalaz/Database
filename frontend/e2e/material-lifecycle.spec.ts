@@ -7,6 +7,7 @@ test("material archive survives restart and restore preserves identity and exact
   const auth = await (await page.request.get("/api/auth/session")).json();
   const headers = { Origin: runManifest.frontendUrl, "X-CSRF-Token": auth.csrf_token };
   const suffix = runManifest.runGuid.replaceAll("-", ""), name = "E2E lifecycle " + suffix;
+  const materialName = "E2E-LIFECYCLE-" + suffix.toUpperCase();
   async function create(segment: string, data: Record<string, unknown>) {
     const response = await page.request.post(`/api/${segment}`, { headers, data });
     expect(response.status()).toBe(201); return response.json();
@@ -20,13 +21,13 @@ test("material archive survives restart and restore preserves identity and exact
       material_name: name, main_category_code: "G03" })).id;
   } else {
     const response = await page.request.get("/api/material-archives"); expect(response.status()).toBe(200);
-    const item = (await response.json()).items.find((row: { material: { material_name: string } }) => row.material.material_name === name);
+    const item = (await response.json()).items.find((row: { material: { material_name: string } }) => row.material.material_name === materialName);
     expect(item).toBeTruthy(); id = item.material.id; expect(item.version).toBe(1); expect(item.is_archived).toBe(true);
   }
   const archivePath = `/api/material-archives/${id}`, materialPath = `/api/materials/${id}`;
   const original = (await (await page.request.get(archivePath)).json()).material;
   await page.goto(retainedPass ? `/material-archives/${id}` : `/materials/${id}`);
-  const archived = page.getByRole("checkbox", { name: `Archived for ${name}`, exact: true });
+  const archived = page.getByRole("checkbox", { name: `Archived for ${materialName}`, exact: true });
   if (retainedPass) {
     const before = await (await page.request.get(archivePath + "/history")).json();
     expect(before.items.map((item: { version: number }) => item.version)).toEqual([1]);
@@ -74,8 +75,8 @@ test("material archive survives restart and restore preserves identity and exact
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.locator("main").screenshot({ path: test.info().outputPath("material-archive-desktop.png") });
   await page.goto("/material-archives");
-  await page.getByRole("searchbox", { name: "Search materials" }).fill(name);
+  await page.getByRole("searchbox", { name: "Search materials" }).fill(materialName);
   await expect(page.getByRole("table")).toBeVisible();
-  await expect(page.getByRole("link", { name, exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: materialName, exact: true })).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "Archive date", exact: true })).toBeVisible();
 });

@@ -1,6 +1,6 @@
 import pytest
 
-from app.material_naming import base_name, build_identity, match_identity
+from app.material_naming import base_name, build_identity, match_identity, material_name_from_identity
 
 
 @pytest.mark.parametrize("identity,prefix,number,name,category", [
@@ -34,3 +34,14 @@ def test_creation_includes_name_and_normalizes_only_the_generated_component():
 
 def test_rebrand_and_category_change_keep_original_name_despite_edited_display_name():
     assert build_identity("NEXT", 4, "K04", "Edited display name", source_identity="TEST_0021_03.Brushed-Gold_K03") == "NEXT_0004_03.Brushed-Gold_K04"
+
+
+@pytest.mark.parametrize("identity,name", [
+    ("ROUBAL_0001_TILES-ORANGE_B01", "TILES-ORANGE"),
+    ("TEST_GROUP_0021_03.Brushed-Gold_K03", "03.BRUSHED-GOLD"),
+    ("TEST_0001_1234_K03", "1234"),
+    ("TEST_0001_G03", None),
+    ("TEST_1_ORANGE_G03", None),
+])
+def test_material_name_is_the_entire_uppercase_product_segment(identity, name):
+    assert material_name_from_identity(identity) == name

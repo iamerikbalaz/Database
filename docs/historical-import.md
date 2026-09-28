@@ -64,6 +64,14 @@ canonical uppercase category suffix. Persisted three-part identities remain
 readable. Imports preserve the exact source spelling; new identities normalize
 spaces to hyphens and include the material name. Prefixes may contain
 underscores but cannot contain path separators, colons or control characters.
+For a named identity, the complete middle product segment is authoritative for
+the material name and is stored uppercase: `ROUBAL_0001_TILES-ORANGE_B01` yields
+`TILES-ORANGE`, even if the spreadsheet Name cell contains only `ORANGE`.
+Hyphens and numeric product segments such as `20-08` are preserved. The mapped
+Name cell remains the fallback for legacy three-part identities. New ordinary
+materials and unlinked name edits store the same canonical uppercase product
+name that appears in their generated identity; renaming a linked source still
+requires a controlled identity operation.
 The number must be absent from existing materials and the permanent reservation
 ledger. Duplicate brand numbers inside a file and active brand identity operations
 block the whole batch. Unused columns are identified but their values are ignored.

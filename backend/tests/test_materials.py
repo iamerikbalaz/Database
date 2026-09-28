@@ -457,7 +457,8 @@ def test_patch_updates_allowed_metadata(
     assert response.status_code == 200
     updated = response.json()
     assert updated["project_id"] == other_project["id"]
-    assert updated["technical_identity"] == "ACME_0001_REFLEX-CRYSTAL_G03"
+    assert updated["material_name"] == "UPDATED-NAME"
+    assert updated["technical_identity"] == "ACME_0001_UPDATED-NAME_G03"
     assert updated["assigned_processor_id"] == processor["id"]
     assert updated["workflow_status"] == "IN_PROGRESS"
     assert updated["validation_status"] == "NOT_CHECKED"
@@ -594,7 +595,7 @@ def test_material_search_is_case_insensitive(
         material_name="Polished Granite",
     )
 
-    response = client.get("/api/materials", params={"search": "pOLISHED gRANITE"})
+    response = client.get("/api/materials", params={"search": "pOLISHED-gRANITE"})
 
     assert response.status_code == 200
     assert response.json() == [match]
@@ -603,7 +604,7 @@ def test_material_search_is_case_insensitive(
 def test_material_search_treats_percent_as_literal(
     material_client: tuple[TestClient, Database],
 ) -> None:
-    client, _ = material_client
+    client, database = material_client
     project, brand = setup_material_parents(client)
     match = create_material(
         client,
@@ -617,6 +618,12 @@ def test_material_search_treats_percent_as_literal(
         brand["id"],
         material_name="Recycled Glass",
     )
+    # Historical display names can contain punctuation that new canonical
+    # product names no longer accept. Keep testing literal SQL search on them.
+    with database.session() as session:
+        session.get(PBRMaterial, UUID(match["id"])).material_name = "Recycled 50% Glass"
+        session.commit()
+    match = client.get(f"/api/materials/{match['id']}").json()
 
     response = client.get("/api/materials", params={"search": "%"})
 
@@ -650,7 +657,7 @@ def test_material_search_treats_underscore_as_literal(
 def test_material_search_treats_backslash_as_literal(
     material_client: tuple[TestClient, Database],
 ) -> None:
-    client, _ = material_client
+    client, database = material_client
     project, brand = setup_material_parents(client)
     match = create_material(
         client,
@@ -664,6 +671,10 @@ def test_material_search_treats_backslash_as_literal(
         brand["id"],
         material_name="Archive/Stone",
     )
+    with database.session() as session:
+        session.get(PBRMaterial, UUID(match["id"])).material_name = r"Archive\Stone"
+        session.commit()
+    match = client.get(f"/api/materials/{match['id']}").json()
 
     response = client.get("/api/materials", params={"search": "\\"})
 
@@ -674,7 +685,7 @@ def test_material_search_treats_backslash_as_literal(
 def test_material_search_is_parameterized_and_preserves_other_filters(
     material_client: tuple[TestClient, Database],
 ) -> None:
-    client, _ = material_client
+    client, database = material_client
     company = create_company(client)
     first_project = create_project(client, company["id"])
     second_project = create_project(client, company["id"], project_number="PRJ-002")
@@ -686,13 +697,18 @@ def test_material_search_is_parameterized_and_preserves_other_filters(
         brand["id"],
         material_name=f"Literal {search} marker",
     )
-    create_material(
+    other = create_material(
         client,
         second_project["id"],
         brand["id"],
         material_name=f"Other {search} marker",
     )
     create_material(client, first_project["id"], brand["id"], material_name="Unrelated")
+    with database.session() as session:
+        session.get(PBRMaterial, UUID(match["id"])).material_name = f"Literal {search} marker"
+        session.get(PBRMaterial, UUID(other["id"])).material_name = f"Other {search} marker"
+        session.commit()
+    match = client.get(f"/api/materials/{match['id']}").json()
 
     response = client.get(
         "/api/materials",

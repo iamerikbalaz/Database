@@ -218,7 +218,19 @@ def test_json_identity_is_derived_from_current_database(metadata_case):
         assert identity["FOLDER"] == material.technical_identity
         assert identity["MANUFACTURER"] == material.published_brand.name
         assert identity["PRODUCT_NUMBER"] == f"{material.sequence_number:04d}"
-        assert identity["PRODUCT_NAME"] == material.material_name
+        assert identity["PRODUCT_NAME"] == "MATERIAL-1"
+
+
+def test_metadata_product_name_uses_full_folder_segment_even_with_old_import_name(metadata_case):
+    case, worker, path = metadata_case
+    with case.database.session() as session:
+        material = session.get(PBRMaterial, case.materials[0].id)
+        material.technical_identity = "SAFE_0001_TILES-ORANGE_G03"
+        material.folder_path = "library/" + material.technical_identity
+        material.material_name = "orange"
+        session.commit()
+        from app.api.source_metadata import metadata_identity
+        assert metadata_identity(material)["PRODUCT_NAME"] == "TILES-ORANGE"
 
 
 def test_unified_save_reserves_incoming_catalog_choices_during_source_io(metadata_case):

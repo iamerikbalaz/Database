@@ -36,7 +36,7 @@ def test_merged_history_authors_pagination_and_metadata_redaction(access_case):
     with case.client("ADMIN") as client:
         full = client.get(url).json()
         items = full["items"]
-        assert {item["source"] for item in items} == {"record", "content", "metadata", "workflow"}
+        assert {item["source"] for item in items} == {"record", "identity", "content", "metadata", "workflow"}
         authors = {item["source"]: item["author"] for item in items}
         assert authors["record"] == {"id": str(case.users["ADMIN"].id), "display_name": case.users["ADMIN"].display_name}
         assert authors["content"]["id"] == str(case.users["PROCESSOR"].id)

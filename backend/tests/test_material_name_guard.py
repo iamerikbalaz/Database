@@ -38,6 +38,8 @@ def test_unlinked_name_edits_and_linked_unchanged_name_remain_compatible(access_
         path = f"/api/materials/{material_id}"
         response = client.patch(path, json={"material_name": "Updated before linking"})
         assert response.status_code == 200
+        assert response.json()["material_name"] == "UPDATED-BEFORE-LINKING"
+        assert response.json()["technical_identity"] == "SAFE_0001_UPDATED-BEFORE-LINKING_G03"
         with case.database.session() as session:
             material = session.get(PBRMaterial, material_id)
             material.folder_path = "Library/" + material.technical_identity
@@ -45,6 +47,71 @@ def test_unlinked_name_edits_and_linked_unchanged_name_remain_compatible(access_
         current = client.get(path).json()
         assert client.patch(path, json={"material_name": current["material_name"]}).status_code == 200
         assert client.get(path).json()["material_name"] == current["material_name"]
+
+
+def test_creation_and_unlinked_rename_keep_full_canonical_name_and_exact_replay(access_case):
+    case = access_case; source = case.materials[0]
+    create_key, rename_key = str(uuid4()), str(uuid4())
+    payload = {"project_id": str(source.project_id), "published_brand_id": str(source.published_brand_id),
+        "assigned_processor_id": str(source.assigned_processor_id), "main_category_code": "B01",
+        "material_name": "Tiles Orange"}
+    with case.client("ADMIN") as client:
+        created = client.post("/api/materials", json=payload, headers={"Idempotency-Key": create_key})
+        assert created.status_code == 201
+        assert created.json()["material_name"] == "TILES-ORANGE"
+        assert created.json()["technical_identity"] == "SAFE_0003_TILES-ORANGE_B01"
+        path = "/api/materials/" + created.json()["id"]
+        rename = {"material_name": "20-08", "main_category_code": "B02"}
+        changed = client.patch(path, json=rename, headers={"Idempotency-Key": rename_key})
+        assert changed.status_code == 200
+        assert changed.json()["material_name"] == "20-08"
+        assert changed.json()["technical_identity"] == "SAFE_0003_20-08_B02"
+        assert changed.json()["sequence_number"] == created.json()["sequence_number"]
+        assert client.post("/api/materials", json=payload, headers={"Idempotency-Key": create_key}).json() == created.json()
+        assert client.patch(path, json=rename, headers={"Idempotency-Key": rename_key}).json() == changed.json()
+        assert client.patch(path, json={"material_name": "---"}).status_code == 422
+        assert client.get(path).json() == changed.json()
+
+
+@pytest.mark.parametrize("patch", [{"material_name": "NEW MATERIAL NAME"}, {"main_category_code": "B02"}])
+def test_unlinked_published_material_identity_cannot_change_through_generic_patch(access_case, patch):
+    case = access_case
+    material_id = case.materials[0].id
+    with case.client("ADMIN") as client:
+        path = f"/api/materials/{material_id}"
+        before = client.get(path).json()
+        assert before["folder_path"] is None
+        published = client.patch(path + "/table", json={"expected_updated_at": before["updated_at"], "is_published": True},
+            headers={"Idempotency-Key": str(uuid4())})
+        assert published.status_code == 200
+        before = client.get(path).json()
+        with case.database.session() as session:
+            counts = {model: session.scalar(select(func.count()).select_from(model))
+                for model in (MaterialIdentityHistory, ResourceChangeEvent, ResourceCommand)}
+        rejected = client.patch(path, json=patch, headers={"Idempotency-Key": str(uuid4())})
+        assert rejected.status_code == 409 and rejected.json()["detail"]["code"] == "PUBLISHED_IDENTITY_BLOCKED"
+        assert client.get(path).json() == before
+        with case.database.session() as session:
+            assert all(session.scalar(select(func.count()).select_from(model)) == count for model, count in counts.items())
+
+
+@pytest.mark.parametrize("historical_name", ["Tiles Orange", "TILES-ORANGE"])
+def test_unlinked_published_material_unchanged_name_and_category_are_allowed(access_case, historical_name):
+    case = access_case
+    material_id = case.materials[0].id
+    with case.database.session() as session:
+        material = session.get(PBRMaterial, material_id)
+        material.is_published = True
+        material.material_name = historical_name
+        session.commit()
+    with case.client("ADMIN") as client:
+        path = f"/api/materials/{material_id}"
+        before = client.get(path).json()
+        response = client.patch(path, json={"material_name": historical_name, "main_category_code": before["main_category_code"]},
+            headers={"Idempotency-Key": str(uuid4())})
+        assert response.status_code == 200
+        assert response.json()["technical_identity"] == before["technical_identity"]
+        assert response.json()["material_name"] == historical_name
 
 
 @pytest.mark.parametrize("archived", [False, True])

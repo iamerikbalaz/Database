@@ -68,8 +68,19 @@ def test_named_folder_import_keeps_exact_name_and_still_blocks_brand_number_coll
     assert len(rows) == 1
     assert rows[0].technical_identity == "RWT_0021_03.Brushed-Gold_K03"
     assert (rows[0].prefix, rows[0].sequence_number, rows[0].main_category_code) == ("RWT", 21, "K03")
-    assert rows[0].material_name == "Display name"
+    assert rows[0].material_name == "03.BRUSHED-GOLD"
     assert findings == [{"row": 3, "field": "identity", "code": "IMPORT_DUPLICATE_IDENTITY_OR_NUMBER"}]
+
+
+@pytest.mark.parametrize("spreadsheet_name", ["ORANGE", "orange", "Tiles", ""])
+def test_named_identity_is_authoritative_over_shortened_or_missing_spreadsheet_name(spreadsheet_name):
+    data = source(f"ROUBAL_0001_TILES-ORANGE_B01;{spreadsheet_name};Project A;Brand A;Processor A;library/ROUBAL_0001_TILES-ORANGE_B01", extra=";Folder")
+    rows, findings = prepare_rows(read_csv(data, delimiter=";"), ImportColumns(**COLUMNS, folder="Folder"), mapping())
+    assert not findings and len(rows) == 1
+    assert rows[0].material_name == "TILES-ORANGE"
+    assert rows[0].technical_identity == "ROUBAL_0001_TILES-ORANGE_B01"
+    assert rows[0].sequence_number == 1
+    assert rows[0].folder_path == "library/ROUBAL_0001_TILES-ORANGE_B01"
 
 
 @pytest.mark.parametrize("folder", ["../RWT_0021_GOLD_K03", "R:/library/RWT_0021_GOLD_K03", "/library/RWT_0021_GOLD_K03", "library/OTHER_0021_GOLD_K03", "library\\RWT_0021_GOLD_K03", "", "library//RWT_0021_GOLD_K03"])

@@ -15,7 +15,7 @@ from app.company_history import append_company_change, company_snapshot
 from app.resource_history import append_resource_change, resource_snapshot
 from app.resource_commands import CommandInput, CommandKey, ResourceWrite, authorize_receipt, command_for_actor, receipt_view
 from app.material_identity import identity_context, require_brand_idle, require_material_idle
-from app.material_naming import build_identity
+from app.material_naming import build_identity, material_name_from_identity, name_component
 from app.material_table import utc
 
 from app.db.models import (
@@ -619,15 +619,13 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 )
 
             values = _values(payload)
+            technical_identity = _technical_identity(brand, sequence_number,
+                payload.main_category_code, payload.material_name)
+            values["material_name"] = material_name_from_identity(technical_identity)
             material = PBRMaterial(
                 **values,
                 sequence_number=sequence_number,
-                technical_identity=_technical_identity(
-                    brand,
-                    sequence_number,
-                    payload.main_category_code,
-                    payload.material_name,
-                ),
+                technical_identity=technical_identity,
                 folder_path=None,
                 workflow_status=MaterialWorkflowStatus.IN_PROGRESS.value,
                 validation_status=MaterialValidationStatus.NOT_CHECKED.value,
@@ -719,14 +717,20 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                     and values["material_name"] != material.material_name):
                 raise HTTPException(409, {"code": "IDENTITY_PLAN_REQUIRED",
                     "message": "Use a controlled identity plan to rename a material with a linked source folder."})
+            if (material.folder_path is None and "material_name" in values
+                    and values["material_name"] != material.material_name):
+                try:
+                    values["material_name"] = name_component(values["material_name"])
+                except ValueError:
+                    raise HTTPException(422, {"code": "MATERIAL_IDENTITY_INVALID",
+                        "message": "The material name must contain a usable product name."}) from None
             if "project_id" in values:
                 _get_or_404(session, Project, values["project_id"], "Project")
             if "assigned_processor_id" in values:
                 _require_active_internal_user(session, values["assigned_processor_id"])
-            if (
-                "main_category_code" in values
-                and values["main_category_code"] != material.main_category_code
-            ):
+            category_changed = "main_category_code" in values and values["main_category_code"] != material.main_category_code
+            name_changed = "material_name" in values and values["material_name"] != material.material_name
+            if category_changed or name_changed:
                 if material.folder_path is not None:
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
@@ -743,10 +747,13 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 technical_identity = _technical_identity(
                     brand,
                     material.sequence_number,
-                    values["main_category_code"],
-                    material.material_name,
-                    source_identity=material.technical_identity,
+                    values.get("main_category_code", material.main_category_code),
+                    values.get("material_name", material.material_name),
+                    source_identity=None if name_changed else material.technical_identity,
                 )
+                if material.is_published and technical_identity != material.technical_identity:
+                    raise HTTPException(409, {"code": "PUBLISHED_IDENTITY_BLOCKED",
+                        "message": "Published identity changes require a verified online importer contract."})
                 _ensure_unique(
                     session,
                     PBRMaterial,
@@ -764,7 +771,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 session.add(MaterialIdentityHistory(material_id=material.id,
                     actor_id=access.user.id if session.get(InternalUser, access.user.id) else None,
                     old_context=old_identity, new_context=identity_context(material),
-                    reason="Category changed before linking a source folder."))
+                    reason="Identity changed before linking a source folder."))
             return _commit_resource(session, material, actor.id, before, command=command)
 
     return router

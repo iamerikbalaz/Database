@@ -71,7 +71,7 @@ def test_create_update_replay_and_read_recovery_return_original_receipts(access_
         repeat = send(client, "PATCH", path, {field: "Reviewed change"}, update_key)
         assert repeat.status_code == 200 and repeat.json() == updated.json()
         assert send(client, "POST", base, payload, create_key).json() == original
-        assert client.get(path).json()[field] == "Later change"
+        assert client.get(path).json()[field] == ("LATER-CHANGE" if kind == "MATERIAL" else "Later change")
         for key, saved in ((create_key, original), (update_key, updated.json())):
             receipt = client.get(f"/api/resource-commands/{key}")
             assert receipt.status_code == 200

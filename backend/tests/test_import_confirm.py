@@ -97,6 +97,7 @@ def test_named_historical_identity_survives_confirmation_read_and_retry_without_
         assert row["technical_identity"] == identity
         material = client.get("/api/materials/" + row["material_id"]).json()
         assert material["technical_identity"] == identity and material["sequence_number"] == 21
+        assert material["material_name"] == "03.BRUSHED-GOLD"
         assert material["main_category_code"] == "K03" and material["folder_path"] is None
         assert client.get("/api/materials/" + row["material_id"] + "/metadata").json()["status"] == "NOT_SCANNED"
         assert client.post(ROOT + "/confirm", json=body).json() == result.json()

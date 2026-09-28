@@ -15,7 +15,7 @@ from app.identity_client import IdentityClientError
 from app.inventory_client import validate_relative_path
 from app.material_identity import ACTIVE_STATUSES, identity_context, require_material_idle, lock_folder_catalog, require_folder_idle
 from app.material_review import canonical_hash, invalidate_review
-from app.material_naming import build_identity
+from app.material_naming import build_identity, name_component
 from app.schemas import ApiSchema, CategoryCode, Name, Sha256
 from app.history_pagination import HistoryLimit, history_window
 
@@ -60,7 +60,16 @@ def _contexts(session, material, payload, *, lock=False):
     require_material_idle(session, material.id)
     if not material.folder_path: _conflict("IDENTITY_FOLDER_REQUIRED", "Link the source folder before planning an identity change.")
     if material.is_published: _conflict("PUBLISHED_IDENTITY_BLOCKED", "Published identity changes require a verified online importer contract.")
-    if material.workflow_status != "IN_PROGRESS": _conflict("IDENTITY_REOPEN_REQUIRED", "Reopen the material before changing its identity.")
+    parent = payload.target_parent if payload.target_parent is not None else material.folder_path.rpartition("/")[0]
+    # Renaming a finished asset does not change its production status. The
+    # confirmed operation still invalidates Checked and all current source proof.
+    # Rebrands, category changes and moves retain the explicit reopen gate.
+    name_only = (payload.material_name is not None
+        and payload.target_brand_id == material.published_brand_id
+        and payload.main_category_code == material.main_category_code
+        and parent == material.folder_path.rpartition("/")[0])
+    if material.workflow_status != "IN_PROGRESS" and not (material.workflow_status == "DONE" and name_only):
+        _conflict("IDENTITY_REOPEN_REQUIRED", "Reopen the material before changing its category, brand or folder location.")
     ids = {material.published_brand_id, payload.target_brand_id}
     statement = select(PublishedBrand).where(PublishedBrand.id.in_(ids)).order_by(PublishedBrand.id)
     if lock: statement = statement.with_for_update()
@@ -73,13 +82,12 @@ def _contexts(session, material, payload, *, lock=False):
         _conflict("IDENTITY_COLLECTIONS_ASSIGNED", "Remove the old brand's collection assignments before planning a rebrand.")
     number = target.next_sequence_number if rebrand else material.sequence_number
     if number > 9999: _conflict("IDENTITY_SEQUENCE_EXHAUSTED", "The target brand has no unused four-digit numbers.")
-    next_name = payload.material_name if payload.material_name is not None else material.material_name
     try:
+        next_name = name_component(payload.material_name) if payload.material_name is not None else material.material_name
         identity = build_identity(target.folder_prefix, number, payload.main_category_code,
                                   next_name, source_identity=material.technical_identity if next_name == material.material_name else None)
     except ValueError:
         _conflict("MATERIAL_IDENTITY_INVALID", "The proposed folder identity is unsupported or exceeds 255 ASCII characters.")
-    parent = payload.target_parent if payload.target_parent is not None else material.folder_path.rpartition("/")[0]
     folder = (parent + "/" if parent else "") + identity
     require_folder_idle(session, material.folder_path)
     require_folder_idle(session, folder)
@@ -97,6 +105,7 @@ def _contexts(session, material, payload, *, lock=False):
                 if a == b or a.startswith(b + "/") or b.startswith(a + "/"):
                     _conflict("IDENTITY_FOLDER_OVERLAP", "A linked material overlaps the proposed source or destination.")
     return {"source_context": source_context, "target_context": target_context,
+            "source_workflow_status": material.workflow_status,
             "generation": (_state(session, material.id).generation if _state(session, material.id) else 0),
             "reserves_number": rebrand}, target
 

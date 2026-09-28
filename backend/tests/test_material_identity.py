@@ -241,10 +241,10 @@ def test_explicit_material_name_renames_source_and_commits_display_name_once(ide
         saved = client.post(path + "/identity-confirm", json=payload)
         assert saved.status_code == 200 and saved.json()["status"] == "COMPLETED"
         after = client.get(path).json()
-        assert after["material_name"] == "New polished stone"
+        assert after["material_name"] == "NEW-POLISHED-STONE"
         assert after["technical_identity"] == "SAFE_0001_NEW-POLISHED-STONE_G03"
         assert after["sequence_number"] == before["sequence_number"]
-        assert worker.executions[0]["material_name"] == "New polished stone"
+        assert worker.executions[0]["material_name"] == "NEW-POLISHED-STONE"
         assert client.post(path + "/identity-confirm", json=payload).json() == saved.json()
         assert len(worker.executions) == 1
 
@@ -317,3 +317,52 @@ def test_identity_keeps_recorded_values_without_old_proof_and_source_fallback(id
         current = session.get(PBRMaterialMetadata, case.materials[0].id)
         assert current.source_content is None
         assert session.scalar(select(func.count()).select_from(PBRMaterialMetadataSnapshot)) == 1
+
+
+def test_finished_unpublished_name_change_keeps_done_and_invalidates_checked(identity_case):
+    case, worker, path, _ = identity_case
+    with case.database.session() as session:
+        material = session.get(PBRMaterial, case.materials[0].id)
+        material.workflow_status = "DONE"; material.checked_status = "OK"
+        session.commit()
+    with case.client("ADMIN") as client:
+        before = client.get(path).json()
+        target = {"target_brand_id": before["published_brand_id"], "main_category_code": before["main_category_code"],
+                  "material_name": "tiles orange"}
+        payload = prepare(client, path, target)
+        assert client.get(path).json()["checked_status"] == "OK"
+        saved = client.post(path + "/identity-confirm", json=payload)
+        assert saved.status_code == 200 and saved.json()["status"] == "COMPLETED"
+        after = client.get(path).json()
+        assert after["material_name"] == "TILES-ORANGE"
+        assert after["technical_identity"] == "SAFE_0001_TILES-ORANGE_G03"
+        assert after["workflow_status"] == "DONE" and after["checked_status"] == "no"
+        assert after["validation_status"] == "NOT_CHECKED"
+        assert client.post(path + "/identity-confirm", json=payload).json() == saved.json()
+    assert len(worker.executions) == 1
+
+
+@pytest.mark.parametrize("change", ["move", "category", "published", "workflow_after_plan"])
+def test_done_rename_does_not_bypass_other_identity_fences(identity_case, change):
+    case, worker, path, _ = identity_case
+    with case.database.session() as session:
+        material = session.get(PBRMaterial, case.materials[0].id)
+        material.workflow_status = "DONE"
+        if change == "published": material.is_published = True
+        session.commit()
+    with case.client("ADMIN") as client:
+        before = client.get(path).json()
+        target = {"target_brand_id": before["published_brand_id"], "main_category_code": before["main_category_code"],
+                  "material_name": "New name"}
+        if change == "move": target["target_parent"] = "Destination"
+        if change == "category": target["main_category_code"] = "B01"
+        if change == "workflow_after_plan":
+            payload = prepare(client, path, target)
+            with case.database.session() as session:
+                session.get(PBRMaterial, case.materials[0].id).workflow_status = "IN_PROGRESS"
+                session.commit()
+            response = client.post(path + "/identity-confirm", json=payload)
+        else:
+            response = client.post(path + "/identity-plan", json=target)
+        assert response.status_code == 409
+    assert not worker.executions

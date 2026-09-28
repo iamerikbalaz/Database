@@ -18,6 +18,7 @@ from app.material_review import canonical_hash, invalidate_review
 from app.metadata_client import MetadataClientError, MetadataValues
 from app.metadata_saves import persist_metadata_snapshot
 from app.metadata_document import _unique, _invalid
+from app.material_naming import material_name_from_identity, name_component
 from app.schemas import ApiSchema, Sha256
 
 
@@ -32,7 +33,8 @@ class MetadataSaveRequest(ApiSchema):
 def metadata_identity(material):
     """Only identity values backed by the current database row, never a template."""
     return {"FOLDER": material.technical_identity, "MANUFACTURER": material.published_brand.name,
-        "PRODUCT_NUMBER": f"{material.sequence_number:04d}", "PRODUCT_NAME": material.material_name,
+        "PRODUCT_NUMBER": f"{material.sequence_number:04d}",
+        "PRODUCT_NAME": material_name_from_identity(material.technical_identity) or name_component(material.material_name),
         "CATEGORY": material.main_category_code, "BASE_NAME": material.technical_identity.rsplit("_", 1)[0]}
 
 

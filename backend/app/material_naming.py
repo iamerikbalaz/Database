@@ -1,4 +1,4 @@
-"""Folder identities. Imported names are preserved; only new names are normalized."""
+"""Canonical product names; historical folder identity spelling stays intact."""
 import re
 import unicodedata
 
@@ -21,13 +21,23 @@ def match_identity(value: str):
 
 
 def name_component(material_name: str) -> str:
-    """Create a portable uppercase token; keep the display name unchanged."""
+    """Create the portable uppercase product token used as the material name."""
     decomposed = unicodedata.normalize("NFKD", material_name)
     latin = "".join(char for char in decomposed if not unicodedata.combining(char)).upper()
     token = re.sub(r"[^A-Z0-9.]+", "-", latin).strip("-.")
     if not token or not any(char.isalnum() for char in token):
         raise ValueError("MATERIAL_IDENTITY_INVALID")
     return token
+
+
+def material_name_from_identity(identity: str) -> str | None:
+    """Read the complete product segment as its canonical uppercase name.
+
+    Historical folder spelling stays untouched. A legacy three-part identity
+    has no product segment, so callers must supply its separately recorded name.
+    """
+    match = match_identity(identity)
+    return match["name"].upper() if match is not None and "name" in match.re.groupindex else None
 
 
 def base_name(identity: str) -> str:

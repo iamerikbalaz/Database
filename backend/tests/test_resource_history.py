@@ -51,7 +51,8 @@ def test_create_edit_and_noop_keep_exact_whitelisted_ordered_history(access_case
         assert items[1]["before"] == {} and items[0]["before"] == items[1]["after"]
         assert set(items[0]["after"]) == {"id", *KINDS[kind][3]}
         assert all(item["actor_id"] == str(case.users["ADMIN"].id) and len(item["before_sha256"]) == len(item["after_sha256"]) == 64 for item in items)
-        for field, value in update(kind).items(): assert items[0]["after"][field] == value
+        expected_update = {"material_name": "CHANGED-MATERIAL"} if kind == "MATERIAL" else update(kind)
+        for field, value in expected_update.items(): assert items[0]["after"][field] == value
         assert not {"password", "password_hash", "credential", "token", "csrf_token", "next_sequence_number"} & set(items[0]["after"])
 
 

@@ -67,7 +67,7 @@ def test_postgresql_resource_command_response_matches_record_and_replays(review_
         assert client.patch(path, json={field: "Later change"}).status_code == 200
         replay = send(client, "PATCH", path, {field: "Reviewed change"}, edit_key)
         assert replay.status_code == 200 and replay.json() == changed.json()
-        assert client.get(path).json()[field] == "Later change"
+        assert client.get(path).json()[field] == ("LATER-CHANGE" if kind == "MATERIAL" else "Later change")
         assert client.get(f"/api/resource-commands/{key}").json()["response"] == first.json()
 
 
@@ -641,6 +641,46 @@ def test_postgresql_identity_confirmation_allocates_and_executes_once(review_pg_
             assert len(list(session.scalars(select(model).where(model.material_id == case.material.id)))) == 1
         assert session.get(PBRMaterial, case.material.id).published_brand_id == UUID(target["target_brand_id"])
         assert session.get(PublishedBrand, UUID(target["target_brand_id"])).next_sequence_number == 2
+
+
+def test_postgresql_identity_done_name_only_rename_preserves_status_and_exact_replay(review_pg_case):
+    from app.db.models import MaterialFileOperation, MaterialIdentityHistory
+    from test_material_identity import prepare
+    case = review_pg_case
+    with case.database.session() as session:
+        material = session.get(PBRMaterial, case.material.id)
+        material.workflow_status = "DONE"; material.checked_status = "OK"
+        material.metadata_state.hex_color = "#A1B2C3"
+        material.metadata_state.width_cm = Decimal("20.5")
+        material.metadata_state.height_cm = Decimal("8")
+        brand = session.get(PublishedBrand, material.published_brand_id)
+        counter = brand.next_sequence_number
+        prefix = brand.folder_prefix
+        session.commit()
+    target = {"target_brand_id": str(case.material.published_brand_id),
+        "main_category_code": case.material.main_category_code, "material_name": "Tiles Orange"}
+    with case.client_for() as client:
+        blocked = client.post(case.path + "/identity-plan", json={**target, "target_parent": "Elsewhere"})
+        assert blocked.status_code == 409 and blocked.json()["detail"]["code"] == "IDENTITY_REOPEN_REQUIRED"
+        payload = prepare(client, case.path, target)
+        assert client.get(case.path).json()["checked_status"] == "OK"
+        saved = client.post(case.path + "/identity-confirm", json=payload)
+        assert saved.status_code == 200 and saved.json()["status"] == "COMPLETED"
+        assert client.post(case.path + "/identity-confirm", json=payload).json() == saved.json()
+        material = client.get(case.path).json()
+        assert material["workflow_status"] == "DONE" and material["checked_status"] == "no"
+        assert material["material_name"] == "TILES-ORANGE"
+        assert material["technical_identity"] == f"{prefix}_0001_TILES-ORANGE_G03"
+        assert material["folder_path"] == "library/" + material["technical_identity"]
+        assert material["validation_status"] == "NOT_CHECKED" and material["is_published"] is False
+    assert len(case.identity.executions) == 1
+    with case.database.session() as session:
+        assert session.get(PublishedBrand, case.material.published_brand_id).next_sequence_number == counter
+        current = session.get(PBRMaterialMetadata, case.material.id)
+        assert (current.hex_color, current.width_cm, current.height_cm) == ("#A1B2C3", Decimal("20.5"), Decimal("8"))
+        assert current.status == "NOT_SCANNED" and current.current_snapshot_id is None and current.source_sha256 is None
+        for model in (MaterialFileOperation, MaterialIdentityHistory):
+            assert len(list(session.scalars(select(model).where(model.material_id == case.material.id)))) == 1
 
 
 @pytest.mark.parametrize("mutation", ["edit", "brand", "disable", "new-material"])

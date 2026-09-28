@@ -8,6 +8,8 @@ afterEach(() => vi.unstubAllGlobals());
 it("validates and explicitly maps all material and user fields", () => {
   expect(materialFromDto(parseMaterial(materialDto))).toEqual({
     checkedStatus: "no", note: null, isArchived: false, archivedAt: null,
+    automaticFileCheckStatus: "NOT_CHECKED", automaticFileCheckedAt: null,
+    automaticFileCheckProfile: null, automaticFileCheckComplete: false,
     id: materialDto.id, projectId: materialDto.project_id, publishedBrandId: materialDto.published_brand_id,
     assignedProcessorId: materialDto.assigned_processor_id, materialName: "Crystal surface", mainCategoryCode: "G03",
     technicalIdentity: "LASVIT_9999_G03", sequenceNumber: 9999, folderPath: null, workflowStatus: "IN_PROGRESS",
@@ -45,6 +47,11 @@ it("encodes search safely and does not send empty filters", async () => {
   const fetchMock = vi.fn(async () => new Response("[]")); vi.stubGlobal("fetch", fetchMock);
   await httpApiClient.getMaterials({ search: " A & B? ", project_id: "" });
   expect(fetchMock).toHaveBeenCalledWith("/api/materials?search=A+%26+B%3F", expect.any(Object));
+});
+it("encodes multiple color choices as repeated query parameters", async () => {
+  const fetchMock = vi.fn(async () => new Response("[]")); vi.stubGlobal("fetch", fetchMock);
+  await httpApiClient.getMaterials({ color_hex: ["#FFFFFF", "#FF822D"], main_category_code: "B03" });
+  expect(fetchMock).toHaveBeenCalledWith("/api/materials?color_hex=%23FFFFFF&color_hex=%23FF822D&main_category_code=B03", expect.any(Object));
 });
 
 it("uses the exact material-operation endpoints, bodies and explicit response mappings", async () => {

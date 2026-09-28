@@ -1,0 +1,12 @@
+.offline-publication { display: grid; gap: 1.25rem; }
+.offline-publication > .button { justify-self: start; }
+.offline-publication .checkbox-label { margin: 1rem 0; }
+.offline-publication-item { border-top: 1px solid var(--border); padding: 1rem 0; }
+.offline-publication-item h4 { margin: 0; }
+.offline-publication-item > p { color: var(--muted); overflow-wrap: anywhere; }
+.offline-publication small { display: inline-block; margin-left: .5rem; color: var(--muted); }
+.material-check-summary { width: 100%; padding: 1rem; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.material-check-summary summary { cursor: pointer; font-weight: 600; }
+.material-check-summary .folder-absolute-path { overflow-wrap: anywhere; }
+.material-check-report-text { display: block; width: 100%; margin: 1rem 0; resize: vertical; font-family: ui-monospace, monospace; font-size: .85rem; }
+.material-bulk-check { display: contents; }

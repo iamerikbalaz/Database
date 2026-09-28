@@ -3,6 +3,7 @@ import { boolean, nullable, record, string, uuid } from "./dto";
 export const checkedStatuses = ["no", "OK", "Correction"] as const;
 export const workflowStatuses = ["IN_PROGRESS", "DONE"] as const;
 export const validationStatuses = ["NOT_CHECKED", "VALID", "WARNING", "ERROR", "METADATA_MISSING"] as const;
+export const automaticFileCheckStatuses = ["NOT_CHECKED", "OK", "ISSUES"] as const;
 export const publicationStatuses = ["NOT_PUBLISHED", "PREPARING", "UPLOADED_WAITING_FOR_IMPORT", "WAITING_FOR_VERIFICATION", "PUBLISHED_CURRENT", "PUBLISHED_UPDATE_REQUIRED", "PUBLICATION_ERROR"] as const;
 const userRoles = ["PROCESSOR", "PRODUCTION_LEAD", "LEADERSHIP", "ADMIN"] as const;
 function choice<T extends string>(value: unknown, choices: readonly T[]): T {
@@ -19,6 +20,10 @@ export interface MaterialCreateDto {
 }
 export type MaterialPatchDto = Partial<Omit<MaterialCreateDto, "published_brand_id">>;
 export interface MaterialDto extends Omit<MaterialCreateDto, "project_id"> {
+  automatic_file_check_status?: typeof automaticFileCheckStatuses[number];
+  automatic_file_checked_at?: string | null;
+  automatic_file_check_profile?: string | null;
+  automatic_file_check_complete?: boolean;
   is_archived?: boolean;
   archived_at?: string | null;
   checked_status?: typeof checkedStatuses[number];
@@ -50,6 +55,10 @@ export function parseMaterial(input: unknown): MaterialDto {
   if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 9999)
     throw new Error("Invalid material sequence");
   return {
+    ...(v.automatic_file_check_status !== undefined ? { automatic_file_check_status: choice(v.automatic_file_check_status, automaticFileCheckStatuses) } : {}),
+    ...(v.automatic_file_checked_at !== undefined ? { automatic_file_checked_at: nullable(v.automatic_file_checked_at) } : {}),
+    ...(v.automatic_file_check_profile !== undefined ? { automatic_file_check_profile: nullable(v.automatic_file_check_profile) } : {}),
+    ...(v.automatic_file_check_complete !== undefined ? { automatic_file_check_complete: boolean(v.automatic_file_check_complete) } : {}),
     ...(v.is_archived !== undefined ? { is_archived: boolean(v.is_archived) } : {}),
     ...(v.archived_at !== undefined ? { archived_at: nullable(v.archived_at) } : {}),
     ...(v.checked_status !== undefined ? { checked_status: choice(v.checked_status, checkedStatuses) } : {}),
@@ -66,6 +75,10 @@ export function parseMaterial(input: unknown): MaterialDto {
 }
 export function materialFromDto(v: MaterialDto) {
   return {
+    automaticFileCheckStatus: v.automatic_file_check_status ?? "NOT_CHECKED",
+    automaticFileCheckedAt: v.automatic_file_checked_at ?? null,
+    automaticFileCheckProfile: v.automatic_file_check_profile ?? null,
+    automaticFileCheckComplete: v.automatic_file_check_complete ?? false,
     isArchived: v.is_archived ?? false, archivedAt: v.archived_at ?? null,
     checkedStatus: v.checked_status ?? "no", note: v.note ?? null,
     id: v.id, projectId: v.project_id, publishedBrandId: v.published_brand_id,

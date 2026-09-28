@@ -22,6 +22,7 @@ import {
 } from "./materialOperationsDto";
 
 export interface MaterialFilters {
+  color_hex?: string[];
   is_archived?: string;
   search?: string;
   project_id?: string;
@@ -53,7 +54,8 @@ export function materialApi(request: Request): MaterialApi {
     async getMaterials(filters = {}) {
       const query = new URLSearchParams();
       for (const [key, value] of Object.entries(filters)) {
-        if (value?.trim()) query.set(key, value.trim());
+        if (Array.isArray(value)) value.forEach(color => query.append(key, color));
+        else if (value?.trim()) query.set(key, value.trim());
       }
       return parseList(await request("/materials" + (query.size ? "?" + query : "")), parseMaterial).map(materialFromDto);
     },

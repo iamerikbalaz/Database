@@ -117,16 +117,16 @@ it("keeps a planning failure retryable without pretending a rename may have happ
   expect(identityClient.confirm).not.toHaveBeenCalled();
 });
 it("checks data on demand and displays the returned issues and report", async () => {
-  vi.spyOn(materialLocalClient, "check").mockResolvedValue({ issues: ["No PREVIEW folder"], report: "Basic source checks complete. No files were modified." });
+  vi.spyOn(materialLocalClient, "check").mockResolvedValue({ materialId: material.id, status: "ISSUES", checkedAt: material.updatedAt, updatedAt: material.updatedAt, profile: "BASIC_V1", complete: false, issues: ["No PREVIEW folder"], report: "Basic source checks complete. No files were modified." });
   render(<MaterialDataCheck materialId={material.id} />); expect(materialLocalClient.check).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Check material data" }));
   expect((await screen.findByRole("textbox", { name: "Issues and report" }) as HTMLTextAreaElement).value).toContain("No PREVIEW folder");
 });
 it("prevents duplicate checks while one is running", async () => {
-  let resolve!: (value: { report: string; issues: string[] }) => void;
+  let resolve!: (value: Awaited<ReturnType<typeof materialLocalClient.check>>) => void;
   vi.spyOn(materialLocalClient, "check").mockImplementation(() => new Promise(done => { resolve = done; }));
   render(<MaterialDataCheck materialId={material.id} />);
   const button = screen.getByRole("button", { name: "Check material data" });
   act(() => { button.click(); button.click(); }); expect(materialLocalClient.check).toHaveBeenCalledOnce();
-  await act(async () => resolve({ issues: [], report: "Complete" }));
+  await act(async () => resolve({ materialId: material.id, status: "NOT_CHECKED", checkedAt: material.updatedAt, updatedAt: material.updatedAt, profile: "BASIC_V1", complete: false, issues: [], report: "Complete" }));
 });

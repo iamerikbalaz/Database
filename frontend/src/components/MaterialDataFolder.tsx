@@ -36,17 +36,19 @@ export function MaterialDataFolder({ material, onChanged, disabled }: { material
   </article>;
 }
 
-export function MaterialDataCheck({ materialId, disabled }: { materialId: string; disabled?: boolean }) {
+export function MaterialDataCheck({ materialId, disabled, onChanged }: { materialId: string; disabled?: boolean; onChanged?: () => Promise<boolean> }) {
   const [result, setResult] = useState<{ report: string; issues: string[] } | null>(null);
   const [pending, setPending] = useState(false), [error, setError] = useState(""), sending = useRef(false);
   const check = async () => {
     if (sending.current) return;
     sending.current = true; setPending(true); setError(""); setResult(null);
-    try { setResult(await materialLocalClient.check(materialId)); }
+    try { setResult(await materialLocalClient.check(materialId)); await onChanged?.(); }
     catch { setError("The material data check could not finish. Check the folder connection and try again."); }
     finally { sending.current = false; setPending(false); }
   };
-  return <article className="panel panel--wide"><button className="button button--primary" disabled={disabled || pending} onClick={() => void check()}>{pending ? "Checking material data…" : "Check material data"}</button>
+  return <article className="panel panel--wide"><h2>Automatic file check</h2>
+    <p>Preliminary inspection checks folder access, metadata and preview availability. Final validation rules will be added in the next iteration. A clean preliminary result remains “not checked”.</p>
+    <button className="button button--primary" disabled={disabled || pending} onClick={() => void check()}>{pending ? "Checking material data…" : "Check material data"}</button>
     {error && <p role="alert" className="field-error">{error}</p>}
     {result && <label className="material-check-report">Issues and report<textarea aria-label="Issues and report" readOnly rows={12} value={`Issues\n${result.issues.length ? result.issues.map(issue => `• ${issue}`).join("\n") : "No issues found by the current checks."}\n\n${result.report}`} /></label>}
   </article>;

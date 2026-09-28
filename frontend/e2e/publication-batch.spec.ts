@@ -19,15 +19,20 @@ test("automatic source checks, global ZIP settings and immutable downloads survi
       description: "Synthetic approved export", credits: 12, tags: ["matte"], category_ids: [(await category.json()).id], collection_ids: [], reason: "Prepare synthetic export" } })).status()).toBe(200);
     expect((await (await page.request.get(path + "/packaging-policy")).json()).current).toBe(null);
   }
-  await page.goto("/materials");
+  // Retained immutable batch/worker behavior is still available on its own
+  // route. Materials now uses the separate local CSV + ZIP preparation flow.
+  await page.goto("/publication");
   if (!retainedPass) {
     const tagged = await (await page.request.get(path)).json();
     expect((await page.request.patch(path + "/table", { headers: { ...headers, "Idempotency-Key": crypto.randomUUID() }, data: {
       expected_updated_at: tagged.updated_at, note: "#E2E-publication-ready",
     } })).status()).toBe(200);
     await page.getByRole("searchbox", { name: "Search materials", exact: true }).fill("#E2E-publication-ready");
-    await page.getByRole("button", { name: "Prepare filtered for publication (1)", exact: true }).click();
-    await expect(page.getByRole("searchbox", { name: "Search materials", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "Find materials", exact: true }).click();
+    const candidates = page.locator(".publication-selection").getByRole("checkbox");
+    await expect(candidates).toHaveCount(1);
+    await candidates.check();
+    await expect(page.getByRole("heading", { name: "Selected materials (1/100)", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Check sources and review", exact: true }).click();
     await expect(page.getByText("All selected materials passed the source and export checks.", { exact: true })).toBeVisible();
     expect((await (await page.request.get(path + "/technical-review")).json()).approvals).toEqual([]);
@@ -190,8 +195,7 @@ test("automatic source checks, global ZIP settings and immutable downloads survi
   expect(staging.importer_compatible).toBe(false); expect(staging.materials).toHaveLength(1);
   expect(staging.materials[0].packaging_proof_sha256).toBe(completedJob.proof_sha256);
   expect(staging.close.reason).toBe("Close synthetic staging before dispatch");
-  await page.goto("/materials");
-  await page.getByRole("button", { name: "Publication batches", exact: true }).click();
+  await page.goto("/publication");
   const storageHistory = page.getByRole("article", { name: "Storage uploads", exact: true });
   await storageHistory.locator("summary").click();
   await storageHistory.getByRole("button", { name: /^Open Closed ·/ }).click();

@@ -1420,6 +1420,23 @@ a.button {
 .material-color-option[aria-selected="true"] { font-weight:600; }
 .material-color-swatch { width:28px; height:28px; flex:0 0 28px; border:1px solid var(--border); border-radius:7px; }
 .material-color-swatch--empty { background:linear-gradient(135deg, transparent 46%, #9093b9 47%, #9093b9 53%, transparent 54%), #fff; }
+
+.material-color-filter { min-width:210px; }
+.material-color-filter .material-color-swatch { width:20px; height:20px; flex-basis:20px; border-radius:4px; }
+.material-color-filter-chip { display:flex; margin-right:-.35rem; }
+.material-color-filter .material-color-options { min-width:270px; }
+.material-color-code { margin-left:auto; color:var(--muted); font-size:.7rem; }
+.material-color-filter-clear { margin:6px; }
+.material-table--editable tbody tr { cursor:default; }
+.material-table--editable tr.is-highlighted td { background:#dde0ed; box-shadow:inset 0 1px #9093b9, inset 0 -1px #9093b9; }
+.material-table--editable tr.is-highlighted.is-selected td { background:#d0d5ea; }
+.material-table--editable tbody tr:focus-visible { outline:2px solid #394173; outline-offset:-2px; }
+.automatic-file-check { display:inline-block; white-space:nowrap; border-radius:20px; padding:4px 9px; font-size:.75rem; background:#f2f3f9; color:#666982; }
+.automatic-file-check--ok { background:#e0f5e9; color:#176841; }
+.automatic-file-check--issues { background:#fde6e6; color:#982c2c; }
+.gallery-selection { position:absolute; left:10px; top:10px; z-index:4; display:flex; padding:5px; background:#fffffff2; border-radius:6px; }
+.gallery-selection input { width:18px; height:18px; margin:0; }
+.gallery-tile--selected { outline:2px solid #394173; outline-offset:-2px; }
 .catalog-content .checkbox-label, .checkbox-label { display:flex; align-items:center; gap:.6rem; }
 .checkbox-label input[type=checkbox], .material-property-editor input[type=checkbox], .material-archive-control input[type=checkbox] { width:16px; height:16px; min-width:16px; min-height:16px; margin:0; padding:0; flex:0 0 16px; }
 .material-name-dialog { width:min(720px, calc(100vw - 2rem)); max-height:90vh; overflow:auto; }

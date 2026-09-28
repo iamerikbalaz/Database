@@ -48,7 +48,8 @@ function TilePreview({ material, store, size, selectedName, select, compact = fa
   </>;
 }
 
-function MaterialTile({ material, store, size, navigate }: { material: Material; store: GalleryStore; size: GallerySize; navigate: (path: string) => void }) {
+type GallerySelection = { ids: Set<string>; change: (ids: Set<string>) => void };
+function MaterialTile({ material, store, size, navigate, selection, disabled }: { material: Material; store: GalleryStore; size: GallerySize; navigate: (path: string) => void; selection?: GallerySelection | undefined; disabled?: boolean | undefined }) {
   const element = useRef<HTMLLIElement>(null);
   const [near, setNear] = useState(false);
   const [selectedName, select] = useState("");
@@ -58,8 +59,10 @@ function MaterialTile({ material, store, size, navigate }: { material: Material;
     const observer = new IntersectionObserver(entries => setNear(entries[0].isIntersecting), { rootMargin: "250px" });
     observer.observe(element.current); return () => observer.disconnect();
   }, []);
-  return <li ref={element} className="gallery-tile" aria-label={material.materialName}>
+  return <li ref={element} className={`gallery-tile${selection?.ids.has(material.id) ? " gallery-tile--selected" : ""}`} aria-label={material.materialName}>
     <div className="gallery-image">
+      {selection && <label className="gallery-selection"><input type="checkbox" aria-label={`Select ${material.materialName}`} checked={selection.ids.has(material.id)} disabled={disabled}
+        onChange={event => { const next = new Set(selection.ids); if (event.target.checked) next.add(material.id); else next.delete(material.id); selection.change(next); }} /></label>}
       {!material.folderPath ? <span className="gallery-placeholder">No folder linked</span>
         : near ? <TilePreview key={`${material.id}:${material.folderPath}`} material={material} store={store} size={size === "small" ? 256 : 512} selectedName={selectedName} select={select} />
           : <span className="gallery-placeholder" aria-hidden="true" />}
@@ -70,8 +73,8 @@ function MaterialTile({ material, store, size, navigate }: { material: Material;
   </li>;
 }
 
-export function MaterialsGrid({ materials, store, size, navigate }: { materials: Material[]; store: GalleryStore; size: GallerySize; navigate: (path: string) => void }) {
-  return <ul className={`materials-grid materials-grid--${size}`} aria-label="Material gallery">{materials.map(material => <MaterialTile key={material.id} material={material} store={store} size={size} navigate={navigate} />)}</ul>;
+export function MaterialsGrid({ materials, store, size, navigate, selection, disabled }: { materials: Material[]; store: GalleryStore; size: GallerySize; navigate: (path: string) => void; selection?: GallerySelection | undefined; disabled?: boolean }) {
+  return <ul className={`materials-grid materials-grid--${size}`} aria-label="Material gallery">{materials.map(material => <MaterialTile key={material.id} material={material} store={store} size={size} navigate={navigate} selection={selection} disabled={disabled} />)}</ul>;
 }
 
 export function MaterialThumbnail({ material, store }: { material: Material; store: GalleryStore }) {

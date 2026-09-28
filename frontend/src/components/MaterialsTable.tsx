@@ -15,6 +15,7 @@ import { MaterialIdentityPanel } from "./MaterialIdentityPanel";
 import { MaterialThumbnail } from "./MaterialsGrid";
 import { NavigationLink } from "./NavigationLink";
 import { useNavigationGuard } from "../navigationGuard";
+import { highlightMaterial, isInteractiveTarget, type HighlightState } from "./materialHighlight";
 
 const columns = [
   ["project", "Project", 180], ["brand", "Published brand", 180], ["category", "Category", 225],
@@ -22,11 +23,11 @@ const columns = [
   ["archived", "Archived", 110], ["archivedAt", "Archive date", 200],
   ["processor", "Processor", 180], ["note", "Note", 240], ["folder", "Folder path", 340],
   ["number", "Number", 90], ["created", "Created", 200], ["updated", "Updated", 200],
-  ["uuid", "Internal UUID", 310], ["technical", "File check", 145],
+  ["uuid", "Internal UUID", 310], ["technical", "Automatic file check", 180],
 ] as const;
 type Column = typeof columns[number][0];
 type Layout = { key: Column; visible: boolean; width: number }[];
-const defaultLayout = (): Layout => columns.map(([key, , width]) => ({ key, width, visible: ["project", "brand", "category", "status", "checked", "published", "archived", "processor", "note"].includes(key) }));
+const defaultLayout = (): Layout => columns.map(([key, , width]) => ({ key, width, visible: ["project", "brand", "category", "status", "checked", "technical", "published", "archived", "processor", "note"].includes(key) }));
 function readLayout(): Layout {
   try {
     const value: unknown = JSON.parse(localStorage.getItem("materials.columns.v1") ?? "null");
@@ -39,7 +40,9 @@ type Change = TableChange | { is_archived: boolean };
 type Job = { material: Material; change: Change; lifecycle?: { preview: ArchivePreview; body: LifecycleRequest }; key: string; status: "waiting" | "saved" | "failed" | "unknown" | "stopped"; message?: string };
 type Props = { materials: Material[]; store: GalleryStore; client: ApiClient; projects: Project[]; brands: PublishedBrand[]; users: InternalUser[];
   navigate: (path: string) => void; refresh: () => void; onBusyChange: (busy: boolean) => void;
-  onPreparePublication?: (materials: Material[]) => void; detail?: boolean; onMaterialChanged?: (material: Material) => void };
+  onPreparePublication?: (materials: Material[]) => void; detail?: boolean; onMaterialChanged?: (material: Material) => void;
+  selection?: { ids: Set<string>; change: (ids: Set<string>) => void };
+  onCheckSelected?: ((materials: Material[]) => void) | undefined; operationBusy?: boolean };
 
 function NoteCell({ material, disabled, save }: { material: Material; disabled: boolean; save: (change: TableChange) => void }) {
   const [draft, setDraft] = useState(material.note ?? "");
@@ -48,25 +51,37 @@ function NoteCell({ material, disabled, save }: { material: Material; disabled: 
     {draft !== (material.note ?? "") && <button className="button" disabled={disabled} onClick={() => save({ note: draft || null })}>Save note</button>}</div>;
 }
 
-export function MaterialsTable({ materials, store, client, projects, brands, users, navigate, refresh, onBusyChange, onPreparePublication, detail = false, onMaterialChanged }: Props) {
+export function MaterialsTable({ materials, store, client, projects, brands, users, navigate, refresh, onBusyChange, onPreparePublication, detail = false, onMaterialChanged, selection, onCheckSelected, operationBusy = false }: Props) {
   const actor = useSession()?.session.user;
   const role = actor?.role;
   const manager = role === "ADMIN" || role === "PRODUCTION_LEAD";
   const editor = manager || role === "PROCESSOR";
-  const publisher = role === "ADMIN" || role === "LEADERSHIP";
+  const publisher = role === "ADMIN" || role === "PRODUCTION_LEAD";
   const selectable = editor || (publisher && Boolean(onPreparePublication));
   const [layout, setLayout] = useState(readLayout);
   const [overrides, setOverrides] = useState<Record<string, Material>>({});
-  const rows = materials.map(row => overrides[row.id] && overrides[row.id].updatedAt >= row.updatedAt ? overrides[row.id] : row);
+  const rows = materials.map(row => overrides[row.id] && overrides[row.id].updatedAt > row.updatedAt ? overrides[row.id] : row);
   const archivedView = materials.every(row => row.isArchived);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [localSelected, setLocalSelected] = useState<Set<string>>(new Set());
+  const selected = selection?.ids ?? localSelected;
+  const setSelected = selection?.change ?? setLocalSelected;
+  const [highlight, setHighlight] = useState<HighlightState>({ ids: new Set(), anchor: null });
+  const visibleKey = materials.map(row => row.id).join(":");
+  const [previousVisibleKey, setPreviousVisibleKey] = useState(visibleKey);
+  if (previousVisibleKey !== visibleKey) {
+    setPreviousVisibleKey(visibleKey);
+    const visible = new Set(materials.map(row => row.id));
+    setHighlight({ ids: new Set([...highlight.ids].filter(id => visible.has(id))), anchor: highlight.anchor && visible.has(highlight.anchor) ? highlight.anchor : null });
+    if (!selection) setLocalSelected(new Set([...localSelected].filter(id => visible.has(id))));
+  }
   const [bulkField, setBulkField] = useState<EditField>(materials.every(row => row.isArchived) ? "note" : "workflow_status");
   const [bulkValue, setBulkValue] = useState(materials.every(row => row.isArchived) ? "" : "DONE");
   const [jobs, setJobs] = useState<Job[]>([]);
   const jobsRef = useRef<Job[]>([]);
   const [pending, setPending] = useState(false);
-  const [active, setActive] = useState(false);
+  const [internallyActive, setActive] = useState(false);
+  const active = internallyActive || operationBusy;
   const [inline, setInline] = useState(false);
   const inlineRef = useRef(false);
   const [notice, setNotice] = useState("");
@@ -79,9 +94,9 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
   useNavigationGuard(() => sending.current || jobsRef.current.some(job => job.status === "unknown") || identityBusy);
   useEffect(() => { alive.current = true; return () => { alive.current = false; stop.current = true; }; }, []);
   useEffect(() => {
-    onBusyChange(active || lifecycleBusy || Boolean(identity));
+    onBusyChange(internallyActive || lifecycleBusy || Boolean(identity));
     return () => onBusyChange(false);
-  }, [active, lifecycleBusy, identity, onBusyChange]);
+  }, [internallyActive, lifecycleBusy, identity, onBusyChange]);
   useEffect(() => {
     if (!active) return;
     const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
@@ -210,7 +225,8 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     if (key === "created") return new Date(row.createdAt).toLocaleString();
     if (key === "updated") return new Date(row.updatedAt).toLocaleString();
     if (key === "uuid") return row.id;
-    return row.validationStatus.toLowerCase().replaceAll("_", " ");
+    const status = row.automaticFileCheckStatus ?? "NOT_CHECKED";
+    return <span className={`automatic-file-check automatic-file-check--${status.toLowerCase()}`}>{status === "NOT_CHECKED" ? "not checked" : status === "OK" ? "OK" : "issues"}</span>;
   };
   const visible = layout.filter(c => c.visible || archivedView && c.key === "archivedAt");
   const review = jobs[0] ? describeChange(jobs[0].change) : null;
@@ -222,6 +238,10 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
       </details>
       <button className="button" disabled={active || lifecycleBusy || Boolean(identity)} onClick={refresh}>Refresh materials</button>
       {selectable && <span>{selectedRows.length} selected</span>}
+      {selectable && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || !rows.some(row => highlight.ids.has(row.id))}
+        onClick={() => setSelected(new Set([...selectedRows.map(row => row.id), ...rows.filter(row => highlight.ids.has(row.id)).map(row => row.id)]))}>Select highlighted ({rows.filter(row => highlight.ids.has(row.id)).length})</button>}
+      {editor && onCheckSelected && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || !selectedRows.length || selectedRows.length > 100}
+        onClick={() => onCheckSelected(selectedRows.map(row => ({ ...row })))}>Check selected materials ({selectedRows.length})</button>}
       {publisher && onPreparePublication && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || !selectedRows.length || selectedRows.length > 100} onClick={() => onPreparePublication(selectedRows.map(row => ({ ...row })))}>Prepare selected for publication ({selectedRows.length})</button>}
     </div>}
     {!detail && editor && selectedRows.length > 0 && <fieldset className="material-bulk-bar" disabled={active || lifecycleBusy}><legend>Apply to {selectedRows.length} selected materials</legend>
@@ -239,8 +259,12 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
       <table style={{ width: 356 + visible.reduce((n, c) => n + c.width, 0) }}><caption className="sr-only">Materials and production status</caption>
         <colgroup><col style={{ width: 40 }} /><col style={{ width: 76 }} /><col style={{ width: 240 }} />{visible.map(c => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
         <thead><tr><th scope="col">{selectable && <input type="checkbox" aria-label="Select all visible materials" disabled={active || lifecycleBusy} checked={rows.length > 0 && selectedRows.length === rows.length} onChange={e => setSelected(new Set(e.target.checked ? rows.map(r => r.id) : []))} />}</th><th scope="col">Preview</th><th scope="col">Material</th>{visible.map(c => <th key={c.key} scope="col">{title(c.key)}</th>)}</tr></thead>
-        <tbody>{rows.map(row => <tr key={row.id} className={selected.has(row.id) ? "is-selected" : ""}>
-          <td>{selectable && <input type="checkbox" aria-label={`Select ${row.materialName}`} disabled={active || lifecycleBusy} checked={selected.has(row.id)} onChange={e => setSelected(old => { const next = new Set(old); if (e.target.checked) next.add(row.id); else next.delete(row.id); return next; })} />}</td>
+        <tbody>{rows.map(row => <tr key={row.id} className={`${selected.has(row.id) ? "is-selected " : ""}${highlight.ids.has(row.id) ? "is-highlighted" : ""}`} aria-selected={highlight.ids.has(row.id)}
+          tabIndex={selectable ? 0 : undefined} aria-label={`Material row ${row.materialName}`}
+          onMouseDown={event => { if ((event.shiftKey || event.ctrlKey || event.metaKey) && !isInteractiveTarget(event.target)) event.preventDefault(); }}
+          onClick={event => { if (selectable && !active && !lifecycleBusy && !identity && !isInteractiveTarget(event.target)) setHighlight(current => highlightMaterial(current, row.id, rows.map(item => item.id), event)); }}
+          onKeyDown={event => { if (selectable && !active && !lifecycleBusy && !identity && event.target === event.currentTarget && event.key === " ") { event.preventDefault(); setHighlight(current => highlightMaterial(current, row.id, rows.map(item => item.id), event)); } }}>
+          <td>{selectable && <input type="checkbox" aria-label={`Select ${row.materialName}`} disabled={active || lifecycleBusy} checked={selected.has(row.id)} onChange={e => { const next = new Set(selected); if (e.target.checked) next.add(row.id); else next.delete(row.id); setSelected(next); }} />}</td>
           <td><MaterialThumbnail material={row} store={store} /></td><td><NavigationLink className="table-link" href={row.isArchived ? `/material-archives/${row.id}` : `/materials/${row.id}`} navigate={navigate}>{row.materialName}</NavigationLink><NavigationLink className="table-identity" href={row.isArchived ? `/material-archives/${row.id}` : `/materials/${row.id}`} navigate={navigate}>{row.technicalIdentity}</NavigationLink></td>
           {visible.map(c => <td key={c.key}>{renderCell(c.key, row)}</td>)}</tr>)}</tbody>
       </table>

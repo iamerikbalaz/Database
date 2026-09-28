@@ -5,6 +5,8 @@ import { mockApiClient } from "../api/client";
 import { materialFromDto } from "../api/materialDto";
 import { materialDto } from "../test/materialFixtures";
 import { previewClient } from "../api/previewClient";
+import { SessionContext } from "../auth/context";
+import { processorDto } from "../test/materialFixtures";
 
 beforeEach(() => localStorage.clear());
 afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
@@ -43,4 +45,28 @@ it("uses the same search and property controls in Archive and always requests ar
   await screen.findByRole("table"); fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
   await waitFor(() => expect(getMaterials).toHaveBeenLastCalledWith({ is_archived: "true" }));
   expect(screen.queryByRole("button", { name: /Select all filtered|Clear selection/ })).not.toBeInTheDocument();
+});
+
+it("keeps multi-color filtering and checked selection when switching list/gallery, clearing selection on a filter change", async () => {
+  const material = materialFromDto(materialDto), getMaterials = vi.fn().mockResolvedValue([material]);
+  render(<SessionContext.Provider value={{ session: { user: { ...processorDto, role: "ADMIN" }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}>
+    <MaterialsPage client={{ ...mockApiClient, getMaterials }} navigate={vi.fn()} />
+  </SessionContext.Provider>);
+  await screen.findByRole("table");
+  fireEvent.click(screen.getByRole("combobox", { name: "Color" }));
+  fireEvent.click(screen.getByRole("option", { name: /White #FFFFFF/ }));
+  fireEvent.click(screen.getByRole("option", { name: /Orange #FF822D/ }));
+  await waitFor(() => expect(getMaterials).toHaveBeenLastCalledWith({ color_hex: ["#FFFFFF", "#FF822D"] }));
+  fireEvent.keyDown(screen.getByRole("combobox", { name: "Color" }), { key: "Escape" });
+  await screen.findByRole("table");
+  fireEvent.click(screen.getByRole("checkbox", { name: `Select ${material.materialName}` }));
+  fireEvent.click(screen.getByRole("button", { name: "Gallery" }));
+  expect(screen.getByRole("checkbox", { name: `Select ${material.materialName}` })).toBeChecked();
+  expect(screen.getByRole("button", { name: "Prepare selected for publication (1)" })).toBeEnabled();
+  expect(screen.queryByRole("button", { name: /Prepare filtered|Publication batches/ })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "List" }));
+  expect(screen.getByRole("checkbox", { name: `Select ${material.materialName}` })).toBeChecked();
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "changed" } });
+  await screen.findByRole("table");
+  expect(screen.getByRole("checkbox", { name: `Select ${material.materialName}` })).not.toBeChecked();
 });

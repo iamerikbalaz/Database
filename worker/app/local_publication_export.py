@@ -23,7 +23,7 @@ def export_material(root, workspace, output, item, config):
     parts = tuple(item["folder_path"].split("/"))
     if not parts or not all(_safe_name(part) for part in parts) or parts[-1] != item["identity_name"]:
         raise ValueError("LOCAL_EXPORT_SOURCE_INVALID")
-    checked = check_material_files(root, parts)
+    checked = check_material_files(root, parts, for_export=True)
     if checked["issues"]:
         return {"material_id": item["material_id"], "status": "FAILED", "issues": checked["findings"], "archives": []}
     report = checked["packaging_report"]

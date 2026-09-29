@@ -10,10 +10,10 @@ import re
 import stat
 import time
 
-from app.inventory import InventoryError, InventoryLimits, _safe_name, inventory_material
+from app.inventory import AUTOMATIC_FILES_SCOPE, InventoryError, InventoryLimits, _safe_name, inventory_material
 from app.material_naming import NAMED_IDENTITY, map_bases
 from app.secure_filesystem import _metadata_flags, open_material_directory
-from app.technical_validation import VALIDATION_SLOT, _validate_material, probe_image
+from app.technical_validation import STRICT_PROBE_WALL_SECONDS, VALIDATION_SLOT, _validate_material, probe_image
 
 PROFILE = "PBR_FILES_V1"
 RGB_JPEG = frozenset({"COL", "DIFF", "NRM", "SPEC", "SPECLVL", "SSS", "SSSABSORB", "TRANSL", "ANISO"})
@@ -28,20 +28,25 @@ MAX_PREVIEWS = 256
 INCOMPLETE_PROBES = frozenset({"IMAGE_PROBE_UNAVAILABLE", "IMAGE_PROBE_FAILED", "IMAGE_PROBE_TIMEOUT", "IMAGE_SOURCE_CHANGED"})
 
 
-def check_material_files(root: Path, parts: tuple[str, ...]) -> dict:
+def check_material_files(root: Path, parts: tuple[str, ...], *, for_export: bool = False) -> dict:
     if not parts or not all(_safe_name(part) for part in parts):
         raise ValueError("FILE_CHECK_PATH_INVALID")
     if not VALIDATION_SLOT.acquire(blocking=False):
         raise InventoryError("VALIDATION_BUSY")
     try:
-        return _check(root, parts)
+        return _check(root, parts, for_export=for_export)
     finally:
         VALIDATION_SLOT.release()
 
 
-def _check(root, parts):
+def _check(root, parts, *, for_export):
     deadline = time.monotonic() + 240
-    technical = _validate_material(root, parts, include_mode=True)
+    scope = None if for_export else AUTOMATIC_FILES_SCOPE
+    # One initial inventory and one final verification after every image and
+    # metadata check. The intermediate legacy verification would reread all
+    # inputs before previews, then immediately read them again below.
+    technical = _validate_material(root, parts, include_mode=True, inventory_scope=scope, verify_after=False,
+        probe_wall_limit=STRICT_PROBE_WALL_SECONDS)
     inventory = technical["inventory"]
     if any(item["code"] in INCOMPLETE_PROBES for item in technical["errors"]):
         raise InventoryError("FILE_CHECK_INCOMPLETE")
@@ -151,17 +156,21 @@ def _check(root, parts):
                 add("PREVIEW_DIMENSIONS_INVALID", path, "1200x1200 pixels", f"{image['width']}x{image['height']} pixels")
     remaining = deadline - time.monotonic()
     if remaining <= 0: raise InventoryError("INVENTORY_TIME_LIMIT")
-    latest = inventory_material(root, parts, limits=InventoryLimits(max_seconds=remaining))
+    latest = inventory_material(root, parts, limits=InventoryLimits(max_seconds=remaining),
+        **({"scope": scope} if scope else {}))
     if latest["source_revision_hash"] != inventory["source_revision_hash"]:
         raise InventoryError("INVENTORY_SOURCE_CHANGED")
 
     # The staging contract consumes only its historical fields. It receives a
     # report only after full checks, and never optional decoder evidence.
-    packaging_report = deepcopy(technical)
-    for image in packaging_report["images"]: image.pop("mode", None)
+    packaging_report = deepcopy(technical) if for_export else None
+    if packaging_report is not None:
+        for image in packaging_report["images"]: image.pop("mode", None)
     status = "ISSUES" if issues else "OK"
     lines = [f"Material: {identity}", f"Folder: {'/'.join(parts)}", f"Profile: {PROFILE}",
         f"Status: {status}", f"Master: {master or 'missing'}", f"Maps decoded: {len(images)}; previews found: {len(previews)}", ""]
+    if not for_export:
+        lines.insert(-1, "Checked inputs: resolution folders, PREVIEW and root metadata; authoring/SOURCE payloads excluded.")
     lines.extend(issues or ["All automatic source checks passed."])
     return {"profile": PROFILE, "complete": True, "issues": issues, "report": "\n".join(lines),
         "findings": findings, "packaging_report": packaging_report}

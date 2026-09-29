@@ -15,8 +15,9 @@ This is a technical inspection, separate from the human **Checked** review.
 - **OK** means that the full inspection completed and found no issues.
 - **issues** means that the inspection found defects. The report identifies the
   affected file or folder, the observed problem and the expected value.
-- **not checked** means that no current complete clean result exists. A source
-  change invalidates the previous derived result; rerun the check after editing.
+- **not checked** means that no current complete clean result exists. Relevant
+  changes made through the app invalidate the previous derived result; rerun the
+  check after editing files outside the app.
 - Infrastructure failures or a source changing during inspection are not treated
   as a successful check. Existing results are not replaced with a false **OK**.
 
@@ -34,9 +35,28 @@ containing `app.local_file_check`, and a private job directory outside both the
 material library and its mutation journal. A full selection uses one container.
 The container has no network, a read-only source mount and bounded resources;
 Windows source handles block writes and renames while the check is running.
+Large map images in the full profile may use up to 120 seconds of wall time per
+decode, clipped by the remaining material deadline, to allow slow desktop file
+I/O. The decoder still has a 30-second CPU limit and 2 GiB memory limit. The
+legacy technical decoder retains its original 35-second wall limit.
 An unconfigured desktop keeps the explicitly preliminary BASIC profile.
 The ordinary remote worker approval endpoints retain their earlier versioned
 contract; their historical approval evidence is not reclassified as a full check.
+
+### Inspection scope
+
+The automatic check reads and hashes the files relevant to its rules: source
+resolution directories, `PREVIEW` and root metadata. It decodes map and preview
+images and parses metadata. It does not decode or hash unrelated payloads in
+folders such as `SOURCE`; these files are outside the automatic validation rules.
+The native desktop adapter still holds existing files throughout the selected
+material trees stable and compares the tree before and after the inspection.
+
+Publication retains the full source inventory and content hashes used to bind
+packaging to unchanged input data. The narrower automatic-check inventory does
+not replace that publication evidence. An **OK** automatic result certifies the
+configured map, preview and metadata rules at the recorded inspection time, not
+the contents of unrelated source payloads.
 
 ### Folder and map rules
 
@@ -85,8 +105,10 @@ repair metadata, rename files or generate lower-resolution source folders.
 The database stores the status, last inspection time, report, profile version and
 whether the configured validation completed. Changes that invalidate material
 source review also clear this derived result. The immutable activity record keeps
-the earlier observation. Manual changes made outside the app are detected on the
-next inspection; the timestamp describes the last observation, not live monitoring.
+the earlier observation. A new inspection checks the current map, preview and
+metadata files, including changes made outside the app. It does not monitor files
+continuously or detect content changes in unrelated `SOURCE` payloads. The
+timestamp describes the last observation.
 The full report remains in the database and audit evidence and is returned by the
 explicit check operation and bulk TXT export. Material list/detail DTOs expose only
 the compact status, date, profile and completeness fields; ordinary edit receipts

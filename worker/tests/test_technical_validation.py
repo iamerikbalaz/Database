@@ -185,3 +185,25 @@ def test_probe_process_is_bounded_and_cannot_reflect_child_diagnostics(monkeypat
     result = probe_image(42)
     assert result["error"] in {"IMAGE_PROBE_FAILED", "IMAGE_PROBE_TIMEOUT"}
     assert "PRIVATE" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("requested,limit,mode,expected", [(999, 35, False, 35),
+    (999, 35, True, 35), (999, 120, True, 120), (17, 120, True, 17)])
+def test_slow_io_wall_bound_is_explicit_and_respects_remaining_deadline(monkeypatch, requested, limit, mode, expected):
+    calls = []
+    def run(arguments, **kwargs):
+        calls.append(kwargs["timeout"])
+        # The parent wait changes, not the child process/resource policy.
+        assert arguments[-1] == ("--mode" if mode else "42")
+        body = {"width": 1024, "height": 1024, "bits": 8, "format": "PNG", "sha256": "a" * 64}
+        if mode: body["mode"] = "RGB"
+        return SimpleNamespace(returncode=0, stdout=json.dumps(body).encode())
+    monkeypatch.setattr(subprocess, "run", run)
+    assert "error" not in probe_image(42, timeout=requested, wall_limit=limit, include_mode=mode)
+    assert calls == [expected]
+
+
+@pytest.mark.parametrize("invalid", [0, -1, 36, 121, 999, True, 120.0, "120"])
+def test_probe_cannot_opt_into_an_unbounded_or_unknown_wall_policy(monkeypatch, invalid):
+    monkeypatch.setattr(subprocess, "run", lambda *_args, **_kwargs: pytest.fail("Invalid policy must not launch a decoder"))
+    assert probe_image(42, timeout=999, wall_limit=invalid) == {"error": "IMAGE_PROBE_FAILED"}

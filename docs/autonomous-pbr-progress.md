@@ -1,6 +1,61 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-28, Materials selection and offline publication)
+## Latest checkpoint (2026-09-29, complete automatic material checks)
+
+Continued the existing `codex/autonomous-pbr-completion` branch. Fresh fetch still
+shows `origin/main` at `88a1f99d748d2a0edbb1fce509e13d18bfc03908`. The initial
+complete checker is committed and pushed as `6f650e1`; final real-data performance
+verification is in progress in the working tree.
+
+### Delivered behavior
+
+- `PBR_FILES_V1` evaluates the agreed required COL/ROUGH/NRM set, all 20 map
+  types, encoded format/depth/channels, uppercase identity and map filenames,
+  exact master dimensions, PNG 1200-square previews and root metadata.json.
+  ID is grayscale PNG8; SHEEN accepts grayscale or RGB PNG8. NRM16 and GLOSS
+  cannot substitute for the required NRM and ROUGH maps.
+- Card, bulk selection and local export use the same rules. A completed check
+  records OK or issues with actor/time/history, independently of human Checked.
+  The bulk TXT has a summary and details only for defective materials.
+- One isolated, network-free container checks the complete selection. Native
+  Windows handles protect source files; stale permissions/versions, incomplete
+  worker output or source races cannot write a partial or false-OK result.
+- Historical BASIC_V1 results and legacy technical approval evidence retain
+  their original meaning. No migration or retrospective human approval is added.
+
+### Verification and local runtime
+
+- Initial complete worker/packaging suite: **962 passed**, including 70 strict
+  check and 8 strict offline-export cases. Color SHEEN survives actual ZIP
+  conversion; existing A/B layout, timing and resizing policy remain unchanged.
+- Frontend: **51 focused tests**, build and lint passed. API/access checks,
+  map/packaging contracts, local-export regressions and native Windows source
+  protection tests passed. PostgreSQL: **4 passed** in a fresh disposable owned
+  instance, including full-OK table edits/replays and forged-receipt rejection.
+- The first live 50-material batch failed closed: no partial database results
+  were stored. An isolated full-tree scan of a 2.49 GiB material took 101.2s.
+  The final optimization hashes automatic-check inputs only (resolution folders,
+  PREVIEW and root metadata), excludes unrelated authoring/SOURCE payloads, and
+  removes a redundant verification pass. Publication keeps full-tree evidence.
+  The narrowed scope is explicitly hash-bound and cannot serve as export proof.
+  These scope changes passed **218 targeted Linux tests**. A subsequent real-data
+  run isolated a separate decoder wall limit: the 321 MB ROUBAL NRM16 PNG timed
+  out after 35.048s while consuming only 11.647s of CPU. The strict profile's
+  map decoder now allows up to 120s wall time, clipped by the remaining material
+  deadline; CPU/memory and the legacy decoder limits remain unchanged. The final
+  image passed **199 targeted tests** (strict checks, technical validation, local
+  export, conversion and assembly). The real ROUBAL check completed in **66.6s**,
+  reporting its ID map stored as JPG instead of the required PNG.
+- The local application remains `http://127.0.0.1:53033`, rooted exclusively at
+  `C:\Users\Admin\Desktop\Test_data`. Final optimized live acceptance is pending.
+- Docker initially failed to start because of inaccessible stale AF_UNIX socket
+  files. Only its transient socket directories were moved to retained sibling
+  backups, allowing a fresh start; no Docker database or volume was reset.
+
+See [the complete rules](automatic-file-check.md) and
+[offline publication](offline-publication.md) for the operational contracts.
+
+## Previous checkpoint (2026-09-28, Materials selection and offline publication)
 
 Continued `codex/autonomous-pbr-completion` from `401a23c`. A fresh fetch confirmed
 `origin/main` is still `88a1f99d748d2a0edbb1fce509e13d18bfc03908`. Changes stay on

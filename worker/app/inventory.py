@@ -6,6 +6,7 @@ Consumers must rescan before approval and before copying publication inputs.
 import hashlib
 import json
 import os
+import re
 import stat
 import time
 from dataclasses import dataclass
@@ -19,6 +20,9 @@ from app.secure_filesystem import (
 
 class InventoryError(RuntimeError):
     """Safe fixed code; no source contents or absolute paths."""
+
+
+AUTOMATIC_FILES_SCOPE = "AUTOMATIC_FILES_V1"
 
 
 @dataclass(frozen=True)
@@ -42,7 +46,9 @@ def _safe_name(name: str) -> bool:
 
 
 def inventory_material(root: Path, parts: tuple[str, ...], *,
-                       limits: InventoryLimits | None = None) -> dict:
+                       limits: InventoryLimits | None = None, scope: str | None = None) -> dict:
+    if scope not in {None, AUTOMATIC_FILES_SCOPE}:
+        raise ValueError("INVENTORY_SCOPE_INVALID")
     limits = limits or InventoryLimits()
     deadline = time.monotonic() + limits.max_seconds
     entries: list[dict] = []
@@ -83,6 +89,13 @@ def inventory_material(root: Path, parts: tuple[str, ...], *,
                 if (before.st_dev != device or not (is_directory or stat.S_ISREG(before.st_mode))
                         or (not is_directory and before.st_nlink != 1)):
                     raise InventoryError("INVENTORY_UNSAFE_ENTRY")
+                if (scope == AUTOMATIC_FILES_SCOPE and depth == 0
+                        and name not in {"PREVIEW", "metadata.json", "metadata.txt"}
+                        and not re.fullmatch(r"[0-9]+[Kk]", name)):
+                    # Source authoring payloads (SOURCE, .sbsar, etc.) are not
+                    # automatic-check inputs. Never open or traverse them.
+                    # Root entry safety and root-directory stability still hold.
+                    continue
                 signature = _signature(before)
                 if verify:
                     if signatures.get(relative) != signature:
@@ -148,6 +161,10 @@ def inventory_material(root: Path, parts: tuple[str, ...], *,
     entries.sort(key=lambda item: item["path"])
     revision = {"schema_version": 1, "folder_name": parts[-1], "master_resolution": master,
                 "policy": policy, "entries": entries}
+    if scope is not None:
+        # Bind scope into the digest. A narrowed report cannot be substituted
+        # for the full source proof required by staging and export.
+        revision["inventory_scope"] = scope
     digest = hashlib.sha256(json.dumps(revision, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
     return {**revision, "source_revision_hash": digest, "total_bytes": total,
             "master_last_modified_at": modified}

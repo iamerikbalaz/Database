@@ -23,15 +23,23 @@ PROBE_ERRORS = frozenset({"IMAGE_DIMENSION_LIMIT", "IMAGE_MULTIFRAME_UNSUPPORTED
     "IMAGE_BIT_DEPTH_UNSUPPORTED", "IMAGE_MODE_UNSUPPORTED", "IMAGE_SOURCE_CHANGED", "IMAGE_PROBE_UNAVAILABLE",
     "IMAGE_RESOURCE_LIMIT", "IMAGE_PROBE_FAILED", "IMAGE_PROBE_TIMEOUT"})
 VALIDATION_SLOT = BoundedSemaphore(1)
+DEFAULT_PROBE_WALL_SECONDS = 35
+STRICT_PROBE_WALL_SECONDS = 120
 
 
-def probe_image(fd: int, *, timeout: float = 35, include_mode: bool = False) -> dict:
+def probe_image(fd: int, *, timeout: float = DEFAULT_PROBE_WALL_SECONDS, include_mode: bool = False,
+                wall_limit: int = DEFAULT_PROBE_WALL_SECONDS) -> dict:
     from app.packaging_lease import inherited_lease_fds
+    # Large 16-bit PNGs on a read-only desktop bind mount can spend most of
+    # their wall time waiting for IO. Only the explicit full-check caller opts
+    # into the larger bound; child CPU/memory limits remain unchanged.
+    if type(wall_limit) is not int or wall_limit not in {DEFAULT_PROBE_WALL_SECONDS, STRICT_PROBE_WALL_SECONDS}:
+        return {"error": "IMAGE_PROBE_FAILED"}
     try:
         result = subprocess.run([sys.executable, "-m", "app.image_probe", str(fd), *(["--mode"] if include_mode else [])], pass_fds=inherited_lease_fds((fd,)),
             cwd=Path(__file__).resolve().parent.parent, env={"PATH": os.defpath, "PYTHONDONTWRITEBYTECODE": "1"},
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            timeout=max(.1, min(timeout, 35)), check=False)
+            timeout=max(.1, min(timeout, wall_limit)), check=False)
         if len(result.stdout) > 4096: return {"error": "IMAGE_PROBE_FAILED"}
         value = json.loads(result.stdout)
         if not isinstance(value, dict): return {"error": "IMAGE_PROBE_FAILED"}
@@ -64,9 +72,11 @@ def validate_material(root: Path, parts: tuple[str, ...]) -> dict:
         VALIDATION_SLOT.release()
 
 
-def _validate_material(root: Path, parts: tuple[str, ...], *, include_mode: bool = False) -> dict:
+def _validate_material(root: Path, parts: tuple[str, ...], *, include_mode: bool = False,
+                       inventory_scope: str | None = None, verify_after: bool = True,
+                       probe_wall_limit: int = DEFAULT_PROBE_WALL_SECONDS) -> dict:
     deadline = time.monotonic() + 120
-    inventory = inventory_material(root, parts)
+    inventory = inventory_material(root, parts, **({"scope": inventory_scope} if inventory_scope else {}))
     errors = []; warnings = []; images = []
     def finding(code: str, path: str = "") -> dict: return {"code": code, "path": path}
     master = inventory["master_resolution"]
@@ -104,7 +114,8 @@ def _validate_material(root: Path, parts: tuple[str, ...], *, include_mode: bool
                             info = os.fstat(fd)
                             if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
                                 raise InventoryError("INVENTORY_SOURCE_CHANGED")
-                            image = probe_image(fd, timeout=remaining, **({"include_mode": True} if include_mode else {}))
+                            image = probe_image(fd, timeout=remaining, **({"include_mode": True} if include_mode else {}),
+                                **({"wall_limit": probe_wall_limit} if probe_wall_limit != DEFAULT_PROBE_WALL_SECONDS else {}))
                         finally: os.close(fd)
                     except OSError:
                         raise InventoryError("INVENTORY_SOURCE_CHANGED") from None
@@ -140,7 +151,8 @@ def _validate_material(root: Path, parts: tuple[str, ...], *, include_mode: bool
     warnings.extend(finding(item.code, master or "") for item in metadata.master_warnings)
     errors.extend(finding(item.code, master or "") for item in [*metadata.errors, *metadata.master_errors])
     if time.monotonic() > deadline: raise InventoryError("INVENTORY_TIME_LIMIT")
-    latest = inventory_material(root, parts, limits=InventoryLimits(max_seconds=deadline - time.monotonic()))
+    latest = (inventory_material(root, parts, limits=InventoryLimits(max_seconds=deadline - time.monotonic()),
+        **({"scope": inventory_scope} if inventory_scope else {})) if verify_after else inventory)
     if latest["source_revision_hash"] != inventory["source_revision_hash"]:
         raise InventoryError("INVENTORY_SOURCE_CHANGED")
     return {"schema_version": 1, "validator_version": "pbr-images-1", "inventory": latest,

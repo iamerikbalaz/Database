@@ -34,7 +34,7 @@ def test_check_persists_separate_derived_status_and_actor_without_changing_human
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["status"] == status and body["profile"] == "BASIC_V1" and body["complete"] is False
-        assert "Final automatic validation rules are not configured" in body["report"]
+        assert "complete automatic file checker is not configured" in body["report"]
         material = client.get(url).json()
         assert material["automatic_file_check_status"] == status
         assert material["automatic_file_checked_at"] and "automatic_file_check_report" not in material
@@ -153,3 +153,74 @@ def test_bulk_requires_authenticated_post_csrf(local_case):
         client.headers.pop("X-CSRF-Token")
         assert client.post("/api/materials/check-data", json=payload).status_code == 403
     assert not library.calls
+
+
+@pytest.mark.parametrize("issues,status", [([], "OK"), (["PREVIEW/SPHERE_1.png: expected 1200 × 1200; found 512 × 512"], "ISSUES")])
+def test_full_profile_records_complete_results_without_human_approval(local_case, issues, status):
+    case, library, url, _ = local_case
+    library.file_check_profile = "PBR_FILES_V1"
+    library.check_many = lambda folders: [{"profile": "PBR_FILES_V1", "complete": True,
+        "report": "Full file check", "issues": issues} for _ in folders]
+    with case.database.session() as session:
+        material = session.get(PBRMaterial, case.materials[0].id)
+        original = material.checked_status, material.workflow_status, material.validation_status
+    with case.client("PROCESSOR") as client:
+        response = client.post(url + "/check-data")
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert (result["status"], result["profile"], result["complete"]) == (status, "PBR_FILES_V1", True)
+        assert "Preliminary" not in result["report"]
+    with case.database.session() as session:
+        material = session.get(PBRMaterial, case.materials[0].id)
+        assert (material.automatic_file_check_status, material.automatic_file_check_profile, material.automatic_file_check_complete) == (status, "PBR_FILES_V1", True)
+        assert (material.checked_status, material.workflow_status, material.validation_status) == original
+        event = session.scalar(select(MaterialAuditEvent).where(MaterialAuditEvent.event_type == "AUTOMATIC_FILE_CHECK"))
+        assert event.actor_id == case.users["PROCESSOR"].id
+        assert event.result["audit"]["complete"] is True
+
+
+@pytest.mark.parametrize("bad", [[], [{}], [{"report": "Partial", "issues": [], "profile": "BASIC_V1", "complete": True}],
+    [{"report": "Partial", "issues": [], "profile": "PBR_FILES_V1", "complete": False}]])
+def test_full_checker_cannot_store_partial_or_mismatched_results(local_case, bad):
+    case, library, url, _ = local_case
+    library.file_check_profile = "PBR_FILES_V1"
+    library.check_many = lambda folders: bad
+    with case.client("ADMIN") as client:
+        response = client.post(url + "/check-data")
+        assert response.status_code == 409, response.text
+    with case.database.session() as session:
+        assert session.get(PBRMaterial, case.materials[0].id).automatic_file_checked_at is None
+        assert not session.scalars(select(MaterialAuditEvent)).all()
+
+
+def test_bulk_full_profile_runs_once_and_report_contains_only_materials_with_issues(local_case):
+    case, library, _, _ = local_case
+    choices = selected(case, both=True)
+    library.file_check_profile = "PBR_FILES_V1"
+    calls = []
+    def check(folders):
+        calls.append(folders)
+        return [{"profile": "PBR_FILES_V1", "complete": True, "report": "CLEAN_MATERIAL_DETAIL", "issues": []},
+            {"profile": "PBR_FILES_V1", "complete": True, "report": "DEFECTIVE_MATERIAL_DETAIL", "issues": ["NRM map missing"]}]
+    library.check_many = check
+    with case.client("ADMIN") as client:
+        response = client.post("/api/materials/check-data", json={"materials": choices, "open_report": False})
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert len(calls) == 1 and len(calls[0]) == 2
+        assert [item["status"] for item in body["items"]] == ["OK", "ISSUES"]
+        assert "Checked: 2 | OK: 1 | Issues: 1 | Incomplete: 0" in body["report"]
+        assert "DEFECTIVE_MATERIAL_DETAIL" in body["report"] and "CLEAN_MATERIAL_DETAIL" not in body["report"]
+        assert case.materials[1].technical_identity in body["report"]
+
+
+def test_clean_full_report_has_summary_without_material_details(local_case):
+    case, library, _, _ = local_case
+    library.file_check_profile = "PBR_FILES_V1"
+    library.check_many = lambda folders: [{"profile": "PBR_FILES_V1", "complete": True, "report": "CLEAN_DETAIL", "issues": []}]
+    with case.client("ADMIN") as client:
+        response = client.post("/api/materials/check-data", json={"materials": selected(case), "open_report": False})
+        assert response.status_code == 200, response.text
+        report = response.json()["report"]
+        assert "OK: 1 | Issues: 0" in report and "No issues found." in report
+        assert "CLEAN_DETAIL" not in report and "Preliminary" not in report

@@ -11,7 +11,7 @@ MAX_PIXELS = 16_384**2
 MAX_SIDE = 32_768
 
 
-def inspect(fd: int) -> dict:
+def inspect(fd: int, *, include_mode: bool = False) -> dict:
     import resource
     resource.setrlimit(resource.RLIMIT_AS, (2 * 1024**3, 2 * 1024**3))
     resource.setrlimit(resource.RLIMIT_CPU, (30, 30))
@@ -35,6 +35,8 @@ def inspect(fd: int) -> dict:
             if getattr(image, "n_frames", 1) != 1:
                 return {"error": "IMAGE_MULTIFRAME_UNSUPPORTED"}
             image_format = image.format
+            mode = image.mode
+            transparency = "transparency" in image.info
             bits = 8
             if image_format == "PNG":
                 if header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
@@ -59,15 +61,24 @@ def inspect(fd: int) -> dict:
             return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
         if signature(before) != signature(after):
             return {"error": "IMAGE_SOURCE_CHANGED"}
-        return {"width": width, "height": height, "bits": int(bits), "format": image_format,
+        result = {"width": width, "height": height, "bits": int(bits), "format": image_format,
                 "sha256": digest.hexdigest()}
+        if include_mode:
+            # Pillow exposes decoded RGB8 for RGB16 PNGs; the IHDR remains the
+            # authority for stored depth and channels, including palette/alpha.
+            if image_format == "PNG":
+                mode = {0: "L", 2: "RGB", 3: "P", 4: "LA", 6: "RGBA"}.get(header[25], "UNKNOWN")
+                if transparency and mode in {"L", "RGB"}: mode = "LA" if mode == "L" else "RGBA"
+            result["mode"] = mode
+        return result
 
 
 def main() -> int:
     try:
-        if len(sys.argv) != 2 or not sys.argv[1].isdigit() or int(sys.argv[1]) < 3:
+        if len(sys.argv) not in {2, 3} or not sys.argv[1].isdigit() or int(sys.argv[1]) < 3:
             raise ValueError()
-        result = inspect(int(sys.argv[1]))
+        if len(sys.argv) == 3 and sys.argv[2] != "--mode": raise ValueError()
+        result = inspect(int(sys.argv[1]), include_mode=len(sys.argv) == 3)
     except ImportError:
         result = {"error": "IMAGE_PROBE_UNAVAILABLE"}
     except MemoryError:

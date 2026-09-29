@@ -16,16 +16,17 @@ from app.inventory import _safe_name
 from app.packaging_assembly import assemble_packages
 from app.packaging_stage import stage_packaging_inputs
 from app.preflight import ZipPolicy
-from app.technical_validation import validate_material
+from app.material_file_check import check_material_files
 
 
 def export_material(root, workspace, output, item, config):
     parts = tuple(item["folder_path"].split("/"))
     if not parts or not all(_safe_name(part) for part in parts) or parts[-1] != item["identity_name"]:
         raise ValueError("LOCAL_EXPORT_SOURCE_INVALID")
-    report = validate_material(root, parts)
-    if not report["can_approve"]:
-        return {"material_id": item["material_id"], "status": "FAILED", "issues": report["errors"], "archives": []}
+    checked = check_material_files(root, parts)
+    if checked["issues"]:
+        return {"material_id": item["material_id"], "status": "FAILED", "issues": checked["findings"], "archives": []}
+    report = checked["packaging_report"]
     inventory = report["inventory"]
     metadata = next((entry for entry in inventory["entries"] if entry["path"] == "metadata.json"), None)
     if metadata is None or metadata["sha256"] != item["metadata_sha256"]:

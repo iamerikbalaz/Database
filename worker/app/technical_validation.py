@@ -16,7 +16,8 @@ from app.secure_filesystem import _metadata_flags, inspect_material_secure, open
 
 # Historical production materials also carry diffuse, metal, specular, ID and
 # mask maps. The archived ZIP scripts process these identically to other maps.
-MAPS = frozenset({"AO", "COL", "DIFF", "DISP16", "DISP", "GLOSS", "ID", "MASK", "METAL", "NRM16", "NRM", "ROUGH", "SPEC"})
+MAPS = frozenset({"AO", "COL", "DIFF", "DISP16", "DISP", "GLOSS", "ID", "MASK", "METAL", "NRM16", "NRM", "ROUGH", "SPEC",
+    "SPECLVL", "SSS", "SSSABSORB", "TRANSL", "ANISO", "SHEENGLOSS", "OPAC", "SHEEN"})
 FORMATS = {"png": "PNG", "jpg": "JPEG", "jpeg": "JPEG", "tif": "TIFF", "tiff": "TIFF", "webp": "WEBP"}
 PROBE_ERRORS = frozenset({"IMAGE_DIMENSION_LIMIT", "IMAGE_MULTIFRAME_UNSUPPORTED", "IMAGE_UNREADABLE",
     "IMAGE_BIT_DEPTH_UNSUPPORTED", "IMAGE_MODE_UNSUPPORTED", "IMAGE_SOURCE_CHANGED", "IMAGE_PROBE_UNAVAILABLE",
@@ -24,10 +25,10 @@ PROBE_ERRORS = frozenset({"IMAGE_DIMENSION_LIMIT", "IMAGE_MULTIFRAME_UNSUPPORTED
 VALIDATION_SLOT = BoundedSemaphore(1)
 
 
-def probe_image(fd: int, *, timeout: float = 35) -> dict:
+def probe_image(fd: int, *, timeout: float = 35, include_mode: bool = False) -> dict:
     from app.packaging_lease import inherited_lease_fds
     try:
-        result = subprocess.run([sys.executable, "-m", "app.image_probe", str(fd)], pass_fds=inherited_lease_fds((fd,)),
+        result = subprocess.run([sys.executable, "-m", "app.image_probe", str(fd), *(["--mode"] if include_mode else [])], pass_fds=inherited_lease_fds((fd,)),
             cwd=Path(__file__).resolve().parent.parent, env={"PATH": os.defpath, "PYTHONDONTWRITEBYTECODE": "1"},
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             timeout=max(.1, min(timeout, 35)), check=False)
@@ -37,7 +38,8 @@ def probe_image(fd: int, *, timeout: float = 35) -> dict:
         if "error" in value:
             return {"error": value["error"] if value["error"] in PROBE_ERRORS else "IMAGE_PROBE_FAILED"}
         if result.returncode != 0: return {"error": "IMAGE_PROBE_FAILED"}
-        if (set(value) != {"width", "height", "bits", "format", "sha256"}
+        if (set(value) != ({"width", "height", "bits", "format", "sha256", "mode"} if include_mode else {"width", "height", "bits", "format", "sha256"})
+                or (include_mode and value.get("mode") not in {"1", "L", "LA", "P", "RGB", "RGBA", "I;16", "I;16B", "I;16L"})
                 or any(type(value.get(field)) is not int or value[field] <= 0 for field in ("width", "height", "bits"))
                 or value["format"] not in FORMATS.values()
                 or value["width"] > MAX_SIDE or value["height"] > MAX_SIDE or value["width"] * value["height"] > MAX_PIXELS
@@ -62,7 +64,7 @@ def validate_material(root: Path, parts: tuple[str, ...]) -> dict:
         VALIDATION_SLOT.release()
 
 
-def _validate_material(root: Path, parts: tuple[str, ...]) -> dict:
+def _validate_material(root: Path, parts: tuple[str, ...], *, include_mode: bool = False) -> dict:
     deadline = time.monotonic() + 120
     inventory = inventory_material(root, parts)
     errors = []; warnings = []; images = []
@@ -102,7 +104,7 @@ def _validate_material(root: Path, parts: tuple[str, ...]) -> dict:
                             info = os.fstat(fd)
                             if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
                                 raise InventoryError("INVENTORY_SOURCE_CHANGED")
-                            image = probe_image(fd, timeout=remaining)
+                            image = probe_image(fd, timeout=remaining, **({"include_mode": True} if include_mode else {}))
                         finally: os.close(fd)
                     except OSError:
                         raise InventoryError("INVENTORY_SOURCE_CHANGED") from None

@@ -8,7 +8,8 @@ connects to Google Storage, performs an upload, or marks Published implicitly.
 
 1. Select materials and open **Prepare selected for publication**.
 2. Run **Review materials**. The optional automatic file check uses the separate
-   preliminary check/report workflow; it is not a technical approval.
+   complete `PBR_FILES_V1` check/report workflow; it does not change human Checked
+   or technical approval. Its TXT report lists only materials with issues.
 3. Resolve missing publication fields. Done, an active brand/catalog selection,
    credits, a color and sample dimensions are required. Empty descriptions and
    tags are warnings. Existing legacy technical/content approval records are
@@ -27,16 +28,21 @@ The CSV retains the existing UTF-8 BOM, semicolon delimiter and columns:
 
 ## Existing ZIP methodology
 
-The offline worker calls the existing `validate_material`,
-`stage_packaging_inputs`, and `assemble_packages` implementation. It does not
+The offline worker first runs the same complete source-file checks as the
+material card and bulk checker. File defects block export even when the optional
+early check was not selected. It then calls the existing `stage_packaging_inputs`
+and `assemble_packages` implementation with the verified image inventory. It does not
 introduce another ZIP format or image-resizing algorithm. This preserves master
 selection, generated resolutions, map precision, preview copying, the generated
 web manifest, and the separate production metadata inside each resolution.
 SOURCE files remain outside publication archives.
 
-The bounded map vocabulary includes the historical `DIFF`, `METAL`, `SPEC`,
-`ID` and `MASK` maps observed in the test set. They use the unchanged historical
-resize/precision rules and remain present in each ZIP and generated web manifest.
+The source vocabulary and formats follow [the automatic check rules](automatic-file-check.md),
+including `ID` and grayscale or color `SHEEN`. Legacy packaging contracts retain
+`MASK` for historical evidence, but the new full source profile requires the
+approved `ID` token. Files are never renamed or repaired automatically. Accepted
+maps use the existing resize/precision rules and remain in each ZIP and generated
+web manifest; a color SHEEN keeps its color values.
 
 Global packaging settings select method A strictly before the configured cutoff
 and method B from the cutoff onward in the configured storage timezone. The

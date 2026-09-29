@@ -7,15 +7,16 @@ import zipfile
 import pytest
 
 from app.local_publication_export import run
-from app.technical_validation import validate_material
-from test_packaging_assembly import make, snapshot, runtime
+from app.material_naming import base_name
+from test_material_file_check import make_valid, add_map
+from test_packaging_assembly import snapshot, runtime
 
 
 def prepared(tmp_path):
-    source = make(tmp_path, size=(2048, 1024), master="2K")
-    (source[2] / "metadata.txt").unlink()
-    document = b'{"COLOR":{"hex":"#FFFFFF"},"TEXTURE_SIZE":{"cm":{"width":10,"height":20}}}'
-    (source[2] / "metadata.json").write_bytes(document)
+    root, folder = make_valid(tmp_path, size=(2048, 1024), master="2K")
+    workspace = tmp_path / "workspace"; workspace.mkdir(mode=0o700)
+    source = (root, workspace, folder)
+    document = (folder / "metadata.json").read_bytes()
     output = tmp_path / "output"; output.mkdir()
     request = {"schema_version": 1, "materials": [{"material_id": str(uuid4()), "folder_path": source[2].name,
         "identity_name": source[2].name, "metadata_sha256": hashlib.sha256(document).hexdigest()}],
@@ -53,7 +54,7 @@ def test_changed_source_metadata_blocks_packaging_without_output(tmp_path):
 
 def test_bad_maps_return_material_scoped_issues_without_zip(tmp_path):
     source, output, request = prepared(tmp_path)
-    color = next((source[2] / "2K").glob("*_COL_2K.png")); color.write_bytes(b"not an image")
+    color = next((source[2] / "2K").glob("*_COL_2K.jpg")); color.write_bytes(b"not an image")
     result = run(source[0], source[1], output, request)
     assert result["status"] == "FAILED" and result["items"][0]["issues"]
     assert result["items"][0]["material_id"] == request["materials"][0]["material_id"]
@@ -68,24 +69,44 @@ def test_global_cutoff_revision_changes_method_without_modifying_source(tmp_path
     assert result["items"][0]["policy"] == "LEGACY_BEFORE_2026_03_04"
 
 
-def test_all_five_historical_map_types_survive_every_archive_and_web_manifest(tmp_path):
+@pytest.mark.parametrize("sheen_mode", ["L", "RGB"])
+def test_approved_optional_maps_and_sheen_survive_every_archive_and_web_manifest(tmp_path, sheen_mode):
+    import io
     from PIL import Image
     source, output, request = prepared(tmp_path)
-    for shortcut in ("DIFF", "METAL", "SPEC", "ID", "MASK"):
-        Image.new("RGB", (2048, 1024), (91, 126, 211)).save(source[2] / "2K" / f"{source[2].name}_{shortcut}_2K.png")
+    for shortcut in ("DIFF", "METAL", "SPEC", "ID", "SPECLVL", "SSS", "SSSABSORB", "TRANSL", "ANISO", "SHEENGLOSS", "OPAC"):
+        add_map(source[2], shortcut, size=(2048, 1024))
+    add_map(source[2], "SHEEN", size=(2048, 1024), mode=sheen_mode)
     before = snapshot(source[2])
     result = run(source[0], source[1], output, request)
     assert result["status"] == "COMPLETED"
     assert len(result["items"][0]["source_entries"]) == len(before)
-    expected = {"COL", "NRM16", "DIFF", "METAL", "SPEC", "ID", "MASK"}
+    expected = {"COL", "ROUGH", "NRM", "DIFF", "METAL", "SPEC", "ID", "SHEEN", "SPECLVL", "SSS", "SSSABSORB", "TRANSL", "ANISO", "SHEENGLOSS", "OPAC"}
     for item in result["items"][0]["archives"]:
         with zipfile.ZipFile(output / item["name"]) as archive:
             root = item["name"][:-4]
             manifest = json.loads(archive.read(root + "/metadata.json"))
             assert set(manifest["WEB_APP_PART"]["MAPS_SHORTCUTS"]) == expected
             resolution = root.rsplit("_", 1)[1]
-            for shortcut in ("DIFF", "METAL", "SPEC", "ID", "MASK"):
-                image = archive.read(root + "/" + resolution + f"/{source[2].name}_{shortcut}_{resolution}.png")
+            for shortcut in ("ID", "SHEEN"):
+                image = archive.read(root + "/" + resolution + f"/{base_name(source[2].name)}_{shortcut}_{resolution}.png")
                 assert image[24] == 8
+                with Image.open(io.BytesIO(image)) as decoded:
+                    decoded.load()
+                    if shortcut == "SHEEN" and sheen_mode == "RGB":
+                        red, green, blue = decoded.convert("RGB").getpixel((100, 100))
+                        assert blue > green > red
             assert archive.testzip() is None
     assert snapshot(source[2]) == before
+
+
+def test_export_enforces_identical_required_normal_and_preview_rules(tmp_path):
+    source, output, request = prepared(tmp_path)
+    next((source[2] / "2K").glob("*_NRM_2K.jpg")).unlink()
+    add_map(source[2], "NRM16", size=(2048, 1024))
+    from PIL import Image
+    Image.new("RGB", (64, 64)).save(source[2] / "PREVIEW" / "SPHERE_1.png")
+    result = run(source[0], source[1], output, request)
+    assert result["status"] == "FAILED"
+    assert {item["code"] for item in result["items"][0]["issues"]} >= {"REQUIRED_MAP_MISSING", "PREVIEW_DIMENSIONS_INVALID"}
+    assert list(output.iterdir()) == []

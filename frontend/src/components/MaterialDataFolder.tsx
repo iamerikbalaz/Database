@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { materialLocalClient } from "../api/materialLocalClient";
+import { materialLocalClient, type AutomaticFileCheckResult } from "../api/materialLocalClient";
 import type { Material } from "../api/materialDto";
 import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
@@ -37,7 +37,7 @@ export function MaterialDataFolder({ material, onChanged, disabled }: { material
 }
 
 export function MaterialDataCheck({ materialId, disabled, onChanged }: { materialId: string; disabled?: boolean; onChanged?: () => Promise<boolean> }) {
-  const [result, setResult] = useState<{ report: string; issues: string[] } | null>(null);
+  const [result, setResult] = useState<AutomaticFileCheckResult | null>(null);
   const [pending, setPending] = useState(false), [error, setError] = useState(""), sending = useRef(false);
   const check = async () => {
     if (sending.current) return;
@@ -47,9 +47,11 @@ export function MaterialDataCheck({ materialId, disabled, onChanged }: { materia
     finally { sending.current = false; setPending(false); }
   };
   return <article className="panel panel--wide"><h2>Automatic file check</h2>
-    <p>Preliminary inspection checks folder access, metadata and preview availability. Final validation rules will be added in the next iteration. A clean preliminary result remains “not checked”.</p>
+    <p>Checks map names, required COL / ROUGH / NRM maps, image formats and bit depth, matching master resolution, metadata and PNG previews at 1200 × 1200 pixels. Human Checked remains a separate review.</p>
     <button className="button button--primary" disabled={disabled || pending} onClick={() => void check()}>{pending ? "Checking material data…" : "Check material data"}</button>
+    {pending && <p role="status">Reading and checking source images. Large materials may take several minutes.</p>}
     {error && <p role="alert" className="field-error">{error}</p>}
+    {result && <p role="status"><span className={`automatic-file-check automatic-file-check--${result.status.toLowerCase()}`}>{result.status === "NOT_CHECKED" ? "not checked" : result.status === "OK" ? "OK" : "issues"}</span>{result.complete ? " · Full file check completed." : " · Only a preliminary inspection completed. Run the full check before relying on this result."}</p>}
     {result && <label className="material-check-report">Issues and report<textarea aria-label="Issues and report" readOnly rows={12} value={`Issues\n${result.issues.length ? result.issues.map(issue => `• ${issue}`).join("\n") : "No issues found by the current checks."}\n\n${result.report}`} /></label>}
   </article>;
 }

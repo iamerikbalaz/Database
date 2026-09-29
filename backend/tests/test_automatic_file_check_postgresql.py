@@ -1,22 +1,102 @@
 """Automatic check migration and exact material receipts on real PostgreSQL."""
 from contextlib import contextmanager
 from copy import deepcopy
+from types import SimpleNamespace
 from uuid import uuid4
 
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import DBAPIError
 
 from app.core.config import get_settings
-from app.db.models import PBRMaterial, ResourceCommand
+from app.db.models import MaterialAuditEvent, PBRMaterial, ResourceCommand
+from app.main import create_app
 from app.material_review import canonical_hash
 from app.schemas import PBRMaterialRead
 from test_materials_postgresql import _review_pg_case, isolated_postgresql_database, POSTGRES_TEST_ADMIN_URL
+from test_application_access import ORIGIN, PASSWORD
 
 pytestmark = pytest.mark.skipif(POSTGRES_TEST_ADMIN_URL is None, reason="isolated PostgreSQL required")
+
+
+@pytest.mark.parametrize("human_checked", ["no", "Correction"])
+def test_full_file_check_ok_survives_table_edit_and_exact_receipt_replay_without_human_approval(human_checked):
+    with isolated_postgresql_database() as url, pytest.MonkeyPatch.context() as patch:
+        patch.setenv("DATABASE_URL", url); get_settings.cache_clear()
+        try:
+            command.upgrade(Config("alembic.ini"), "head")
+            with contextmanager(_review_pg_case)(url) as case:
+                observed = []
+                def check_many(folders):
+                    observed.extend(folders)
+                    return [{"profile": "PBR_FILES_V1", "complete": True, "issues": [],
+                        "report": "Complete source check: no issues."} for _ in folders]
+                library = SimpleNamespace(file_check_profile="PBR_FILES_V1", check_many=check_many)
+                application = create_app(case.app.state.settings, case.database, local_library=library)
+                with case.database.session() as session:
+                    material = session.get(PBRMaterial, case.material.id)
+                    material.checked_status = human_checked
+                    session.commit()
+                with TestClient(application, base_url=ORIGIN) as client:
+                    login = client.post("/api/auth/login", json={"email": case.users[1].email, "password": PASSWORD},
+                        headers={"Origin": ORIGIN})
+                    assert login.status_code == 200
+                    client.headers.update({"Origin": ORIGIN, "X-CSRF-Token": login.json()["csrf_token"]})
+                    before = client.get(case.path).json()
+                    human_fields = ("checked_status", "workflow_status", "validation_status", "is_published", "assigned_processor_id")
+                    human_values = {key: before[key] for key in human_fields}
+                    checked = client.post(case.path + "/check-data")
+                    assert checked.status_code == 200, checked.text
+                    assert (checked.json()["status"], checked.json()["profile"], checked.json()["complete"]) == ("OK", "PBR_FILES_V1", True)
+                    current = client.get(case.path).json()
+                    assert current["automatic_file_check_status"] == "OK"
+                    assert current["automatic_file_check_profile"] == "PBR_FILES_V1"
+                    assert current["automatic_file_check_complete"] is True
+                    assert current["automatic_file_checked_at"] is not None
+                    assert {key: current[key] for key in human_fields} == human_values
+                    key = str(uuid4())
+                    payload = {"expected_updated_at": current["updated_at"], "note": "A table note after the complete check"}
+                    saved = client.patch(case.path + "/table", json=payload, headers={"Idempotency-Key": key})
+                    assert saved.status_code == 200, saved.text
+                    result = saved.json()
+                    for field in ("automatic_file_check_status", "automatic_file_check_profile", "automatic_file_check_complete", "automatic_file_checked_at"):
+                        assert result[field] == current[field]
+                    assert {field: result[field] for field in human_fields} == human_values
+                    assert "automatic_file_check_report" not in result
+                    replay = client.patch(case.path + "/table", json=payload, headers={"Idempotency-Key": key})
+                    assert replay.status_code == 200 and replay.json() == result
+                    assert client.get("/api/resource-commands/" + key).json()["response"] == result
+                    assert client.get(case.path).json() == result
+                assert observed == [case.material.folder_path]
+                with case.database.session() as session:
+                    events = session.scalars(select(MaterialAuditEvent).where(
+                        MaterialAuditEvent.material_id == case.material.id,
+                        MaterialAuditEvent.event_type == "AUTOMATIC_FILE_CHECK")).all()
+                    assert len(events) == 1 and events[0].actor_id == case.users[1].id
+                    assert events[0].result["audit"]["profile"] == "PBR_FILES_V1"
+                    assert events[0].result["audit"]["complete"] is True
+                    material = session.get(PBRMaterial, case.material.id)
+                    assert material.checked_status == human_checked
+                    assert material.automatic_file_check_report == checked.json()["report"]
+                    receipt = session.scalar(select(ResourceCommand).where(ResourceCommand.request_key == key))
+                    original = {column.key: deepcopy(getattr(receipt, column.key)) for column in ResourceCommand.__table__.columns}
+                # The database must bind all three certification fields to the
+                # actual observation, even when a forged receipt hash is valid.
+                for field, value in (("automatic_file_check_status", "ISSUES"),
+                        ("automatic_file_check_profile", "BASIC_V1"), ("automatic_file_check_complete", False)):
+                    forged = deepcopy(original)
+                    forged.update(id=uuid4(), request_key=uuid4())
+                    forged["response_snapshot"][field] = value
+                    forged["response_hash"] = canonical_hash(forged["response_snapshot"])
+                    with pytest.raises(DBAPIError, match="Resource command response must match the exact record"):
+                        with case.database.session() as session:
+                            session.add(ResourceCommand(**forged)); session.commit()
+        finally:
+            get_settings.cache_clear()
 
 
 def test_0033_preserves_0032_receipts_and_accepts_exact_current_material_receipts():

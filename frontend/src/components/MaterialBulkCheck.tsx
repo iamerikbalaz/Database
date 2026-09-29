@@ -46,6 +46,7 @@ export function MaterialBulkCheck({ materials, disabled = false, onBusyChange, o
     <button type="button" className="button" disabled={disabled || pending || !materials.length || materials.length > 100} onClick={() => void check()}>
       {pending ? "Checking selected materials…" : `Check selected materials (${materials.length})`}
     </button>
+    {pending && <p role="status">Checking source images for {materials.length} selected materials. Large selections may take several minutes. The report will list materials with issues.</p>}
     {error && <p role="alert" className="field-error">{error}</p>}
     {report && <CheckReportView result={report} />}
   </div>;

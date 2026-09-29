@@ -19,7 +19,7 @@ const preview: LocalPublicationPreview = { canPrepare: true, previewHash: "a".re
 })) };
 const job: LocalPublicationJob = { id: "60000000-0000-4000-8000-000000000001", materialIds: ids, status: "COMPLETED", outputPath: "C:\\Exports\\Selected-materials",
   csvName: "materials.csv", archives: [{ name: "synthetic.zip", sizeBytes: 1048576, sha256: "b".repeat(64) }], errorCode: null, published: false, issues: [] };
-const report = { items: [], report: "Preliminary check. Final rules are not configured.", reportPath: "C:\\Reports\\check.txt", reportOpened: true };
+const report = { items: [], report: "Checked: 2. OK: 2. Issues: 0.\nNo materials with issues.", reportPath: "C:\\Reports\\check.txt", reportOpened: true };
 
 beforeEach(() => {
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value(this: HTMLDialogElement) { this.setAttribute("open", ""); } });
@@ -67,6 +67,7 @@ it("reviews only the explicit selection and shows publication warnings without a
 it("runs the optional check on refreshed selected records before reviewing publication data", async () => {
   const { getMaterial, onChanged } = setup();
   fireEvent.click(screen.getByRole("checkbox", { name: "Run automatic file check" }));
+  expect(screen.getByText(/Review includes the full map, metadata and preview checks/)).toBeVisible();
   await review();
   expect(getMaterial.mock.calls.map(args => args[0])).toEqual(ids);
   expect(materialLocalClient.checkMany).toHaveBeenCalledExactlyOnceWith(selection.map(item => ({ ...item, updatedAt: "2026-09-28T15:00:00Z" })));

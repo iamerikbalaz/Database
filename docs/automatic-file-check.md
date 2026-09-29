@@ -5,18 +5,82 @@ The materials table displays a server-produced field independent of human
 PATCH this field. The material card and the explicitly selected bulk operation
 run the same inspection and append the actor to material activity.
 
-## Current preliminary profile
+## Full validation profile
 
-`BASIC_V1` inspects safe folder access, the file tree, `metadata.json` readability
-and scalar completeness, and supported preview availability. It does not enforce
-the final map, resolution or packaging rules: those will be agreed in the next
-iteration. It does not alter any material source files.
+`PBR_FILES_V1` is the complete automatic file check used by the material card and
+the selected-material bulk operation. It reads source files without changing them.
+The offline publication exporter applies the same file rules before packaging.
+This is a technical inspection, separate from the human **Checked** review.
 
-- Actual observations of missing or incomplete data result in **issues**.
-- A clean preliminary inspection remains **not checked**; its report and timestamp
-  explain that the preliminary inspection completed and final rules are absent.
-- **OK** is reserved for a future complete validation profile. A client or desktop
-  adapter cannot promote `BASIC_V1` to OK.
+- **OK** means that the full inspection completed and found no issues.
+- **issues** means that the inspection found defects. The report identifies the
+  affected file or folder, the observed problem and the expected value.
+- **not checked** means that no current complete clean result exists. A source
+  change invalidates the previous derived result; rerun the check after editing.
+- Infrastructure failures or a source changing during inspection are not treated
+  as a successful check. Existing results are not replaced with a false **OK**.
+
+Earlier `BASIC_V1` results retain their preliminary meaning. That profile only
+inspected folder access, metadata and preview availability. It cannot certify a
+material as **OK**, even if an adapter reports no issues. Rerun the full check to
+replace a historical preliminary result.
+
+### Desktop configuration
+
+The trusted desktop launcher installs `LocalMaterialFileCheck` on its
+`LocalMaterialLibrary.file_checker`. The adapter requires an absolute Docker
+executable, the local `desktop-linux` context, an immutable packaging image ID
+containing `app.local_file_check`, and a private job directory outside both the
+material library and its mutation journal. A full selection uses one container.
+The container has no network, a read-only source mount and bounded resources;
+Windows source handles block writes and renames while the check is running.
+An unconfigured desktop keeps the explicitly preliminary BASIC profile.
+The ordinary remote worker approval endpoints retain their earlier versioned
+contract; their historical approval evidence is not reclassified as a full check.
+
+### Folder and map rules
+
+The material folder uses uppercase
+`BRAND_0001_MULTI-WORD-MATERIAL_CATEGORY`, retaining every word of the material
+name and separating words with hyphens. The number contains exactly four digits.
+Map filenames identify that same material and include the exact map token and
+resolution, for example `BRAND_0001_MULTI-WORD-MATERIAL_COL_4K.jpg`.
+The existing compatible form including the category before the map token remains
+accepted. A map from another material or an unknown map token is an issue.
+
+There is one source resolution folder: the highest/master resolution, for example
+`4K`. Lower resolutions are generated for publication. That folder must contain
+**COL**, **ROUGH** and **NRM**. **GLOSS** is optional and does not replace ROUGH;
+**NRM16** does not replace NRM. Additional maps are optional but, when present,
+must meet their respective rules. Duplicate map types are issues.
+
+All maps must match the COL width and height. The longest side is exactly the
+folder's K value multiplied by 1024, so a `4K` source has a longest side of 4096
+pixels. Rectangular images are allowed. File contents are decoded and checked;
+a correct extension alone is insufficient.
+
+| Maps | File format | Color and depth |
+| --- | --- | --- |
+| COL, DIFF, NRM, SPEC, SPECLVL, SSS, SSSABSORB, TRANSL, ANISO | JPEG | RGB, 8 bits per channel |
+| ROUGH, GLOSS, DISP, SHEENGLOSS, OPAC, AO, METAL | JPEG | Grayscale, 8 bits |
+| NRM16 | PNG | RGB or RGBA, 16 bits per channel |
+| DISP16 | TIFF | Grayscale, 16 bits |
+| ID | PNG | Grayscale, 8 bits, no alpha |
+| SHEEN | PNG | Grayscale or RGB, 8 bits per channel, no alpha |
+
+**ID** is the mask token. `MASK` is not substituted or renamed automatically.
+ID permits gray pixels at antialiased boundaries; this check does not require
+every pixel to be exactly black or white. SHEEN permits both grayscale and color.
+Bit depth means bits per channel, not total bits per pixel: RGB 8-bit has 24 bits
+per pixel, and RGB 16-bit has 48.
+
+### Previews and metadata
+
+`PREVIEW` must contain `SPHERE_1.png` or `FABRIC_1.png`. The match is exact;
+`SPHERE_10.png` does not satisfy it. Every preview image must be a readable PNG
+of exactly **1200 × 1200** pixels. The checker also validates the source
+`metadata.json` and its required values. It does not generate missing previews,
+repair metadata, rename files or generate lower-resolution source folders.
 
 The database stores the status, last inspection time, report, profile version and
 whether the configured validation completed. Changes that invalidate material
@@ -41,6 +105,13 @@ The TXT report is saved under `%LOCALAPPDATA%\REAWOTE\Reports\Checks` with a
 timestamp and unique ID. This durable location is outside `Test_data` and does
 not disappear during temporary-file cleanup. An explicit bulk check opens its
 report in Notepad, including an optional check during publication review.
+The report begins with a summary and includes material sections **only for
+materials with issues**. Passing materials are counted in the summary and are
+not repeated in the diagnostic list. A clean selection produces a summary with
+no defect sections. The report contains the material identity and folder path
+so the person correcting files can find them directly. Full image decoding can
+take several minutes for large materials or selections; the UI keeps the check
+pending until the result arrives and blocks duplicate submissions.
 When launched through a packaged Windows app, Windows can redirect this folder
 under `%LOCALAPPDATA%\Packages\<package>\LocalCache\Local\REAWOTE`. The report
 adapter resolves and validates that fixed physical location and displays the

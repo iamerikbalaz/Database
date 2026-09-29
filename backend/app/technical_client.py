@@ -7,7 +7,7 @@ from app.inventory_client import SourceInventory, WorkerInventoryClient, validat
 from app.worker_client import FolderPath, Sha256
 from app.inventory_client import InventoryClientError
 
-MAPS = {"AO", "COL", "DIFF", "DISP16", "DISP", "GLOSS", "ID", "MASK", "METAL", "NRM16", "NRM", "ROUGH", "SPEC"}
+MAPS = {"AO", "COL", "DIFF", "DISP16", "DISP", "GLOSS", "ID", "MASK", "METAL", "NRM16", "NRM", "ROUGH", "SPEC", "SHEEN", "SHEENGLOSS", "SPECLVL", "SSS", "SSSABSORB", "TRANSL", "OPAC", "ANISO"}
 FORMATS = {"png": "PNG", "jpg": "JPEG", "jpeg": "JPEG", "tif": "TIFF", "tiff": "TIFF", "webp": "WEBP"}
 FINDING_CODES = frozenset({
     "IMAGE_DIMENSION_LIMIT", "IMAGE_MULTIFRAME_UNSUPPORTED", "IMAGE_UNREADABLE", "IMAGE_BIT_DEPTH_UNSUPPORTED",
@@ -39,7 +39,7 @@ class Finding(BaseModel):
 class ImageFact(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     path: FolderPath
-    map: Literal["AO", "COL", "DIFF", "DISP16", "DISP", "GLOSS", "ID", "MASK", "METAL", "NRM16", "NRM", "ROUGH", "SPEC"]
+    map: Literal["AO", "COL", "DIFF", "DISP16", "DISP", "GLOSS", "ID", "MASK", "METAL", "NRM16", "NRM", "ROUGH", "SPEC", "SHEEN", "SHEENGLOSS", "SPECLVL", "SSS", "SSSABSORB", "TRANSL", "OPAC", "ANISO"]
     width: Annotated[int, Field(ge=1, le=32768)]
     height: Annotated[int, Field(ge=1, le=32768)]
     bits: Literal[1, 2, 4, 8, 16]

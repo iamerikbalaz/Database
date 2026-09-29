@@ -25,7 +25,7 @@ def fixture(name="packaging-contract.json"):
 def prepared(value): return PreparedPackaging.model_validate_json(json.dumps(value["prepared"]))
 
 
-@pytest.mark.parametrize("shortcut", ["DIFF", "METAL", "SPEC", "ID", "MASK"])
+@pytest.mark.parametrize("shortcut", ["DIFF", "METAL", "SPEC", "ID", "MASK", "SHEEN", "SHEENGLOSS", "SPECLVL", "SSS", "SSSABSORB", "TRANSL", "OPAC", "ANISO"])
 def test_historical_map_operation_contract_preserves_shortcut_and_precision(shortcut):
     from app.packaging_contract import MapOperation
     operation = fixture()["result"]["stored"]["payload"]["bundle"]["maps"][0]["operation"]

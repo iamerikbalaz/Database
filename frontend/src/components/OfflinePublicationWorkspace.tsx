@@ -135,7 +135,7 @@ export function OfflinePublicationWorkspace({ client, navigate, initialSelection
     <fieldset className="panel" disabled={frozen}><legend>Selected materials ({materialIds.length}/100)</legend>
       <details><summary>Show selected materials</summary><ul>{initialSelection.map(item => <li key={item.id}>{item.materialName} <small>{item.technicalIdentity}</small></li>)}</ul></details>
       <label className="checkbox-label"><input type="checkbox" checked={automatic} onChange={event => { setAutomatic(event.target.checked); setPreview(null); setCheckReport(null); }} />Run automatic file check</label>
-      {automatic && <p className="muted">Current checks are preliminary. Final validation rules will be defined in the next iteration; the report identifies this scope.</p>}
+      {automatic && <p className="muted">Review includes the full map, metadata and preview checks. The TXT report lists materials with issues. Large selections may take several minutes.</p>}
       <button type="button" className="button" disabled={!materialIds.length || materialIds.length > 100} onClick={() => void review()}>{busy ? "Working…" : "Review materials"}</button>
     </fieldset>
     {error && <p role="alert" className="form-error">{error}</p>}{notice && <p role="status" className="success-notice">{notice}</p>}

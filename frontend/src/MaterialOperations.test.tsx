@@ -117,10 +117,22 @@ it("keeps a planning failure retryable without pretending a rename may have happ
   expect(identityClient.confirm).not.toHaveBeenCalled();
 });
 it("checks data on demand and displays the returned issues and report", async () => {
-  vi.spyOn(materialLocalClient, "check").mockResolvedValue({ materialId: material.id, status: "ISSUES", checkedAt: material.updatedAt, updatedAt: material.updatedAt, profile: "BASIC_V1", complete: false, issues: ["No PREVIEW folder"], report: "Basic source checks complete. No files were modified." });
+  vi.spyOn(materialLocalClient, "check").mockResolvedValue({ materialId: material.id, status: "ISSUES", checkedAt: material.updatedAt, updatedAt: material.updatedAt, profile: "PBR_FILES_V1", complete: true, issues: ["No PREVIEW folder"], report: "Full source checks complete. No files were modified." });
   render(<MaterialDataCheck materialId={material.id} />); expect(materialLocalClient.check).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Check material data" }));
   expect((await screen.findByRole("textbox", { name: "Issues and report" }) as HTMLTextAreaElement).value).toContain("No PREVIEW folder");
+  expect(screen.getByRole("status")).toHaveTextContent("issues · Full file check completed.");
+});
+it("shows OK only as the returned completed result, with human review kept separate", async () => {
+  vi.spyOn(materialLocalClient, "check").mockResolvedValue({ materialId: material.id, status: "OK", checkedAt: material.updatedAt, updatedAt: material.updatedAt, profile: "PBR_FILES_V1", complete: true, issues: [], report: "Full source checks complete." });
+  const changed = vi.fn(async () => true);
+  render(<MaterialDataCheck materialId={material.id} onChanged={changed} />);
+  expect(screen.getByText(/Human Checked remains a separate review/)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Check material data" }));
+  expect(await screen.findByRole("textbox", { name: "Issues and report" })).toHaveValue("Issues\nNo issues found by the current checks.\n\nFull source checks complete.");
+  expect(screen.getByRole("status")).toHaveTextContent("OK · Full file check completed.");
+  expect(screen.getByText("OK")).toHaveClass("automatic-file-check--ok");
+  expect(changed).toHaveBeenCalledOnce();
 });
 it("prevents duplicate checks while one is running", async () => {
   let resolve!: (value: Awaited<ReturnType<typeof materialLocalClient.check>>) => void;
@@ -128,5 +140,8 @@ it("prevents duplicate checks while one is running", async () => {
   render(<MaterialDataCheck materialId={material.id} />);
   const button = screen.getByRole("button", { name: "Check material data" });
   act(() => { button.click(); button.click(); }); expect(materialLocalClient.check).toHaveBeenCalledOnce();
+  expect(screen.getByRole("status")).toHaveTextContent("Large materials may take several minutes");
   await act(async () => resolve({ materialId: material.id, status: "NOT_CHECKED", checkedAt: material.updatedAt, updatedAt: material.updatedAt, profile: "BASIC_V1", complete: false, issues: [], report: "Complete" }));
+  expect(screen.getByRole("status")).toHaveTextContent("not checked · Only a preliminary inspection completed");
+  expect(screen.queryByText("OK")).not.toBeInTheDocument();
 });

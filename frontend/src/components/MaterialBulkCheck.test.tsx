@@ -9,7 +9,7 @@ import { MaterialBulkCheck } from "./MaterialBulkCheck";
 
 const first = materialFromDto(materialDto);
 const second = { ...first, id: "50000000-0000-4000-8000-000000000002", materialName: "SECOND-MATERIAL" };
-const report = { items: [], report: "Preliminary check of selected materials. Final rules are not configured.", reportPath: "C:\\Reports\\check.txt", reportOpened: true };
+const report = { items: [], report: "Checked: 1. OK: 1. Issues: 0.\nNo materials with issues.", reportPath: "C:\\Reports\\check.txt", reportOpened: true };
 beforeEach(() => { vi.spyOn(materialLocalClient, "checkMany").mockResolvedValue(report); });
 afterEach(() => { vi.restoreAllMocks(); setSessionToken(null); });
 
@@ -40,9 +40,11 @@ it("keeps one pending selection snapshot and blocks duplicate submissions and na
   const button = screen.getByRole("button");
   act(() => { button.click(); button.click(); });
   expect(materialLocalClient.checkMany).toHaveBeenCalledOnce(); expect(button).toBeDisabled();
+  expect(screen.getByRole("status")).toHaveTextContent("Checking source images for 2 selected materials");
   expect(requestNavigation("/projects")).toBe(false);
   await act(async () => finish(report));
   expect(requestNavigation("/projects")).toBe(true);
+  expect(screen.queryByText(/Checking source images for/)).not.toBeInTheDocument();
 });
 
 it("does not show stale private reports after the authenticated session changes", async () => {

@@ -8,6 +8,15 @@ const result = { material_id: material.id, status: "NOT_CHECKED", checked_at: ma
   profile: "BASIC_V1", complete: false, report: "Preliminary inspection. Final rules not configured.", issues: [] };
 afterEach(() => vi.unstubAllGlobals());
 
+it.each([
+  { status: "OK", issues: [] },
+  { status: "ISSUES", issues: ["PREVIEW/SPHERE_1.png: expected 1200 × 1200, found 600 × 600"] },
+])("accepts a completed full inspection with $status", async ({ status, issues }) => {
+  const full = { ...result, profile: "PBR_FILES_V1", complete: true, status, issues, report: "Full material file check completed." };
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(full))));
+  expect(await materialLocalClient.check(material.id)).toMatchObject({ materialId: material.id, profile: "PBR_FILES_V1", complete: true, status, issues });
+});
+
 it("requests only the explicit selected IDs and versions, with a persisted report outcome", async () => {
   const fetch = vi.fn(async () => new Response(JSON.stringify({ items: [result], report: result.report, report_path: "C:\\Reports\\check.txt", report_opened: true })));
   vi.stubGlobal("fetch", fetch);

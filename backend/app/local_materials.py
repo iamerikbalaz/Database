@@ -60,7 +60,7 @@ def source(raw, folder):
 
 
 class LocalMaterialLibrary:
-    def __init__(self, root, journal_root):
+    def __init__(self, root, journal_root, *, file_checker=None):
         self.fs = LocalFilesystem(root)
         journal = Path(os.path.abspath(journal_root))
         if journal.is_relative_to(self.fs.root) or self.fs.root.is_relative_to(journal): raise LocalFilesError("LOCAL_JOURNAL_OVERLAP")
@@ -73,6 +73,16 @@ class LocalMaterialLibrary:
                 raise LocalFilesError("LOCAL_JOURNAL_CROSS_VOLUME")
         self.lock = RLock(); self.picker_lock = Lock()
         self.previews = LocalPreviews(self); self.metadata = LocalMetadata(self); self.identity = LocalIdentity(self)
+        self.file_checker = file_checker
+
+    @property
+    def file_check_profile(self):
+        return self.file_checker.profile if self.file_checker is not None else "BASIC_V1"
+
+    def check_many(self, folders):
+        if self.file_checker is not None:
+            return self.file_checker.check_many(folders)
+        return [self.check(folder) for folder in folders]
 
     def absolute(self, folder):
         with self.fs.directory(folder) as path: return str(path)
@@ -131,6 +141,8 @@ class LocalMaterialLibrary:
         finally: self.picker_lock.release()
 
     def check(self, folder):
+        if self.file_checker is not None:
+            return self.file_checker.check(folder)
         # Pin all existing source files without hashing large texture payloads.
         # These read handles prevent writes/renames during the observation.
         with self.lock, self.fs.tree(folder, hash_files=False, for_rename=False) as (_, before, _):

@@ -78,7 +78,7 @@ function MaterialDetailContent({ initialMaterial, client, navigate, includeArchi
     {role && <MaterialDataFolder key={`folder-${material.id}-${material.folderPath}`} material={material} onChanged={refresh} disabled={propertiesBusy || libraryBusy || refreshing} />}
     {role && !material.isArchived && <MaterialContentPanel key={`content-${material.id}-${material.publishedBrandId}`} material={material} onChanged={refresh} onBusyChange={setLibraryBusy} disabled={propertiesBusy} />}
     <MaterialHistoryPanel id={material.id} updatedAt={material.updatedAt} refreshRevision={historyRefresh} />
-    <MaterialDataCheck materialId={material.id} disabled={propertiesBusy || libraryBusy || refreshing || !role || !["ADMIN", "PRODUCTION_LEAD", "PROCESSOR"].includes(role)} onChanged={refresh} />
+    <MaterialDataCheck key={material.id} materialId={material.id} updatedAt={material.updatedAt} disabled={propertiesBusy || libraryBusy || refreshing || !role || !["ADMIN", "PRODUCTION_LEAD", "PROCESSOR"].includes(role)} onChanged={refresh} />
     {editName && <MaterialNameDialog material={material} onClose={() => setEditName(false)} onChanged={refresh} />}
   </section>;
 }

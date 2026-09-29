@@ -1,6 +1,59 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-29, complete automatic material checks)
+## Latest checkpoint (2026-09-29, faster automatic checks and live progress)
+
+Continued `codex/autonomous-pbr-completion`; a fresh fetch confirms `origin/main`
+remains `88a1f99d748d2a0edbb1fce509e13d18bfc03908`. No main merge or original NAS
+mutation. The app remains on `http://127.0.0.1:53033`, using only `Test_data`.
+
+### Delivered
+
+- Automatic checking copies inputs while hashing into a private Linux staging
+  directory and decodes that copy. The final source hash remains mandatory.
+- Authenticated image facts are reused by content SHA, immutable image and
+  evidence version. Current names, required maps, metadata and cross-map rules
+  are always checked again. Corrupt or incompatible cache entries are misses.
+- At most two isolated material processes run within 2 CPU / 6 GiB. Staging is
+  bounded to 8 GiB per material and removed after use. The bounded cache stores
+  image facts, not material approvals or image payloads. Source protection and
+  publication's full inventory/proof remain unchanged.
+- Card, bulk and optional publication checks show completed counts, active
+  files, elapsed time and cache reuse. Resumable local jobs avoid repeating a
+  scan after a lost response. Results are owner-only and each poll reauthorizes
+  the whole selection. Only complete checks commit results atomically.
+- The optimized checker uses its own runtime image configuration. The local
+  publication export still uses the previously verified publication image.
+
+### Verification
+
+- Worker: **195 targeted tests passed** across inventory, image validation,
+  strict checking, local command and export contracts. The final cache/staging/
+  concurrency/progress suite passed **33 tests**. A supplementary whole-worker
+  run was deliberately stopped after at least 468 successful tests; it is not
+  reported as a complete suite pass.
+- Backend/API/access: **106 passed**; both later retention/eviction cases passed.
+  Native Windows bridge: **65 passed**, with the two final exceptional-cleanup
+  cases checked again. Frontend: **1,090 passed**, build and lint passed.
+- The separate native smoke checked ROUBAL and a smaller 4K material twice.
+  Findings matched the previous version, both workers and progress were observed,
+  and the second pass reused all 24 image facts without a decoder miss.
+- Full 50-material API check, initially empty evidence cache: **293.6 seconds**
+  (4m54s), compared with the previous approximately 18-minute run. The 615 image
+  inspections included 459 fresh decodes and 156 reuses within this first batch.
+  All issue lists, statuses and completeness flags exactly matched the baseline:
+  **23 OK, 27 issues**. All 990 file sizes/mtimes and all other material DTO values
+  were unchanged. The report still contains only the 27 defective materials.
+- Immediate repeat of the same 50 materials: **123.2 seconds** (2m03s), with all
+  615 image inspections served from authenticated evidence and no decoder misses.
+  All findings again exactly matched the baseline; source files and other record
+  values stayed unchanged. Both full API runs observed two active materials,
+  live progress, report persistence and same-key completed-job recovery. These
+  timings are observations on this local Test_data machine, not a NAS guarantee.
+- Evidence is retained outside Git in `tmp/local-materials-v5-20260928/`
+  (`v9-cold-summary.json`, `v9-warm-summary.json`, job/progress/before private snapshots), and in the
+  fixed local report directory. No source repair was performed.
+
+## Previous checkpoint (2026-09-29, complete automatic material checks)
 
 Continued the existing `codex/autonomous-pbr-completion` branch. Fresh fetch still
 shows `origin/main` at `88a1f99d748d2a0edbb1fce509e13d18bfc03908`. The complete

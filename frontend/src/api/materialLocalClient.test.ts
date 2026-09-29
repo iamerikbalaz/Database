@@ -6,6 +6,8 @@ import { materialFromDto, parseMaterial } from "./materialDto";
 const material = materialFromDto(materialDto);
 const result = { material_id: material.id, status: "NOT_CHECKED", checked_at: material.updatedAt, updated_at: material.updatedAt,
   profile: "BASIC_V1", complete: false, report: "Preliminary inspection. Final rules not configured.", issues: [] };
+const job = (value: unknown) => ({ id: "60000000-0000-4000-8000-000000000001", status: "COMPLETED", total: 1, completed: 1,
+  active: [], elapsed_seconds: 1, cache_hits: 0, cache_misses: 4, result: value, error: null });
 afterEach(() => vi.unstubAllGlobals());
 
 it.each([
@@ -13,24 +15,32 @@ it.each([
   { status: "ISSUES", issues: ["PREVIEW/SPHERE_1.png: expected 1200 × 1200, found 600 × 600"] },
 ])("accepts a completed full inspection with $status", async ({ status, issues }) => {
   const full = { ...result, profile: "PBR_FILES_V1", complete: true, status, issues, report: "Full material file check completed." };
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(full))));
-  expect(await materialLocalClient.check(material.id)).toMatchObject({ materialId: material.id, profile: "PBR_FILES_V1", complete: true, status, issues });
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(job({ items: [full], report: full.report, report_path: null, report_opened: false })))));
+  expect(await materialLocalClient.check(material.id, { expectedUpdatedAt: material.updatedAt })).toMatchObject({ materialId: material.id, profile: "PBR_FILES_V1", complete: true, status, issues });
 });
 
 it("requests only the explicit selected IDs and versions, with a persisted report outcome", async () => {
-  const fetch = vi.fn(async () => new Response(JSON.stringify({ items: [result], report: result.report, report_path: "C:\\Reports\\check.txt", report_opened: true })));
+  const fetch = vi.fn(async () => new Response(JSON.stringify(job({ items: [result], report: result.report, report_path: "C:\\Reports\\check.txt", report_opened: true }))));
   vi.stubGlobal("fetch", fetch);
   expect(await materialLocalClient.checkMany([material])).toMatchObject({ items: [{ materialId: material.id, status: "NOT_CHECKED", complete: false }], reportPath: "C:\\Reports\\check.txt", reportOpened: true });
-  expect(fetch).toHaveBeenCalledWith("/api/materials/check-data", expect.objectContaining({ method: "POST",
+  expect(fetch).toHaveBeenCalledWith("/api/materials/check-jobs", expect.objectContaining({ method: "POST", headers: expect.objectContaining({ "Idempotency-Key": expect.stringMatching(/^[a-f0-9-]{36}$/) }),
     body: JSON.stringify({ materials: [{ id: material.id, expected_updated_at: material.updatedAt }], open_report: true }) }));
 });
 
 it("allows publication's optional check to save the report without opening an editor", async () => {
-  const fetch = vi.fn(async () => new Response(JSON.stringify({ items: [result], report: result.report, report_path: null, report_opened: false })));
+  const fetch = vi.fn(async () => new Response(JSON.stringify(job({ items: [result], report: result.report, report_path: null, report_opened: false }))));
   vi.stubGlobal("fetch", fetch);
   const checked = await materialLocalClient.checkMany([material], false);
   expect(checked.reportPath).toBeNull(); expect(checked.report).toContain("Preliminary");
-  expect(fetch).toHaveBeenCalledWith("/api/materials/check-data", expect.objectContaining({ body: expect.stringContaining('"open_report":false') }));
+  expect(fetch).toHaveBeenCalledWith("/api/materials/check-jobs", expect.objectContaining({ body: expect.stringContaining('"open_report":false') }));
+});
+
+it("loads a current version for legacy single-check callers before starting the job", async () => {
+  const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(materialDto)))
+    .mockResolvedValueOnce(new Response(JSON.stringify(job({ items: [result], report: result.report, report_path: null, report_opened: false }))));
+  vi.stubGlobal("fetch", fetch); await materialLocalClient.check(material.id);
+  expect(fetch).toHaveBeenNthCalledWith(1, `/api/materials/${material.id}`, expect.objectContaining({ method: "GET" }));
+  expect(fetch).toHaveBeenNthCalledWith(2, "/api/materials/check-jobs", expect.objectContaining({ body: JSON.stringify({ materials: [{ id: material.id, expected_updated_at: material.updatedAt }], open_report: false }) }));
 });
 
 it.each([{ materials: [] }, { materials: [material, material] }, { materials: Array.from({ length: 101 }, () => material) }])("rejects empty, duplicate or oversized selection before sending", async ({ materials }) => {
@@ -43,7 +53,7 @@ it.each([
   { items: [{ ...result, material_id: "50000000-0000-4000-8000-000000000002" }] },
   { items: [{ ...result, complete: "false" }] },
 ])("rejects inconsistent bulk check responses", async change => {
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ report: result.report, report_path: null, report_opened: false, ...change }))));
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(job({ report: result.report, report_path: null, report_opened: false, ...change })))));
   await expect(materialLocalClient.checkMany([material])).rejects.toThrow();
 });
 

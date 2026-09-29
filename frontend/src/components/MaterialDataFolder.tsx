@@ -1,10 +1,15 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { materialLocalClient, type AutomaticFileCheckResult } from "../api/materialLocalClient";
 import type { Material } from "../api/materialDto";
 import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
 import { MaterialFolderContents } from "./MaterialFolderContents";
 import { MaterialNameDialog } from "./MaterialNameDialog";
+import { FileCheckProgress } from "./FileCheckProgress";
+import { useFileCheckProgress } from "./useFileCheckProgress";
+import { sessionGeneration } from "../auth/sessionTransport";
+import { useNavigationGuard } from "../navigationGuard";
+import { FileCheckJobUnavailableError } from "../api/materialCheckJobs";
 
 export function MaterialDataFolder({ material, onChanged, disabled }: { material: Material; onChanged: () => Promise<boolean>; disabled?: boolean }) {
   const role = useSession()?.session.user.role;
@@ -36,20 +41,25 @@ export function MaterialDataFolder({ material, onChanged, disabled }: { material
   </article>;
 }
 
-export function MaterialDataCheck({ materialId, disabled, onChanged }: { materialId: string; disabled?: boolean; onChanged?: () => Promise<boolean> }) {
+export function MaterialDataCheck({ materialId, updatedAt, disabled, onChanged }: { materialId: string; updatedAt?: string; disabled?: boolean; onChanged?: () => Promise<boolean> }) {
   const [result, setResult] = useState<AutomaticFileCheckResult | null>(null);
   const [pending, setPending] = useState(false), [error, setError] = useState(""), sending = useRef(false);
+  const checkProgress = useFileCheckProgress(), mounted = useRef(true), currentId = useRef(materialId);
+  useNavigationGuard(() => sending.current);
+  useEffect(() => { mounted.current = true; currentId.current = materialId; return () => { mounted.current = false; }; }, [materialId]);
   const check = async () => {
-    if (sending.current) return;
+    if (sending.current || disabled) return;
+    const generation = sessionGeneration();
+    const live = () => mounted.current && currentId.current === materialId && generation === sessionGeneration();
     sending.current = true; setPending(true); setError(""); setResult(null);
-    try { setResult(await materialLocalClient.check(materialId)); await onChanged?.(); }
-    catch { setError("The material data check could not finish. Check the folder connection and try again."); }
-    finally { sending.current = false; setPending(false); }
+    try { const checked = await materialLocalClient.check(materialId, { ...checkProgress.begin(), expectedUpdatedAt: updatedAt }); if (live()) { setResult(checked); await onChanged?.(); } }
+    catch (cause) { if (live()) setError(cause instanceof FileCheckJobUnavailableError ? cause.message : "The material data check could not finish. Check the folder connection and try again."); }
+    finally { sending.current = false; checkProgress.finish(); if (live()) setPending(false); }
   };
   return <article className="panel panel--wide"><h2>Automatic file check</h2>
     <p>Checks map names, required COL / ROUGH / NRM maps, image formats and bit depth, matching master resolution, metadata and PNG previews at 1200 × 1200 pixels. Human Checked remains a separate review.</p>
     <button className="button button--primary" disabled={disabled || pending} onClick={() => void check()}>{pending ? "Checking material data…" : "Check material data"}</button>
-    {pending && <p role="status">Reading and checking source images. Large materials may take several minutes.</p>}
+    {pending && <FileCheckProgress progress={checkProgress.progress} resume={checkProgress.resume} total={1} />}
     {error && <p role="alert" className="field-error">{error}</p>}
     {result && <p role="status"><span className={`automatic-file-check automatic-file-check--${result.status.toLowerCase()}`}>{result.status === "NOT_CHECKED" ? "not checked" : result.status === "OK" ? "OK" : "issues"}</span>{result.complete ? " · Full file check completed." : " · Only a preliminary inspection completed. Run the full check before relying on this result."}</p>}
     {result && <label className="material-check-report">Issues and report<textarea aria-label="Issues and report" readOnly rows={12} value={`Issues\n${result.issues.length ? result.issues.map(issue => `• ${issue}`).join("\n") : "No issues found by the current checks."}\n\n${result.report}`} /></label>}

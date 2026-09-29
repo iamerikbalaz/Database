@@ -43,6 +43,61 @@ An unconfigured desktop keeps the explicitly preliminary BASIC profile.
 The ordinary remote worker approval endpoints retain their earlier versioned
 contract; their historical approval evidence is not reclassified as a full check.
 
+### Desktop performance and progress
+
+The automatic desktop check processes at most **two materials concurrently** in
+separate worker processes, within one container limited to 2 CPU and 6 GiB RAM.
+While hashing each source input, it copies the same bytes into a private temporary
+directory on a Linux Docker volume. Decoding reads that copy instead of repeatedly
+crossing the Windows/Docker filesystem boundary. Staging is limited to 8 GiB per
+material and is removed after the material completes; container cleanup also
+removes its anonymous volume. Exceeding a resource limit fails the check, never
+certifies a material as OK.
+
+Successful full image decoding can be reused from an authenticated evidence
+cache. Each entry is bound to the file's SHA-256 content, immutable worker image,
+and evidence version. It stores dimensions, format, depth and color mode, not
+image bytes or a material approval. Current names, required maps, metadata and
+cross-image rules are checked again. Modified image content gets a new decode.
+Malformed, unsigned, incompatible or missing entries are cache misses; decoding
+failures are not cached. The cache is bounded; saturation falls back to decoding.
+The signing key lives separately under a private Windows ACL and is mounted
+read-only. It never appears in the HTTP response or report.
+
+The original source is still hashed again at the end of every material, including
+cache hits. Native Windows source handles and the final whole-tree comparison
+remain in place. This optimization does not change publication's full inventory,
+approval proof or packaging policy.
+
+The card, bulk selection and optional publication check use
+`POST /api/materials/check-jobs` followed by `GET /api/materials/check-jobs/{id}`.
+The POST uses the existing selection/version body plus a UUID `Idempotency-Key`.
+Progress includes completed/total materials, up to two active materials and their
+relative filenames, elapsed time, and image cache hits/misses. Completion is only
+reported after the existing atomic database save and report step.
+
+Every start, retry and poll requires the authenticated local desktop connection;
+the entire selection is reauthorized, and job results are owner-only. A lost POST
+reply reuses the same key; a lost polling connection offers **Resume same check**
+and continues observing the same job. Neither automatically launches a new scan.
+Leaving the page stops observation, not the server-side check. Authentication or
+missing-job errors stop observation and require an explicit new user action.
+
+Jobs are process-local: restarting the app loses them. Up to eight terminal result
+records are kept for at most one hour; older records can be evicted earlier when
+new jobs arrive. Compact used-key records survive result eviction for 24 hours
+(up to 1,024 keys); retrying such an evicted job returns not-found rather than
+silently repeating work. A full used-key table rejects new jobs until records
+expire. The legacy synchronous check endpoints remain available for integrations.
+
+Measured on the 50 local Test_data materials on 2026-09-29, with other test jobs
+stopped: the first run with an empty evidence cache took **293.6 seconds**, and
+the immediate repeat took **123.2 seconds**, versus the preceding approximately
+18-minute run. Both produced exactly the same issue lists and **23 OK / 27 issues**.
+The repeat reused all 615 image inspections with zero decoder misses; source
+files and other material properties stayed unchanged. Actual performance on other
+disks, NAS connections and material sets will depend on source sizes and I/O.
+
 ### Inspection scope
 
 The automatic check reads and hashes the files relevant to its rules: source

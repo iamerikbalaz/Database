@@ -70,7 +70,7 @@ it("runs the optional check on refreshed selected records before reviewing publi
   expect(screen.getByText(/Review includes the full map, metadata and preview checks/)).toBeVisible();
   await review();
   expect(getMaterial.mock.calls.map(args => args[0])).toEqual(ids);
-  expect(materialLocalClient.checkMany).toHaveBeenCalledExactlyOnceWith(selection.map(item => ({ ...item, updatedAt: "2026-09-28T15:00:00Z" })));
+  expect(materialLocalClient.checkMany).toHaveBeenCalledExactlyOnceWith(selection.map(item => ({ ...item, updatedAt: "2026-09-28T15:00:00Z" })), true, expect.objectContaining({ signal: expect.any(AbortSignal), onProgress: expect.any(Function), onPaused: expect.any(Function) }));
   expect(vi.mocked(materialLocalClient.checkMany).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(localPublicationClient.preview).mock.invocationCallOrder[0]!);
   expect(screen.getByRole("textbox", { name: "Automatic file check report" })).toHaveValue(report.report);
   expect(onChanged).toHaveBeenCalledOnce();
@@ -82,6 +82,21 @@ it("does not review or prepare after an optional file check fails", async () => 
   fireEvent.click(screen.getByRole("button", { name: "Review materials" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("could not be reviewed");
   expect(localPublicationClient.preview).not.toHaveBeenCalled(); expect(localPublicationClient.create).not.toHaveBeenCalled();
+});
+
+it("keeps file-check recovery enabled outside the frozen publication controls", async () => {
+  let finish!: (value: typeof report) => void;
+  const resume = vi.fn(() => finish(report));
+  vi.mocked(materialLocalClient.checkMany).mockImplementation((_items, _open, options) => new Promise(resolve => {
+    finish = resolve; options?.onPaused?.(resume);
+  }));
+  setup(); fireEvent.click(screen.getByRole("checkbox", { name: "Run automatic file check" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review materials" }));
+  const recover = await screen.findByRole("button", { name: "Resume file check" });
+  expect(recover).toBeEnabled(); expect(screen.getByRole("checkbox", { name: "Run automatic file check" })).toBeDisabled();
+  expect(localPublicationClient.preview).not.toHaveBeenCalled(); expect(requestNavigation("/projects")).toBe(false);
+  fireEvent.click(recover); await screen.findByRole("region", { name: "Publication review" });
+  expect(resume).toHaveBeenCalledOnce(); expect(materialLocalClient.checkMany).toHaveBeenCalledOnce();
 });
 
 it("blocks preparation while required data is missing", async () => {

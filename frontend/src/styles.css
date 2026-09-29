@@ -1444,6 +1444,10 @@ a.button {
 .material-name-dialog .checkbox-label { display:flex; margin-top:1rem; }
 .material-check-report { display:grid; gap:.5rem; margin-top:1rem; }
 .material-check-report textarea { width:100%; padding:1rem; border:1px solid var(--border); border-radius:10px; font:inherit; }
+.material-check-progress { margin-top:1rem; padding:1rem; border:1px solid var(--border); border-radius:12px; background:var(--surface); }
+.material-check-progress progress { display:block; width:100%; height:10px; accent-color:var(--primary, #394173); }
+.material-check-progress ul { padding-left:1.25rem; overflow-wrap:anywhere; }
+.material-check-progress li + li { margin-top:.5rem; }
 .company-history-list pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; }
 .material-properties-fieldset { border:0; padding:0; margin:0; min-width:0; }
 .material-properties-fieldset > legend { font-weight:600; margin-bottom:.75rem; }

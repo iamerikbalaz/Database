@@ -79,7 +79,7 @@ def _result(value, *, profile=PROFILE):
         "complete": False, "issues": issues, "report": value["report"] + "\n\n" + LIMITATION}
 
 
-def check_materials(database, library, access, selections):
+def check_materials(database, library, access, selections, *, progress=None):
     """Inspect all selected sources; reauthorize and commit results atomically.
 
     Authorization and current versions are checked for the whole selection before
@@ -99,7 +99,8 @@ def check_materials(database, library, access, selections):
     try:
         profile = getattr(library, "file_check_profile", PROFILE)
         if profile == FULL_PROFILE:
-            values = library.check_many([expected[selection.id][0] for selection in selections])
+            values = library.check_many([expected[selection.id][0] for selection in selections],
+                **({"progress": progress} if progress is not None else {}))
             if not isinstance(values, list) or len(values) != len(selections):
                 raise ValueError("Incomplete check selection")
         else:
@@ -149,3 +150,20 @@ def combined_report(items):
         sections.append("No issues found." if counts["NOT_CHECKED"] == 0 else "No issues observed in the preliminary inspection.")
     sections.extend(f"Material: {item.get('identity', item['material_id'])}\nFolder: {item.get('folder_path', '')}\nChecked: {item['checked_at']}\n{item['report']}" for item in issues)
     return "\n\n".join(sections) + "\n"
+
+
+def save_combined_report(database, library, access, items, *, open_report):
+    report = combined_report(items)
+    saved = {"report_path": None, "report_opened": False}
+    with database.session() as session:
+        access.check(session, MATERIAL_EDITORS)
+        for item in sorted(items, key=lambda value: value["material_id"]):
+            selection = CheckSelection(id=item["material_id"], expected_updated_at=datetime.fromisoformat(item["updated_at"]))
+            _context(session, selection, access, lock=True)
+        saver = getattr(library, "save_check_report", None)
+        if saver is not None:
+            try:
+                saved = saver(report, open_report=open_report)
+            except (OSError, ValueError, LocalFilesError):
+                pass  # The response still permits downloading the completed report.
+    return {"items": items, "report": report, **saved}

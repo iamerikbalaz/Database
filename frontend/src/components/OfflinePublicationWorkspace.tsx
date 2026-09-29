@@ -7,6 +7,9 @@ import { localPublicationClient, type LocalExportRequest, type LocalPublicationJ
 import { sessionGeneration } from "../auth/sessionTransport";
 import { useNavigationGuard } from "../navigationGuard";
 import { CheckReportView, type CheckReport } from "./MaterialBulkCheck";
+import { FileCheckProgress } from "./FileCheckProgress";
+import { useFileCheckProgress } from "./useFileCheckProgress";
+import { FileCheckJobUnavailableError } from "../api/materialCheckJobs";
 import { NavigationLink } from "./NavigationLink";
 import "./offlinePublication.css";
 
@@ -44,6 +47,7 @@ export function OfflinePublicationWorkspace({ client, navigate, initialSelection
   const [markError, setMarkError] = useState("");
   const operating = useRef(false), mounted = useRef(true), pending = useRef<LocalExportRequest | null>(null), markKey = useRef<string | null>(null);
   const dialog = useRef<HTMLDialogElement>(null), generation = useRef(sessionGeneration());
+  const checkProgress = useFileCheckProgress();
   const live = () => mounted.current && generation.current === sessionGeneration();
   const frozen = busy || uncertain || job?.status === "RUNNING" || markBusy || markUncertain;
   useNavigationGuard(() => operating.current || pending.current !== null || markKey.current !== null);
@@ -84,17 +88,18 @@ export function OfflinePublicationWorkspace({ client, navigate, initialSelection
       if (automatic) {
         const current = await Promise.all(materialIds.map(id => client.getMaterial(id)));
         if (!live()) return;
-        const checked = await materialLocalClient.checkMany(current);
+        const checked = await materialLocalClient.checkMany(current, true, checkProgress.begin());
+        checkProgress.finish();
         if (!live()) return;
         setCheckReport(checked); onChanged?.();
       }
       const result = await localPublicationClient.preview(materialIds);
       if (live()) setPreview(result);
     } catch (cause) {
-      if (live()) setError(cause instanceof ApiError && cause.status === 503
+      if (live()) setError(cause instanceof FileCheckJobUnavailableError ? cause.message : cause instanceof ApiError && cause.status === 503
         ? "Local publication preparation is unavailable. Check the desktop connection and try again."
         : "Materials could not be reviewed. Refresh their data, check the source connection and try again.");
-    } finally { operating.current = false; if (mounted.current) setBusy(false); }
+    } finally { operating.current = false; checkProgress.finish(); if (mounted.current) setBusy(false); }
   };
   const prepare = async () => {
     if (operating.current || !pending.current && (!preview?.canPrepare || frozen)) return;
@@ -138,6 +143,7 @@ export function OfflinePublicationWorkspace({ client, navigate, initialSelection
       {automatic && <p className="muted">Review includes the full map, metadata and preview checks. The TXT report lists materials with issues. Large selections may take several minutes.</p>}
       <button type="button" className="button" disabled={!materialIds.length || materialIds.length > 100} onClick={() => void review()}>{busy ? "Working…" : "Review materials"}</button>
     </fieldset>
+    {checkProgress.running && <FileCheckProgress progress={checkProgress.progress} resume={checkProgress.resume} total={materialIds.length} />}
     {error && <p role="alert" className="form-error">{error}</p>}{notice && <p role="status" className="success-notice">{notice}</p>}
     {job?.status === "FAILED" && job.issues.length > 0 && <section className="panel" aria-label="Export file issues"><h3>File issues</h3>
       {job.issues.map((group, index) => <article key={`${group.materialId}-${index}`}><h4>{initialSelection.find(item => item.id === group.materialId)?.materialName ?? group.materialId}</h4>

@@ -1,19 +1,20 @@
 """Authenticated, explicitly installed desktop capabilities; no arbitrary paths."""
-from datetime import datetime
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 from app.api.material_review import _material
-from app.auth.access import AccessDependency, CATALOG_MANAGERS, MATERIAL_EDITORS
+from app.auth.access import AccessDependency, CATALOG_MANAGERS
 from app.local_filesystem import LocalFilesError
 from app.material_identity import require_material_idle
 from app.metadata_client import MetadataClientError
 from app.preview_client import PreviewClientError
 from app.discovery_client import DiscoveryClientError
-from app.automatic_file_check import BulkFileCheck, CheckSelection, _context as check_context, check_materials, combined_report
+from app.automatic_file_check import BulkFileCheck, CheckSelection, check_materials, save_combined_report
+from app.file_check_jobs import FileCheckJobs
 
 
 def build_local_files_router(database, library=None):
     router=APIRouter(prefix="/api/materials",tags=["local material files"])
+    jobs = FileCheckJobs(database, library)
 
     def context(session, material_id, access, *, manage=False, lock=False):
         if manage: access.check(session,CATALOG_MANAGERS)
@@ -44,6 +45,17 @@ def build_local_files_router(database, library=None):
             if context(session,material_id,access,manage=manage)!=expected: raise HTTPException(409,{"code":"LOCAL_MATERIAL_CHANGED"})
             if failure: raise HTTPException(409,{"code":"LOCAL_FILE_ACTION_FAILED"})
         return result
+
+    @router.post("/check-jobs", status_code=202)
+    def start_check_job(payload:BulkFileCheck, access:AccessDependency, request:Request,
+                        idempotency_key:UUID=Header(alias="Idempotency-Key")):
+        local(request)
+        return jobs.start(access, payload, idempotency_key)
+
+    @router.get("/check-jobs/{job_id}")
+    def check_job(job_id:UUID, access:AccessDependency, request:Request):
+        local(request)
+        return jobs.get(access, job_id)
 
     @router.get("/{material_id}/local-files")
     def info(material_id:UUID,access:AccessDependency,request:Request):
@@ -79,23 +91,6 @@ def build_local_files_router(database, library=None):
     def check_many(payload:BulkFileCheck,access:AccessDependency,request:Request):
         local(request)
         items = check_materials(database, library, access, payload.materials)
-        report = combined_report(items)
-        saved = {"report_path": None, "report_opened": False}
-        # Derived results may advance updated_at. Reauthorize current records and
-        # retain those locks while the small output file is saved/opened.
-        with database.session() as session:
-            access.check(session, MATERIAL_EDITORS)
-            for item in sorted(items, key=lambda value: value["material_id"]):
-                selection = CheckSelection(id=item["material_id"], expected_updated_at=datetime.fromisoformat(item["updated_at"]))
-                check_context(session, selection, access, lock=True)
-            saver = getattr(library, "save_check_report", None)
-            if saver is not None:
-                try:
-                    saved = saver(report, open_report=payload.open_report)
-                except (OSError, ValueError, LocalFilesError):
-                    # Completed inspection is still readable/downloadable when
-                    # a desktop editor is unavailable or reports storage is full.
-                    saved = {"report_path": None, "report_opened": False}
-        return {"items": items, "report": report, **saved}
+        return save_combined_report(database, library, access, items, open_report=payload.open_report)
 
     return router

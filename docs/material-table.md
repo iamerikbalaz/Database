@@ -127,17 +127,26 @@ freezes at most 100 selected IDs and their revisions; authorization and current
 versions are rechecked before results are saved. Users cannot set check status,
 timestamp or report through ordinary property updates.
 
-Final validation rules are intentionally deferred to the next iteration. The
-current BASIC_V1 check reports observed structural/metadata issues as **issues**;
-a clean preliminary result remains **not checked**, not an unsupported green OK.
-It does not change Status, human Checked or Published. Relevant later material
-changes invalidate the observation.
+The configured desktop uses the complete `PBR_FILES_V1` rules documented in
+[Automatic file check](automatic-file-check.md). Completed clean checks produce
+**OK**; defects produce **issues**. Historical or unconfigured `BASIC_V1` checks
+remain preliminary and cannot certify OK. Checking does not change Status,
+human Checked or Published. Relevant later material changes invalidate the
+observation.
+
+Checks run as background jobs and show completed/total materials, active files,
+elapsed time and cached image evidence reuse. At most two materials are inspected
+concurrently. A connection failure offers recovery of the same job without
+automatically starting another scan. The bar reaches 100% only after the server
+confirms completion and saving; incomplete checks cannot write a partial OK.
 
 Bulk checks create a UTF-8 TXT report in
 `%LOCALAPPDATA%\REAWOTE\Reports\Checks` and open it in Notepad. This persistent
 per-user folder is outside the source library and survives routine temporary-file
 cleanup. The UI shows the report path and retains a download option if desktop
 saving or opening is unavailable. Filenames include a timestamp and unique ID.
+Only defective materials have detail sections; passing materials are counted in
+the summary.
 The full report remains in the database, audit history and check result/TXT;
 ordinary material lists and property-write receipts carry only its status,
 timestamp, profile and completeness flag. Large reports do not block later edits.

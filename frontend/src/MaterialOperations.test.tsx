@@ -140,7 +140,7 @@ it("prevents duplicate checks while one is running", async () => {
   render(<MaterialDataCheck materialId={material.id} />);
   const button = screen.getByRole("button", { name: "Check material data" });
   act(() => { button.click(); button.click(); }); expect(materialLocalClient.check).toHaveBeenCalledOnce();
-  expect(screen.getByRole("status")).toHaveTextContent("Large materials may take several minutes");
+  expect(screen.getByRole("status")).toHaveTextContent("Starting check of 1 materials");
   await act(async () => resolve({ materialId: material.id, status: "NOT_CHECKED", checkedAt: material.updatedAt, updatedAt: material.updatedAt, profile: "BASIC_V1", complete: false, issues: [], report: "Complete" }));
   expect(screen.getByRole("status")).toHaveTextContent("not checked · Only a preliminary inspection completed");
   expect(screen.queryByText("OK")).not.toBeInTheDocument();

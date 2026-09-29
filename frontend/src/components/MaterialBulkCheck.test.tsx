@@ -22,7 +22,7 @@ it("checks only explicit selection with versions and displays its saved TXT repo
   expect(screen.getByText(report.reportPath)).toBeVisible();
   expect(screen.getByRole("status")).toHaveTextContent("opened in the desktop editor");
   expect(screen.getByRole("button", { name: "Download TXT report" })).toBeEnabled();
-  expect(materialLocalClient.checkMany).toHaveBeenCalledExactlyOnceWith([{ id: second.id, updatedAt: second.updatedAt }]);
+  expect(materialLocalClient.checkMany).toHaveBeenCalledExactlyOnceWith([{ id: second.id, updatedAt: second.updatedAt }], true, expect.objectContaining({ signal: expect.any(AbortSignal), onProgress: expect.any(Function), onPaused: expect.any(Function) }));
   expect(onChecked).toHaveBeenCalledOnce();
   expect(onBusyChange).toHaveBeenCalledWith(true); await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(false));
 });
@@ -40,11 +40,11 @@ it("keeps one pending selection snapshot and blocks duplicate submissions and na
   const button = screen.getByRole("button");
   act(() => { button.click(); button.click(); });
   expect(materialLocalClient.checkMany).toHaveBeenCalledOnce(); expect(button).toBeDisabled();
-  expect(screen.getByRole("status")).toHaveTextContent("Checking source images for 2 selected materials");
+  expect(screen.getByRole("status")).toHaveTextContent("Starting check of 2 materials");
   expect(requestNavigation("/projects")).toBe(false);
   await act(async () => finish(report));
   expect(requestNavigation("/projects")).toBe(true);
-  expect(screen.queryByText(/Checking source images for/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "File check progress" })).not.toBeInTheDocument();
 });
 
 it("does not show stale private reports after the authenticated session changes", async () => {
@@ -73,4 +73,31 @@ it("keeps the report readable and downloadable if the desktop editor did not ope
   expect(await screen.findByRole("textbox")).toHaveValue(report.report);
   expect(screen.queryByRole("status")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Download TXT report" })).toBeEnabled();
+});
+
+it("renders live progress and resumes observation while keeping duplicate starts blocked", async () => {
+  let finish!: (value: typeof report) => void;
+  const resume = vi.fn(() => finish(report));
+  vi.mocked(materialLocalClient.checkMany).mockImplementation((_items, _open, options) => new Promise(resolve => {
+    finish = resolve;
+    options?.onProgress?.({ id: "60000000-0000-4000-8000-000000000001", status: "RUNNING", total: 1, completed: 0,
+      active: [{ materialId: first.id, identity: first.technicalIdentity, file: "PREVIEW/SPHERE_1.png", phase: "checking" }], elapsedSeconds: 8, cacheHits: 2, cacheMisses: 1 });
+    options?.onPaused?.(resume);
+  }));
+  render(<MaterialBulkCheck materials={[first]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Check selected materials (1)" }));
+  expect(screen.getByText("PREVIEW/SPHERE_1.png")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Checking selected materials…" })).toBeDisabled();
+  expect(requestNavigation("/projects")).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Resume file check" }));
+  expect(await screen.findByRole("textbox")).toHaveValue(report.report);
+  expect(resume).toHaveBeenCalledOnce(); expect(materialLocalClient.checkMany).toHaveBeenCalledOnce();
+});
+
+it("aborts observation on unmount without starting a replacement check", () => {
+  let signal: AbortSignal | undefined;
+  vi.mocked(materialLocalClient.checkMany).mockImplementation((_items, _open, options) => { signal = options?.signal; return new Promise(() => {}); });
+  const { unmount } = render(<MaterialBulkCheck materials={[first]} />);
+  fireEvent.click(screen.getByRole("button")); expect(signal?.aborted).toBe(false);
+  unmount(); expect(signal?.aborted).toBe(true); expect(materialLocalClient.checkMany).toHaveBeenCalledOnce();
 });

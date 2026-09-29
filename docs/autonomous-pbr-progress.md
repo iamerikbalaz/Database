@@ -3,9 +3,9 @@
 ## Latest checkpoint (2026-09-29, complete automatic material checks)
 
 Continued the existing `codex/autonomous-pbr-completion` branch. Fresh fetch still
-shows `origin/main` at `88a1f99d748d2a0edbb1fce509e13d18bfc03908`. The initial
-complete checker is committed and pushed as `6f650e1`; final real-data performance
-verification is in progress in the working tree.
+shows `origin/main` at `88a1f99d748d2a0edbb1fce509e13d18bfc03908`. The complete
+checker and performance fixes are committed and pushed as `6f650e1` and
+`aa243d3`. Final real-data verification completed successfully.
 
 ### Delivered behavior
 
@@ -47,7 +47,24 @@ verification is in progress in the working tree.
   export, conversion and assembly). The real ROUBAL check completed in **66.6s**,
   reporting its ID map stored as JPG instead of the required PNG.
 - The local application remains `http://127.0.0.1:53033`, rooted exclusively at
-  `C:\Users\Admin\Desktop\Test_data`. Final optimized live acceptance is pending.
+  `C:\Users\Admin\Desktop\Test_data`. The final 50-material API batch completed
+  in approximately 18 minutes: **23 OK, 27 issues**. All 50 persisted results
+  were independently read back and verified as complete `PBR_FILES_V1` results.
+  The saved TXT matches the API report and contains exactly the 27 defective
+  material sections, with passing materials only in the summary.
+- Native before/after source guards completed for every selected material.
+  A supplementary card check on a small 4K material completed in 7s and preserved
+  all other record fields and archive state; a snapshot comparison confirmed the
+  990 source files retained their sizes and modification times through that check.
+  The original bulk harness had an assertion against an omitted active-record
+  archive default after its successful API call; the corrected readback/card
+  verification ran separately without repeating the expensive bulk scan.
+- Typical actual findings: 23 materials have format/depth/channel or extension
+  mismatches, 9 have missing/invalid sample dimensions, 5 have master dimension
+  mismatches, and 5 lack the primary preview. These categories overlap. No repair
+  or source conversion was performed. The report and acceptance summary are
+  retained locally, outside version control, in the configured reports directory
+  and `tmp/local-materials-v5-20260928/v8-check-acceptance-summary.json`.
 - Docker initially failed to start because of inaccessible stale AF_UNIX socket
   files. Only its transient socket directories were moved to retained sibling
   backups, allowing a fresh start; no Docker database or volume was reset.

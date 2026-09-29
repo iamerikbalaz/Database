@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from app.local_file_check import PROFILE, _parse_results
+from app.local_file_check import PROFILE, _parse_progress, _parse_results
 from app.local_filesystem import LocalFilesError
 
 
@@ -50,3 +50,39 @@ def test_partial_or_ambiguous_worker_results_cannot_be_certified(mutation):
 def test_invalid_json_is_rejected(raw):
     with pytest.raises(LocalFilesError, match="LOCAL_FILE_CHECK_RESULT_INVALID"):
         _parse_results(raw, ["first", "second"])
+
+
+def progress():
+    return {"schema_version": 2, "total": 2, "completed": 0, "cache_hits": 1, "cache_misses": 2,
+        "active": [{"material_id": "first", "material_index": 1, "file": "PREVIEW/SPHERE_1.png", "phase": "DECODING"}]}
+
+
+def test_progress_accepts_only_bound_selection_and_relative_file_names():
+    value = progress()
+    assert _parse_progress(json.dumps(value), ["first", "second"]) == value
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda value: value.update(schema_version=1),
+    lambda value: value.update(total=True),
+    lambda value: value.update(total=3),
+    lambda value: value.update(completed=-1),
+    lambda value: value.update(completed=2),
+    lambda value: value.update(cache_hits=True),
+    lambda value: value.update(cache_misses=-1),
+    lambda value: value.update(secret="should not pass"),
+    lambda value: value["active"].append(copy.deepcopy(value["active"][0])),
+    lambda value: value["active"][0].update(material_id="foreign"),
+    lambda value: value["active"][0].update(material_index=True),
+    lambda value: value["active"][0].update(material_index=2),
+    lambda value: value["active"][0].update(phase="arbitrary text"),
+    lambda value: value["active"][0].update(file="C:\\secret.txt"),
+    lambda value: value["active"][0].update(file="/absolute"),
+    lambda value: value["active"][0].update(file="../escape"),
+    lambda value: value["active"][0].update(file="PREVIEW/../../escape"),
+    lambda value: value["active"][0].update(file="x\nprivate"),
+    lambda value: value["active"][0].update(file="x" * 2049),
+])
+def test_malformed_unbound_or_unsafe_progress_is_ignored(mutation):
+    value = progress(); mutation(value)
+    assert _parse_progress(json.dumps(value), ["first", "second"]) is None

@@ -14,6 +14,7 @@ COPY pyproject.toml ./
 COPY app ./app
 COPY app/packaging-policy.xml /etc/ImageMagick-7/policy.xml
 RUN pip install --no-cache-dir "."
+RUN install -d -m 0700 -o 65532 -g 65532 /staging
 
 # Private container networking only; no host port is published by this image.
 # Configure one instance per set of private roots, with a read-only source mount.

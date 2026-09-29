@@ -28,25 +28,32 @@ MAX_PREVIEWS = 256
 INCOMPLETE_PROBES = frozenset({"IMAGE_PROBE_UNAVAILABLE", "IMAGE_PROBE_FAILED", "IMAGE_PROBE_TIMEOUT", "IMAGE_SOURCE_CHANGED"})
 
 
-def check_material_files(root: Path, parts: tuple[str, ...], *, for_export: bool = False) -> dict:
+def check_material_files(root: Path, parts: tuple[str, ...], *, for_export: bool = False, execution=None) -> dict:
     if not parts or not all(_safe_name(part) for part in parts):
         raise ValueError("FILE_CHECK_PATH_INVALID")
     if not VALIDATION_SLOT.acquire(blocking=False):
         raise InventoryError("VALIDATION_BUSY")
     try:
+        if execution is not None:
+            if for_export: raise ValueError("FILE_CHECK_REQUEST_INVALID")
+            deadline = time.monotonic() + 240
+            with execution.snapshot(root, parts) as (snapshot_root, inventory):
+                return _check(snapshot_root, parts, for_export=False, source_root=root,
+                    prepared_inventory=inventory, execution=execution, deadline=deadline)
         return _check(root, parts, for_export=for_export)
     finally:
         VALIDATION_SLOT.release()
 
 
-def _check(root, parts, *, for_export):
-    deadline = time.monotonic() + 240
+def _check(root, parts, *, for_export, source_root=None, prepared_inventory=None, execution=None, deadline=None):
+    deadline = deadline if deadline is not None else time.monotonic() + 240
     scope = None if for_export else AUTOMATIC_FILES_SCOPE
     # One initial inventory and one final verification after every image and
     # metadata check. The intermediate legacy verification would reread all
     # inputs before previews, then immediately read them again below.
     technical = _validate_material(root, parts, include_mode=True, inventory_scope=scope, verify_after=False,
-        probe_wall_limit=STRICT_PROBE_WALL_SECONDS)
+        probe_wall_limit=STRICT_PROBE_WALL_SECONDS,
+        **({"prepared_inventory": prepared_inventory, "image_reader": execution.probe} if execution is not None else {}))
     inventory = technical["inventory"]
     if any(item["code"] in INCOMPLETE_PROBES for item in technical["errors"]):
         raise InventoryError("FILE_CHECK_INCOMPLETE")
@@ -140,7 +147,8 @@ def _check(root, parts, *, for_export):
                         info = os.fstat(fd)
                         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
                             raise InventoryError("INVENTORY_SOURCE_CHANGED")
-                        image = probe_image(fd, timeout=remaining)
+                        image = (execution.probe(fd, entry, timeout=remaining) if execution is not None
+                            else probe_image(fd, timeout=remaining))
                     finally: os.close(fd)
             except OSError:
                 raise InventoryError("INVENTORY_SOURCE_CHANGED") from None
@@ -156,8 +164,10 @@ def _check(root, parts, *, for_export):
                 add("PREVIEW_DIMENSIONS_INVALID", path, "1200x1200 pixels", f"{image['width']}x{image['height']} pixels")
     remaining = deadline - time.monotonic()
     if remaining <= 0: raise InventoryError("INVENTORY_TIME_LIMIT")
-    latest = inventory_material(root, parts, limits=InventoryLimits(max_seconds=remaining),
-        **({"scope": scope} if scope else {}))
+    if execution is not None: execution.emit("VERIFYING")
+    latest = inventory_material(source_root if source_root is not None else root, parts,
+        limits=InventoryLimits(max_seconds=remaining), **({"scope": scope} if scope else {}),
+        **({"progress": lambda path: execution.emit("VERIFYING", path)} if execution is not None else {}))
     if latest["source_revision_hash"] != inventory["source_revision_hash"]:
         raise InventoryError("INVENTORY_SOURCE_CHANGED")
 

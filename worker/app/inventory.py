@@ -46,8 +46,13 @@ def _safe_name(name: str) -> bool:
 
 
 def inventory_material(root: Path, parts: tuple[str, ...], *,
-                       limits: InventoryLimits | None = None, scope: str | None = None) -> dict:
+                       limits: InventoryLimits | None = None, scope: str | None = None,
+                       copy_to: Path | None = None, progress=None) -> dict:
     if scope not in {None, AUTOMATIC_FILES_SCOPE}:
+        raise ValueError("INVENTORY_SCOPE_INVALID")
+    # Only the private automatic-check snapshot uses this sink. Full export
+    # inventory and its proof contract never stage or omit source payloads.
+    if copy_to is not None and scope != AUTOMATIC_FILES_SCOPE:
         raise ValueError("INVENTORY_SCOPE_INVALID")
     limits = limits or InventoryLimits()
     deadline = time.monotonic() + limits.max_seconds
@@ -111,7 +116,10 @@ def inventory_material(root: Path, parts: tuple[str, ...], *,
                     if is_directory:
                         if not verify:
                             entries.append({"path": relative, "kind": "directory", "size": 0, "sha256": None})
+                            if copy_to is not None: (copy_to / relative).mkdir(mode=0o700)
                         walk(fd, relative + "/", depth + 1, verify=verify)
+                        if not verify and copy_to is not None:
+                            os.utime(copy_to / relative, ns=(before.st_atime_ns, before.st_mtime_ns), follow_symlinks=False)
                     elif not verify:
                         if before.st_size > limits.max_file_bytes:
                             raise InventoryError("INVENTORY_FILE_LIMIT")
@@ -119,15 +127,29 @@ def inventory_material(root: Path, parts: tuple[str, ...], *,
                             raise InventoryError("INVENTORY_TOTAL_LIMIT")
                         digest = hashlib.sha256()
                         count = 0
-                        while True:
-                            check_time()
-                            chunk = os.read(fd, 1024 * 1024)
-                            if not chunk:
-                                break
-                            count += len(chunk)
-                            if count > before.st_size:
-                                raise InventoryError("INVENTORY_SOURCE_CHANGED")
-                            digest.update(chunk)
+                        if progress is not None: progress(relative)
+                        sink = (os.open(copy_to / relative, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                            if copy_to is not None else None)
+                        try:
+                            while True:
+                                check_time()
+                                chunk = os.read(fd, 1024 * 1024)
+                                if not chunk:
+                                    break
+                                count += len(chunk)
+                                if count > before.st_size:
+                                    raise InventoryError("INVENTORY_SOURCE_CHANGED")
+                                digest.update(chunk)
+                                if sink is not None:
+                                    pending = memoryview(chunk)
+                                    while pending:
+                                        written = os.write(sink, pending)
+                                        if written <= 0: raise OSError("snapshot write failed")
+                                        pending = pending[written:]
+                        finally:
+                            if sink is not None: os.close(sink)
+                        if copy_to is not None:
+                            os.utime(copy_to / relative, ns=(before.st_atime_ns, before.st_mtime_ns), follow_symlinks=False)
                         if count != before.st_size:
                             raise InventoryError("INVENTORY_SOURCE_CHANGED")
                         total += count

@@ -79,9 +79,9 @@ class LocalMaterialLibrary:
     def file_check_profile(self):
         return self.file_checker.profile if self.file_checker is not None else "BASIC_V1"
 
-    def check_many(self, folders):
+    def check_many(self, folders, *, progress=None):
         if self.file_checker is not None:
-            return self.file_checker.check_many(folders)
+            return self.file_checker.check_many(folders, **({"progress": progress} if progress is not None else {}))
         return [self.check(folder) for folder in folders]
 
     def absolute(self, folder):
@@ -140,9 +140,9 @@ class LocalMaterialLibrary:
         except subprocess.TimeoutExpired: raise LocalFilesError("LOCAL_PICKER_TIMEOUT") from None
         finally: self.picker_lock.release()
 
-    def check(self, folder):
+    def check(self, folder, *, progress=None):
         if self.file_checker is not None:
-            return self.file_checker.check(folder)
+            return self.file_checker.check(folder, **({"progress": progress} if progress is not None else {}))
         # Pin all existing source files without hashing large texture payloads.
         # These read handles prevent writes/renames during the observation.
         with self.lock, self.fs.tree(folder, hash_files=False, for_rename=False) as (_, before, _):

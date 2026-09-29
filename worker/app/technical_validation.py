@@ -74,9 +74,10 @@ def validate_material(root: Path, parts: tuple[str, ...]) -> dict:
 
 def _validate_material(root: Path, parts: tuple[str, ...], *, include_mode: bool = False,
                        inventory_scope: str | None = None, verify_after: bool = True,
-                       probe_wall_limit: int = DEFAULT_PROBE_WALL_SECONDS) -> dict:
+                       probe_wall_limit: int = DEFAULT_PROBE_WALL_SECONDS,
+                       prepared_inventory: dict | None = None, image_reader=None) -> dict:
     deadline = time.monotonic() + 120
-    inventory = inventory_material(root, parts, **({"scope": inventory_scope} if inventory_scope else {}))
+    inventory = prepared_inventory if prepared_inventory is not None else inventory_material(root, parts, **({"scope": inventory_scope} if inventory_scope else {}))
     errors = []; warnings = []; images = []
     def finding(code: str, path: str = "") -> dict: return {"code": code, "path": path}
     master = inventory["master_resolution"]
@@ -114,8 +115,11 @@ def _validate_material(root: Path, parts: tuple[str, ...], *, include_mode: bool
                             info = os.fstat(fd)
                             if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
                                 raise InventoryError("INVENTORY_SOURCE_CHANGED")
-                            image = probe_image(fd, timeout=remaining, **({"include_mode": True} if include_mode else {}),
+                            image = (image_reader(fd, entry, timeout=remaining, include_mode=include_mode,
+                                wall_limit=probe_wall_limit) if image_reader is not None else
+                                probe_image(fd, timeout=remaining, **({"include_mode": True} if include_mode else {}),
                                 **({"wall_limit": probe_wall_limit} if probe_wall_limit != DEFAULT_PROBE_WALL_SECONDS else {}))
+                                )
                         finally: os.close(fd)
                     except OSError:
                         raise InventoryError("INVENTORY_SOURCE_CHANGED") from None

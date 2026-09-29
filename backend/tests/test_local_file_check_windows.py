@@ -1,3 +1,5 @@
+import ctypes
+from ctypes import wintypes
 import json
 import os
 from pathlib import Path
@@ -124,8 +126,13 @@ def test_container_arguments_are_fixed_read_only_networkless_and_resource_bounde
     assert command[-4:] == [adapter.image, "python", "-m", "app.local_file_check"]
     assert "--read-only" in command and command[command.index("--network") + 1] == "none"
     assert command[command.index("--cap-drop") + 1] == "ALL"
-    assert command[command.index("--memory") + 1] == "4g"
+    assert command[command.index("--memory") + 1] == "6g"
     assert "type=bind,source=" + str(library.fs.root) + ",target=/materials,readonly" in command
+    assert "type=volume,target=/staging" in command
+    assert "type=bind,source=" + str(adapter.root / "cache-key") + ",target=/cache-key,readonly" in command
+    assert "type=bind,source=" + str(adapter.root / "cache") + ",target=/cache" in command
+    assert "REAWOTE_CHECK_WORKERS=2" in command
+    assert "REAWOTE_CHECK_CACHE_NAMESPACE=" + adapter.image in command
     assert options["timeout"] == 7200 and options["creationflags"] == 0x08000000
 
 
@@ -142,7 +149,7 @@ def test_timeout_removes_only_own_named_container_and_reports_failure(checker, m
     monkeypatch.setattr("app.local_file_check.subprocess.run", run)
     with pytest.raises(LocalFilesError, match="LOCAL_FILE_CHECK_TIME_LIMIT"):
         adapter._run_container("b" * 32)
-    assert calls[1] == [adapter.docker, "--context", "desktop-linux", "rm", "-f", "reawote-local-check-" + "b" * 32]
+    assert calls[1] == [adapter.docker, "--context", "desktop-linux", "rm", "-f", "-v", "reawote-local-check-" + "b" * 32]
 
 
 def test_failed_container_is_never_read_as_success(checker, monkeypatch):
@@ -169,3 +176,142 @@ def test_runtime_output_cannot_overlap_library_or_journal(checker):
         with pytest.raises(LocalFilesError, match="LOCAL_FILE_CHECK_ROOT_OVERLAP"):
             LocalMaterialFileCheck(library, root, docker_executable=adapter.docker,
                 docker_context=adapter.context, image=adapter.image)
+
+
+def test_signing_key_is_random_private_persistent_and_not_in_request(checker, monkeypatch):
+    library, adapter = checker
+    relative, _ = folder(library, "ONE")
+    key = (adapter.root / "cache-key/private.key").read_bytes()
+    assert len(key) == 32 and len(set(key)) > 8
+    second = LocalMaterialFileCheck(library, adapter.root, docker_executable=adapter.docker,
+        docker_context=adapter.context, image=adapter.image)
+    assert (second.root / "cache-key/private.key").read_bytes() == key
+    def run(identifier):
+        request = (adapter.root / identifier / "request/request.json").read_bytes()
+        assert key not in request and key.hex().encode() not in request
+        completed(adapter, identifier)
+    monkeypatch.setattr(adapter, "_run_container", run)
+    assert adapter.check(relative)["complete"]
+
+
+def test_invalid_existing_key_cannot_be_used_to_certify_cached_data(checker):
+    library, adapter = checker
+    (adapter.root / "cache-key/private.key").write_bytes(b"invalid")
+    with pytest.raises(LocalFilesError, match="LOCAL_FILE_CHECK_KEY_INVALID"):
+        LocalMaterialFileCheck(library, adapter.root, docker_executable=adapter.docker,
+            docker_context=adapter.context, image=adapter.image)
+
+
+def test_progress_is_sanitized_monotonic_deduplicated_and_does_not_change_results(checker, monkeypatch):
+    library, adapter = checker
+    first, _ = folder(library, "ONE")
+    second, _ = folder(library, "TWO")
+    received = []
+    def run(identifier, *, progress):
+        request = json.loads((adapter.root / identifier / "request/request.json").read_bytes())
+        ids = [item["id"] for item in request["materials"]]
+        output = adapter.root / identifier / "output/progress.json"
+        output.write_text('{"private":"C:\\\\secret"}', encoding="utf-8"); progress()
+        value = {"schema_version": 2, "total": 2, "completed": 0, "cache_hits": 0, "cache_misses": 1,
+            "active": [{"material_id": ids[0], "material_index": 1, "file": "1K/FILE.jpg", "phase": "DECODING"}]}
+        output.write_text(json.dumps(value), encoding="utf-8"); progress(); progress()
+        value.update(completed=1, active=[], cache_hits=1)
+        output.write_text(json.dumps(value), encoding="utf-8"); progress()
+        value.update(completed=0)
+        output.write_text(json.dumps(value), encoding="utf-8"); progress()
+        completed(adapter, identifier)
+    monkeypatch.setattr(adapter, "_run_container", run)
+    results = adapter.check_many([first, second], progress=received.append)
+    assert len(results) == 2 and all(result["complete"] for result in results)
+    assert len(received) == 2
+    assert received[0]["active"][0]["file"] == "1K/FILE.jpg"
+    assert received[1]["completed"] == 1 and received[1]["cache_hits"] == 1
+
+
+def test_progress_observer_failure_does_not_abort_validated_check(checker, monkeypatch):
+    library, adapter = checker
+    relative, _ = folder(library, "ONE")
+    def run(identifier, *, progress):
+        value = {"schema_version": 2, "total": 1, "completed": 1, "active": [], "cache_hits": 0, "cache_misses": 1}
+        (adapter.root / identifier / "output/progress.json").write_text(json.dumps(value), encoding="utf-8")
+        progress()
+        completed(adapter, identifier)
+    monkeypatch.setattr(adapter, "_run_container", run)
+    def disconnected(value): raise RuntimeError("Observer disconnected")
+    assert adapter.check(relative, progress=disconnected)["complete"] is True
+
+
+def test_progress_container_polling_is_bounded_and_suppresses_process_output(checker, monkeypatch):
+    _, adapter = checker
+    calls = []; progress = []
+    class Process:
+        returncode = None
+        def wait(self, *, timeout):
+            calls.append(timeout)
+            self.returncode = 0
+            return 0
+        def poll(self): return self.returncode
+    def popen(command, **kwargs):
+        assert kwargs["stdout"] == subprocess.DEVNULL and kwargs["stderr"] == subprocess.DEVNULL
+        return Process()
+    monkeypatch.setattr("app.local_file_check.subprocess.Popen", popen)
+    adapter._run_container("d" * 32, progress=lambda: progress.append(True))
+    assert calls == [.5] and len(progress) == 2
+
+
+def test_key_file_acl_is_protected_and_excludes_shared_user_groups(checker):
+    _, adapter = checker
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi.GetFileSecurityW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+    advapi.ConvertSecurityDescriptorToStringSecurityDescriptorW.argtypes = [ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(wintypes.LPWSTR), ctypes.POINTER(wintypes.DWORD)]
+    kernel.LocalFree.argtypes = [ctypes.c_void_p]
+    for path in (adapter.root / "cache-key", adapter.root / "cache-key/private.key"):
+        size = wintypes.DWORD()
+        advapi.GetFileSecurityW(str(path), 4, None, 0, ctypes.byref(size))
+        descriptor = ctypes.create_string_buffer(size.value)
+        assert advapi.GetFileSecurityW(str(path), 4, descriptor, len(descriptor), ctypes.byref(size))
+        sddl = wintypes.LPWSTR()
+        assert advapi.ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, 1, 4, ctypes.byref(sddl), None)
+        try:
+            value = sddl.value
+            assert value.startswith("D:P") and ";;;SY)" in value
+            assert value.count("(A;") == 2
+            assert not any(";;;" + group + ")" in value for group in ("WD", "BU", "AU"))
+        finally:
+            kernel.LocalFree(sddl)
+
+
+def test_progress_deadline_stops_cli_and_only_its_container(checker, monkeypatch):
+    _, adapter = checker
+    calls = []
+    class Process:
+        returncode = None
+        def poll(self): return self.returncode
+        def terminate(self): self.returncode = -15; calls.append("terminate")
+        def wait(self, *, timeout): calls.append(timeout); return self.returncode
+    clock = iter([0, 7201])
+    monkeypatch.setattr("app.local_file_check.time.monotonic", lambda: next(clock))
+    monkeypatch.setattr("app.local_file_check.subprocess.Popen", lambda *args, **kwargs: Process())
+    monkeypatch.setattr("app.local_file_check.subprocess.run",
+        lambda command, **kwargs: calls.append(command) or SimpleNamespace(returncode=0))
+    with pytest.raises(LocalFilesError, match="LOCAL_FILE_CHECK_TIME_LIMIT"):
+        adapter._run_container("e" * 32, progress=lambda: None)
+    assert calls[:2] == ["terminate", 5]
+    assert calls[2] == [adapter.docker, "--context", "desktop-linux", "rm", "-f", "-v", "reawote-local-check-" + "e" * 32]
+
+
+def test_progress_wait_error_still_cleans_own_container_and_staging_volume(checker, monkeypatch):
+    _, adapter = checker
+    calls = []
+    class Process:
+        returncode = None
+        def poll(self): return self.returncode
+        def wait(self, *, timeout): raise OSError("wait failed")
+        def terminate(self): calls.append("terminate"); self.returncode = -15
+    monkeypatch.setattr("app.local_file_check.subprocess.Popen", lambda *args, **kwargs: Process())
+    monkeypatch.setattr("app.local_file_check.subprocess.run",
+        lambda command, **kwargs: calls.append(command) or SimpleNamespace(returncode=0))
+    with pytest.raises(LocalFilesError, match="LOCAL_FILE_CHECK_UNAVAILABLE"):
+        adapter._run_container("f" * 32, progress=lambda: None)
+    assert calls == ["terminate", [adapter.docker, "--context", "desktop-linux", "rm", "-f", "-v", "reawote-local-check-" + "f" * 32]]

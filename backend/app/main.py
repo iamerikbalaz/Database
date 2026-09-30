@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Protocol
+import asyncio
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -56,6 +57,9 @@ from app.api.material_archives import build_material_archives_router
 from app.api.material_table import build_material_table_router
 from app.api.local_files import build_local_files_router
 from app.api.local_publication import build_local_publication_router
+from app.api.directory import build_directory_router
+from app.api.notion_outbound import build_notion_outbound_router
+from app.outbound_dispatcher import run_outbound_dispatcher
 
 
 class ApplicationDatabase(HealthDatabase, SessionDatabase, Protocol):
@@ -88,8 +92,18 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        yield
-        app_database.dispose()
+        stop = asyncio.Event()
+        dispatcher = None
+        if app_settings.notion_outbound_enabled or app_settings.order_folders_enabled:
+            dispatcher = asyncio.create_task(run_outbound_dispatcher(app_database, app_settings, stop))
+        try:
+            yield
+        finally:
+            stop.set()
+            if dispatcher is not None:
+                try: await asyncio.wait_for(dispatcher, timeout=30)
+                except (TimeoutError, asyncio.CancelledError): pass
+            app_database.dispose()
 
     application = FastAPI(
         title=app_settings.app_name,
@@ -103,6 +117,8 @@ def create_app(
     application.include_router(build_account_router(app_database, app_settings))
     application.include_router(build_health_router(app_database))
     application.include_router(build_resources_router(app_database))
+    application.include_router(build_directory_router(app_database, app_settings))
+    application.include_router(build_notion_outbound_router(app_database, app_settings))
     application.include_router(build_material_table_router(app_database, app_worker_client))
     application.include_router(build_local_files_router(app_database, local_library))
     application.include_router(build_local_publication_router(app_database, app_settings, local_publication))
@@ -171,7 +187,7 @@ def create_app(
         CORSMiddleware,
         allow_origins=app_settings.parsed_cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PATCH"],
+        allow_methods=["GET", "POST", "PATCH", "PUT"],
         allow_headers=["Accept", "Content-Type", "X-CSRF-Token", "Idempotency-Key"],
         expose_headers=["Idempotency-Replayed", "X-Preview-Width", "X-Preview-Height", "X-Preview-Sha256",
                         "X-Preview-Original-Width", "X-Preview-Original-Height"],

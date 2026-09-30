@@ -246,6 +246,7 @@ class InternalUser(TimestampMixin, Base):
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
+    notion_people_page_id: Mapped[str | None] = mapped_column(String(36), unique=True)
     role: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     is_active: Mapped[bool] = mapped_column(
         Boolean,
@@ -399,6 +400,7 @@ class Company(TimestampMixin, Base):
 class PublishedBrand(TimestampMixin, Base):
     __tablename__ = "published_brands"
     __table_args__ = (
+        CheckConstraint("customer_status IN ('In library','test','Active')", name="ck_customer_status"),
         CheckConstraint(
             "next_sequence_number BETWEEN 1 AND 10000",
             name="ck_published_brands_next_sequence_number_range",
@@ -415,6 +417,24 @@ class PublishedBrand(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     folder_prefix: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     brand_identifier: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    # Customer IDs deliberately reuse brand IDs: material identities and all
+    # existing foreign keys remain unchanged during the directory transition.
+    is_customer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    customer_status: Mapped[str] = mapped_column(String(32), nullable=False, default="Active", server_default=text("'Active'"))
+    customer_brand_identifier: Mapped[str | None] = mapped_column(String(255).evaluates_none(), unique=True,
+        default=lambda context: context.get_current_parameters().get("brand_identifier"))
+    website: Mapped[str | None] = mapped_column(String(2048))
+    address: Mapped[str | None] = mapped_column(Text)
+    shipping_address: Mapped[str | None] = mapped_column(Text)
+    legal_name: Mapped[str | None] = mapped_column(String(255))
+    vat_id: Mapped[str | None] = mapped_column(String(100))
+    description: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+    notion_page_id: Mapped[str | None] = mapped_column(String(36), unique=True)
+    logo_content: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
+    logo_content_type: Mapped[str | None] = mapped_column(String(50))
+    logo_filename: Mapped[str | None] = mapped_column(String(255))
+    logo_sha256: Mapped[str | None] = mapped_column(String(64))
     next_sequence_number: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -435,6 +455,8 @@ class PublishedBrand(TimestampMixin, Base):
 class Project(TimestampMixin, Base):
     __tablename__ = "projects"
     __table_args__ = (
+        CheckConstraint("priority IS NULL OR priority IN ('Low','Medium','High','Urgent')", name="ck_order_priority"),
+        CheckConstraint("order_status IN ('Test complete','To be invoiced','Ongoing','Canceled','Done','Samples Obtained','Visualize','Waiting for samples','Post-production','Scanned','Price offer sent','invoiced','Not started')", name="ck_order_status"),
         CheckConstraint(
             "status IN ('NOT_STARTED', 'IN_PROGRESS', 'DONE')",
             name="ck_projects_status",
@@ -459,6 +481,16 @@ class Project(TimestampMixin, Base):
     due_date: Mapped[date | None] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text)
     folder_path: Mapped[str | None] = mapped_column(String(2048))
+    customer_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("published_brands.id", ondelete="RESTRICT"), index=True)
+    project_type: Mapped[str | None] = mapped_column(String(255))
+    starting_date: Mapped[date | None] = mapped_column(Date)
+    responsible_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"), index=True)
+    responsible_notion_page_ids: Mapped[list] = mapped_column(_JSON_DOCUMENT, nullable=False, default=list, server_default=text("'[]'"))
+    order_status: Mapped[str] = mapped_column(String(32), nullable=False,
+        default=lambda context: {"DONE": "Done", "IN_PROGRESS": "Ongoing"}.get(context.get_current_parameters().get("status"), "Not started"),
+        server_default=text("'Not started'"))
+    priority: Mapped[str | None] = mapped_column(String(16))
+    notion_page_id: Mapped[str | None] = mapped_column(String(36), unique=True)
 
     company: Mapped[Company] = relationship(back_populates="projects")
     materials: Mapped[list["PBRMaterial"]] = relationship(back_populates="project")
@@ -1840,3 +1872,7 @@ def _protect_metadata_operation(_mapper, _connection, item):
 
 
 event.listen(MaterialMetadataOperation, "before_delete", _reject_review_history_mutation)
+
+# Register split domain models for Alembic and isolated metadata-based test DBs.
+from app.db import directory_models as _directory_models  # noqa: E402,F401
+from app.db import notion_sync_models as _notion_sync_models  # noqa: E402,F401

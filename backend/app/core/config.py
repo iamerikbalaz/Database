@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     notion_company_data_source_id: str = ""
     notion_company_properties: dict[str, str] = Field(default_factory=dict)
     notion_timeout_seconds: float = Field(default=20, gt=0, le=60)
+    notion_outbound_enabled: bool = False
+    notion_customers_data_source_id: str = "276a8a19-ae7b-8050-9bc1-000b280fc7ca"
+    notion_orders_data_source_id: str = "dcfda230-c4f7-4207-817a-07643eaf4dbd"
+    order_folders_enabled: bool = False
+    order_folders_root: str = ""
     source_mutations_enabled: bool = False
     worker_mutation_token: SecretStr | None = None
     auth_cookie_secure: bool = True
@@ -79,6 +84,20 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security_configuration(self) -> "Settings":
+        if self.notion_outbound_enabled:
+            from app.notion_reader import page_id
+            try:
+                page_id(self.notion_customers_data_source_id)
+                page_id(self.notion_orders_data_source_id)
+                token = self.notion_access_token.get_secret_value() if self.notion_access_token else ""
+                if not 32 <= len(token) <= 8192 or not token.isascii() or any(not 33 <= ord(c) <= 126 for c in token):
+                    raise ValueError()
+            except Exception:
+                raise ValueError("Outbound Notion synchronization requires explicit data sources and a separate integration credential") from None
+        if self.order_folders_enabled:
+            from pathlib import Path
+            if not self.order_folders_root or not Path(self.order_folders_root).is_absolute():
+                raise ValueError("Order folder creation requires an explicit absolute root")
         if self.notion_enabled:
             from app.notion_reader import configuration_from_settings
             try:

@@ -260,7 +260,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
         filters: Annotated[PublishedBrandListFilters, Query()], access: AccessDependency) -> list[PublishedBrand]:
         with database.session() as session:
             access.check(session)
-            statement = select(PublishedBrand)
+            statement = select(PublishedBrand).where(PublishedBrand.is_customer.is_(True))
             if filters.company_id is not None:
                 statement = statement.where(PublishedBrand.company_id == filters.company_id)
             if filters.is_active is not None:

@@ -68,6 +68,8 @@ def content_review(session, material, *, draft=None):
     if draft["credits"] is None: errors.append("CONTENT_CREDITS_REQUIRED")
     if not draft["categories"]: errors.append("CONTENT_CATEGORIES_REQUIRED")
     if not brand.is_active: errors.append("CONTENT_BRAND_INACTIVE")
+    if not brand.customer_brand_identifier or brand.brand_identifier.startswith("unassigned-"):
+        errors.append("CONTENT_BRAND_IDENTIFIER_REQUIRED")
     if any(not item["is_active"] for item in draft["categories"] + draft["collections"]):
         errors.append("CONTENT_CATALOG_VALUE_INACTIVE")
     if any(item["brand_id"] != str(brand.id) for item in draft["collections"]):

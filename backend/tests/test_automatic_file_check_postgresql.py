@@ -213,7 +213,7 @@ def test_0033_preserves_0032_receipts_and_accepts_exact_current_material_receipt
                 with pytest.raises(RuntimeError, match="Automatic file check receipt history exists"):
                     command.downgrade(config, "20260927_0032")
                 with case.database.engine.connect() as connection:
-                    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20260928_0033"
+                    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == ScriptDirectory.from_config(config).get_current_head()
         finally:
             get_settings.cache_clear()
 
@@ -252,7 +252,7 @@ def test_0033_preserves_material_data_defaults_and_refuses_erasing_recorded_chec
                 with pytest.raises(RuntimeError, match="Automatic file check results exist"):
                     command.downgrade(config, "20260927_0032")
                 with case.database.engine.connect() as connection:
-                    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20260928_0033"
+                    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == ScriptDirectory.from_config(config).get_current_head()
                     assert connection.scalar(text("SELECT automatic_file_check_report FROM pbr_materials WHERE id=:id"), {"id": case.material.id}) == large_report
         finally:
             get_settings.cache_clear()

@@ -263,12 +263,12 @@ def _review_pg_case(migrated_postgresql_url):
         for role in ("ADMIN", "PROCESSOR", "PROCESSOR", "ADMIN"):
             user = InternalUser(display_name="Review fixture", email=f"{uuid4().hex}@example.invalid", role=role)
             user.credential = UserCredential(password_hash=password_hash, must_change_password=False)
-            session.add(user); users.append(user)
+            _persist_user_at_schema(session, user); users.append(user)
         company = Company(name="Review company " + suffix); session.add(company); session.flush()
         project = Project(company_id=company.id, project_number=suffix, name="Review fixture")
         brand = PublishedBrand(company_id=company.id, name="Review brand", folder_prefix="RV" + suffix[:8], brand_identifier=suffix)
         _persist_project_at_schema(session, project)
-        session.add(brand); session.flush()
+        _persist_brand_at_schema(session, brand); session.flush()
         material = PBRMaterial(project_id=project.id, published_brand_id=brand.id, sequence_number=1,
             assigned_processor_id=users[1].id, material_name="Review material", main_category_code="G03",
             technical_identity=f"{brand.folder_prefix}_0001_G03", folder_path=f"library/{brand.folder_prefix}_0001_G03")
@@ -2317,13 +2317,42 @@ def test_postgresql_metadata_schema_uses_exact_and_structured_types(
 
 def _persist_project_at_schema(session, project):
     from sqlalchemy import Table, MetaData
-    if "folder_path" in {column["name"] for column in inspect(session.connection()).get_columns("projects")}:
+    if "customer_id" in {column["name"] for column in inspect(session.connection()).get_columns("projects")}:
         session.add(project)
     else:
         legacy = Table("projects", MetaData(), autoload_with=session.connection())
         project.id = uuid4()
-        session.execute(legacy.insert().values(id=project.id, company_id=project.company_id,
-            project_number=project.project_number, name=project.name))
+        values = {key: value for key, value in project.__dict__.items() if key in legacy.c and value is not None}
+        session.execute(legacy.insert().values(**values))
+    session.flush()
+
+
+def _persist_user_at_schema(session, user):
+    from sqlalchemy import Table, MetaData
+    if "notion_people_page_id" in {column["name"] for column in inspect(session.connection()).get_columns("internal_users")}:
+        session.add(user)
+    else:
+        metadata = MetaData()
+        legacy = Table("internal_users", metadata, autoload_with=session.connection())
+        user.id = uuid4()
+        values = {key: value for key, value in user.__dict__.items() if key in legacy.c and value is not None}
+        session.execute(legacy.insert().values(**values))
+        if user.credential is not None:
+            credentials = Table("user_credentials", metadata, autoload_with=session.connection())
+            session.execute(credentials.insert().values(user_id=user.id, password_hash=user.credential.password_hash,
+                must_change_password=user.credential.must_change_password))
+    session.flush()
+
+
+def _persist_brand_at_schema(session, brand):
+    from sqlalchemy import Table, MetaData
+    if "is_customer" in {column["name"] for column in inspect(session.connection()).get_columns("published_brands")}:
+        session.add(brand)
+    else:
+        legacy = Table("published_brands", MetaData(), autoload_with=session.connection())
+        brand.id = uuid4()
+        values = {key: value for key, value in brand.__dict__.items() if key in legacy.c and value is not None}
+        session.execute(legacy.insert().values(**values))
     session.flush()
 
 
@@ -2366,7 +2395,8 @@ def _create_postgresql_material_with_metadata(database_url: str, suffix: str) ->
             role="PROCESSOR",
         )
         _persist_project_at_schema(session, project)
-        session.add_all([brand, processor])
+        _persist_brand_at_schema(session, brand)
+        _persist_user_at_schema(session, processor)
         session.flush()
         material = PBRMaterial(
             project_id=project.id,
@@ -4608,7 +4638,8 @@ def test_postgresql_company_0020_preserves_0019_data_and_refuses_history_loss():
             with database.session() as session:
                 actor = InternalUser(display_name="Synthetic history actor", email=f"{uuid4().hex}@example.invalid", role="ADMIN")
                 company = Company(name="Existing company", notion_page_id=str(uuid4()))
-                session.add_all([actor, company]); session.commit(); frozen = company_snapshot(company)
+                _persist_user_at_schema(session, actor)
+                session.add(company); session.commit(); frozen = company_snapshot(company)
             command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
             with database.session() as session:
                 assert company_snapshot(session.get(Company, company.id)) == frozen
@@ -4715,112 +4746,109 @@ def _notion_adoption_pg(case):
         client.headers.update({"Origin": ORIGIN, "X-CSRF-Token": login.json()["csrf_token"]})
         return client
     path = f"/api/companies/{identifier}"
-    def command(client):
-        response = client.post(path + "/notion-preview", json={"expected_page_id": page_id})
-        assert response.status_code == 200
-        value = response.json()
-        return {"request_key": str(uuid4()), "expected_page_id": page_id, "expected_local_sha256": value["local_sha256"],
-            "expected_observation_sha256": value["source"]["observation_sha256"],
-            "selected_fields": ["country", "name"], "reason": "Reviewed synthetic concurrent values"}
     return SimpleNamespace(settings=settings, identifier=identifier, path=path, document=document,
-        server_app=server_app, client_for=client_for, command=command)
+        server_app=server_app, client_for=client_for)
 
 
-@pytest.mark.parametrize("change", [None, "company", "link", "role", "revoke", "read-failure"])
-def test_postgresql_notion_adoption_rechecks_concurrent_changes_without_io_transaction(review_pg_case, change):
-    import anyio
+@pytest.mark.parametrize("role,expected", [(None, 401), ("PROCESSOR", 403), ("LEADERSHIP", 403),
+    ("PRODUCTION_LEAD", 403), ("ADMIN", 410), ("ADMIN_WITHOUT_CSRF", 403)])
+def test_postgresql_notion_adoption_retired_route_keeps_current_authentication(review_pg_case, role, expected):
     from app.db.models import CompanyChangeEvent
-    from test_notion_reader import schema
+    from test_application_access import ORIGIN
     case = review_pg_case; item = _notion_adoption_pg(case); server, app = item.server_app()
-    entered = Event(); release = Event()
-    async def hold(request):
-        if "/data_sources/" in str(request.url): return server.response(schema())
-        entered.set()
-        if not await anyio.to_thread.run_sync(release.wait, 15): raise TimeoutError("Synthetic adoption read was not released")
-        return server.response(item.document, status=503 if change == "read-failure" else 200)
-    with item.client_for(app) as actor, item.client_for(app, 3) as admin:
-        body = item.command(actor); server.hook = hold
-        with ThreadPoolExecutor(1) as pool:
-            pending = pool.submit(actor.post, item.path + "/notion-adopt", json=body)
-            try:
-                assert entered.wait(15)
-                with case.database.engine.connect() as connection:
-                    assert connection.scalar(text("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND state LIKE 'idle in transaction%'")) == 0
-                if change == "company": response = admin.patch(item.path, json={"legal_name": "New concurrent legal name"})
-                elif change == "link": response = admin.patch(item.path, json={"notion_page_id": str(uuid4())})
-                elif change == "role": response = admin.patch(f"/api/internal-users/{case.users[0].id}", json={"role": "PROCESSOR"})
-                elif change == "revoke": response = admin.patch(f"/api/internal-users/{case.users[0].id}", json={"is_active": False})
-                if change not in {None, "read-failure"}: assert response.status_code == 200
-            finally: release.set()
-            result = pending.result(timeout=20)
-            assert result.status_code == (200 if change is None else 503 if change == "read-failure" else 401 if change in {"role", "revoke"} else 409)
-        stored = admin.get(item.path).json()
-        assert stored["country"] == (None if change is None else "CZ")
+    if role not in {None, "ADMIN", "ADMIN_WITHOUT_CSRF"}:
+        with case.database.session() as session:
+            session.get(InternalUser, case.users[1].id).role = role; session.commit()
     with case.database.session() as session:
-        records = list(session.scalars(select(CompanyChangeEvent).where(CompanyChangeEvent.company_id == item.identifier, CompanyChangeEvent.action == "NOTION_ADOPTED")))
-        assert len(records) == (1 if change is None else 0)
-
-
-@pytest.mark.parametrize("different_command", [False, True])
-def test_postgresql_notion_adoption_two_backends_serialize_replays_and_stale_comparisons(review_pg_case, different_command):
-    import anyio
-    from app.db.models import CompanyChangeEvent
-    from test_notion_reader import schema
-    case = review_pg_case; item = _notion_adoption_pg(case)
-    first_server, first_app = item.server_app(); second_server, second_app = item.server_app()
-    ready = Barrier(2)
-    def hook(server):
-        async def hold(request):
-            if "/data_sources/" in str(request.url): return server.response(schema())
-            await anyio.to_thread.run_sync(ready.wait, 15)
-            return server.response(item.document)
-        return hold
-    with item.client_for(first_app) as first, item.client_for(second_app, 3 if different_command else 0) as second:
-        body = item.command(first); other = dict(body)
-        if different_command: other["request_key"] = str(uuid4())
-        first_server.hook = hook(first_server); second_server.hook = hook(second_server)
-        with ThreadPoolExecutor(2) as pool:
-            pending = [pool.submit(first.post, item.path + "/notion-adopt", json=body),
-                pool.submit(second.post, item.path + "/notion-adopt", json=other)]
-            responses = [future.result(timeout=25) for future in pending]
-        assert sorted(response.status_code for response in responses) == ([200, 409] if different_command else [200, 200])
-        if not different_command: assert responses[0].json() == responses[1].json()
-        else: assert next(response for response in responses if response.status_code == 409).json()["detail"]["code"] == "NOTION_LOCAL_CHANGED"
+        company = session.get(Company, item.identifier)
+        before = {column.key: getattr(company, column.key) for column in Company.__table__.columns}
+    client = TestClient(app, base_url=ORIGIN) if role is None else item.client_for(app, 0 if role.startswith("ADMIN") else 1)
+    with client:
+        if role == "ADMIN_WITHOUT_CSRF": client.headers.pop("X-CSRF-Token")
+        response = client.post(item.path + "/notion-adopt", json={"selected_fields": ["name"]})
+        assert response.status_code == expected
+        if expected == 410:
+            assert response.json()["detail"]["code"] == "NOTION_INBOUND_DISABLED"
+    assert not server.requests
     with case.database.session() as session:
-        records = list(session.scalars(select(CompanyChangeEvent).where(CompanyChangeEvent.company_id == item.identifier)))
-        assert len(records) == 1 and records[0].action == "NOTION_ADOPTED"
+        company = session.get(Company, item.identifier)
+        assert {column.key: getattr(company, column.key) for column in Company.__table__.columns} == before
+        assert not list(session.scalars(select(CompanyChangeEvent).where(CompanyChangeEvent.company_id == item.identifier)))
 
 
 @pytest.mark.parametrize("failed_read", [False, True])
-def test_postgresql_notion_adoption_late_response_returns_committed_replay_before_any_stale_error(review_pg_case, failed_read):
-    import anyio
+def test_postgresql_notion_adoption_retired_writes_never_read_notion_or_mutate_records(review_pg_case, failed_read):
+    from app.db.models import CompanyChangeEvent
+    case = review_pg_case; item = _notion_adoption_pg(case); server, app = item.server_app()
+    async def remote_response(request): return server.response(item.document, status=503 if failed_read else 200)
+    server.hook = remote_response
+    models = ((Company, item.identifier), (Project, case.material.project_id),
+        (PublishedBrand, case.material.published_brand_id), (PBRMaterial, case.material.id))
+    def records():
+        with case.database.session() as session:
+            return [{column.key: getattr(session.get(model, identifier), column.key)
+                for column in model.__table__.columns} for model, identifier in models]
+    before = records()
+    body = {"request_key": str(uuid4()), "expected_page_id": item.document["id"],
+        "expected_local_sha256": "a" * 64, "expected_observation_sha256": "b" * 64,
+        "selected_fields": ["country", "name"], "reason": "Legacy client request"}
+    with item.client_for(app) as actor:
+        for payload in (body, body, {**body, "request_key": str(uuid4())}):
+            response = actor.post(item.path + "/notion-adopt", json=payload)
+            assert response.status_code == 410
+            assert response.json()["detail"]["code"] == "NOTION_INBOUND_DISABLED"
+        missing_receipt = actor.get(item.path + "/notion-adoptions/" + body["request_key"])
+        assert missing_receipt.status_code == 404
+    assert not server.requests
+    assert records() == before
+    with case.database.session() as session:
+        assert not list(session.scalars(select(CompanyChangeEvent).where(CompanyChangeEvent.company_id == item.identifier)))
+
+
+@pytest.mark.parametrize("notion_enabled", [False, True])
+def test_postgresql_notion_adoption_historical_receipts_remain_read_only(review_pg_case, notion_enabled):
+    from app.api.company_history import event_view
+    from app.company_history import append_company_change, company_snapshot
+    from app.db.models import CompanyChangeEvent
     from app.main import create_app as authenticated_app
-    from test_notion_reader import schema
-    case = review_pg_case; item = _notion_adoption_pg(case)
-    server, app = item.server_app(); _, replacement = item.server_app(); entered = Event(); release = Event()
-    async def hold(request):
-        if "/data_sources/" in str(request.url): return server.response(schema())
-        entered.set()
-        if not await anyio.to_thread.run_sync(release.wait, 20): raise TimeoutError("Late synthetic read was not released")
-        return server.response(item.document, status=503 if failed_read else 200)
-    with item.client_for(app) as original, item.client_for(replacement) as retrying, item.client_for(replacement, 3) as admin:
-        body = item.command(original); server.hook = hold
-        with ThreadPoolExecutor(1) as pool:
-            pending = pool.submit(original.post, item.path + "/notion-adopt", json=body)
-            try:
-                assert entered.wait(15)
-                committed = retrying.post(item.path + "/notion-adopt", json=body)
-                assert committed.status_code == 200
-                assert admin.patch(item.path, json={"name": "Later independent local edit", "notion_page_id": None}).status_code == 200
-            finally: release.set()
-            late = pending.result(timeout=25)
-            assert late.status_code == 200 and late.json() == committed.json()
-        disabled = authenticated_app(item.settings.model_copy(update={"notion_enabled": False}), case.database)
-        with item.client_for(disabled) as after_restart:
-            replay = after_restart.post(item.path + "/notion-adopt", json=body)
-            assert replay.status_code == 200 and replay.json() == committed.json()
-            history = after_restart.get(item.path + "/history").json()["items"]
-            assert [entry["action"] for entry in history] == ["UPDATED", "NOTION_ADOPTED"]
+    from app.notion_reader import configuration_from_settings
+    from test_application_access import ORIGIN
+    from test_notion_reader import SOURCE, DATABASE, Server
+    case = review_pg_case; item = _notion_adoption_pg(case); request_key = uuid4()
+    # Seed an already-committed historical receipt. No retired endpoint creates it.
+    with case.database.session() as session:
+        company = session.scalar(select(Company).where(Company.id == item.identifier).with_for_update())
+        before = company_snapshot(company); company.country = "DE"
+        evidence = {"page_id": item.document["id"], "data_source_id": SOURCE, "database_id": DATABASE,
+            "last_edited_time": "2026-09-18T12:00:00Z", "mapping_sha256": "a" * 64,
+            "observation_sha256": "b" * 64, "selected_fields": ["country"]}
+        saved = append_company_change(session, company, case.users[0].id, before, action="NOTION_ADOPTED",
+            reason="Historical reviewed country", source=evidence, request_key=request_key, request_hash="c" * 64)
+        session.commit(); expected_event = event_view(saved)
+        frozen = {column.key: getattr(company, column.key) for column in Company.__table__.columns}
+    settings = item.settings.model_copy(update={"notion_enabled": notion_enabled}); server = Server()
+    app = authenticated_app(settings, case.database, notion_reader=server.client(configuration_from_settings(settings)))
+    receipt_path = item.path + f"/notion-adoptions/{request_key}"
+    with item.client_for(app) as actor, item.client_for(app, 3) as other_admin, item.client_for(app, 1) as processor:
+        receipt = actor.get(receipt_path)
+        assert receipt.status_code == 200
+        assert receipt.json() == {"request_key": str(request_key), "event": expected_event}
+        assert other_admin.get(receipt_path).status_code == 404
+        assert processor.get(receipt_path).status_code == 403
+        for method in ("POST", "PATCH", "DELETE"):
+            assert actor.request(method, receipt_path, json={"reason": "Must remain immutable"}).status_code == 405
+        retired = actor.post(item.path + "/notion-adopt", json={"request_key": str(request_key), "selected_fields": ["name"]})
+        assert retired.status_code == 410 and retired.json()["detail"]["code"] == "NOTION_INBOUND_DISABLED"
+        assert actor.get(receipt_path).json() == receipt.json()
+        assert actor.get(item.path + "/history").json()["items"] == [expected_event]
+    with TestClient(app, base_url=ORIGIN) as anonymous:
+        assert anonymous.get(receipt_path).status_code == 401
+    assert not server.requests
+    with case.database.session() as session:
+        company = session.get(Company, item.identifier)
+        assert {column.key: getattr(company, column.key) for column in Company.__table__.columns} == frozen
+        events = list(session.scalars(select(CompanyChangeEvent).where(CompanyChangeEvent.company_id == item.identifier)))
+        assert len(events) == 1 and event_view(events[0]) == expected_event
 
 
 def _resource_target(case, kind):
@@ -4898,16 +4926,18 @@ def test_postgresql_resource_api_concurrent_changes_preserve_commit_order(review
 def test_postgresql_resource_history_0021_preserves_0020_records_and_refuses_history_loss():
     from app.db.models import ResourceChangeEvent
     from app.resource_history import KINDS, resource_snapshot
+    from sqlalchemy.orm import load_only
     with isolated_postgresql_database() as database_url, pytest.MonkeyPatch.context() as patch:
         patch.setenv("DATABASE_URL", database_url); get_settings.cache_clear()
         config = Config("alembic.ini"); command.upgrade(config, "20260918_0020")
         fixture = _review_pg_case(database_url); case = next(fixture)
         try:
             with case.database.session() as session:
-                # The fixture inserts projects using _persist_project_at_schema.
-                # Read their old physical columns too: the current ORM includes
-                # folder_path, which did not exist at revision 0020.
-                frozen = {kind: resource_snapshot(session.get(model, _resource_target(case, kind))) for kind, (model, *_) in KINDS.items() if kind not in {"MATERIAL", "PROJECT"}}
+                # Read only the historical snapshot fields. Today's ORM also
+                # maps Customer / People columns absent at revision 0020.
+                frozen = {kind: resource_snapshot(session.get(model, _resource_target(case, kind),
+                    options=[load_only(*(getattr(model, field) for field in ("id", *fields)))]))
+                    for kind, (model, _, _, fields) in KINDS.items() if kind not in {"MATERIAL", "PROJECT"}}
                 project_before = dict(session.execute(text("SELECT * FROM projects WHERE id=:id"), {"id": case.material.project_id}).mappings().one())
                 material_before = dict(session.execute(text("SELECT * FROM pbr_materials WHERE id=:id"), {"id": case.material.id}).mappings().one())
             command.upgrade(config, "head"); command.current(config); command.heads(config); command.check(config)
@@ -4923,26 +4953,20 @@ def test_postgresql_resource_history_0021_preserves_0020_records_and_refuses_his
             assert not inspect(case.database.engine).has_table("resource_change_events")
             command.upgrade(config, "head")
             with case.client_for() as client:
-                # A current project write is protected earlier by migration
-                # 0028's folder-history guard. A brand write exercises this
-                # test's original 0021 resource-history downgrade boundary.
-                assert client.patch(f"/api/brands/{case.material.published_brand_id}", json={"brand_identifier": "first-audited-brand-change"}).status_code == 200
+                # Exercise 0021 with an ordinary existing user field. Project
+                # writes now have a folder-history guard and brand writes can
+                # create a company brand, changing the derived Customer link;
+                # those correctly stop downgrade at newer schema boundaries.
+                assert client.patch(f"/api/internal-users/{case.users[1].id}", json={"display_name": "First audited display name"}).status_code == 200
             with case.database.session() as session:
                 events = list(session.scalars(select(ResourceChangeEvent)))
-                assert len(events) == 2
-                updated = next(item for item in events if item.action == "UPDATED")
-                assert updated.kind == "BRAND" and updated.brand_id == case.material.published_brand_id
+                assert len(events) == 1
+                updated = events[0]
+                assert updated.action == "UPDATED"
+                assert updated.kind == "USER" and updated.user_id == case.users[1].id
                 assert updated.version == 1 and updated.actor_id == case.users[0].id
-                assert updated.before_snapshot == frozen["BRAND"]
-                assert updated.after_snapshot == frozen["BRAND"] | {"brand_identifier": "first-audited-brand-change"}
-                created = next(item for item in events if item.action == "CREATED")
-                same_name_brand = session.get(PublishedBrand, created.brand_id)
-                company = session.get(Company, same_name_brand.company_id)
-                assert created.kind == "BRAND" and created.brand_id != updated.brand_id
-                assert created.version == 1 and created.actor_id == case.users[0].id
-                assert created.before_snapshot == {} and created.after_snapshot == resource_snapshot(same_name_brand)
-                assert str(company.id) == frozen["BRAND"]["company_id"]
-                assert same_name_brand.name == company.name and same_name_brand.next_sequence_number == 1
+                assert updated.before_snapshot == frozen["USER"]
+                assert updated.after_snapshot == frozen["USER"] | {"display_name": "First audited display name"}
             with case.database.engine.connect() as connection:
                 events_before = list(connection.execute(select(ResourceChangeEvent.__table__).order_by(ResourceChangeEvent.id)).mappings())
             with pytest.raises(DBAPIError, match="Resource history exists"):

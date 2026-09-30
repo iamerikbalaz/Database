@@ -47,6 +47,7 @@ export function Icon({ name, size = 20 }: { name: string; size?: number }) {
         <path d="m20 20-4-4" />
       </>
     ),
+    refresh: <><path d="M20 7v5h-5M4 17v-5h5" /><path d="M6.1 6.5A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.5" /></>,
     plus: <path d="M12 5v14M5 12h14" />,
     arrow: <path d="m9 18 6-6-6-6" />,
     back: <path d="m15 18-6-6 6-6" />,

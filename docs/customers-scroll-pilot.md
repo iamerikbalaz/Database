@@ -1,13 +1,24 @@
 # Customers: native fixed workspace pilot
 
 Baseline: `de08733` on `codex/autonomous-pbr-completion`. The pilot lives on
-`codex/customer-scroll-pilot`; backend, schema, data and other database layouts
-are unchanged.
+`codex/customer-scroll-pilot`; backend, schema and data are unchanged. Fixed
+workspace remains limited to Customers; shared visual-control changes are noted below.
 
 Follow-up: shared database list frames and top scrollbars now have square corners.
 Customers search includes a decorative magnifying glass. The native results
 scrollbar has a reserved gutter and explicit track/thumb styling; scrollbar hiding
 is scoped to page mode, so it cannot hide the workspace scrollbar.
+
+The contained results area hides its own horizontal scrollbar and takes horizontal
+position from the single native top bar. The bar uses intrinsic height without a
+frame or spacer height. Vertical scrolling remains native. Direct horizontal wheel
+gestures over the contained results are not handled; use the top bar.
+
+Customer logos render in grayscale in lists and record cards while their stored
+source files remain unchanged. The shared resource toolbar begins with Select
+highlighted and Properties; Refresh is an accessible icon button at the end.
+Bulk property/value labels use equal rows, with 40 px editors and review button;
+notes scroll within that height and boolean controls center in the same row.
 
 ## Behavior
 
@@ -45,8 +56,8 @@ rollback or application-password reset is needed.
 
 ## Verification
 
-39 targeted tests cover the viewport, Customers/Orders, common table selection and
-Catalog. They include no vertical animation-frame handler in contained mode,
+54 targeted tests cover the viewport, Customers/Orders, common table selection,
+Catalog and Materials. They include no vertical animation-frame handler in contained mode,
 horizontal gutter reach, mode-switch preservation of unfinished edits, stored
 layout preference and short-window fallback. Build and lint pass. Native visual
 scroll smoothness still requires user testing; the existing browser-tool access

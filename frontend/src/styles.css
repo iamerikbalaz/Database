@@ -1350,7 +1350,8 @@ a.button {
 @media(max-width:650px) {
  .material-table--editable td:nth-child(3), .material-table--editable th:nth-child(3) { position:static; box-shadow:none; }
 }
-.resource-table-toolbar { flex-wrap: wrap; align-items: end; gap: .65rem; }
+.resource-table-toolbar { flex-wrap: wrap; align-items: center; justify-content:flex-start; gap: .65rem; }
+.resource-table-toolbar .button.resource-table-refresh { margin-inline-start:auto; width:40px; min-width:40px; height:40px; min-height:40px; padding:0; }
 .resource-table-toolbar > input, .resource-table-toolbar > textarea, .resource-table-toolbar > select { max-width: 260px; }
 .resource-table-toolbar > * { max-width: 100%; }
 .resource-table-toolbar label { display: grid; grid-template-columns: minmax(0, 1fr); gap: .25rem; font-size: .8rem; min-width: 0; max-width: 100%; }
@@ -1484,19 +1485,22 @@ a.button {
 .directory-sync { font-size:12px; overflow-wrap:anywhere; }
 .directory-sync a { margin-top:5px; }
 .directory-related-order { display:block; padding:10px 0; overflow-wrap:anywhere; }
-.customer-logo { width:180px; height:100px; object-fit:contain; display:block; background:white; border-radius:8px; margin-bottom:12px; }
+/* Monochrome presentation only: stored customer logo files retain their color. */
+.customer-logo { width:180px; height:100px; object-fit:contain; display:block; background:white; border-radius:8px; margin-bottom:12px; filter:grayscale(1); }
 .customer-logo--thumbnail { width:64px; height:48px; margin:0; }
 .folder-rename-notice { display:block; margin-top:8px; font-size:12px; }
 @media (max-width:680px) { .directory-fields { grid-template-columns:minmax(0,1fr); } .database-filters { padding:16px; } }
 
-.material-bulk-bar select, .material-bulk-bar input:not([type="checkbox"]), .material-bulk-bar textarea { width:100%; min-width:0; max-width:100%; min-height:40px; padding:8px 10px; border:1px solid var(--border); border-radius:10px; background:white; color:var(--text); }
-.material-bulk-bar label { flex:0 1 280px; min-width:min(160px, 100%); max-width:100%; }
-.material-bulk-bar textarea { resize:vertical; }
+.material-bulk-bar select, .material-bulk-bar input:not([type="checkbox"]), .material-bulk-bar textarea { width:100%; min-width:0; max-width:100%; height:40px; min-height:40px; max-height:40px; padding:8px 10px; border:1px solid var(--border); border-radius:10px; background:white; color:var(--text); }
+.material-bulk-bar label { flex:0 1 280px; min-width:min(160px, 100%); max-width:100%; grid-template-rows:18px 40px; line-height:18px; align-items:center; }
+.material-bulk-bar textarea { resize:none; overflow:auto; }
+.material-bulk-bar input[type="checkbox"] { width:16px; height:16px; min-width:16px; margin:0; justify-self:start; align-self:center; }
+.material-bulk-bar > .button { height:40px; min-height:40px; }
 
 /* The page owns vertical scrolling; all database tables share a top scrollbar. */
 .database-table-viewport { position:relative; min-width:0; max-width:100%; }
-.database-table-scrollbar { position:sticky; top:0; z-index:8; width:100%; height:20px; overflow-x:scroll; overflow-y:hidden; background:var(--surface); border:1px solid var(--border); border-radius:0; scrollbar-color:var(--muted) var(--canvas); }
-.database-table-scrollbar > div { height:1px; }
+.database-table-scrollbar { position:sticky; top:0; z-index:8; width:100%; height:auto; min-height:14px; overflow-x:scroll; overflow-y:hidden; background:var(--canvas); border:0; border-radius:0; scrollbar-color:var(--muted) var(--canvas); }
+.database-table-scrollbar > div { height:0; }
 .database-table-body { max-height:none; overflow-x:auto; overflow-y:hidden; border-radius:0; }
 .database-table-viewport:not(.database-table-viewport--contained) > .database-table-body { scrollbar-width:none; }
 .database-table-viewport:not(.database-table-viewport--contained) > .database-table-body::-webkit-scrollbar { display:none; }
@@ -1553,6 +1557,7 @@ body:has(.customers-page--workspace) #root { flex:1; min-height:0; display:flex;
 .resource-database--contained > :not(.database-table-viewport) { flex-shrink:0; }
 .resource-database--contained .resource-table-toolbar { flex-direction:row; align-items:center; margin-bottom:8px; gap:8px; }
 .resource-database--contained .resource-table-toolbar .button { min-height:32px; padding:6px 12px; font-size:12px; }
+.resource-database--contained .resource-table-toolbar .resource-table-refresh { width:32px; min-width:32px; height:32px; min-height:32px; padding:0; }
 .resource-database--contained .resource-table-toolbar > span { font-size:12px; }
 .resource-database--contained .resource-properties[open] { padding:0; border:0; }
 .resource-database--contained .resource-properties > summary { padding:6px 8px; font-size:12px; }
@@ -1560,11 +1565,11 @@ body:has(.customers-page--workspace) #root { flex:1; min-height:0; display:flex;
 .resource-database--contained .material-bulk-bar { margin:0 0 8px; padding:8px 10px; gap:10px; }
 .resource-database--contained .material-bulk-bar label { flex:0 1 180px; min-width:140px; }
 .resource-database--contained .material-bulk-bar .button { padding:8px 12px; font-size:12px; }
-.resource-database--contained .material-bulk-bar textarea { max-height:72px; }
 .resource-database--contained > [role="status"] { max-height:64px; overflow:auto; }
 .database-table-viewport--contained { flex:1; min-height:0; display:flex; flex-direction:column; }
-.database-table-viewport--contained > .database-table-scrollbar { position:static; flex:0 0 20px; }
-.database-table-viewport--contained > .database-table-body { flex:1; min-height:0; overflow-x:auto; overflow-y:scroll; scrollbar-width:auto; scrollbar-color:var(--muted) var(--canvas); scrollbar-gutter:stable; overscroll-behavior:contain; scroll-padding-top:64px; }
+.database-table-viewport--contained > .database-table-scrollbar { position:static; flex:0 0 auto; }
+/* Horizontal position is controlled by the top bar; hidden still allows scrollLeft. */
+.database-table-viewport--contained > .database-table-body { flex:1; min-height:0; overflow-x:hidden; overflow-y:scroll; scrollbar-width:auto; scrollbar-color:var(--muted) var(--canvas); scrollbar-gutter:stable; overscroll-behavior:contain; scroll-padding-top:64px; }
 .database-table-viewport--contained > .database-table-body::-webkit-scrollbar { width:14px; height:14px; }
 .database-table-viewport--contained > .database-table-body::-webkit-scrollbar-track,
 .database-table-viewport--contained > .database-table-body::-webkit-scrollbar-corner { background:var(--canvas); }

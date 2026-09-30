@@ -20,7 +20,7 @@ export type ResourceColumn<T> = {
 
   type?: "text" | "textarea" | "date" | "boolean";
 
-  editable?: boolean; bulk?: boolean; render?: (row: T) => ReactNode;
+  editable?: boolean; bulk?: boolean; required?: boolean; render?: (row: T) => ReactNode;
 
 };
 
@@ -95,7 +95,7 @@ export function EditableResourceTable<T extends { id: string }>({ rows, columns,
 
   const [value, setValue] = useState(() => initialValue(bulkColumn));
 
-  const [hidden, setHidden] = useState<Set<string>>(() => { try { const saved: unknown = JSON.parse(localStorage.getItem(storageKey) ?? "[]"); return new Set(Array.isArray(saved) ? saved.filter(item => typeof item === "string" && columns.some(column => column.key === item)) : []); } catch { return new Set(); } });
+  const [hidden, setHidden] = useState<Set<string>>(() => { try { const saved: unknown = JSON.parse(localStorage.getItem(storageKey) ?? "[]"); return new Set(Array.isArray(saved) ? saved.filter(item => typeof item === "string" && columns.some(column => column.key === item && !column.required)) : []); } catch { return new Set(); } });
 
   const [jobs, setJobs] = useState<Job<T>[]>([]), jobsRef = useRef<Job<T>[]>([]);
 
@@ -185,7 +185,7 @@ export function EditableResourceTable<T extends { id: string }>({ rows, columns,
 
   const refreshRows = () => { setOverrides({}); setSelected(new Set()); setHighlight({ ids: new Set(), anchor: null }); setJobs([]); refresh(); };
 
-  const visible = columns.filter(column => !hidden.has(column.key));
+  const visible = columns.filter(column => column.required || !hidden.has(column.key));
   const reviewedColumn = columns.find(column => column.key === jobs[0]?.field);
   const reviewedValue = reviewedColumn?.options?.find(option => option.value === String(jobs[0]?.value))?.label
     ?? (typeof jobs[0]?.value === "boolean" ? jobs[0].value ? "Yes" : "No" : String(jobs[0]?.value ?? "Empty"));
@@ -197,7 +197,7 @@ export function EditableResourceTable<T extends { id: string }>({ rows, columns,
       {canEdit && <button className="button" disabled={active || !items.some(row => highlight.ids.has(row.id))} onClick={() => setSelected(new Set([...selected, ...items.filter(row => highlight.ids.has(row.id)).map(row => row.id)]))}>Select highlighted ({items.filter(row => highlight.ids.has(row.id)).length})</button>}
       {canEdit && <span>{items.filter(row => selected.has(row.id)).length} selected</span>}
 
-      <details className="resource-properties"><summary>Properties</summary><div className="resource-property-options">{columns.map(column => <label key={column.key}><input type="checkbox" checked={!hidden.has(column.key)} disabled={active || visible.length === 1 && !hidden.has(column.key)} onChange={() => { const next = new Set(hidden); if (next.has(column.key)) next.delete(column.key); else next.add(column.key); setHidden(next); try { localStorage.setItem(storageKey, JSON.stringify([...next])); } catch { /* In-memory preferences remain available. */ } }} />{column.label}</label>)}</div></details>
+      <details className="resource-properties"><summary>Properties</summary><div className="resource-property-options">{columns.map(column => <label key={column.key}><input type="checkbox" checked={column.required || !hidden.has(column.key)} disabled={active || column.required || visible.length === 1 && !hidden.has(column.key)} onChange={() => { const next = new Set(hidden); if (next.has(column.key)) next.delete(column.key); else next.add(column.key); setHidden(next); try { localStorage.setItem(storageKey, JSON.stringify([...next])); } catch { /* In-memory preferences remain available. */ } }} />{column.label}</label>)}</div></details>
 
       <button className="button resource-table-refresh" aria-label="Refresh" title="Refresh" disabled={active} onClick={refreshRows}><Icon name="refresh" size={20} /></button>
     </div>

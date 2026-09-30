@@ -17,6 +17,7 @@ import { MaterialBulkCheck } from "../components/MaterialBulkCheck";
 import { requestNavigation } from "../navigationGuard";
 import { Icon } from "../components/Icon";
 import { useDatabaseWorkspace } from "../components/useDatabaseWorkspace";
+import { ResponsiveFilters } from "../components/ResponsiveFilters";
 
 const sizes: GallerySize[] = ["small", "medium", "large", "extra-large"];
 function preference(key: string) { try { return localStorage.getItem(key); } catch { return null; } }
@@ -28,9 +29,11 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
   const compact = useDatabaseWorkspace() && publicationSelection === null;
   const [publicationBusy, setPublicationBusy] = useState(false);
   const [checkBusy, setCheckBusy] = useState(false);
+  const [checkActionTarget, setCheckActionTarget] = useState<HTMLDivElement | null>(null);
   const role = useSession()?.session.user.role;
   const canPublish = !archived && (role === "ADMIN" || role === "PRODUCTION_LEAD");
   const canCheck = !archived && (role === "ADMIN" || role === "PRODUCTION_LEAD" || role === "PROCESSOR");
+  const canSelect = role === "ADMIN" || role === "PRODUCTION_LEAD" || role === "PROCESSOR";
   const busy = tableBusy || checkBusy || publicationSelection !== null;
   const [filters, setFilters] = useState<MaterialFilters>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -62,32 +65,28 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
     setPublicationSelection(materials.map(material => ({ ...material })));
   };
   const selectors: { key: Exclude<keyof MaterialFilters, "color_hex">; label: string; options: { value: string; label: string }[] }[] = [
-    { key: "project_id", label: "Order", options: projects.map((p) => ({ value: p.id, label: p.name })) },
     { key: "published_brand_id", label: "Customer", options: brands.map((b) => ({ value: b.id, label: b.name })) },
-    { key: "assigned_processor_id", label: "Processor", options: users.filter(u => u.role === "PROCESSOR" && (u.isActive || materials?.some(material => material.assignedProcessorId === u.id) || filters.assigned_processor_id === u.id)).map((u) => ({ value: u.id, label: u.displayName + (u.isActive ? "" : " (inactive)") })) },
+    { key: "project_id", label: "Order", options: projects.map((p) => ({ value: p.id, label: p.name })) },
     { key: "workflow_status", label: "Status", options: workflowStatuses.map((value) => ({ value, label: statusLabel(value) })) },
+    { key: "assigned_processor_id", label: "Processor", options: users.filter(u => u.role === "PROCESSOR" && (u.isActive || materials?.some(material => material.assignedProcessorId === u.id) || filters.assigned_processor_id === u.id)).map((u) => ({ value: u.id, label: u.displayName + (u.isActive ? "" : " (inactive)") })) },
     { key: "checked_status", label: "Checked", options: checkedStatuses.map((value) => ({ value, label: value })) },
-    { key: "automatic_file_check_status", label: "Automatic check", options: automaticFileCheckStatuses.map(value => ({ value, label: value === "NOT_CHECKED" ? "Not checked" : value === "ISSUES" ? "Issues" : "OK" })) },
     { key: "is_published", label: "Published", options: [{ value: "true", label: "Yes" }, { value: "false", label: "No" }] },
+    { key: "automatic_file_check_status", label: "Automatic check", options: automaticFileCheckStatuses.map(value => ({ value, label: value === "NOT_CHECKED" ? "Not checked" : value === "ISSUES" ? "Issues" : "OK" })) },
   ];
-  const additionalFilterCount = selectors.filter(selector => Boolean(filters[selector.key])).length;
   return <section className={`database-page materials-page${compact ? " database-page--workspace" : ""}`}>
     <div className="page-heading"><div><p className="eyebrow">Production</p><h1>{archived ? "Archived materials" : "Materials"}</h1><p className="database-description">{archived ? "Manage archived material records. Clear Archived to return a material to active work." : "Manage material records and their production status."}</p></div>
       <NavigationLink className="button button--primary" href="/materials/new" navigate={navigate}>Add material</NavigationLink>
     </div>
-    <fieldset disabled={busy} className="panel material-filters database-filters" role="search" aria-label="Material filters">
-      <label className="form-field database-search">Search materials<span className="database-search-input"><Icon name="search" size={18} /><input type="search" placeholder="Name, identity or note / #tag" value={filters.search ?? ""} onChange={(e) => changeFilters({ ...filters, search: e.target.value })} /></span></label>
-      <label className="form-field">Main category<select value={filters.main_category_code ?? ""} onChange={(e) => changeFilters({ ...filters, main_category_code: e.target.value })}><option value="">All</option>{materialCategories.map(c => <option key={c.code} value={c.code}>{categoryLabel(c.code)}</option>)}{(result.data ?? []).filter((m, i, all) => !materialCategories.some(c => c.code === m.mainCategoryCode) && all.findIndex(x => x.mainCategoryCode === m.mainCategoryCode) === i).map(m => <option key={m.mainCategoryCode} value={m.mainCategoryCode}>{categoryLabel(m.mainCategoryCode)}</option>)}</select></label>
-      <MaterialColorFilter value={filters.color_hex ?? []} onChange={colors => changeFilters({ ...filters, color_hex: colors })} disabled={busy} />
-      <details className="database-extra-filters" open={compact ? undefined : true} onKeyDown={event => { if (event.key === "Escape" && compact) { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary>More filters{additionalFilterCount > 0 ? ` (${additionalFilterCount})` : ""}</summary><div className="database-extra-options">
-      {selectors.map((s) => <label className="form-field" key={s.key}>{s.label}
+    <ResponsiveFilters disabled={busy} compact={compact} label="Material filters" search onClear={() => changeFilters({})} filters={[
+      { key: "search", width: 190, active: Boolean(filters.search), content: <label className="form-field database-search">Search materials<span className="database-search-input"><Icon name="search" size={18} /><input type="search" placeholder="Name, identity or note / #tag" value={filters.search ?? ""} onChange={(e) => changeFilters({ ...filters, search: e.target.value })} /></span></label> },
+      { key: "main_category_code", width: 140, active: Boolean(filters.main_category_code), content: <label className="form-field">Main category<select value={filters.main_category_code ?? ""} onChange={(e) => changeFilters({ ...filters, main_category_code: e.target.value })}><option value="">All</option>{materialCategories.map(c => <option key={c.code} value={c.code}>{categoryLabel(c.code)}</option>)}{(result.data ?? []).filter((m, i, all) => !materialCategories.some(c => c.code === m.mainCategoryCode) && all.findIndex(x => x.mainCategoryCode === m.mainCategoryCode) === i).map(m => <option key={m.mainCategoryCode} value={m.mainCategoryCode}>{categoryLabel(m.mainCategoryCode)}</option>)}</select></label> },
+      ...selectors.map((s) => ({ key: s.key, width: s.key === "is_published" || s.key === "checked_status" ? 95 : s.key === "workflow_status" ? 100 : s.key === "project_id" || s.key === "published_brand_id" ? 130 : 125, active: Boolean(filters[s.key]), content: <label className="form-field">{s.label}
         <select value={filters[s.key] ?? ""} onChange={(e) => changeFilters({ ...filters, [s.key]: e.target.value })}>
           <option value="">All</option>{s.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
-      </label>)}
-      </div></details>
-      <button className="button" onClick={() => changeFilters({})}>Clear filters</button>
-    </fieldset>
+      </label> })),
+      { key: "color_hex", width: 140, active: Boolean(filters.color_hex?.length), content: <MaterialColorFilter value={filters.color_hex ?? []} onChange={colors => changeFilters({ ...filters, color_hex: colors })} disabled={busy} /> },
+    ]} />
     {options.error && <div role="alert" className="form-error">Related names and filter options could not be loaded. IDs are shown instead. <button onClick={options.retry}>Retry related records</button></div>}
     <div className="materials-view-toolbar">
       <span className="materials-count" aria-live="polite">{result.data ? `${result.data.length} materials` : "Materials"}</span>
@@ -97,17 +96,21 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
       </div>
       {view === "gallery" && <><label className="gallery-size-control">Preview size<select value={size} onChange={event => { setSize(event.target.value as GallerySize); savePreference("materials.gallerySize", event.target.value); }}>
         {sizes.map(value => <option key={value} value={value}>{value === "extra-large" ? "Extra large" : value[0].toUpperCase() + value.slice(1)}</option>)}
-      </select></label><button className="button resource-table-refresh gallery-refresh" aria-label="Refresh previews" title="Refresh previews" onClick={() => { store.clear(); setPreviewEpoch(value => value + 1); }}><Icon name="refresh" size={20} /></button></>}
+      </select></label></>}
     </div>
-    {view === "gallery" && publicationSelection === null && materials && (role === "ADMIN" || role === "PRODUCTION_LEAD" || role === "PROCESSOR" || canPublish) && <div className="material-table-toolbar">
-      <label><input type="checkbox" aria-label="Select all visible materials" disabled={busy} checked={materials.length > 0 && selectedMaterials.length === materials.length}
+    {view === "gallery" && publicationSelection === null && materials && <div className="material-table-toolbar resource-table-toolbar">
+      {canSelect && <><label><input type="checkbox" aria-label="Select all visible materials" disabled={busy} checked={materials.length > 0 && selectedMaterials.length === materials.length}
         onChange={event => setSelectedIds(new Set(event.target.checked ? materials.map(row => row.id) : []))} />Select all</label>
-      <span>{selectedMaterials.length} selected</span>
+      <span>{selectedMaterials.length} selected</span></>}
+      <div className="materials-table-actions">
+      {canCheck && <div className="material-check-actions-slot" ref={setCheckActionTarget} />}
       {canPublish && <button className="button" disabled={busy || !selectedMaterials.length || selectedMaterials.length > 100} onClick={() => preparePublication(selectedMaterials)}>Prepare selected for publication ({selectedMaterials.length})</button>}
+      <button className="button resource-table-refresh gallery-refresh" aria-label="Refresh previews" title="Refresh previews" disabled={busy} onClick={() => { store.clear(); setPreviewEpoch(value => value + 1); }}><Icon name="refresh" size={20} /></button>
+      </div>
     </div>}
     {canPublish && publicationSelection === null && selectedMaterials.length > 100 && <p>Each publication batch supports up to 100 materials. Select up to 100 rows.</p>}
     {canCheck && publicationSelection === null && <div className="material-table-toolbar materials-check-controls"><MaterialBulkCheck materials={selectedMaterials}
-      compact={compact} disabled={tableBusy || Boolean(result.error) || !result.data} onBusyChange={setCheckBusy} onChecked={result.retry} /></div>}
+      actionTarget={checkActionTarget} compact={compact} disabled={tableBusy || Boolean(result.error) || !result.data} onBusyChange={setCheckBusy} onChecked={result.retry} /></div>}
     {publicationSelection !== null ? <section aria-label="Material publication preparation">
       <div className="page-heading"><div><h2>Prepare publication</h2><p>Review materials, prepare ZIP files and export CSV for the library.</p></div>
         <button className="button" disabled={publicationBusy} onClick={() => { if (requestNavigation("/materials")) setPublicationSelection(null); }}>Back to material list</button>
@@ -117,9 +120,10 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
       : !result.data ? <LoadingState label="Loading materials…" />
       : !result.data.length ? <EmptyState title="No materials found" description="Clear the filters or add a material to get started." />
       : view === "gallery" ? <div className="database-scroll-region materials-gallery-scroll" role="region" aria-label="Material gallery results" tabIndex={0}><MaterialsGrid key={`${generation}:${previewEpoch}`} materials={materials!} store={store} size={size} navigate={navigate}
-          selection={role === "ADMIN" || role === "PRODUCTION_LEAD" || role === "PROCESSOR" || canPublish ? { ids: selectedIds, change: setSelectedIds } : undefined} disabled={busy} /></div>
+          selection={canSelect ? { ids: selectedIds, change: setSelectedIds } : undefined} disabled={busy} /></div>
       : <MaterialsTable materials={materials!} store={store} client={client} projects={projects} brands={brands} users={users}
           scrollMode={compact ? "contained" : "page"}
+          checkActionsRef={canCheck ? setCheckActionTarget : undefined}
           navigate={navigate} refresh={result.retry} onBusyChange={setTableBusy} onPreparePublication={canPublish ? preparePublication : undefined}
           selection={{ ids: selectedIds, change: setSelectedIds }} operationBusy={checkBusy} onMaterialChanged={row => setOverrides(current => ({ ...current, [row.id]: row }))} />}
   </section>;

@@ -9,12 +9,14 @@ import type { InternalUser } from "../api/materialDto";
 import { ResourceHistoryPanel } from "../components/ResourceHistoryPanel";
 import { AccountSecurityPanel } from "../components/AccountSecurityPanel";
 import { NavigationLink } from "../components/NavigationLink";
+import { StatusBadge } from "../components/StatusBadge";
 import { useRecordCommand } from "../forms/useRecordCommand";
 import { pendingRecordCommands } from "../forms/pendingRecordCommands";
 import { PendingRecordSave } from "../forms/PendingRecordSave";
 import type { Values } from "../forms/fields";
 
 const roles: Role[] = ["PROCESSOR", "PRODUCTION_LEAD", "LEADERSHIP", "ADMIN"];
+type AccountStatusFilter = "all" | "active" | "inactive";
 function safeError(error: unknown) {
   return error instanceof AuthError || error instanceof ApiError ? error.message : "The request failed. Check your connection and try again.";
 }
@@ -29,8 +31,11 @@ function AccountsPageWork({ actorId, navigate }: { actorId: string; navigate: (p
   const users = useResource(load);
   const pending = useSyncExternalStore(pendingRecordCommands.subscribe, () => pendingRecordCommands.get(actorId));
   const [selected, setSelected] = useState<InternalUser | null>(null);
+  const [statusFilter, setStatusFilter] = useState<AccountStatusFilter>("active");
   const [notice, setNotice] = useState("");
   const saved = (message: string) => { setSelected(null); setNotice(message); users.retry(); };
+  const visible = (user: InternalUser) => statusFilter === "all" || user.isActive === (statusFilter === "active") ||
+    (pending?.scope.kind === "USER" && pending.scope.targetId === user.id);
   return <section>
     <NavigationLink className="back-link" href="/settings" navigate={navigate}>Back to settings</NavigationLink>
     <div className="page-heading"><div><p className="eyebrow">Administration</p><h1>Accounts</h1><p>Manage roles and issue temporary access. Changing roles or access signs out existing sessions.</p></div></div>
@@ -41,7 +46,19 @@ function AccountsPageWork({ actorId, navigate }: { actorId: string; navigate: (p
     <CreateAccount actorId={actorId} onSaved={saved} />
     {selected && !pending && <ResetAccess key={selected.id} user={selected} onClose={() => setSelected(null)} onSaved={() => { setSelected(null); saved("Temporary access issued. The user must change their password at next sign-in."); }} />}
     {users.error ? <ErrorState message={safeError(users.cause)} retry={users.retry} /> : !users.data ? <LoadingState label="Loading accounts…" /> :
-      <div className="panel account-list"><h2>Internal accounts</h2>{users.data.map((user) => <AccountRow key={`${user.id}-${user.updatedAt}`} actorId={actorId} user={user} self={user.id === actorId} onReset={() => setSelected(user)} onSaved={saved} />)}</div>}
+      <div className="panel account-list">
+        <div className="account-list-heading"><h2>Internal accounts</h2>
+          <div className="materials-view-controls account-status-filter" role="group" aria-label="Filter accounts by status">
+            {([["all", "All accounts"], ["active", "Active accounts"], ["inactive", "Inactive accounts"]] as const).map(([value, label]) =>
+              <button key={value} type="button" className="button" aria-pressed={statusFilter === value} disabled={Boolean(pending)} onClick={() => setStatusFilter(value)}>{label}</button>)}
+          </div>
+        </div>
+        {!users.data.some(visible) && <p>No {statusFilter === "all" ? "" : `${statusFilter} `}accounts.</p>}
+        {/* Keep drafts mounted while filtering; pending saves remain reachable regardless of saved status. */}
+        {users.data.map((user) => <AccountRow key={`${user.id}-${user.updatedAt}`} actorId={actorId} user={user} self={user.id === actorId}
+          hidden={!visible(user)}
+          onReset={() => setSelected(user)} onSaved={saved} />)}
+      </div>}
   </section>;
 }
 
@@ -73,7 +90,7 @@ function CreateAccount({ actorId, onSaved }: { actorId: string; onSaved: (messag
     <PendingRecordSave controller={controller} />
   </form></article>;
 }
-function AccountRow({ actorId, user, self, onReset, onSaved }: { actorId: string; user: InternalUser; self: boolean; onReset: () => void; onSaved: (message: string) => void }) {
+function AccountRow({ actorId, user, self, hidden, onReset, onSaved }: { actorId: string; user: InternalUser; self: boolean; hidden: boolean; onReset: () => void; onSaved: (message: string) => void }) {
   const [error, setError] = useState(""); const summary = useRef<HTMLParagraphElement>(null);
   const controller = useRecordCommand({ actorId,
     command: { kind: "USER", action: "UPDATED", targetId: user.id, editorPath: "/settings/users",
@@ -87,10 +104,10 @@ function AccountRow({ actorId, user, self, onReset, onSaved }: { actorId: string
   const [values, setValues] = useState(controller.ownPacket?.values ?? { role: user.role, active: String(user.isActive) });
   const disabled = controller.busy || controller.packet !== null, role = values.role as Role, active = values.active === "true";
   useLayoutEffect(() => { if (error) summary.current?.focus(); }, [error]);
-  return <div><form id={`account-save-${user.id}`} tabIndex={-1} className="account-row" onSubmit={(event) => { event.preventDefault(); if (!self) void controller.submit(values); }} aria-label={`Manage ${user.displayName}`} aria-busy={controller.busy}>
-    <div><strong>{user.displayName}{self ? " (you)" : ""}</strong><div>{user.email}</div></div>
+  return <div className="account-record" hidden={hidden}><form id={`account-save-${user.id}`} tabIndex={-1} className="account-row" onSubmit={(event) => { event.preventDefault(); if (!self) void controller.submit(values); }} aria-label={`Manage ${user.displayName}`} aria-busy={controller.busy}>
+    <div><span className="account-identity"><strong>{user.displayName}{self ? " (you)" : ""}</strong><span aria-label={`Saved account status: ${user.isActive ? "Active" : "Inactive"}`}><StatusBadge status={user.isActive ? "active" : "inactive"} /></span></span><div>{user.email}</div></div>
     <label>Role<RoleSelect value={role} onChange={(role) => setValues({ ...values, role })} disabled={disabled || self} /></label>
-    <label className="account-active"><input type="checkbox" checked={active} onChange={(event) => setValues({ ...values, active: String(event.target.checked) })} disabled={disabled || self} />Active</label>
+    <label className="account-active"><input type="checkbox" checked={active} onChange={(event) => setValues({ ...values, active: String(event.target.checked) })} disabled={disabled || self} />Allow sign-in</label>
     <button className="button" disabled={disabled || self || (role === user.role && active === user.isActive)}>Save role and status</button>
     {!self && <button className="button" type="button" disabled={!user.isActive || disabled} onClick={onReset}>Set or reset access</button>}
     {error && <p ref={summary} tabIndex={-1} role="alert" className="field-error">{error}</p>}

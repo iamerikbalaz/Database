@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Material } from "../api/materialDto";
 import { materialLocalClient } from "../api/materialLocalClient";
 import { sessionGeneration } from "../auth/sessionTransport";
@@ -23,8 +24,8 @@ export function CheckReportView({ result }: { result: CheckReport }) {
   </details>;
 }
 
-export function MaterialBulkCheck({ materials, disabled = false, onBusyChange, onChecked, compact = false }: {
-  materials: Material[]; disabled?: boolean; onBusyChange?: (busy: boolean) => void; onChecked?: () => void; compact?: boolean;
+export function MaterialBulkCheck({ materials, disabled = false, onBusyChange, onChecked, compact = false, actionTarget }: {
+  materials: Material[]; disabled?: boolean; onBusyChange?: (busy: boolean) => void; onChecked?: () => void; compact?: boolean; actionTarget?: HTMLElement | null;
 }) {
   const [pending, setPending] = useState(false), [error, setError] = useState("");
   const [report, setReport] = useState<CheckReport | null>(null);
@@ -46,12 +47,16 @@ export function MaterialBulkCheck({ materials, disabled = false, onBusyChange, o
       if (mounted.current && generation === sessionGeneration()) setError(cause instanceof FileCheckJobUnavailableError ? cause.message : "The selected check could not finish. Refresh materials to see any saved result, check the source connection and try again.");
     } finally { sending.current = false; checkProgress.finish(); if (mounted.current) setPending(false); }
   };
-  return <div className="material-bulk-check">
+  // Only the controls move into the table toolbar; the running job and report stay mounted here.
+  const controls = <>
     <button type="button" className="button" disabled={disabled || pending || !materials.length || materials.length > 100} onClick={() => void check()}>
-      {pending ? "Checking selected materials…" : `Check selected materials (${materials.length})`}
+      {pending ? "Auto-checking selected materials…" : `Auto-check selected materials (${materials.length})`}
     </button>
     {compact && (pending || report) && <button type="button" className="button" onClick={() => detailsDialog.current?.showModal()}>{pending ? "View check progress" : "View check report"}</button>}
     {compact && pending && <span role="status">{checkProgress.progress ? `${checkProgress.progress.completed} / ${checkProgress.progress.total} materials inspected` : "Starting file check…"}{checkProgress.resume ? " · Resume is available in check progress." : ""}</span>}
+  </>;
+  return <div className={`material-bulk-check${actionTarget ? " material-bulk-check--docked" : ""}`}>
+    {actionTarget ? createPortal(controls, actionTarget) : controls}
     {!compact && pending && <FileCheckProgress progress={checkProgress.progress} resume={checkProgress.resume} total={materials.length} />}
     {error && <p role="alert" className="field-error">{error}</p>}
     {!compact && report && <CheckReportView result={report} />}

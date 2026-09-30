@@ -21,7 +21,7 @@ it("checks only explicit selection with versions and shows the report without lo
   const onChecked = vi.fn(), onBusyChange = vi.fn();
   render(<MaterialBulkCheck materials={[second]} onChecked={onChecked} onBusyChange={onBusyChange} />);
   expect(materialLocalClient.checkMany).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Check selected materials (1)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Auto-check selected materials (1)" }));
   expect(await screen.findByRole("textbox", { name: "Automatic file check report" })).toHaveValue(report.report);
   expect(screen.queryByText(report.reportPath)).not.toBeInTheDocument();
   expect(screen.queryByText(/Saved report:|opened in the desktop editor/)).not.toBeInTheDocument();
@@ -37,7 +37,7 @@ it("downloads the complete TXT report with the download action after the report"
   const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
   try {
     render(<MaterialBulkCheck materials={[first]} />);
-    fireEvent.click(screen.getByRole("button", { name: "Check selected materials (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Auto-check selected materials (1)" }));
     const textbox = await screen.findByRole("textbox", { name: "Automatic file check report" });
     const download = screen.getByRole("button", { name: "Download TXT report" });
     expect(textbox.compareDocumentPosition(download) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -110,9 +110,9 @@ it("renders live progress and resumes observation while keeping duplicate starts
     options?.onPaused?.(resume);
   }));
   render(<MaterialBulkCheck materials={[first]} />);
-  fireEvent.click(screen.getByRole("button", { name: "Check selected materials (1)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Auto-check selected materials (1)" }));
   expect(screen.getByText("PREVIEW/SPHERE_1.png")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Checking selected materials…" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Auto-checking selected materials…" })).toBeDisabled();
   expect(requestNavigation("/projects")).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Resume file check" }));
   expect(await screen.findByRole("textbox")).toHaveValue(report.report);
@@ -127,11 +127,36 @@ it("aborts observation on unmount without starting a replacement check", () => {
   unmount(); expect(signal?.aborted).toBe(true); expect(materialLocalClient.checkMany).toHaveBeenCalledOnce();
 });
 
+it("keeps a check and its report when the toolbar target disappears during refresh", async () => {
+  let finish!: (value: typeof report) => void;
+  vi.mocked(materialLocalClient.checkMany).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const toolbar = document.createElement("div");
+  document.body.append(toolbar);
+  try {
+    const tree = render(<MaterialBulkCheck materials={[first]} compact actionTarget={toolbar} />);
+    const start = screen.getByRole("button", { name: "Auto-check selected materials (1)" });
+    expect(toolbar).toContainElement(start);
+    fireEvent.click(start);
+    tree.rerender(<MaterialBulkCheck materials={[]} compact actionTarget={null} />);
+    expect(requestNavigation("/orders")).toBe(false);
+    expect(screen.getByRole("button", { name: "Auto-checking selected materials…" })).toBeDisabled();
+    await act(async () => finish(report));
+    tree.rerender(<MaterialBulkCheck materials={[first]} compact actionTarget={toolbar} />);
+    const view = screen.getByRole("button", { name: "View check report" });
+    expect(toolbar).toContainElement(view);
+    fireEvent.click(view);
+    expect(screen.getByRole("textbox", { name: "Automatic file check report" })).toHaveValue(report.report);
+    expect(screen.getByRole("button", { name: "Download TXT report" })).toBeEnabled();
+    expect(materialLocalClient.checkMany).toHaveBeenCalledOnce();
+    expect(requestNavigation("/orders")).toBe(true);
+  } finally { toolbar.remove(); }
+});
+
 it("keeps an ongoing check and its report through compact progress dialog and page fallback", async () => {
   let finish!: (value: typeof report) => void;
   vi.mocked(materialLocalClient.checkMany).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   const tree = render(<MaterialBulkCheck materials={[first]} compact />);
-  fireEvent.click(screen.getByRole("button", { name: "Check selected materials (1)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Auto-check selected materials (1)" }));
   expect(screen.queryByRole("region", { name: "File check progress" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "View check progress" }));
   expect(screen.getByRole("dialog", { name: "Automatic file check details" })).toBeVisible();

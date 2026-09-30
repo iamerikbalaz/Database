@@ -52,13 +52,55 @@ it("protects self-demotion and sends only role and active state for another acco
   vi.stubGlobal("fetch", fetch); mount();
   const self = await screen.findByRole("form", { name: "Manage Site Operator" });
   expect(within(self).getByLabelText("Role")).toBeDisabled();
-  expect(within(self).getByLabelText("Active")).toBeDisabled();
+  expect(within(self).getByLabelText("Allow sign-in")).toBeDisabled();
   expect(within(self).queryByRole("button", { name: "Set or reset access" })).not.toBeInTheDocument();
   const target = screen.getByRole("form", { name: `Manage ${processorDto.display_name}` });
   fireEvent.change(within(target).getByLabelText("Role"), { target: { value: "PRODUCTION_LEAD" } });
-  fireEvent.click(within(target).getByLabelText("Active"));
+  fireEvent.click(within(target).getByLabelText("Allow sign-in"));
   fireEvent.submit(target);
   await waitFor(() => expect(fetch).toHaveBeenCalledWith(`/api/internal-users/${processorDto.id}`, expect.objectContaining({ method: "PATCH", body: JSON.stringify({ role: "PRODUCTION_LEAD", is_active: false }) })));
+});
+
+it("filters active and inactive accounts by the saved boolean and displays their actual status", async () => {
+  const inactive = { ...processorDto, is_active: false };
+  const fetch = vi.fn(async () => json([admin, inactive]));
+  vi.stubGlobal("fetch", fetch); mount();
+  const activeForm = await screen.findByRole("form", { name: "Manage Site Operator" });
+  expect(screen.getByRole("button", { name: "Active accounts" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.queryByRole("form", { name: `Manage ${processorDto.display_name}` })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "All accounts" }));
+  const inactiveForm = screen.getByRole("form", { name: `Manage ${processorDto.display_name}` });
+  expect(within(inactiveForm).getByLabelText("Saved account status: Inactive")).toHaveTextContent("Inactive");
+  expect(within(inactiveForm).getByLabelText("Allow sign-in")).not.toBeChecked();
+  expect(within(activeForm).getByLabelText("Saved account status: Active")).toHaveTextContent("Active");
+  expect(within(activeForm).getByLabelText("Allow sign-in")).toBeChecked();
+  fireEvent.click(screen.getByRole("button", { name: "Active accounts" }));
+  expect(activeForm).toBeVisible();
+  expect(inactiveForm).not.toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Inactive accounts" }));
+  expect(activeForm).not.toBeVisible();
+  expect(inactiveForm).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "All accounts" }));
+  expect(activeForm).toBeVisible();
+  expect(inactiveForm).toBeVisible();
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it("preserves an unsaved role and access edit while its account is hidden by the status filter", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json(rows())));
+  mount();
+  const form = await screen.findByRole("form", { name: `Manage ${processorDto.display_name}` });
+  const role = within(form).getByLabelText("Role"), active = within(form).getByLabelText("Allow sign-in");
+  fireEvent.change(role, { target: { value: "PRODUCTION_LEAD" } });
+  fireEvent.click(active);
+  fireEvent.click(screen.getByRole("button", { name: "Inactive accounts" }));
+  expect(form).not.toBeVisible();
+  expect(screen.getByText("No inactive accounts.")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Active accounts" }));
+  expect(screen.getByRole("form", { name: `Manage ${processorDto.display_name}` })).toBe(form);
+  expect(role).toHaveValue("PRODUCTION_LEAD");
+  expect(active).not.toBeChecked();
+  expect(within(form).getByLabelText("Saved account status: Active")).toHaveTextContent("Active");
 });
 
 it("confirms temporary access and clears all password fields on failure", async () => {

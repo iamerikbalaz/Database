@@ -23,7 +23,7 @@ export function CustomersPage({ navigate }: { navigate: (path: string) => void }
     (!dates.updatedFrom || item.updatedAt.slice(0, 10) >= dates.updatedFrom) && (!dates.updatedTo || item.updatedAt.slice(0, 10) <= dates.updatedTo) &&
     [item.name, item.legalName, item.brandIdentifier, item.address, item.shippingAddress, item.vatId, item.website, item.description, item.notes].some(value => value?.toLowerCase().includes(search.toLowerCase())));
   const columns: ResourceColumn<Customer>[] = [
-    { key: "logo", label: "Logo", value: () => null, render: item => item.hasLogo ? <img className="customer-logo customer-logo--thumbnail" src={directoryClient.logoUrl(item)} alt={`${item.name} logo`} loading="lazy" /> : <span className="company-monogram">{item.name.slice(0, 2).toUpperCase()}</span> },
+    { key: "logo", label: "Logo", required: true, value: () => null, render: item => item.hasLogo ? <img className="customer-logo customer-logo--thumbnail" src={directoryClient.logoUrl(item)} alt={`${item.name} logo`} loading="lazy" /> : <span className="company-monogram">{item.name.slice(0, 2).toUpperCase()}</span> },
     { key: "name", label: "Customer", value: item => item.name, render: item => <NavigationLink className="table-link" href={`/customers/${item.id}`} navigate={navigate}>{item.name}</NavigationLink> },
     { key: "brand_identifier", label: "Brand identifier", value: item => item.brandIdentifier, editable: true },
     { key: "status", label: "Status", value: item => item.status, editable: true, bulk: true, options: customerStatuses.map(value => ({ value, label: value })) },

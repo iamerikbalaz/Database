@@ -85,9 +85,12 @@ it("binds uncertain role changes to one row and shows a later administrator edit
   }));
   const view = render(page(id));
   const form = await screen.findByRole("form", { name: `Manage ${processorDto.display_name}` });
+  fireEvent.click(screen.getByRole("button", { name: "Active accounts" }));
   fireEvent.change(within(form).getByLabelText("Role"), { target: { value: "PRODUCTION_LEAD" } });
-  fireEvent.click(within(form).getByLabelText("Active")); fireEvent.submit(form);
+  fireEvent.click(within(form).getByLabelText("Allow sign-in")); fireEvent.submit(form);
   await screen.findByRole("button", { name: "Retry exact save" });
+  expect(screen.getByRole("button", { name: "Inactive accounts" })).toBeDisabled();
+  expect(form).toBeVisible();
   expect(within(screen.getByRole("form", { name: "Manage Other Example" })).queryByRole("region", { name: "Pending save" })).not.toBeInTheDocument();
   expect(screen.getAllByRole("region", { name: "Pending save" })).toHaveLength(1);
   expect(screen.getByRole("button", { name: "Create profile" })).toBeDisabled();
@@ -96,7 +99,7 @@ it("binds uncertain role changes to one row and shows a later administrator edit
   current = { ...current, role: "LEADERSHIP", is_active: true, updated_at: "2026-09-19T00:00:02Z" };
   render(page(id)); const restored = await screen.findByRole("form", { name: `Manage ${processorDto.display_name}` });
   expect(within(restored).getByLabelText("Role")).toHaveValue("PRODUCTION_LEAD");
-  expect(within(restored).getByLabelText("Active")).not.toBeChecked();
+  expect(within(restored).getByLabelText("Allow sign-in")).not.toBeChecked();
   fireEvent.click(within(restored).getByRole("button", { name: "Retry exact save" }));
   await waitFor(() => expect(within(screen.getByRole("form", { name: `Manage ${processorDto.display_name}` })).getByLabelText("Role")).toHaveValue("LEADERSHIP"));
   expect(writes).toHaveLength(2); expect(writes[1].body).toBe(writes[0].body);
@@ -119,6 +122,36 @@ it("does not attach a late create to another account and recovers the original a
   view.rerender(page(first));
   fireEvent.click(screen.getByRole("button", { name: "Open saved record" }));
   await screen.findByText(/Profile created\./); expect(pendingRecordCommands.get(first)).toBeNull();
+});
+
+it("keeps a pending deactivation reachable when the current record is outside the active filter", async () => {
+  const id = actor(); let current = { ...processorDto }, writes = 0;
+  vi.stubGlobal("fetch", vi.fn(async (_path: string, init?: RequestInit) => {
+    if (init?.method === "PATCH") {
+      current = { ...current, is_active: false, updated_at: "2026-09-19T00:00:02Z" };
+      if (++writes === 1) throw new Error("Connection lost after commit");
+      return json(current);
+    }
+    return json([current]);
+  }));
+  const view = render(page(id));
+  const form = await screen.findByRole("form", { name: `Manage ${processorDto.display_name}` });
+  fireEvent.click(within(form).getByLabelText("Allow sign-in"));
+  fireEvent.submit(form);
+  await screen.findByRole("button", { name: "Retry exact save" });
+  view.unmount(); render(page(id));
+  const restored = await screen.findByRole("form", { name: `Manage ${processorDto.display_name}` });
+  expect(restored).toBeVisible();
+  expect(screen.getByRole("button", { name: "Active accounts" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Inactive accounts" })).toBeDisabled();
+  fireEvent.click(within(restored).getByRole("button", { name: "Retry exact save" }));
+  await screen.findByText("Account updated. Existing sessions have been revoked where required.");
+  await waitFor(() => expect(screen.queryByRole("form", { name: `Manage ${processorDto.display_name}` })).not.toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "Inactive accounts" }));
+  const saved = await screen.findByRole("form", { name: `Manage ${processorDto.display_name}` });
+  expect(within(saved).getByLabelText("Saved account status: Inactive")).toHaveTextContent("Inactive");
+  expect(within(saved).getByLabelText("Allow sign-in")).not.toBeChecked();
+  expect(writes).toBe(2);
 });
 
 it("retires an initial account read when the actor changes", async () => {

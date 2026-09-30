@@ -10,7 +10,7 @@ import { setSessionToken } from "../auth/sessionTransport";
 import { processorDto } from "../test/materialFixtures";
 import { customerDtos, orderDtos } from "../test/directoryFixtures";
 import { requestNavigation } from "../navigationGuard";
-import { directoryClient, parseCustomer } from "../api/directoryClient";
+import { directoryClient, parseCustomer, parseOrder } from "../api/directoryClient";
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
 const customer = customerDtos[0], order = orderDtos[0];
 function manager(children: ReactNode) { return <SessionContext.Provider value={{ session: { user: { ...processorDto, role: "ADMIN" }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}>{children}</SessionContext.Provider>; }
@@ -149,6 +149,27 @@ it("shows all Notion order statuses and keeps folder renames separate from inlin
   fireEvent.change(screen.getByRole("combobox", { name: `Status for ${order.number} · ${order.generated_name}` }), { target: { value: "Visualize" } });
   await screen.findByText("Saved. Refresh to reapply filters.");
   expect(fetch.mock.calls.filter(([path, init]) => path.endsWith("/folder") && init?.method === "POST")).toHaveLength(0);
+});
+it("filters Orders by the actual due date independently from the starting-date lower bound", async () => {
+  backend();
+  vi.spyOn(directoryClient, "orders").mockResolvedValue([
+    parseOrder({ ...order, starting_date: "2026-08-01", due_date: "2026-10-01" }),
+    parseOrder({ ...order, id: "10000000-0000-4000-8000-000000000002", number: "9992", starting_date: "2026-08-15", due_date: "2026-09-15" }),
+    parseOrder({ ...order, id: "10000000-0000-4000-8000-000000000003", number: "9993", starting_date: "2026-08-15", due_date: null }),
+  ]);
+  render(manager(<OrdersPage client={httpApiClient} navigate={vi.fn()} />));
+  await screen.findByRole("link", { name: order.number });
+  expect(screen.queryByLabelText("Starting to")).not.toBeInTheDocument();
+  fireEvent.change(within(screen.getByRole("group", { name: "Filter orders" })).getByLabelText("Due date"), { target: { value: "2026-09-30" } });
+  expect(screen.queryByRole("link", { name: order.number })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "9992" })).toBeVisible();
+  expect(screen.queryByRole("link", { name: "9993" })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Starting from"), { target: { value: "2026-08-16" } });
+  expect(screen.getByText("No orders match these filters.")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+  expect(screen.getByRole("link", { name: order.number })).toBeVisible();
+  expect(screen.getByRole("link", { name: "9992" })).toBeVisible();
+  expect(screen.getByRole("link", { name: "9993" })).toBeVisible();
 });
 it("creates a customer with only editable fields and without a separate Brand record", async () => {
   const fetch = backend(), { saved } = editor("customer");

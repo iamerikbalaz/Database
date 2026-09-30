@@ -114,7 +114,6 @@ it.each([
   ["Published", "is_published", "false"],
 ])("sends %s as the exact API query parameter", async (label, key, value) => {
   const { queries } = backend(); render(<App initialPath="/materials" />);
-  fireEvent.click(screen.getByText("More filters"));
   await screen.findByRole("option", { name: processorDto.display_name });
   change(label, value);
   await waitFor(() => expect(queries.at(-1)?.get(key)).toBe(value));
@@ -122,7 +121,6 @@ it.each([
 });
 it("combines all filters, honors an empty response and clears filters", async () => {
   const { queries } = backend(); render(<App initialPath="/materials" />);
-  fireEvent.click(screen.getByText("More filters"));
   await screen.findByRole("option", { name: processorDto.display_name });
   for (const [label, value] of [["Search materials", "missing"], ["Order", materialProject.id], ["Customer", materialBrand.id], ["Processor", processorDto.id], ["Main category", "G03"], ["Status", "DONE"], ["Checked", "OK"], ["Published", "true"]]) change(label, value);
   await waitFor(() => expect(queries.at(-1)?.size).toBe(8));

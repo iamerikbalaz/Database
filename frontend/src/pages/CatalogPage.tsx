@@ -9,6 +9,7 @@ import { EditableResourceTable, type ResourceColumn, type ResourceValue } from "
 import { Icon } from "../components/Icon";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { useDatabaseWorkspace } from "../components/useDatabaseWorkspace";
+import { ResponsiveFilters, type PriorityFilter } from "../components/ResponsiveFilters";
 import { useNavigationGuard } from "../navigationGuard";
 
 type PendingCreate = { kind: CatalogKind; payload: CatalogCreate; generation: number };
@@ -95,7 +96,6 @@ export function CatalogPage({ client }: { client: ApiClient }) {
     idempotency_key: key, expected_version: row.version,
     ...(field === "is_active" ? { is_active: next === true } : { abbreviation: next === null ? null : String(next).trim() || null }),
   });
-  const dateCount = [from, to].filter(Boolean).length;
   return <section className={`database-page catalog-content catalog-database${compact ? " database-page--workspace" : ""}`}><div className="page-heading"><div><p className="eyebrow">Catalog</p><h1>Categories and collections</h1></div>
       <div className="database-heading-actions"><button className="button" onClick={() => helpDialog.current?.showModal()}>Catalog help</button>{allowed && <button ref={addTrigger} className="button button--primary" disabled={locked || !resource.data} onClick={event => openCreate(event.currentTarget)}><Icon name="plus" size={16} />Add catalog value</button>}</div>
     </div>
@@ -103,16 +103,14 @@ export function CatalogPage({ client }: { client: ApiClient }) {
       <button role="tab" aria-selected={kind === "online-categories"} disabled={locked} onClick={() => { setKind("online-categories"); setReplacement(null); }}>Online categories</button>
       <button role="tab" aria-selected={kind === "collections"} disabled={locked} onClick={() => { setKind("collections"); setReplacement(null); }}>Brand collections</button>
     </div>
-    <fieldset className="material-filters database-filters" disabled={locked}><legend className="sr-only">Filter catalog</legend>
-      <label className="database-search">Search catalog<span className="database-search-input"><Icon name="search" size={18} /><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Name, abbreviation or customer" /></span></label>
-      <label>Active filter<select value={activity} onChange={event => setActivity(event.target.value)}><option value="all">All</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
-      {kind === "collections" && <label>Customer filter<select value={brandFilter} onChange={event => setBrandFilter(event.target.value)}><option value="">All customers</option>{resource.data?.brands.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
-      <label>Sort catalog<select value={sort} onChange={event => setSort(event.target.value)}><option value="name">Name</option><option value="abbreviation">Abbreviation</option><option value="created">Newest first</option></select></label>
-      <details className="database-date-filters" open={compact ? undefined : true} onKeyDown={event => { if (event.key === "Escape" && compact) { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary>Dates{dateCount > 0 ? ` (${dateCount})` : ""}</summary><div className="database-date-options">
-        <label>Created from<input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label><label>Created to<input type="date" value={to} onChange={event => setTo(event.target.value)} /></label>
-      </div></details>
-      <button type="button" className="button" onClick={() => { setQuery(""); setActivity("all"); setBrandFilter(""); setFrom(""); setTo(""); }}>Clear filters</button>
-    </fieldset>
+    <ResponsiveFilters compact={compact} disabled={locked} label="Filter catalog" onClear={() => { setQuery(""); setActivity("all"); setBrandFilter(""); setFrom(""); setTo(""); }} filters={[
+      { key: "search", width: 190, active: Boolean(query), content: <label className="database-search">Search catalog<span className="database-search-input"><Icon name="search" size={18} /><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Name, abbreviation or customer" /></span></label> },
+      { key: "active", width: 110, active: activity !== "all", content: <label>Active filter<select value={activity} onChange={event => setActivity(event.target.value)}><option value="all">All</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label> },
+      ...(kind === "collections" ? [{ key: "customer", width: 140, active: Boolean(brandFilter), content: <label>Customer filter<select value={brandFilter} onChange={event => setBrandFilter(event.target.value)}><option value="">All customers</option>{resource.data?.brands.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> }] satisfies PriorityFilter[] : []),
+      { key: "sort", width: 135, active: sort !== "name", content: <label>Sort catalog<select value={sort} onChange={event => setSort(event.target.value)}><option value="name">Name</option><option value="abbreviation">Abbreviation</option><option value="created">Newest first</option></select></label> },
+      { key: "from", width: 142, active: Boolean(from), content: <label>Created from<input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label> },
+      { key: "to", width: 142, active: Boolean(to), content: <label>Created to<input type="date" value={to} onChange={event => setTo(event.target.value)} /></label> },
+    ]} />
     {notice && <p role="status">{notice}</p>}
     {resource.error ? <ErrorState message="Catalog values could not be loaded." retry={resource.retry} /> : !resource.data ? <LoadingState label="Loading catalog…" /> : <>
       <p className="result-count">{filtered.length} of {items.length} values</p>

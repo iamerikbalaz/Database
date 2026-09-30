@@ -72,7 +72,7 @@ function SettingsWork({ admin, navigate }: { admin: boolean; navigate: (path: st
     pending.current = { idempotency_key: crypto.randomUUID(), expected_version: settings.version, cutoff_date: cutoff, storage_timezone: timezone.trim() };
     void send();
   };
-  return <section><NavigationLink className="back-link" href="/settings" navigate={navigate}>Back to settings</NavigationLink><div className="page-heading"><div><p className="eyebrow">Settings</p><h1>Automatic ZIP packaging</h1></div></div>
+  return <section className="packaging-settings"><NavigationLink className="back-link" href="/settings" navigate={navigate}>Back to settings</NavigationLink><div className="page-heading"><div><p className="eyebrow">Settings</p><h1>Automatic ZIP packaging</h1></div></div>
     {error && <p className="form-error" role="alert">{error}</p>}{notice && <p className="success-notice" role="status">{notice}</p>}
     {uncertain && <button className="button" disabled={busy} onClick={() => void send()}>Recover same settings request</button>}
     <article className="panel record-form"><h2>Packaging rules</h2>
@@ -86,7 +86,7 @@ function SettingsWork({ admin, navigate }: { admin: boolean; navigate: (path: st
         {admin && <button className="button button--primary" disabled={!cutoff || !timezone.trim()} onClick={save}>Save packaging settings</button>}
       </fieldset> : !error && <p role="status">Loading packaging settings…</p>}
       {!admin && <p>An administrator can change these settings.</p>}
-      <button className="button" disabled={busy || uncertain} onClick={() => void refresh()}>Refresh settings</button>
+      {error && !uncertain && <button className="button" disabled={busy} onClick={() => void refresh()}>Reload settings</button>}
     </article>
   </section>;
 }

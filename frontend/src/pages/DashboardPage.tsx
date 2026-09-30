@@ -1,9 +1,12 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApiClient } from "../api/client";
+import { GalleryStore } from "../api/galleryStore";
 import { materialLoadError } from "../api/materialClient";
 import { statusLabel, type Material } from "../api/materialDto";
 import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
+import { sessionGeneration } from "../auth/sessionTransport";
+import { MaterialThumbnail } from "../components/MaterialsGrid";
 import { NavigationLink } from "../components/NavigationLink";
 import { EmptyState, ErrorState, LoadingState } from "../components/PageState";
 
@@ -13,7 +16,7 @@ const views = [
   { id: "all", label: "All materials", includes: () => true },
   { id: "progress", label: "In progress", includes: (m: Material) => m.workflowStatus === "IN_PROGRESS" },
   { id: "done", label: "Done", includes: (m: Material) => m.workflowStatus === "DONE" },
-  { id: "findings", label: "Validation findings", includes: (m: Material) => ["WARNING", "ERROR", "METADATA_MISSING"].includes(m.validationStatus) },
+  { id: "correction", label: "Correction", includes: (m: Material) => m.checkedStatus === "Correction" },
 ] as const;
 type View = typeof views[number]["id"];
 
@@ -25,6 +28,9 @@ export function DashboardPage(props: Props) {
 
 function Dashboard({ client, navigate }: Props) {
   const user = useSession()?.session.user;
+  const generation = sessionGeneration();
+  const store = useMemo(() => new GalleryStore(generation), [generation]);
+  useEffect(() => () => store.clear(), [store]);
   const load = useCallback(() => client.getMaterials(), [client]);
   const result = useResource(load);
   const [view, setView] = useState<View>("all");
@@ -49,7 +55,6 @@ function Dashboard({ client, navigate }: Props) {
     <nav className="dashboard-shortcuts" aria-label="Workspace shortcuts">
       <NavigationLink className="button" href="/materials" navigate={navigate}>Browse materials</NavigationLink>
       <NavigationLink className="button" href="/materials/new" navigate={navigate}>Add material</NavigationLink>
-      <NavigationLink className="button" href="/publication" navigate={navigate}>Prepare publication</NavigationLink>
     </nav>
     {result.error ? <ErrorState message={materialLoadError(result.cause)} retry={refresh} />
       : !result.data ? <LoadingState label="Loading overview…" />
@@ -60,7 +65,7 @@ function Dashboard({ client, navigate }: Props) {
             <span>{item.label}</span><strong>{materials.filter(item.includes).length}</strong>
           </button>)}
         </div>
-        <p className="dashboard-note">Counts cover the active records you can access, as of the last refresh. Validation findings include warnings, errors and missing metadata. Done does not mean approved or published.</p>
+        <p className="dashboard-note">Counts cover the active records you can access, as of the last refresh. Correction includes materials with Checked set to Correction. Done does not mean checked or published.</p>
         {!result.data.length ? <EmptyState title="No materials available" description={user?.role === "PROCESSOR"
           ? "No active materials are assigned to you. Ask your production lead about your next assignment."
           : "Add a material or browse orders to start production."} />
@@ -72,11 +77,13 @@ function Dashboard({ client, navigate }: Props) {
               <p role="status">Showing {start + 1}–{Math.min(start + pageSize, filtered.length)} of {filtered.length}</p>
               <ul className="dashboard-materials" aria-label="Overview materials">
                 {filtered.slice(start, start + pageSize).map((m) => <li key={m.id}>
-                  <div><NavigationLink className="table-link" href={`/materials/${m.id}`} navigate={navigate}>{m.technicalIdentity}</NavigationLink>
-                    <p>{m.materialName}</p></div>
-                  <dl><div><dt>Workflow</dt><dd>{statusLabel(m.workflowStatus)}</dd></div>
-                    <div><dt>Validation</dt><dd>{statusLabel(m.validationStatus)}</dd></div>
-                    <div><dt>Publication</dt><dd>{statusLabel(m.publicationStatus)}</dd></div></dl>
+                  <div className="dashboard-material-summary"><MaterialThumbnail material={m} store={store} />
+                    <div><NavigationLink className="table-link" href={`/materials/${m.id}`} navigate={navigate}>{m.technicalIdentity}</NavigationLink>
+                      <p>{m.materialName}</p></div></div>
+                  <dl><div><dt>Status</dt><dd>{statusLabel(m.workflowStatus)}</dd></div>
+                    <div><dt>Checked</dt><dd>{m.checkedStatus}</dd></div>
+                    <div><dt>Published</dt><dd>{m.isPublished ? "Yes" : "No"}</dd></div>
+                    <div><dt>Automatic check</dt><dd>{m.automaticFileCheckStatus === "OK" ? "OK" : statusLabel(m.automaticFileCheckStatus)}</dd></div></dl>
                 </li>)}
               </ul>
               {lastPage > 0 && <nav className="dashboard-pagination" aria-label="Overview pages">

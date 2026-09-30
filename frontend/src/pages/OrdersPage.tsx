@@ -20,6 +20,7 @@ import { ErrorState, LoadingState } from "../components/PageState";
 
 import { Icon } from "../components/Icon";
 import { useDatabaseWorkspace } from "../components/useDatabaseWorkspace";
+import { ResponsiveFilters } from "../components/ResponsiveFilters";
 
 
 
@@ -38,7 +39,7 @@ export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: 
 
   const filtered = all.filter(item => (!status || item.status === status) && (!customer || item.customerId === customer) && (!priority || item.priority === priority) && (!responsible || item.responsibleId === responsible) &&
 
-    (!from || Boolean(item.startingDate && item.startingDate >= from)) && (!to || Boolean(item.startingDate && item.startingDate <= to)) &&
+    (!from || Boolean(item.startingDate && item.startingDate >= from)) && (!to || Boolean(item.dueDate && item.dueDate <= to)) &&
 
     [item.number, item.generatedName, item.projectType, item.notes, names.get(item.customerId ?? "")].some(value => value?.toLowerCase().includes(search.toLowerCase())));
 
@@ -72,28 +73,17 @@ export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: 
 
   ];
 
-  const extraCount = [priority, responsible, from, to].filter(Boolean).length;
   return <section className={`database-page orders-page${compact ? " database-page--workspace" : ""}`}><div className="page-heading"><div><p className="eyebrow">Production</p><h1>Orders</h1><p className="database-description">Customer work, delivery dates and project folders.</p></div>{canEdit && <NavigationLink className="button button--primary" href="/orders/new" navigate={navigate}><Icon name="plus" size={18} />Add order</NavigationLink>}</div>
 
-    <fieldset className="material-filters database-filters" disabled={busy}><legend className="sr-only">Filter orders</legend>
-
-      <label className="database-search">Search orders<span className="database-search-input"><Icon name="search" size={18} /><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Number, name or note" /></span></label>
-
-      <label>Customer<select value={customer} onChange={event => setCustomer(event.target.value)}><option value="">All</option>{customers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-
-      <label>Status<select value={status} onChange={event => setStatus(event.target.value)}><option value="">All</option>{orderStatuses.map(value => <option key={value}>{value}</option>)}</select></label>
-
-      <details className="database-extra-filters" open={compact ? undefined : true} onKeyDown={event => { if (event.key === "Escape" && compact) { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary>More filters{extraCount ? ` (${extraCount})` : ""}</summary><div className="database-extra-options">
-      <label>Priority<select value={priority} onChange={event => setPriority(event.target.value)}><option value="">All</option>{priorities.map(value => <option key={value}>{value}</option>)}</select></label>
-
-      <label>Responsible<select value={responsible} onChange={event => setResponsible(event.target.value)}><option value="">All</option>{users.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
-
-      <label>Starting from<input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label><label>Starting to<input type="date" value={to} onChange={event => setTo(event.target.value)} /></label>
-      </div></details>
-
-      <button className="button" onClick={() => { setSearch(""); setStatus(""); setCustomer(""); setPriority(""); setResponsible(""); setFrom(""); setTo(""); }}>Clear filters</button>
-
-    </fieldset><p className="result-count">{filtered.length} orders</p>
+    <ResponsiveFilters compact={compact} disabled={busy} label="Filter orders" onClear={() => { setSearch(""); setStatus(""); setCustomer(""); setPriority(""); setResponsible(""); setFrom(""); setTo(""); }} filters={[
+      { key: "search", width: 190, active: Boolean(search), content: <label className="database-search">Search orders<span className="database-search-input"><Icon name="search" size={18} /><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Number, name or note" /></span></label> },
+      { key: "customer", width: 135, active: Boolean(customer), content: <label>Customer<select value={customer} onChange={event => setCustomer(event.target.value)}><option value="">All</option>{customers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> },
+      { key: "status", width: 115, active: Boolean(status), content: <label>Status<select value={status} onChange={event => setStatus(event.target.value)}><option value="">All</option>{orderStatuses.map(value => <option key={value}>{value}</option>)}</select></label> },
+      { key: "responsible", width: 145, active: Boolean(responsible), content: <label>Responsible<select value={responsible} onChange={event => setResponsible(event.target.value)}><option value="">All</option>{users.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label> },
+      { key: "from", width: 142, active: Boolean(from), content: <label>Starting from<input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label> },
+      { key: "due", width: 142, active: Boolean(to), content: <label>Due date<input type="date" value={to} onChange={event => setTo(event.target.value)} /></label> },
+      { key: "priority", width: 115, active: Boolean(priority), content: <label>Priority<select value={priority} onChange={event => setPriority(event.target.value)}><option value="">All</option>{priorities.map(value => <option key={value}>{value}</option>)}</select></label> },
+    ]} /><p className="result-count">{filtered.length} orders</p>
 
     {resource.error ? <ErrorState message="Orders could not be loaded." retry={resource.retry} /> : !resource.data ? <LoadingState label="Loading orders…" /> : <>
 

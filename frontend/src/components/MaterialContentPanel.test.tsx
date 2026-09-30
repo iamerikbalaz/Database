@@ -169,7 +169,7 @@ it("requires one decimal place for edited sizes and preserves the exact combined
 it("protects an unsaved library draft from property refresh and navigation until explicit save or discard", async () => {
   const { busy, posts } = setup();
   const description = await screen.findByLabelText("Description");
-  expect(busy).toHaveBeenLastCalledWith(false);
+  await waitFor(() => expect(busy).toHaveBeenLastCalledWith(false));
   fireEvent.change(description, { target: { value: "Unsaved description" } });
   expect(busy).toHaveBeenLastCalledWith(true);
   expect(requestNavigation("/materials")).toBe(false);

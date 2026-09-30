@@ -4,6 +4,7 @@ import { MaterialsPage } from "./MaterialsPage";
 import { mockApiClient } from "../api/client";
 import { materialFromDto } from "../api/materialDto";
 import { materialTableClient } from "../api/materialTableClient";
+import { materialLocalClient } from "../api/materialLocalClient";
 import { SessionContext } from "../auth/context";
 import { requestNavigation } from "../navigationGuard";
 import { materialDto, processorDto } from "../test/materialFixtures";
@@ -87,4 +88,28 @@ it("retains the gallery, size and checked selection across responsive changes", 
   expect(gallery).toHaveClass("materials-grid--large");
   expect(screen.getByRole("checkbox", { name: `Select ${material.materialName}` })).toBeChecked();
   expect(getMaterials).toHaveBeenCalledOnce();
+});
+
+it.each(["list", "gallery"] as const)("groups selected actions by Refresh and retains check report after %s reload", async view => {
+  viewport();
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
+  const material = materialFromDto(materialDto), getMaterials = vi.fn().mockResolvedValue([material]);
+  const report = "Checked: 1. OK: 1. Issues: 0.";
+  const check = vi.spyOn(materialLocalClient, "checkMany").mockResolvedValue({ items: [], report, reportPath: null, reportOpened: false });
+  render(<SessionContext.Provider value={{ session: { user: { ...processorDto, role: "ADMIN" }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}>
+    <MaterialsPage client={{ ...mockApiClient, getMaterials }} navigate={vi.fn()} initialView={view === "gallery" ? "gallery" : undefined} />
+  </SessionContext.Provider>);
+  fireEvent.click(await screen.findByRole("checkbox", { name: `Select ${material.materialName}` }));
+  const start = screen.getByRole("button", { name: "Auto-check selected materials (1)" });
+  const publish = screen.getByRole("button", { name: "Prepare selected for publication (1)" });
+  const refresh = screen.getByRole("button", { name: view === "gallery" ? "Refresh previews" : "Refresh materials" });
+  expect(start.closest(".materials-table-actions")).toBe(refresh.parentElement);
+  expect(start.compareDocumentPosition(publish) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(publish.compareDocumentPosition(refresh) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(start);
+  await waitFor(() => expect(getMaterials).toHaveBeenCalledTimes(2));
+  fireEvent.click(await screen.findByRole("button", { name: "View check report" }));
+  expect(screen.getByRole("textbox", { name: "Automatic file check report" })).toHaveValue(report);
+  expect(check).toHaveBeenCalledOnce();
 });

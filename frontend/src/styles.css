@@ -1612,6 +1612,18 @@ body:has(.database-page--workspace) #root { flex:1; min-height:0; display:flex; 
 .database-page--workspace .materials-check-controls .material-bulk-check > [role="status"] { margin:0; font-size:12px; }
 .database-page--workspace .materials-check-controls .material-bulk-check > [role="alert"] { margin:0; max-height:64px; overflow:auto; font-size:12px; }
 .material-check-dialog { width:min(860px, calc(100vw - 2rem)); max-height:85dvh; overflow:auto; }
+.materials-table-actions { margin-inline-start:auto; display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px; }
+.material-check-actions-slot { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.material-check-actions-slot:empty { display:none; }
+.material-check-actions-slot > [role="status"] { font-size:12px; }
+.resource-table-toolbar .materials-table-actions .button.resource-table-refresh { margin-inline-start:0; }
+.materials-page .materials-check-controls:has(.material-bulk-check--docked) { margin:0; }
+.packaging-settings .record-form { max-width:none; width:100%; }
+.dashboard-material-summary { display:flex; align-items:center; gap:14px; }
+.dashboard-material-summary > div:not(.material-thumbnail) { min-width:0; }
+.account-list-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; }
+.account-record { padding-bottom:20px; }
+.account-identity { display:inline-flex; align-items:center; flex-wrap:wrap; gap:8px; }
 .database-table-viewport--contained .material-table--editable thead th:nth-child(-n+3) { z-index:7; }
 .database-page--workspace.catalog-database .view-switch { align-self:flex-start; padding:3px; margin:0 0 8px; }
 .database-page--workspace.catalog-database .view-switch button { padding:6px 12px; font-size:12px; }

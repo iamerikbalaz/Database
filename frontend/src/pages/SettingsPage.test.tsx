@@ -28,6 +28,7 @@ it("shows the global automatic methods and edits with the current version", asyn
   const current = vi.spyOn(api, "current").mockResolvedValue(initial);
   const save = vi.spyOn(api, "save").mockResolvedValue({ ...initial, version: 1, cutoffDate: "2026-04-01" });
   mount(); await screen.findByLabelText("Cutoff date");
+  expect(screen.queryByRole("button", { name: /Refresh settings|Reload settings/ })).not.toBeInTheDocument();
   expect(screen.getByText("Normalize ZIP dates to 1 January 2026.")).toBeVisible();
   fireEvent.change(screen.getByLabelText("Cutoff date"), { target: { value: "2026-04-01" } });
   current.mockResolvedValue({ ...initial, version: 1, cutoffDate: "2026-04-01" });
@@ -58,8 +59,18 @@ it("requires refresh for a stale version and restricts editing to admins", async
   const page = mount(); await screen.findByLabelText("Cutoff date");
   fireEvent.click(screen.getByRole("button", { name: "Save packaging settings" }));
   await screen.findByText("Settings changed. Refresh before saving again.");
+  expect(screen.getByRole("button", { name: "Reload settings" })).toBeEnabled();
   expect(requestNavigation("/materials")).toBe(true);
   page.unmount(); mount("LEADERSHIP");
   expect(await screen.findByLabelText("Cutoff date")).toBeDisabled();
   expect(screen.queryByRole("button", { name: "Save packaging settings" })).not.toBeInTheDocument();
+});
+
+it("can reload settings after a load failure without keeping a redundant refresh action", async () => {
+  const current = vi.spyOn(api, "current").mockRejectedValueOnce(new Error("Offline")).mockResolvedValue(initial);
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Reload settings" }));
+  await screen.findByLabelText("Cutoff date");
+  expect(current).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole("button", { name: "Reload settings" })).not.toBeInTheDocument();
 });

@@ -23,16 +23,18 @@ export function CheckReportView({ result }: { result: CheckReport }) {
   </details>;
 }
 
-export function MaterialBulkCheck({ materials, disabled = false, onBusyChange, onChecked }: {
-  materials: Material[]; disabled?: boolean; onBusyChange?: (busy: boolean) => void; onChecked?: () => void;
+export function MaterialBulkCheck({ materials, disabled = false, onBusyChange, onChecked, compact = false }: {
+  materials: Material[]; disabled?: boolean; onBusyChange?: (busy: boolean) => void; onChecked?: () => void; compact?: boolean;
 }) {
   const [pending, setPending] = useState(false), [error, setError] = useState("");
   const [report, setReport] = useState<CheckReport | null>(null);
   const sending = useRef(false), mounted = useRef(true);
+  const detailsDialog = useRef<HTMLDialogElement>(null);
   const checkProgress = useFileCheckProgress();
   useNavigationGuard(() => sending.current);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => { onBusyChange?.(pending); return () => onBusyChange?.(false); }, [pending, onBusyChange]);
+  useEffect(() => { if (!compact && detailsDialog.current?.open) detailsDialog.current.close(); }, [compact]);
   const check = async () => {
     if (disabled || sending.current || !materials.length || materials.length > 100) return;
     const generation = sessionGeneration(), selection = materials.map(material => ({ id: material.id, updatedAt: material.updatedAt }));
@@ -48,8 +50,18 @@ export function MaterialBulkCheck({ materials, disabled = false, onBusyChange, o
     <button type="button" className="button" disabled={disabled || pending || !materials.length || materials.length > 100} onClick={() => void check()}>
       {pending ? "Checking selected materials…" : `Check selected materials (${materials.length})`}
     </button>
-    {pending && <FileCheckProgress progress={checkProgress.progress} resume={checkProgress.resume} total={materials.length} />}
+    {compact && (pending || report) && <button type="button" className="button" onClick={() => detailsDialog.current?.showModal()}>{pending ? "View check progress" : "View check report"}</button>}
+    {compact && pending && <span role="status">{checkProgress.progress ? `${checkProgress.progress.completed} / ${checkProgress.progress.total} materials inspected` : "Starting file check…"}{checkProgress.resume ? " · Resume is available in check progress." : ""}</span>}
+    {!compact && pending && <FileCheckProgress progress={checkProgress.progress} resume={checkProgress.resume} total={materials.length} />}
     {error && <p role="alert" className="field-error">{error}</p>}
-    {report && <CheckReportView result={report} />}
+    {!compact && report && <CheckReportView result={report} />}
+    <dialog className="confirm-dialog material-check-dialog" ref={detailsDialog} aria-label="Automatic file check details">
+      {compact && <><h2>Automatic file check</h2>
+        {pending && <FileCheckProgress progress={checkProgress.progress} resume={checkProgress.resume} total={materials.length} />}
+        {report && <CheckReportView result={report} />}
+        {error && <p className="field-error">{error}</p>}
+      </>}
+      <button type="button" className="button" onClick={() => detailsDialog.current?.close()}>Close check details</button>
+    </dialog>
   </div>;
 }

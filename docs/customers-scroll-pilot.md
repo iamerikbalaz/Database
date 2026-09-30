@@ -1,70 +1,67 @@
-# Customers: native fixed workspace pilot
+# Database workspaces
 
-Baseline: `de08733` on `codex/autonomous-pbr-completion`. The pilot lives on
-`codex/customer-scroll-pilot`; backend, schema and data are unchanged. Fixed
-workspace remains limited to Customers; shared visual-control changes are noted below.
+The Customers pilot was accepted and extended to Customers, Orders, Materials,
+Archived materials, the material gallery and both Catalog tabs. Development remains
+on `codex/customer-scroll-pilot`. Backend APIs, schema and stored data are unchanged.
+The pre-rollout version is commit `3f12b6d`.
 
-Follow-up: shared database list frames and top scrollbars now have square corners.
-Customers search includes a decorative magnifying glass. The native results
-scrollbar has a reserved gutter and explicit track/thumb styling; scrollbar hiding
-is scoped to page mode, so it cannot hide the workspace scrollbar.
+## Automatic layout
 
-The contained results area hides its own horizontal scrollbar and takes horizontal
-position from the single native top bar. The bar uses intrinsic height without a
-frame. Its width spacer must remain 1 px high: a zero-area box does not contribute
-scrollable overflow and makes the native bar inert. Vertical scrolling remains native. Direct horizontal wheel
-gestures over the contained results are not handled; use the top bar.
+`useDatabaseWorkspace` enables a bounded workspace at 900 x 700 CSS pixels or larger.
+There is no Fixed workspace checkbox and the old Customers layout preference is
+ignored. Narrow/short windows automatically use page layout. Existing sidebar
+navigation collapses below 850 pixels; browser zoom follows the same CSS breakpoints.
 
-Customer logos render in grayscale in lists and record cards while their stored
-source files remain unchanged. The shared resource toolbar begins with Select
-highlighted, the selected count and Properties; Refresh is an accessible icon button at the end.
-Bulk property/value labels use equal rows, with 40 px editors and review button;
-notes scroll within that height and boolean controls center in the same row.
+The app bar, optional runtime banner, headings and compact controls participate in
+one bounded flex layout. Table headers use native sticky positioning inside the
+results scroller; no vertical scroll-time geometry or header transform is used in
+workspace mode. Page mode retains its prior scrolling behavior.
 
-## Behavior
+Each table has one horizontal scrollbar above the header and a native vertical
+scrollbar on the right. The top bar compensates for the vertical gutter so the final
+column is reachable. Its spacer must remain 1 px high: zero-area boxes do not extend
+scrollable overflow. Horizontal movement is controlled by the top bar (direct
+horizontal wheel gestures over the contained table are not handled).
 
-Customers defaults to **Fixed workspace** in viewports at least 900 × 700 CSS
-pixels. Compact filters and controls sit above one native vertical results
-scroller. Date filters and Properties open without expanding the fixed controls.
-Table header cells use CSS `position: sticky; top: 0` in the same scroll area as
-their rows. There is no scroll-time header geometry calculation or transform.
+## Shared controls
 
-The horizontal scrollbar remains above results. It synchronizes only horizontal
-position and compensates for the vertical scrollbar gutter so the last column
-is reachable. The original single semantic table and its cell editors are retained.
+- Square database list corners and an accessible icon-only Refresh button.
+- Toolbar order: Select highlighted, selected count, Properties, contextual actions,
+  Refresh. Ctrl/Shift highlighting and explicit checkbox selection are preserved.
+- Search includes a decorative magnifying glass.
+- Bulk Property/New value labels align; editors and review buttons are 40 px high.
+  Notes scroll within the field and booleans center in the same control row.
+- Customer logos render in grayscale; stored source images retain their colors.
+- Date and additional-filter menus overlay results within the filter-panel width.
+  In page layout, those filters are shown inline.
 
-The optional desktop test banner, app bar, controls and results participate in a
-bounded flex layout. Short/narrow windows use page layout so controls remain
-reachable; enlarging the window restores the preference. This is a Customers-only
-pilot, not a global layout replacement.
+Materials and Orders place additional filters under More filters to keep space for
+results. The gallery has its own native results scroller with a stable wrapper.
+Materials identity columns stay pinned above horizontally scrolling header cells.
 
-At widths up to 1200 CSS pixels the compact filters wrap into three columns with
-search spanning two. Below 900 pixels wide or 700 pixels high, page layout takes
-over; below 850 pixels wide the existing mobile navigation applies. Browser zoom
-reduces the available CSS viewport and triggers the same fallback. The table keeps
-its readable column widths and horizontal scrolling rather than compressing cells.
+The publication preparation flow uses page layout. In a compact workspace, bulk
+file-check progress and report details open in a dialog while the same operation
+remains mounted; small windows show the details inline. Catalog creation/replacement
+and help use dialogs. Unknown create outcomes block closing and retain exact retry
+payloads and keys.
 
-## Immediate fallback
+## State and verification
 
-Clear **Fixed workspace** on Customers to restore the baseline page layout.
-This does not reload data or remount the table: filters, selected rows and unfinished
-cell edits remain. The preference is stored locally as `customers.workspace-view`.
-Backend calls and bulk-write recovery are unchanged.
+The full frontend suite passes: 1,136 tests in 83 files. Production build and lint
+also pass.
 
-Code rollback: switch the owned development checkout to baseline `de08733` or the
-unchanged `codex/autonomous-pbr-completion` branch and rebuild the frontend. No database
-rollback or application-password reset is needed.
+Resize changes CSS classes/scroll mode without remounting table editors or gallery
+previews. Tests cover preservation of filters, checked and highlighted rows,
+unfinished notes, pending writes/navigation guards, gallery size, and Catalog dialog
+drafts. They also cover archived materials, publication page transitions, report
+presentation, scrollbar gutter calculations and the absence of vertical frame handlers.
 
-## Verification
+Component tests use JSDOM and do not verify rendered dimensions or native scrollbar
+dragging. The established browser-tool access restriction has not been bypassed.
+Manually check each database at desktop and small sizes, open additional filters and
+Properties, scroll to the last column, select rows with Ctrl/Shift, edit a note, open a
+report or Catalog create dialog, and resize while it is open.
 
-54 targeted tests cover the viewport, Customers/Orders, common table selection,
-Catalog and Materials. They include no vertical animation-frame handler in contained mode,
-horizontal gutter reach, mode-switch preservation of unfinished edits, stored
-layout preference and short-window fallback. Build and lint pass. Native visual
-scroll smoothness still requires user testing; the existing browser-tool access
-restriction was not bypassed.
-
-Suggested manual check: open Customers, compare fast vertical scrolling with
-Fixed workspace on/off, scroll to the rightmost column, edit a cell, select rows
-with Ctrl/Shift and checkbox selection, open Dates/Properties, and resize the
-window. Then decide whether to extend the layout to other databases.
+Code rollback: use pre-rollout commit `3f12b6d` and rebuild the frontend. No database
+rollback or password reset is needed. The original pre-pilot baseline remains
+`de08733` on `codex/autonomous-pbr-completion`.

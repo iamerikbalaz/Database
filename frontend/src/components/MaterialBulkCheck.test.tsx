@@ -10,7 +10,11 @@ import { MaterialBulkCheck } from "./MaterialBulkCheck";
 const first = materialFromDto(materialDto);
 const second = { ...first, id: "50000000-0000-4000-8000-000000000002", materialName: "SECOND-MATERIAL" };
 const report = { items: [], report: "Checked: 1. OK: 1. Issues: 0.\nNo materials with issues.", reportPath: "C:\\Reports\\check.txt", reportOpened: true };
-beforeEach(() => { vi.spyOn(materialLocalClient, "checkMany").mockResolvedValue(report); });
+beforeEach(() => {
+  vi.spyOn(materialLocalClient, "checkMany").mockResolvedValue(report);
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
+});
 afterEach(() => { vi.restoreAllMocks(); setSessionToken(null); });
 
 it("checks only explicit selection with versions and shows the report without local save details", async () => {
@@ -121,4 +125,29 @@ it("aborts observation on unmount without starting a replacement check", () => {
   const { unmount } = render(<MaterialBulkCheck materials={[first]} />);
   fireEvent.click(screen.getByRole("button")); expect(signal?.aborted).toBe(false);
   unmount(); expect(signal?.aborted).toBe(true); expect(materialLocalClient.checkMany).toHaveBeenCalledOnce();
+});
+
+it("keeps an ongoing check and its report through compact progress dialog and page fallback", async () => {
+  let finish!: (value: typeof report) => void;
+  vi.mocked(materialLocalClient.checkMany).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const tree = render(<MaterialBulkCheck materials={[first]} compact />);
+  fireEvent.click(screen.getByRole("button", { name: "Check selected materials (1)" }));
+  expect(screen.queryByRole("region", { name: "File check progress" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "View check progress" }));
+  expect(screen.getByRole("dialog", { name: "Automatic file check details" })).toBeVisible();
+  expect(screen.getByRole("region", { name: "File check progress" })).toBeVisible();
+  tree.rerender(<MaterialBulkCheck materials={[first]} compact={false} />);
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "File check progress" })).toBeVisible();
+  expect(materialLocalClient.checkMany).toHaveBeenCalledOnce();
+  await act(async () => finish(report));
+  expect(screen.getByRole("textbox", { name: "Automatic file check report" })).toHaveValue(report.report);
+  tree.rerender(<MaterialBulkCheck materials={[first]} compact />);
+  expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "View check report" }));
+  expect(screen.getByRole("textbox", { name: "Automatic file check report" })).toHaveValue(report.report);
+  expect(screen.getByRole("button", { name: "Download TXT report" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "Close check details" }));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(materialLocalClient.checkMany).toHaveBeenCalledOnce();
 });

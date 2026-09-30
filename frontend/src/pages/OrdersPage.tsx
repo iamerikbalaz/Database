@@ -19,10 +19,12 @@ import { NasFolderReference } from "../components/NasFolderReference";
 import { ErrorState, LoadingState } from "../components/PageState";
 
 import { Icon } from "../components/Icon";
+import { useDatabaseWorkspace } from "../components/useDatabaseWorkspace";
 
 
 
 export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: (path: string) => void }) {
+  const compact = useDatabaseWorkspace();
 
   const resource = useResource(useCallback(() => Promise.all([directoryClient.orders(), directoryClient.customers(), client.getInternalUsers()]), [client]));
 
@@ -70,21 +72,24 @@ export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: 
 
   ];
 
-  return <section><div className="page-heading"><div><p className="eyebrow">Production</p><h1>Orders</h1><p>Customer work, delivery dates and project folders.</p></div>{canEdit && <NavigationLink className="button button--primary" href="/orders/new" navigate={navigate}><Icon name="plus" size={18} />Add order</NavigationLink>}</div>
+  const extraCount = [priority, responsible, from, to].filter(Boolean).length;
+  return <section className={`database-page orders-page${compact ? " database-page--workspace" : ""}`}><div className="page-heading"><div><p className="eyebrow">Production</p><h1>Orders</h1><p className="database-description">Customer work, delivery dates and project folders.</p></div>{canEdit && <NavigationLink className="button button--primary" href="/orders/new" navigate={navigate}><Icon name="plus" size={18} />Add order</NavigationLink>}</div>
 
     <fieldset className="material-filters database-filters" disabled={busy}><legend className="sr-only">Filter orders</legend>
 
-      <label>Search orders<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Number, name or note" /></label>
+      <label className="database-search">Search orders<span className="database-search-input"><Icon name="search" size={18} /><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Number, name or note" /></span></label>
 
       <label>Customer<select value={customer} onChange={event => setCustomer(event.target.value)}><option value="">All</option>{customers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
 
       <label>Status<select value={status} onChange={event => setStatus(event.target.value)}><option value="">All</option>{orderStatuses.map(value => <option key={value}>{value}</option>)}</select></label>
 
+      <details className="database-extra-filters" open={compact ? undefined : true} onKeyDown={event => { if (event.key === "Escape" && compact) { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary>More filters{extraCount ? ` (${extraCount})` : ""}</summary><div className="database-extra-options">
       <label>Priority<select value={priority} onChange={event => setPriority(event.target.value)}><option value="">All</option>{priorities.map(value => <option key={value}>{value}</option>)}</select></label>
 
       <label>Responsible<select value={responsible} onChange={event => setResponsible(event.target.value)}><option value="">All</option>{users.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
 
       <label>Starting from<input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label><label>Starting to<input type="date" value={to} onChange={event => setTo(event.target.value)} /></label>
+      </div></details>
 
       <button className="button" onClick={() => { setSearch(""); setStatus(""); setCustomer(""); setPriority(""); setResponsible(""); setFrom(""); setTo(""); }}>Clear filters</button>
 
@@ -94,7 +99,7 @@ export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: 
 
       {!filtered.length && <p>No orders match these filters.</p>}
 
-      <EditableResourceTable rows={filtered} columns={columns} label={item => `${item.number} · ${item.generatedName}`} canEdit={canEdit} storageKey="orders.columns.v1" refresh={resource.retry} onBusyChange={setBusy}
+      <EditableResourceTable rows={filtered} columns={columns} label={item => `${item.number} · ${item.generatedName}`} canEdit={canEdit} storageKey="orders.columns.v1" refresh={resource.retry} onBusyChange={setBusy} scrollMode={compact ? "contained" : "page"}
 
         save={(item, field, value, key) => directoryClient.saveOrder(item.id, { [field]: value, expected_updated_at: item.updatedAt }, key)} />
 

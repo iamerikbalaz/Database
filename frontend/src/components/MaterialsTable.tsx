@@ -17,6 +17,7 @@ import { NavigationLink } from "./NavigationLink";
 import { useNavigationGuard } from "../navigationGuard";
 import { highlightMaterial, isInteractiveTarget, type HighlightState } from "./materialHighlight";
 import { DatabaseTableViewport } from "./DatabaseTableViewport";
+import { Icon } from "./Icon";
 
 const columns = [
   ["project", "Order", 180], ["brand", "Customer", 180], ["category", "Category", 225],
@@ -43,7 +44,7 @@ type Props = { materials: Material[]; store: GalleryStore; client: ApiClient; pr
   navigate: (path: string) => void; refresh: () => void; onBusyChange: (busy: boolean) => void;
   onPreparePublication?: (materials: Material[]) => void; detail?: boolean; onMaterialChanged?: (material: Material) => void;
   selection?: { ids: Set<string>; change: (ids: Set<string>) => void };
-  onCheckSelected?: ((materials: Material[]) => void) | undefined; operationBusy?: boolean };
+  onCheckSelected?: ((materials: Material[]) => void) | undefined; operationBusy?: boolean; scrollMode?: "page" | "contained" };
 
 function NoteCell({ material, disabled, save }: { material: Material; disabled: boolean; save: (change: TableChange) => void }) {
   const [draft, setDraft] = useState(material.note ?? "");
@@ -52,7 +53,7 @@ function NoteCell({ material, disabled, save }: { material: Material; disabled: 
     {draft !== (material.note ?? "") && <button className="button" disabled={disabled} onClick={() => save({ note: draft || null })}>Save note</button>}</div>;
 }
 
-export function MaterialsTable({ materials, store, client, projects, brands, users, navigate, refresh, onBusyChange, onPreparePublication, detail = false, onMaterialChanged, selection, onCheckSelected, operationBusy = false }: Props) {
+export function MaterialsTable({ materials, store, client, projects, brands, users, navigate, refresh, onBusyChange, onPreparePublication, detail = false, onMaterialChanged, selection, onCheckSelected, operationBusy = false, scrollMode = "page" }: Props) {
   const actor = useSession()?.session.user;
   const role = actor?.role;
   const manager = role === "ADMIN" || role === "PRODUCTION_LEAD";
@@ -232,18 +233,18 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
   const visible = layout.filter(c => c.visible || archivedView && c.key === "archivedAt");
   const review = jobs[0] ? describeChange(jobs[0].change) : null;
   const waiting = jobs.some(j => j.status === "waiting"), unknown = jobs.some(j => j.status === "unknown");
-  return <>
-    {!detail && <div className="material-table-toolbar">
-      <details className="resource-properties"><summary>Properties</summary>
-        {layout.map(column => <label key={column.key}><input type="checkbox" checked={column.visible || archivedView && column.key === "archivedAt"} disabled={archivedView && column.key === "archivedAt"} onChange={e => configure(layout.map(c => c.key === column.key ? { ...c, visible: e.target.checked } : c))} />{title(column.key)}</label>)}
-      </details>
-      <button className="button" disabled={active || lifecycleBusy || Boolean(identity)} onClick={refresh}>Refresh materials</button>
-      {selectable && <span>{selectedRows.length} selected</span>}
+  return <div className={detail ? "material-detail-properties" : `resource-database materials-database${scrollMode === "contained" ? " resource-database--contained" : ""}`}>
+    {!detail && <div className="material-table-toolbar resource-table-toolbar">
       {selectable && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || !rows.some(row => highlight.ids.has(row.id))}
         onClick={() => setSelected(new Set([...selectedRows.map(row => row.id), ...rows.filter(row => highlight.ids.has(row.id)).map(row => row.id)]))}>Select highlighted ({rows.filter(row => highlight.ids.has(row.id)).length})</button>}
+      {selectable && <span>{selectedRows.length} selected</span>}
+      <details className="resource-properties"><summary>Properties</summary><div className="resource-property-options">
+        {layout.map(column => <label key={column.key}><input type="checkbox" checked={column.visible || archivedView && column.key === "archivedAt"} disabled={archivedView && column.key === "archivedAt"} onChange={e => configure(layout.map(c => c.key === column.key ? { ...c, visible: e.target.checked } : c))} />{title(column.key)}</label>)}
+      </div></details>
       {editor && onCheckSelected && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || !selectedRows.length || selectedRows.length > 100}
         onClick={() => onCheckSelected(selectedRows.map(row => ({ ...row })))}>Check selected materials ({selectedRows.length})</button>}
       {publisher && onPreparePublication && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || !selectedRows.length || selectedRows.length > 100} onClick={() => onPreparePublication(selectedRows.map(row => ({ ...row })))}>Prepare selected for publication ({selectedRows.length})</button>}
+      <button className="button resource-table-refresh" aria-label="Refresh materials" title="Refresh materials" disabled={active || lifecycleBusy || Boolean(identity)} onClick={refresh}><Icon name="refresh" size={20} /></button>
     </div>}
     {!detail && editor && selectedRows.length > 0 && <fieldset className="material-bulk-bar" disabled={active || lifecycleBusy}><legend>Apply to {selectedRows.length} selected materials</legend>
       <label>Property<select value={bulkField} onChange={e => { const field = e.target.value as EditField; setBulkField(field); setBulkValue(bulkChoices(field)[0]?.value ?? ""); }}>
@@ -256,7 +257,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     {inline && jobs.some(j => j.status === "failed" || j.status === "unknown") && <div role="alert" className="form-error">
       {jobs[0].message}{unknown && <button className="button" disabled={pending} onClick={() => void run()}>Retry same request</button>}
     </div>}
-    {detail ? <dl className="info-list material-property-editor">{columns.filter(([key]) => key !== "archivedAt" || rows[0].isArchived).map(([key, name]) => <div key={key}><dt>{name}</dt><dd>{renderCell(key, rows[0])}</dd></div>)}</dl> : <DatabaseTableViewport className="table-card material-table material-table--editable" label="Material results">
+    {detail ? <dl className="info-list material-property-editor">{columns.filter(([key]) => key !== "archivedAt" || rows[0].isArchived).map(([key, name]) => <div key={key}><dt>{name}</dt><dd>{renderCell(key, rows[0])}</dd></div>)}</dl> : <DatabaseTableViewport scrollMode={scrollMode} className="table-card material-table material-table--editable" label="Material results">
       <table style={{ width: 356 + visible.reduce((n, c) => n + c.width, 0) }}><caption className="sr-only">Materials and production status</caption>
         <colgroup><col style={{ width: 40 }} /><col style={{ width: 76 }} /><col style={{ width: 240 }} />{visible.map(c => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
         <thead><tr><th scope="col">{selectable && <input type="checkbox" aria-label="Select all visible materials" disabled={active || lifecycleBusy} checked={rows.length > 0 && selectedRows.length === rows.length} onChange={e => setSelected(new Set(e.target.checked ? rows.map(r => r.id) : []))} />}</th><th scope="col">Preview</th><th scope="col">Material</th>{visible.map(c => <th key={c.key} scope="col">{title(c.key)}</th>)}</tr></thead>
@@ -291,5 +292,5 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
       }} />}
       <button disabled={identityBusy} className="button" onClick={() => { identityDialog.current?.close(); setIdentity(undefined); returnFocus.current?.focus(); }}>Back to materials</button>
     </dialog>
-  </>;
+  </div>;
 }

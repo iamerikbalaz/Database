@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { CatalogPage } from "./CatalogPage";
 import { SessionContext } from "../auth/context";
@@ -11,6 +11,7 @@ import { requestNavigation } from "../navigationGuard";
 const category = { id: "10000000-0000-4000-8000-000000000001", value: "Stone", version: 1, is_active: true, abbreviation: "H", created_at: "2026-09-25T12:00:00Z" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 beforeEach(() => {
+  localStorage.clear();
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
   HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
 });
@@ -33,8 +34,13 @@ function setup(role: Role = "ADMIN", categories = [category]) {
   </SessionContext.Provider>);
   return fetch;
 }
+async function openCreate() {
+  await screen.findByText("Stone");
+  fireEvent.click(screen.getByRole("button", { name: "Add catalog value" }));
+  return screen.getByRole("dialog", { name: "Add catalog value" });
+}
 it("creates a brand collection with an explicit selected brand", async () => {
-  const fetch = setup(); await screen.findByRole("button", { name: "Create catalog value" });
+  const fetch = setup(); await openCreate();
   fireEvent.change(screen.getByRole("combobox", { name: "Value type" }), { target: { value: "collections" } });
   fireEvent.change(screen.getByRole("combobox", { name: "Collection customer" }), { target: { value: materialBrand.id } });
   fireEvent.change(screen.getByLabelText("Catalog value"), { target: { value: "Studio" } });
@@ -52,14 +58,17 @@ it("changes availability inline without a reason and with the exact catalog vers
   expect(call[0]).toBe(`/api/online-categories/${category.id}/table`);
 });
 it("replays an unknown catalog mutation with its original key and frozen inputs", async () => {
-  const fetch = setup(); await screen.findByRole("button", { name: "Create catalog value" });
+  const fetch = setup(); const dialog = await openCreate();
   fireEvent.change(screen.getByLabelText("Catalog value"), { target: { value: "Wood" } }); fetch.mockRejectedValueOnce(new TypeError("Synthetic timeout"));
   fireEvent.click(screen.getByRole("button", { name: "Create catalog value" })); await screen.findByRole("alert");
   expect(requestNavigation("/materials")).toBe(false);
+  expect(within(dialog).getByRole("button", { name: "Close" })).toBeDisabled();
+  fireEvent(dialog, new Event("cancel", { cancelable: true })); expect(dialog).toHaveAttribute("open");
   expect(screen.getByLabelText("Catalog value")).toBeDisabled(); fireEvent.click(screen.getByRole("button", { name: "Retry same catalog request" }));
   await waitFor(() => expect(screen.getByText("Catalog change saved.")).toBeVisible());
   expect(requestNavigation("/materials")).toBe(true);
   const calls = fetch.mock.calls.filter(([, init]) => init?.method === "POST"); expect(calls).toHaveLength(2); expect(calls[0][1]?.body).toBe(calls[1][1]?.body);
+  expect(dialog).not.toHaveAttribute("open");
 });
 it.each(["PROCESSOR", "LEADERSHIP"] as const)("keeps %s catalog access read-only", async (role) => {
   setup(role); await screen.findByText("Stone"); expect(screen.queryByRole("button", { name: "Create catalog value" })).not.toBeInTheDocument();
@@ -93,6 +102,7 @@ it("edits abbreviations inline and keeps canonical names behind explicit replace
   fireEvent.click(screen.getByRole("button", { name: "Create replacement for Stone" }));
   expect(screen.getByRole("heading", { name: "Create replacement for Stone" })).toBeVisible();
   expect(screen.getByLabelText("Catalog value")).toHaveValue("Stone");
+  expect(screen.getByLabelText("Catalog value")).toHaveFocus();
 });
 
 it("filters creation dates using the same local calendar day as the displayed date", async () => {
@@ -125,4 +135,45 @@ it("confirms bulk activity only for the current filtered catalog values", async 
   await waitFor(() => expect(screen.getByRole("button", { name: "Close" })).toBeEnabled());
   const calls = fetch.mock.calls.filter(([, init]) => init?.method === "PATCH");
   expect(calls).toHaveLength(1); expect(calls[0][0]).toContain(category.id);
+});
+
+it("preserves catalog filters, selection and an inline draft when the window changes size", async () => {
+  let resized: (() => void) | undefined;
+  const media = { matches: true, addEventListener: vi.fn((_event: string, listener: () => void) => { resized = listener; }), removeEventListener: vi.fn() };
+  vi.stubGlobal("matchMedia", vi.fn(() => media));
+  const fetch = setup();
+  const input = await screen.findByRole("textbox", { name: "Abbreviation for Stone" });
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search catalog" }), { target: { value: "Stone" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select all filtered rows" }));
+  fireEvent.change(input, { target: { value: "STONE-DRAFT" } });
+  const results = screen.getByRole("region", { name: "Database results" });
+  expect(results.parentElement).toHaveClass("database-table-viewport--contained");
+  const requests = fetch.mock.calls.length;
+  act(() => { media.matches = false; resized?.(); });
+  expect(results.parentElement).not.toHaveClass("database-table-viewport--contained");
+  expect(screen.getByLabelText("Created from")).toBeVisible();
+  act(() => { media.matches = true; resized?.(); });
+  expect(results.parentElement).toHaveClass("database-table-viewport--contained");
+  expect(screen.getByRole("textbox", { name: "Abbreviation for Stone" })).toBe(input);
+  expect(input).toHaveValue("STONE-DRAFT");
+  expect(screen.getByRole("searchbox", { name: "Search catalog" })).toHaveValue("Stone");
+  expect(screen.getByRole("checkbox", { name: "Select all filtered rows" })).toBeChecked();
+  expect(fetch.mock.calls).toHaveLength(requests);
+});
+
+it("keeps the catalog create dialog and its draft open during responsive layout changes", async () => {
+  let resized: (() => void) | undefined;
+  const media = { matches: true, addEventListener: vi.fn((_event: string, listener: () => void) => { resized = listener; }), removeEventListener: vi.fn() };
+  vi.stubGlobal("matchMedia", vi.fn(() => media));
+  const fetch = setup(), dialog = await openCreate();
+  const input = within(dialog).getByLabelText("Catalog value");
+  expect(input).toHaveFocus();
+  fireEvent.change(input, { target: { value: "Wood draft" } });
+  act(() => { media.matches = false; resized?.(); });
+  expect(screen.getByRole("dialog", { name: "Add catalog value" })).toBe(dialog);
+  expect(input).toHaveValue("Wood draft");
+  fireEvent(dialog, new Event("cancel", { cancelable: true }));
+  expect(dialog).not.toHaveAttribute("open");
+  expect(screen.getByRole("button", { name: "Add catalog value" })).toHaveFocus();
+  expect(fetch.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
 });

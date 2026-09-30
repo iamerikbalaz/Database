@@ -27,6 +27,7 @@ function setup(role: Role = "ADMIN", rows: Material[] = [first, second]) {
 it("prepares only checked materials and preserves filters on return", async () => {
   const { getMaterials, preview } = setup();
   await screen.findByRole("table");
+  expect(screen.getByRole("heading", { name: "Materials" }).closest("section")).toHaveClass("database-page--workspace");
   expect(screen.queryByRole("button", { name: /Prepare filtered/ })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Publication batches" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Prepare selected for publication (0)" })).toBeDisabled();
@@ -34,6 +35,7 @@ it("prepares only checked materials and preserves filters on return", async () =
   await waitFor(() => expect(getMaterials).toHaveBeenLastCalledWith({ search: "#Autumn" }));
   fireEvent.click(await screen.findByRole("checkbox", { name: `Select ${first.materialName}` }));
   fireEvent.click(screen.getByRole("button", { name: "Prepare selected for publication (1)" }));
+  expect(screen.getByRole("heading", { name: "Materials" }).closest("section")).not.toHaveClass("database-page--workspace");
   expect(screen.getByRole("searchbox")).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Review materials" }));
   await waitFor(() => expect(preview).toHaveBeenCalledWith([first.id]));
@@ -41,6 +43,7 @@ it("prepares only checked materials and preserves filters on return", async () =
   fireEvent.click(screen.getByRole("button", { name: "Back to material list" }));
   expect(screen.getByRole("searchbox")).toHaveValue("#Autumn");
   expect(screen.getByRole("table")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Materials" }).closest("section")).toHaveClass("database-page--workspace");
 });
 it("lets Production Lead prepare a selected subset", async () => {
   const { preview } = setup("PRODUCTION_LEAD");

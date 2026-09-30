@@ -1519,42 +1519,42 @@ a.button {
 .customer-rename-option { display:flex; gap:10px; align-items:flex-start; margin:16px 0; }
 .customer-rename-option input { width:16px; height:16px; flex-shrink:0; }
 
-/* Customers pilot: one native results scroller, fixed controls, no scroll-time
+/* Database workspaces: one native results scroller, fixed controls, no scroll-time
    header transforms. The flex chain includes optional banners outside React. */
-.customers-heading-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:12px; }
-.customers-heading-actions .checkbox-label { font-size:12px; white-space:nowrap; }
-.customers-search-input { position:relative; display:block; min-width:0; }
-.customers-search-input > .icon { position:absolute; left:11px; top:50%; transform:translateY(-50%); color:var(--muted); pointer-events:none; }
-.customers-page .database-filters .customers-search-input > input { padding-left:36px; }
-.customers-size-notice { font-size:12px; color:var(--muted); }
-.customers-page:not(.customers-page--workspace) .customers-date-filters,
-.customers-page:not(.customers-page--workspace) .customers-date-options { display:contents; }
-.customers-page:not(.customers-page--workspace) .customers-date-filters > summary { display:none; }
-body:has(.customers-page--workspace) { height:100vh; height:100dvh; min-height:0; overflow:hidden; display:flex; flex-direction:column; }
-body:has(.customers-page--workspace) > :not(#root) { flex-shrink:0; }
-body:has(.customers-page--workspace) #root { flex:1; min-height:0; display:flex; flex-direction:column; }
-.app-shell:has(.customers-page--workspace) { flex:1; min-height:0; display:flex; }
-.workspace:has(.customers-page--workspace) { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; }
-.workspace:has(.customers-page--workspace) > .topbar { flex-shrink:0; }
-.content:has(.customers-page--workspace) { flex:1; min-height:0; width:100%; display:flex; flex-direction:column; padding:14px 24px; overflow:hidden; }
-.content:has(.customers-page--workspace) > :not(.customers-page) { flex-shrink:0; }
-.customers-page--workspace { flex:1; min-height:0; display:flex; flex-direction:column; }
-.customers-page--workspace > :not(.resource-database) { flex-shrink:0; }
-.customers-page--workspace .page-heading { align-items:center; flex-direction:row; gap:16px; margin-bottom:12px; }
-.customers-page--workspace .page-heading h1 { font-size:26px; margin:0; }
-.customers-page--workspace .page-heading .eyebrow,
-.customers-page--workspace .customers-description { display:none; }
-.customers-page--workspace .database-filters { display:grid; grid-template-columns:minmax(170px, 2fr) repeat(2,minmax(110px, 1fr)) auto auto; gap:10px; align-items:end; padding:10px 12px; margin:0; border-radius:12px; }
-.customers-page--workspace .database-filters label { gap:3px; font-size:11px; }
-.customers-page--workspace .database-filters input,
-.customers-page--workspace .database-filters select { min-height:34px; height:34px; padding:6px 8px; font-size:12px; }
-.customers-page--workspace .database-filters .button { margin:0; min-height:34px; padding:7px 12px; font-size:12px; }
-.customers-page--workspace .customers-date-filters { position:relative; }
-.customers-page--workspace .customers-date-filters > summary { white-space:nowrap; border:1px solid var(--border); background:var(--canvas); border-radius:9px; padding:7px 12px; font-size:12px; }
-.customers-page--workspace .customers-date-options,
+.database-heading-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:12px; }
+.database-heading-actions .checkbox-label { font-size:12px; white-space:nowrap; }
+.database-search-input { position:relative; display:block; min-width:0; }
+.database-search-input > .icon { position:absolute; left:11px; top:50%; transform:translateY(-50%); color:var(--muted); pointer-events:none; }
+.database-page .database-filters .database-search-input > input { padding-left:36px; }
+.database-size-notice { font-size:12px; color:var(--muted); }
+.database-page:not(.database-page--workspace) .database-date-filters,
+.database-page:not(.database-page--workspace) .database-date-options { display:contents; }
+.database-page:not(.database-page--workspace) .database-date-filters > summary { display:none; }
+body:has(.database-page--workspace) { height:100vh; height:100dvh; min-height:0; overflow:hidden; display:flex; flex-direction:column; }
+body:has(.database-page--workspace) > :not(#root) { flex-shrink:0; }
+body:has(.database-page--workspace) #root { flex:1; min-height:0; display:flex; flex-direction:column; }
+.app-shell:has(.database-page--workspace) { flex:1; min-height:0; display:flex; }
+.workspace:has(.database-page--workspace) { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; }
+.workspace:has(.database-page--workspace) > .topbar { flex-shrink:0; }
+.content:has(.database-page--workspace) { flex:1; min-height:0; width:100%; display:flex; flex-direction:column; padding:14px 24px; overflow:hidden; }
+.content:has(.database-page--workspace) > :not(.database-page) { flex-shrink:0; }
+.database-page--workspace { flex:1; min-height:0; display:flex; flex-direction:column; }
+.database-page--workspace > :not(.resource-database):not(.database-scroll-region) { flex-shrink:0; }
+.database-page--workspace .page-heading { align-items:center; flex-direction:row; gap:16px; margin-bottom:12px; }
+.database-page--workspace .page-heading h1 { font-size:26px; margin:0; }
+.database-page--workspace .page-heading .eyebrow,
+.database-page--workspace .database-description { display:none; }
+.database-page--workspace .database-filters { position:relative; display:grid; grid-template-columns:minmax(170px, 2fr) repeat(2,minmax(110px, 1fr)) auto auto; gap:10px; align-items:end; padding:10px 12px; margin:0; border-radius:12px; }
+.database-page--workspace .database-filters label { gap:3px; font-size:11px; }
+.database-page--workspace .database-filters input,
+.database-page--workspace .database-filters select { min-height:34px; height:34px; padding:6px 8px; font-size:12px; }
+.database-page--workspace .database-filters .button { margin:0; min-height:34px; padding:7px 12px; font-size:12px; }
+.database-page--workspace .database-date-filters { position:static; }
+.database-page--workspace .database-date-filters > summary { white-space:nowrap; border:1px solid var(--border); background:var(--canvas); border-radius:9px; padding:7px 12px; font-size:12px; }
+.database-page--workspace .database-date-options,
 .resource-database--contained .resource-property-options { position:absolute; z-index:15; top:calc(100% + 6px); padding:14px; border:1px solid var(--border); border-radius:12px; background:var(--surface); box-shadow:0 10px 30px #1f24441f; }
-.customers-page--workspace .customers-date-options { right:0; width:360px; display:grid; grid-template-columns:repeat(2,minmax(0, 1fr)); gap:12px; }
-.customers-page--workspace .result-count { margin:7px 0; font-size:12px; }
+.database-page--workspace .database-date-options { right:0; width:min(360px, 100%); display:grid; grid-template-columns:repeat(2,minmax(0, 1fr)); gap:12px; max-height:45dvh; overflow:auto; }
+.database-page--workspace .result-count { margin:7px 0; font-size:12px; }
 .resource-database--contained { flex:1; min-height:0; display:flex; flex-direction:column; }
 .resource-database--contained > :not(.database-table-viewport) { flex-shrink:0; }
 .resource-database--contained .resource-table-toolbar { flex-direction:row; align-items:center; margin-bottom:8px; gap:8px; }
@@ -1580,7 +1580,52 @@ body:has(.customers-page--workspace) #root { flex:1; min-height:0; display:flex;
 .database-table-viewport--contained thead { position:static; transform:none; }
 .database-table-viewport--contained thead th { position:sticky; top:0; z-index:6; background:var(--canvas); box-shadow:0 1px var(--border); }
 @media (max-width:1200px) {
-  .customers-page--workspace .database-filters { grid-template-columns:repeat(3,minmax(0,1fr)); }
-  .customers-page--workspace .customers-search { grid-column:span 2; }
-  .customers-page--workspace .customers-date-options { left:0; right:auto; }
+  .database-page--workspace .database-filters { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .database-page--workspace .database-search { grid-column:span 2; }
+}
+
+/* Supplementary filters open over the results without changing their height. */
+.database-page:not(.database-page--workspace) .database-extra-filters,
+.database-page:not(.database-page--workspace) .database-extra-options { display:contents; }
+.database-page:not(.database-page--workspace) .database-extra-filters > summary { display:none; }
+.database-page--workspace .database-extra-filters { position:static; }
+.database-page--workspace .database-extra-filters > summary { white-space:nowrap; border:1px solid var(--border); background:var(--canvas); border-radius:9px; padding:7px 12px; font-size:12px; }
+.database-page--workspace .database-extra-options { position:absolute; z-index:20; top:calc(100% + 6px); right:0; width:min(650px, 100%); max-height:45dvh; overflow:auto; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; padding:14px; border:1px solid var(--border); border-radius:12px; background:var(--surface); box-shadow:0 10px 30px #1f24441f; }
+.database-page--workspace .database-filters .form-field { margin:0; }
+.database-page--workspace .database-filters .material-color-filter { gap:3px; font-size:11px; }
+.database-page--workspace .database-filters .material-color-select { height:34px; min-height:34px; padding:6px 8px; font-size:12px; }
+.database-page--workspace .material-color-options { max-height:min(18rem, 45dvh); }
+.database-scroll-region { min-width:0; }
+.database-page--workspace > .database-scroll-region { flex:1; min-height:0; overflow:auto; scrollbar-gutter:stable; scrollbar-color:var(--muted) var(--canvas); overscroll-behavior:contain; }
+.database-page--workspace .materials-view-toolbar { gap:8px; margin:8px 0; font-size:12px; }
+.database-page--workspace .materials-view-controls { padding:2px; }
+.database-page--workspace .materials-view-toolbar .button,
+.database-page--workspace .gallery-size-control select { min-height:32px; padding:6px 12px; font-size:12px; }
+.materials-view-toolbar .button.resource-table-refresh { width:40px; min-width:40px; height:40px; min-height:40px; padding:0; }
+.database-page--workspace .materials-view-toolbar .button.resource-table-refresh { width:32px; min-width:32px; height:32px; min-height:32px; padding:0; }
+.database-page--workspace .material-table-toolbar { margin:0 0 8px; gap:8px; }
+.database-page--workspace .material-table-toolbar .button { min-height:32px; padding:6px 12px; font-size:12px; }
+.database-page--workspace .material-table-toolbar .button.resource-table-refresh { padding:0; }
+.database-page--workspace .material-table-toolbar > span { font-size:12px; }
+.database-page--workspace .materials-grid { padding-bottom:8px; }
+.database-page--workspace .materials-check-controls .material-bulk-check { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.database-page--workspace .materials-check-controls .material-bulk-check > [role="status"] { margin:0; font-size:12px; }
+.database-page--workspace .materials-check-controls .material-bulk-check > [role="alert"] { margin:0; max-height:64px; overflow:auto; font-size:12px; }
+.material-check-dialog { width:min(860px, calc(100vw - 2rem)); max-height:85dvh; overflow:auto; }
+.database-table-viewport--contained .material-table--editable thead th:nth-child(-n+3) { z-index:7; }
+.database-page--workspace.catalog-database .view-switch { align-self:flex-start; padding:3px; margin:0 0 8px; }
+.database-page--workspace.catalog-database .view-switch button { padding:6px 12px; font-size:12px; }
+.database-page--workspace.catalog-database .database-filters { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.database-page--workspace.catalog-database .database-filters label { display:grid; margin:0; min-width:0; }
+.database-page--workspace.catalog-database .database-filters input,
+.database-page--workspace.catalog-database .database-filters select { flex:initial; }
+.database-page--workspace.catalog-database .resource-table-toolbar .button { margin:0; }
+.database-page--workspace.catalog-database .resource-table-toolbar .resource-table-refresh { margin-inline-start:auto; }
+.catalog-database .material-bulk-bar { display:flex; }
+.catalog-database .material-bulk-bar label { display:grid; font-size:12px; font-weight:400; }
+.catalog-database .material-bulk-bar > .button { margin:0; }
+.catalog-database .resource-properties label { display:flex; font-size:12px; font-weight:400; gap:.5rem; }
+.catalog-database .database-filters > legend { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+@media (min-width:1201px) {
+  .database-page--workspace.catalog-database .database-filters { grid-template-columns:minmax(180px,2fr) repeat(2,minmax(110px,1fr)) auto auto auto; }
 }

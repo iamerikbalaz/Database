@@ -22,6 +22,7 @@ it.each([false, true])("offers active processors and assigned or selected histor
   const getMaterials = vi.fn(async (filters: MaterialFilters) => filters.search ? [] : [material]);
   render(<MaterialsPage client={{ ...mockApiClient, getMaterials, getInternalUsers }} navigate={vi.fn()} archived={archived} />);
   await screen.findByRole("table");
+  fireEvent.click(screen.getByText("More filters"));
   const filter = screen.getByRole("combobox", { name: "Processor" });
   expect(within(filter).getAllByRole("option").map(option => option.textContent)).toEqual(["All", processorDto.display_name, `${inactiveDto.display_name} (inactive)`]);
   fireEvent.change(filter, { target: { value: inactiveDto.id } });
@@ -41,6 +42,7 @@ it.each([false, true])("filters automatic checks in list and gallery and clears 
   const getMaterials = vi.fn(async (filters: MaterialFilters) => [first, second].filter(row => !filters.automatic_file_check_status || row.automaticFileCheckStatus === filters.automatic_file_check_status));
   render(<MaterialsPage client={{ ...mockApiClient, getMaterials }} navigate={vi.fn()} archived={archived} />);
   await screen.findByRole("table");
+  fireEvent.click(screen.getByText("More filters"));
   const filter = screen.getByRole("combobox", { name: "Automatic check" });
   expect(Array.from(filter.querySelectorAll("option"), option => [option.value, option.textContent])).toEqual([["", "All"], ["NOT_CHECKED", "Not checked"], ["OK", "OK"], ["ISSUES", "Issues"]]);
   fireEvent.change(filter, { target: { value: "ISSUES" } });

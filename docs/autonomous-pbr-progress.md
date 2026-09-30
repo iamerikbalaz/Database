@@ -1,6 +1,46 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-30, Customers / Orders)
+## Latest checkpoint (2026-09-30, Customer identity / shared database UI)
+
+The owned local test at `http://127.0.0.1:53033` now runs schema 0036.
+Remote main was verified unchanged at `88a1f99d748d2a0edbb1fce509e13d18bfc03908`.
+
+- Customer names change only through a confirmed dialog, including the legacy API
+  guard. Future materials use the new prefix. Opt-in historical changes use durable
+  per-material filesystem journals, preserve IDs/counters, update metadata, and set
+  successfully renamed materials unpublished. Retry/recovery and terminal partial
+  outcomes remain explicit. Historical prefix/name ownership stays reserved.
+- Created/Updated ranges, shared top horizontal scrolling and page-level vertical
+  scrolling, unified selected-row bulk controls, Settings destinations, and mobile
+  menu dismissal are implemented. Materials/archive filter out unassigned inactive
+  processor duplicates while preserving historical filter choices.
+- Live data work: 124 public REAWOTE logos matched unambiguously; seven active
+  processors reconciled with approved People aliases. Former staff and historical
+  accounts were retained inactive. Fifteen same-person material assignments were
+  consolidated, preserving manual/automatic file-check results with audit entries.
+  Source paths, material contents and order folders were not changed by rollout.
+- Validation: 126 initial targeted backend/NTFS tests passed; broader backend run
+  passed 263 scenarios with two legacy error-message regressions subsequently fixed
+  and covered by a successful 47-test rerun. Nine PostgreSQL tests and five separate
+  recovery tests passed. Linux worker: 63 tests, including eight same-path fault
+  scenarios. Frontend: 91 targeted tests, subsequent 9 and 35 focused checks, build
+  and lint passed. Fresh visual browser verification remains unavailable under the
+  existing browser restriction; component/layout behavior was checked in tests.
+- Clone and live 0035→0036 migrations and Alembic checks passed. Live acceptance
+  confirms 303 Customers / 282 Orders / 50 Materials / 124 logos / 7 active processors,
+  working date filters, API access, frontend assets and unchanged existing values
+  across the migration. No real customer rename, Notion write or NAS write was used
+  during acceptance. Existing file-check/publication image pins were preserved.
+- Local test credentials were rotated and old sessions revoked after accidental
+  diagnostic exposure. The disposable acceptance database was replaced, invalidating
+  its prior credential. Replacement credentials and operational snapshots remain
+  private in ignored runtime files, never in Git. The test-login file is updated.
+
+The final pre-migration backup is `before-schema0036-apply.private.dump` in the
+owned runtime directory. See [version notes](customers-orders-version.md) for
+recovery, historical rename behavior and remaining Notion-token/template inputs.
+
+## Previous checkpoint (2026-09-30, Customers / Orders)
 
 Resumed the approved directory iteration on `codex/autonomous-pbr-completion`.
 Remote main still resolves to `88a1f99d748d2a0edbb1fce509e13d18bfc03908`.

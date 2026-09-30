@@ -4,6 +4,11 @@ Baseline: `de08733` on `codex/autonomous-pbr-completion`. The pilot lives on
 `codex/customer-scroll-pilot`; backend, schema, data and other database layouts
 are unchanged.
 
+Follow-up: shared database list frames and top scrollbars now have square corners.
+Customers search includes a decorative magnifying glass. The native results
+scrollbar has a reserved gutter and explicit track/thumb styling; scrollbar hiding
+is scoped to page mode, so it cannot hide the workspace scrollbar.
+
 ## Behavior
 
 Customers defaults to **Fixed workspace** in viewports at least 900 × 700 CSS
@@ -20,6 +25,12 @@ The optional desktop test banner, app bar, controls and results participate in a
 bounded flex layout. Short/narrow windows use page layout so controls remain
 reachable; enlarging the window restores the preference. This is a Customers-only
 pilot, not a global layout replacement.
+
+At widths up to 1200 CSS pixels the compact filters wrap into three columns with
+search spanning two. Below 900 pixels wide or 700 pixels high, page layout takes
+over; below 850 pixels wide the existing mobile navigation applies. Browser zoom
+reduces the available CSS viewport and triggers the same fallback. The table keeps
+its readable column widths and horizontal scrolling rather than compressing cells.
 
 ## Immediate fallback
 

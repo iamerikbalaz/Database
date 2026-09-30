@@ -4,7 +4,7 @@ import unicodedata
 
 from sqlalchemy import select
 
-from app.db.models import PublishedBrand
+from app.db.models import MaterialIdentityHistory, PBRMaterial, PublishedBrand
 from app.resource_history import append_resource_change
 
 
@@ -21,6 +21,12 @@ def ensure_company_brand(session, company, actor_id):
     # or the brand identifier supplied by the historical workbook.
     prefix, identifier = stem + "-COMPANY", stem.lower() + "-company"
     used_prefixes = set(session.scalars(select(PublishedBrand.folder_prefix)))
+    from app.material_naming import match_identity
+    used_prefixes |= {parsed["prefix"].upper() for identity in session.scalars(select(PBRMaterial.technical_identity))
+                      if (parsed := match_identity(identity)) is not None}
+    for old, new in session.execute(select(MaterialIdentityHistory.old_context, MaterialIdentityHistory.new_context)):
+        used_prefixes |= {parsed["prefix"].upper() for context in (old, new)
+                          if (parsed := match_identity(context.get("technical_identity", ""))) is not None}
     used_identifiers = set(session.scalars(select(PublishedBrand.brand_identifier)))
     if prefix in used_prefixes: prefix += "-" + company.id.hex[:12].upper()
     if identifier in used_identifiers: identifier += "-" + company.id.hex[:12]

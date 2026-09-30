@@ -195,6 +195,7 @@ def confirm_import(session, actor_id, payload, table, rows, findings):
         materials = []
         for row in rows:
             material = PBRMaterial(project_id=row.project_id, published_brand_id=row.brand_id,
+                source_brand_name=brands[row.brand_id].name,
                 assigned_processor_id=row.processor_id, technical_identity=row.technical_identity,
                 material_name=row.material_name, sequence_number=row.sequence_number, main_category_code=row.main_category_code,
                 **{**snapshot["initial_state"], "folder_path": row.folder_path})

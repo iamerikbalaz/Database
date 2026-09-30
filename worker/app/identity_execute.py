@@ -190,7 +190,12 @@ def _after_step(index):
 def _rollback(root, journal, state):
     try:
         # Covers a crash after full rollback but before its final checkpoint.
-        restored = _matches(_entry(root, state["source_path"]), state["root_identity"])
+        # With a metadata-only change, the forward operation also ends at the
+        # original path. Its inode alone cannot prove rollback already ran.
+        # Replaying the guarded reverse steps is safe even when a previous
+        # rollback finished before its final journal receipt was persisted.
+        restored = (state["source_path"] != state["target_path"]
+                    and _matches(_entry(root, state["source_path"]), state["root_identity"]))
         if not restored:
             for step in reversed(state["steps"][:state["next_step"] + 1]):
                 if step["kind"] == "rename":

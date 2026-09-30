@@ -30,7 +30,7 @@ def creation(case, kind):
 
 
 def update(kind):
-    return {"BRAND": {"name": "Changed brand"}, "PROJECT": {"due_date": "2026-10-01", "notes": "Reviewed project note"},
+    return {"BRAND": {"brand_identifier": "changed-brand-id"}, "PROJECT": {"due_date": "2026-10-01", "notes": "Reviewed project note"},
         "USER": {"display_name": "Changed user"}, "MATERIAL": {"material_name": "Changed material"}}[kind]
 
 

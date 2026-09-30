@@ -543,6 +543,9 @@ class PBRMaterial(TimestampMixin, Base):
     )
     sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
     material_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Historical on-disk manufacturer is independent of the current Customer
+    # display name. A confirmed identity operation updates this snapshot.
+    source_brand_name: Mapped[str | None] = mapped_column(String(255))
     main_category_code: Mapped[str] = mapped_column(String(100), nullable=False)
     assigned_processor_id: Mapped[UUID] = mapped_column(
         Uuid,
@@ -1876,3 +1879,4 @@ event.listen(MaterialMetadataOperation, "before_delete", _reject_review_history_
 # Register split domain models for Alembic and isolated metadata-based test DBs.
 from app.db import directory_models as _directory_models  # noqa: E402,F401
 from app.db import notion_sync_models as _notion_sync_models  # noqa: E402,F401
+from app.db import customer_rename_models as _customer_rename_models  # noqa: E402,F401

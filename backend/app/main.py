@@ -58,6 +58,7 @@ from app.api.material_table import build_material_table_router
 from app.api.local_files import build_local_files_router
 from app.api.local_publication import build_local_publication_router
 from app.api.directory import build_directory_router
+from app.api.customer_rename import build_customer_rename_router
 from app.api.notion_outbound import build_notion_outbound_router
 from app.outbound_dispatcher import run_outbound_dispatcher
 
@@ -118,6 +119,9 @@ def create_app(
     application.include_router(build_health_router(app_database))
     application.include_router(build_resources_router(app_database))
     application.include_router(build_directory_router(app_database, app_settings))
+    application.include_router(build_customer_rename_router(app_database,
+        identity_client or WorkerIdentityClient(app_settings.worker_base_url, app_settings.worker_mutation_token,
+                                               app_settings.source_mutations_enabled), app_settings))
     application.include_router(build_notion_outbound_router(app_database, app_settings))
     application.include_router(build_material_table_router(app_database, app_worker_client))
     application.include_router(build_local_files_router(app_database, local_library))

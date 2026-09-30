@@ -55,7 +55,7 @@ def test_receipt_binds_raw_submitted_json_before_validation_normalization(access
 def test_create_update_replay_and_read_recovery_return_original_receipts(access_case, kind, segment):
     case = access_case; create_key, update_key = uuid4(), uuid4()
     payload = creation_payload(case.database, case.materials[0], kind)
-    field = "display_name" if kind == "USER" else "material_name" if kind == "MATERIAL" else "name"
+    field = "display_name" if kind == "USER" else "material_name" if kind == "MATERIAL" else "brand_identifier" if kind == "BRAND" else "name"
     with case.client("ADMIN") as client:
         base = "/api/" + segment
         first = send(client, "POST", base, payload, create_key)

@@ -156,7 +156,7 @@ def test_customer_rename_cannot_bypass_linked_material_guard(access_case):
     with access_case.client("ADMIN") as client:
         row = client.get("/api/customers").json()[0]
         response = write(client, "patch", "/api/customers/" + row["id"], {"name": "Renamed", "expected_updated_at": row["updated_at"]})
-        assert response.status_code == 409 and response.json()["detail"]["code"] == "BRAND_SOURCE_REWRITE_REQUIRED"
+        assert response.status_code == 409 and response.json()["detail"]["code"] == "CUSTOMER_RENAME_CONFIRMATION_REQUIRED"
 
 
 def test_hidden_mother_brand_is_not_offered_in_material_choice(access_case):
@@ -200,7 +200,9 @@ def test_customer_rename_refreshes_generated_order_name_but_never_moves_folder(a
             stored.folder_path = "R:\\0. PROJECTS\\" + stored.name
             original_path = stored.folder_path
             session.commit()
-        response = write(client, "patch", "/api/customers/" + customer["id"], {"expected_updated_at": customer["updated_at"], "name": "Renamed customer"})
+        from test_customer_rename import prepare
+        path, body = prepare(client, customer["id"], name="Renamed customer")
+        response = write(client, "post", path + "/rename", body)
         assert response.status_code == 200, response.text
         current = client.get("/api/orders/" + order["id"]).json()
         assert "RENAMED CUSTOMER" in current["generated_name"]

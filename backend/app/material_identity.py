@@ -9,6 +9,14 @@ from app.material_review import material_context
 ACTIVE_STATUSES = ("RUNNING", "RECOVERY_REQUIRED")
 
 
+def require_customer_rename_idle(session, brand_id):
+    from app.db.customer_rename_models import CustomerRenameOperation
+    if session.scalar(select(CustomerRenameOperation.id).where(
+            CustomerRenameOperation.customer_id == brand_id,
+            CustomerRenameOperation.status.in_(ACTIVE_STATUSES)).limit(1)):
+        raise HTTPException(409, {"code": "CUSTOMER_RENAME_ACTIVE", "message": "Finish or resume the active customer rename first."})
+
+
 def lock_folder_catalog(session):
     # Serialize linking a previously unknown nested path with claiming a source
     # tree. Acquire after the material row, before any brand rows.
@@ -51,6 +59,10 @@ def identity_context(material):
 
 
 def require_material_idle(session, material_id, *, packaging_execution_id=None, staging_job_id=None):
+    from app.db.models import PBRMaterial
+    brand_id = session.scalar(select(PBRMaterial.published_brand_id).where(PBRMaterial.id == material_id))
+    if brand_id is not None:
+        require_customer_rename_idle(session, brand_id)
     if session.scalar(select(MaterialMetadataOperation.id).where(MaterialMetadataOperation.material_id == material_id,
             MaterialMetadataOperation.status == "RUNNING").limit(1)):
         raise HTTPException(409, {"code": "MATERIAL_OPERATION_ACTIVE", "message": "Reconcile the active source metadata edit first."})
@@ -75,6 +87,7 @@ def require_material_idle(session, material_id, *, packaging_execution_id=None, 
 
 
 def require_brand_idle(session, brand_id):
+    require_customer_rename_idle(session, brand_id)
     if session.scalar(select(MaterialMetadataOperation.id).where(MaterialMetadataOperation.brand_id == brand_id,
             MaterialMetadataOperation.status == "RUNNING").limit(1)):
         raise HTTPException(409, {"code": "BRAND_OPERATION_ACTIVE", "message": "Reconcile active source metadata edits first."})

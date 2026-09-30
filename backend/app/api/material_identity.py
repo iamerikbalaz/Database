@@ -14,6 +14,7 @@ from app.db.models import (MaterialAuditEvent, MaterialFileOperation, MaterialId
 from app.identity_client import IdentityClientError
 from app.inventory_client import validate_relative_path
 from app.material_identity import ACTIVE_STATUSES, identity_context, require_material_idle, lock_folder_catalog, require_folder_idle
+from app.material_identity import require_customer_rename_idle
 from app.material_review import canonical_hash, invalidate_review
 from app.material_naming import build_identity, name_component
 from app.schemas import ApiSchema, CategoryCode, Name, Sha256
@@ -46,7 +47,10 @@ def _conflict(code, message):
 
 
 def _context(material, brand):
-    return {**identity_context(material), "brand_name": brand.name, "folder_prefix": brand.folder_prefix}
+    from app.material_naming import match_identity
+    parsed = match_identity(material.technical_identity)
+    return {**identity_context(material), "brand_name": material.source_brand_name or brand.name,
+            "folder_prefix": parsed["prefix"] if parsed else brand.folder_prefix}
 
 
 def _worker_request(proposal):
@@ -76,15 +80,19 @@ def _contexts(session, material, payload, *, lock=False):
     brands = {item.id: item for item in session.scalars(statement)}
     if payload.target_brand_id not in brands: raise HTTPException(404, "Published brand not found.")
     old_brand = brands[material.published_brand_id]; target = brands[payload.target_brand_id]
+    require_customer_rename_idle(session, target.id)
     if not target.is_active: _conflict("IDENTITY_BRAND_INACTIVE", "The target brand must be active.")
     rebrand = old_brand.id != target.id
+    source_context = _context(material, old_brand)
+    target_prefix = target.folder_prefix if rebrand else source_context["folder_prefix"]
+    target_brand_name = target.name if rebrand else source_context["brand_name"]
     if rebrand and session.scalar(select(MaterialCollection.material_id).where(MaterialCollection.material_id == material.id).limit(1)):
         _conflict("IDENTITY_COLLECTIONS_ASSIGNED", "Remove the old brand's collection assignments before planning a rebrand.")
     number = target.next_sequence_number if rebrand else material.sequence_number
     if number > 9999: _conflict("IDENTITY_SEQUENCE_EXHAUSTED", "The target brand has no unused four-digit numbers.")
     try:
         next_name = name_component(payload.material_name) if payload.material_name is not None else material.material_name
-        identity = build_identity(target.folder_prefix, number, payload.main_category_code,
+        identity = build_identity(target_prefix, number, payload.main_category_code,
                                   next_name, source_identity=material.technical_identity if next_name == material.material_name else None)
     except ValueError:
         _conflict("MATERIAL_IDENTITY_INVALID", "The proposed folder identity is unsupported or exceeds 255 ASCII characters.")
@@ -92,9 +100,8 @@ def _contexts(session, material, payload, *, lock=False):
     require_folder_idle(session, material.folder_path)
     require_folder_idle(session, folder)
     if folder == material.folder_path: _conflict("IDENTITY_UNCHANGED", "The proposed identity and folder are unchanged.")
-    source_context = _context(material, old_brand)
-    target_context = {**source_context, "published_brand_id": str(target.id), "brand_name": target.name,
-        "folder_prefix": target.folder_prefix, "sequence_number": number, "main_category_code": payload.main_category_code,
+    target_context = {**source_context, "published_brand_id": str(target.id), "brand_name": target_brand_name,
+        "folder_prefix": target_prefix, "sequence_number": number, "main_category_code": payload.main_category_code,
         "technical_identity": identity, "folder_path": folder, "material_name": next_name}
     # Another linked material must never be contained in either moving tree.
     for other in session.scalars(select(PBRMaterial).where(PBRMaterial.id != material.id)):
@@ -169,6 +176,10 @@ def _finish(database, operation_id, worker):
             material.material_name = context["material_name"]
             material.technical_identity = context["technical_identity"]
             material.folder_path = context["folder_path"]
+            material.source_brand_name = context["brand_name"]
+            if operation.request_payload.get("customer_rename_id"):
+                material.is_published = False
+                material.publication_status = "NOT_PUBLISHED"
             material.validation_status = "NOT_CHECKED"
             metadata = session.get(PBRMaterialMetadata, material.id)
             # Color and sample size remain useful recorded values when the

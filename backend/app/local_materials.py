@@ -344,8 +344,9 @@ class LocalIdentity:
                     errors.append({"code":str(exc),"path":"metadata.json"})
         if not metadata_found: warnings.append({"code":"SOURCE_METADATA_MISSING","path":"metadata.json"})
         targetpath=self.library.fs.path(request["target_path"])
-        if targetpath.exists(): errors.append({"code":"IDENTITY_TARGET_COLLISION","path":request["target_path"]})
-        if targetpath.is_relative_to(self.library.fs.path(request["folder_path"])): errors.append({"code":"IDENTITY_TARGET_INSIDE_SOURCE","path":request["target_path"]})
+        same_path = request["target_path"] == request["folder_path"]
+        if targetpath.exists() and not same_path: errors.append({"code":"IDENTITY_TARGET_COLLISION","path":request["target_path"]})
+        if not same_path and targetpath.is_relative_to(self.library.fs.path(request["folder_path"])): errors.append({"code":"IDENTITY_TARGET_INSIDE_SOURCE","path":request["target_path"]})
         plan={"schema_version":1,"planner_version":"identity-plan-1","source_path":request["folder_path"],"target_path":request["target_path"],
             "source_revision_hash":canonical_hash(entries),"changes":changes,"metadata":metadata,"errors":errors,"warnings":warnings,"ready":not errors}
         plan["plan_hash"]=canonical_hash({"plan":plan,"brand_name":request["brand_name"],"material_name":request["material_name"]})
@@ -414,7 +415,8 @@ class LocalIdentity:
                                 steps.append(step("library",request["folder_path"]+"/metadata.json","journal",key+"/before.json",handles["metadata.json"],False,plan.metadata.before_hash))
                                 with library.journal.opened(temporary) as handle:
                                     steps.append(step("journal",key+"/identity-new.json","library",request["folder_path"]+"/metadata.json",handle,False,digest(rewritten)))
-                        steps.append(step("library",request["folder_path"],"library",request["target_path"],handles[""],True,None))
+                        if request["folder_path"] != request["target_path"]:
+                            steps.append(step("library",request["folder_path"],"library",request["target_path"],handles[""],True,None))
                         for item in entries:
                             mapped={**item,"path":"/".join(renamed(part,old,new) for part in item["path"].split("/"))}
                             if item["path"]=="metadata.json" and rewritten is not None: mapped.update(size=len(rewritten),sha256=digest(rewritten))

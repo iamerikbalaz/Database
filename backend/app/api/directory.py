@@ -4,7 +4,7 @@ import binascii
 import hashlib
 import io
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from typing import Annotated
 from uuid import UUID, uuid4
 
@@ -166,6 +166,13 @@ def build_directory_router(database, settings):
                 query = query.where(PublishedBrand.is_active == filters.is_active)
             if filters.main_category_code:
                 query = query.where(PublishedBrand.id.in_(select(PBRMaterial.published_brand_id).where(PBRMaterial.main_category_code == filters.main_category_code)))
+            for prefix in ("created", "updated"):
+                lower, upper = getattr(filters, prefix + "_from"), getattr(filters, prefix + "_to")
+                column = getattr(PublishedBrand, prefix + "_at")
+                if lower:
+                    query = query.where(column >= datetime.combine(lower, time.min, tzinfo=UTC))
+                if upper:
+                    query = query.where(column <= datetime.combine(upper, time.max, tzinfo=UTC))
             rows = list(session.scalars(query.order_by(PublishedBrand.name, PublishedBrand.id)))
             categories = customer_categories(session, [row.id for row in rows])
             prefetch_directory_states(session, "CUSTOMER", [row.id for row in rows])
@@ -186,6 +193,8 @@ def build_directory_router(database, settings):
             prefix = payload.folder_prefix or folder_prefix_for_customer(payload.name)
             if not re.fullmatch(r"[A-Z0-9][A-Z0-9-]{0,254}", prefix):
                 raise HTTPException(422, "Folder prefix must contain uppercase letters, numbers and hyphens.")
+            from app.customer_orders import require_available_customer_prefix
+            require_available_customer_prefix(session, prefix)
             customer = PublishedBrand(company_id=company.id, **values, folder_prefix=prefix,
                 customer_status=payload.status, customer_brand_identifier=payload.brand_identifier,
                 brand_identifier=payload.brand_identifier or "unassigned-" + uuid4().hex)
@@ -224,11 +233,7 @@ def build_directory_router(database, settings):
                     raise HTTPException(409, {"code": "DIRECTORY_UNIQUE_CONFLICT", "message": "This Brand Identifier is already assigned to another customer."})
             related_orders = []
             if "name" in changes and changes["name"] != item.name:
-                if session.scalar(select(PBRMaterial.id).where(PBRMaterial.published_brand_id == item.id, PBRMaterial.folder_path.is_not(None)).limit(1)) is not None:
-                    raise HTTPException(409, {"code": "BRAND_SOURCE_REWRITE_REQUIRED", "message": "Renaming this customer requires a controlled update of its linked materials and metadata.json manufacturer values."})
-                related_orders = list(session.scalars(select(Project).where(Project.customer_id == item.id).order_by(Project.id).with_for_update()))
-                for order in related_orders:
-                    _folder_idle(session, order)
+                raise HTTPException(409, {"code": "CUSTOMER_RENAME_CONFIRMATION_REQUIRED", "message": "Use Edit name on the customer card to confirm this change."})
             for key, value in changes.items():
                 key = {"status": "customer_status", "brand_identifier": "customer_brand_identifier"}.get(key, key)
                 setattr(item, key, str(value) if key == "website" and value is not None else value)

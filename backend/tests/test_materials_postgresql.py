@@ -56,7 +56,7 @@ def test_postgresql_resource_command_response_matches_record_and_replays(review_
             session.get(PublishedBrand, case.material.published_brand_id).next_sequence_number = 2
             session.commit()
     payload = creation_payload(case.database, case.material, kind)
-    field = "display_name" if kind == "USER" else "material_name" if kind == "MATERIAL" else "name"
+    field = "display_name" if kind == "USER" else "material_name" if kind == "MATERIAL" else "brand_identifier" if kind == "BRAND" else "name"
     with case.client_for() as client:
         first = send(client, "POST", "/api/" + segment, payload, key)
         assert first.status_code == 201
@@ -2360,7 +2360,7 @@ def _persist_material_at_schema(session, material):
     # Older migration fixtures use their historical schema, before the current
     # ORM's additive tracking columns exist.
     from sqlalchemy import Table, MetaData
-    if "automatic_file_check_status" in {column["name"] for column in inspect(session.connection()).get_columns("pbr_materials")}:
+    if "source_brand_name" in {column["name"] for column in inspect(session.connection()).get_columns("pbr_materials")}:
         material.metadata_state = PBRMaterialMetadata(); session.add(material)
     else:
         legacy = Table("pbr_materials", MetaData(), autoload_with=session.connection())

@@ -27,6 +27,25 @@ def folder_prefix_for_customer(name: str) -> str:
     return re.sub(r"[^A-Z0-9]+", "-", stem).strip("-")[:200] or "CUSTOMER"
 
 
+def require_available_customer_prefix(session, prefix, customer_id=None):
+    """Historical prefixes remain owned by their material's Customer."""
+    from fastapi import HTTPException
+    from app.material_naming import match_identity
+    for identifier, stored in session.execute(select(PublishedBrand.id, PublishedBrand.folder_prefix)):
+        if identifier != customer_id and stored.casefold() == prefix.casefold():
+            raise HTTPException(409, {"code": "CUSTOMER_PREFIX_USED", "message": "Another customer already uses this prefix."})
+    for owner, identity in session.execute(select(PBRMaterial.published_brand_id, PBRMaterial.technical_identity)):
+        parsed = match_identity(identity)
+        if owner != customer_id and parsed and parsed["prefix"].casefold() == prefix.casefold():
+            raise HTTPException(409, {"code": "CUSTOMER_PREFIX_RESERVED", "message": "Historical materials reserve this prefix for their customer."})
+    from app.db.models import MaterialIdentityHistory
+    for old, new in session.execute(select(MaterialIdentityHistory.old_context, MaterialIdentityHistory.new_context)):
+        for context in (old, new):
+            parsed = match_identity(context.get("technical_identity", ""))
+            if context.get("published_brand_id") != str(customer_id) and parsed and parsed["prefix"].casefold() == prefix.casefold():
+                raise HTTPException(409, {"code": "CUSTOMER_PREFIX_RESERVED", "message": "Material identity history reserves this prefix for its original customer."})
+
+
 def directory_snapshot(item) -> dict:
     fields = CUSTOMER_FIELDS if isinstance(item, PublishedBrand) else ORDER_FIELDS
     return jsonable_encoder({key: getattr(item, key) for key in fields})

@@ -32,7 +32,7 @@ class MetadataSaveRequest(ApiSchema):
 
 def metadata_identity(material):
     """Only identity values backed by the current database row, never a template."""
-    return {"FOLDER": material.technical_identity, "MANUFACTURER": material.published_brand.name,
+    return {"FOLDER": material.technical_identity, "MANUFACTURER": material.source_brand_name or material.published_brand.name,
         "PRODUCT_NUMBER": f"{material.sequence_number:04d}",
         "PRODUCT_NAME": material_name_from_identity(material.technical_identity) or name_component(material.material_name),
         "CATEGORY": material.main_category_code, "BASE_NAME": material.technical_identity.rsplit("_", 1)[0]}

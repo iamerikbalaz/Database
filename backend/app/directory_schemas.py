@@ -55,6 +55,18 @@ class CustomerFilters(ApiSchema):
     status: CustomerStatus | None = None
     main_category_code: Name | None = None
     is_active: bool | None = None
+    created_from: date | None = None
+    created_to: date | None = None
+    updated_from: date | None = None
+    updated_to: date | None = None
+
+    @model_validator(mode="after")
+    def ordered_dates(self):
+        for prefix in ("created", "updated"):
+            lower, upper = getattr(self, prefix + "_from"), getattr(self, prefix + "_to")
+            if lower and upper and lower > upper:
+                raise ValueError("The start date must not be after the end date")
+        return self
 
 
 class CustomerLogo(ApiSchema):

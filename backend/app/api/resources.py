@@ -298,6 +298,8 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 payload.folder_prefix,
                 "folder_prefix",
             )
+            from app.customer_orders import require_available_customer_prefix
+            require_available_customer_prefix(session, payload.folder_prefix)
             _ensure_unique(
                 session,
                 PublishedBrand,
@@ -329,6 +331,9 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 raise HTTPException(404, "Published brand not found.")
             before = resource_snapshot(brand)
             require_brand_idle(session, brand_id)
+            if brand.is_customer and "name" in values and values["name"] != brand.name:
+                raise HTTPException(409, {"code": "CUSTOMER_RENAME_CONFIRMATION_REQUIRED",
+                    "message": "Use Edit name on the customer card to confirm this change."})
             if ("name" in values and values["name"] != brand.name and session.scalar(
                     select(PBRMaterial.id).where(PBRMaterial.published_brand_id == brand.id,
                         PBRMaterial.folder_path.is_not(None)).limit(1)) is not None):
@@ -360,6 +365,9 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                         field_name,
                         brand.id,
                     )
+                    if field_name == "folder_prefix":
+                        from app.customer_orders import require_available_customer_prefix
+                        require_available_customer_prefix(session, values[field_name], brand.id)
             if any(getattr(brand, key) != value for key, value in values.items()):
                 from app.material_review import invalidate_review
                 for material in session.scalars(select(PBRMaterial).where(PBRMaterial.published_brand_id == brand.id)
@@ -617,6 +625,8 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 )
 
             sequence_number = brand.next_sequence_number
+            from app.material_identity import require_customer_rename_idle
+            require_customer_rename_idle(session, brand.id)
             if sequence_number > 9999:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -630,6 +640,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             material = PBRMaterial(
                 **values,
                 sequence_number=sequence_number,
+                source_brand_name=brand.name,
                 technical_identity=technical_identity,
                 folder_path=None,
                 workflow_status=MaterialWorkflowStatus.IN_PROGRESS.value,

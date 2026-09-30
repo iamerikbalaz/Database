@@ -93,7 +93,7 @@ class IdentityPlan(StrictModel):
     @model_validator(mode="after")
     def check(self) -> Self:
         validate_relative_path(self.source_path); validate_relative_path(self.target_path)
-        if self.ready != (not self.errors) or self.source_path == self.target_path:
+        if self.ready != (not self.errors):
             raise ValueError("Invalid plan outcome")
         sources = [item.source for item in self.changes]
         if sources != sorted(set(sources)): raise ValueError("Duplicate or unsorted renames")

@@ -7,7 +7,7 @@ import pytest
 
 from app.file_journal import JournalError, open_journal
 from app.identity_execute import execute_identity_change
-from app.identity_plan import plan_identity_change
+from app.identity_plan import IdentityTarget, plan_identity_change
 from app.inventory import inventory_material
 from app.secure_filesystem import secure_filesystem_access_supported
 from test_identity_plan import OLD, NEW, TARGET, metadata, source
@@ -116,6 +116,86 @@ def test_process_interruption_recovers_from_persisted_journal(operation, monkeyp
     result = run(operation)
     assert result["status"] == "ROLLED_BACK"
     assert contents(original) == before and not (root / TARGET.path).exists()
+
+
+@POSIX
+@pytest.mark.parametrize("fault_step", [0, 1, 2])
+@pytest.mark.parametrize("process_exit", [False, True])
+def test_same_path_metadata_change_recovers_every_step(operation, monkeypatch, fault_step, process_exit):
+    root, journals, original, _, key = operation
+    target = IdentityTarget("old-brand/" + OLD, "Renamed customer", "Old product")
+    plan = plan_identity_change(root, ("old-brand", OLD), target)
+    assert plan["ready"] and plan["metadata"]["changed_fields"]
+    before = contents(original)
+    reached = []
+    def fail(index):
+        reached.append(index)
+        if index == fault_step:
+            if process_exit:
+                raise SystemExit("Synthetic process exit")
+            raise OSError("Synthetic I/O failure")
+    monkeypatch.setattr("app.identity_execute._after_step", fail)
+    def execute():
+        return execute_identity_change(root, journals, key, ("old-brand", OLD), target, plan["plan_hash"], enabled=True)
+    if process_exit:
+        with pytest.raises(SystemExit):
+            execute()
+    result = execute()
+    assert fault_step in reached
+    assert result["status"] == "ROLLED_BACK", result
+    assert contents(original) == before
+    assert inventory_material(root, ("old-brand", OLD))["source_revision_hash"] == plan["source_revision_hash"]
+    assert list(root.rglob(".reawote-*")) == []
+    assert execute() == result
+
+
+@POSIX
+def test_same_path_completed_rollback_without_final_receipt_replays_safely(operation, monkeypatch):
+    from app.file_journal import FileJournal
+    root, journals, original, _, key = operation
+    target = IdentityTarget("old-brand/" + OLD, "Renamed customer", "Old product")
+    plan = plan_identity_change(root, ("old-brand", OLD), target)
+    before = contents(original)
+    def fail_after_final_move(index):
+        if index == 2:
+            raise OSError("Synthetic rollback trigger")
+    original_write = FileJournal.write
+    crashed = False
+    def lose_rollback_receipt(self, state):
+        nonlocal crashed
+        if state.get("status") == "ROLLED_BACK" and not crashed:
+            crashed = True
+            raise SystemExit("Synthetic exit before rollback receipt")
+        return original_write(self, state)
+    monkeypatch.setattr("app.identity_execute._after_step", fail_after_final_move)
+    monkeypatch.setattr(FileJournal, "write", lose_rollback_receipt)
+    def execute():
+        return execute_identity_change(root, journals, key, ("old-brand", OLD), target, plan["plan_hash"], enabled=True)
+    with pytest.raises(SystemExit):
+        execute()
+    assert contents(original) == before
+    assert execute()["status"] == "ROLLED_BACK"
+    assert contents(original) == before
+    assert list(root.rglob(".reawote-*")) == []
+
+
+@POSIX
+def test_same_path_rollback_preserves_external_metadata_edit(operation, monkeypatch):
+    root, journals, original, _, key = operation
+    target = IdentityTarget("old-brand/" + OLD, "Renamed customer", "Old product")
+    plan = plan_identity_change(root, ("old-brand", OLD), target)
+    def crash_after_final_move(index):
+        if index == 2:
+            raise SystemExit("Synthetic process exit")
+    monkeypatch.setattr("app.identity_execute._after_step", crash_after_final_move)
+    def execute():
+        return execute_identity_change(root, journals, key, ("old-brand", OLD), target, plan["plan_hash"], enabled=True)
+    with pytest.raises(SystemExit):
+        execute()
+    external = b"external metadata edit after interruption"
+    (original / "metadata.txt").write_bytes(external)
+    assert execute()["status"] == "RECOVERY_REQUIRED"
+    assert any(path.read_bytes() == external for path in root.rglob("metadata.txt"))
 
 
 @POSIX

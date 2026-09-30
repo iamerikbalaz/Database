@@ -13,10 +13,11 @@ def test_company_create_retry_rename_and_brand_transfer_keep_same_name_brand(cli
     assert client.patch("/api/companies/" + company["id"], json={"name": "Renamed"}).status_code == 200
     same_name = [item for item in client.get("/api/brands").json() if item["name"] == "Renamed"]
     assert len(same_name) == 1
-    assert client.patch("/api/brands/" + same_name[0]["id"], json={"name": "Child brand"}).status_code == 200
+    refused = client.patch("/api/brands/" + same_name[0]["id"], json={"name": "Child brand"})
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "CUSTOMER_RENAME_CONFIRMATION_REQUIRED"
     brands = client.get("/api/brands").json()
     assert len([item for item in brands if item["name"] == "Renamed"]) == 1
-    assert next(item for item in brands if item["id"] == same_name[0]["id"])["name"] == "Child brand"
+    assert next(item for item in brands if item["id"] == same_name[0]["id"])["name"] == "Renamed"
 
 
 def test_duplicate_company_names_get_distinct_provisional_identifiers(client):

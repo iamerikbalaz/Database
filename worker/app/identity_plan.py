@@ -157,7 +157,7 @@ def plan_identity_change(root: Path, source_parts: tuple[str, ...], target: Iden
     if (not source_parts or any(not _safe_name(part) for part in source_parts)
             or match_identity(source_parts[-1]) is None):
         raise IdentityPlanError("IDENTITY_SOURCE_UNSUPPORTED")
-    if destination[:len(source_parts)] == source_parts:
+    if destination != source_parts and destination[:len(source_parts)] == source_parts:
         raise IdentityPlanError("IDENTITY_TARGET_INSIDE_SOURCE")
     source_path = "/".join(source_parts); target_path = "/".join(destination)
     inventory = inventory_material(root, source_parts)

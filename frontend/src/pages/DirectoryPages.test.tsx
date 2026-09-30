@@ -68,6 +68,42 @@ it("filters Customer creation and update dates independently and clears the boun
   expect(screen.getByRole("link", { name: customer.name })).toBeVisible();
   expect(screen.queryByRole("link", { name: customerDtos[1].name })).not.toBeInTheDocument();
 });
+it("switches the Customers workspace without losing filters, selections or unfinished cell edits", async () => {
+  const fetch = backend(); render(manager(<CustomersPage navigate={vi.fn()} />));
+  await screen.findByRole("link", { name: customer.name });
+  expect(screen.getByRole("region", { name: "Database results" }).parentElement).toHaveClass("database-table-viewport--contained");
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search customers" }), { target: { value: customer.name } });
+  fireEvent.click(screen.getByRole("checkbox", { name: `Select ${customer.name}` }));
+  const editor = screen.getByRole("textbox", { name: `Notes for ${customer.name}` });
+  fireEvent.change(editor, { target: { value: "Unfinished customer note" } });
+  const count = fetch.mock.calls.length;
+  fireEvent.click(screen.getByRole("checkbox", { name: "Fixed workspace" }));
+  expect(screen.getByRole("region", { name: "Database results" }).parentElement).not.toHaveClass("database-table-viewport--contained");
+  expect(screen.getByRole("checkbox", { name: `Select ${customer.name}` })).toBeChecked();
+  expect(screen.getByRole("textbox", { name: `Notes for ${customer.name}` })).toBe(editor);
+  expect(editor).toHaveValue("Unfinished customer note");
+  expect(screen.getByRole("searchbox", { name: "Search customers" })).toHaveValue(customer.name);
+  expect(localStorage.getItem("customers.workspace-view")).toBe("page");
+  expect(fetch.mock.calls).toHaveLength(count);
+  fireEvent.click(screen.getByRole("checkbox", { name: "Fixed workspace" }));
+  expect(editor).toHaveValue("Unfinished customer note");
+  expect(screen.getByRole("region", { name: "Database results" }).parentElement).toHaveClass("database-table-viewport--contained");
+});
+it("falls back in small windows and restores the preferred workspace after resizing", async () => {
+  let resized: (() => void) | undefined;
+  const media = { matches: false, addEventListener: vi.fn((_name: string, callback: () => void) => { resized = callback; }), removeEventListener: vi.fn() };
+  vi.stubGlobal("matchMedia", vi.fn(() => media));
+  backend(); const { unmount } = render(manager(<CustomersPage navigate={vi.fn()} />));
+  await screen.findByRole("link", { name: customer.name });
+  expect(screen.getByRole("checkbox", { name: "Fixed workspace" })).toBeChecked();
+  expect(screen.getByText(/Page view is used in smaller windows/)).toBeVisible();
+  expect(screen.getByRole("region", { name: "Database results" }).parentElement).not.toHaveClass("database-table-viewport--contained");
+  expect(screen.getByLabelText("Created from")).toBeVisible();
+  act(() => { media.matches = true; resized?.(); });
+  expect(screen.getByRole("region", { name: "Database results" }).parentElement).toHaveClass("database-table-viewport--contained");
+  expect(screen.queryByText(/Page view is used in smaller windows/)).not.toBeInTheDocument();
+  unmount(); expect(media.removeEventListener).toHaveBeenCalledWith("change", resized);
+});
 it("shows all Notion order statuses and keeps folder renames separate from inline changes", async () => {
   const fetch = backend(); render(manager(<OrdersPage client={httpApiClient} navigate={vi.fn()} />));
   await screen.findByRole("link", { name: order.number });

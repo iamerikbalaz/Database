@@ -29,7 +29,7 @@ type Job<T> = { row: T; field: string; value: ResourceValue; key: string; genera
 
 type Props<T> = { rows: T[]; columns: ResourceColumn<T>[]; label: (row: T) => string;
 
-  save: Job<T>["save"]; canEdit: boolean; refresh: () => void; onBusyChange?: (busy: boolean) => void; storageKey: string };
+  save: Job<T>["save"]; canEdit: boolean; refresh: () => void; onBusyChange?: (busy: boolean) => void; storageKey: string; scrollMode?: "page" | "contained" };
 
 
 
@@ -67,7 +67,7 @@ function EditableCell<T>({ row, column, label, disabled, save }: { row: T; colum
 
 /** One immutable request per row. An uncertain write pauses the queue and keeps its key. */
 
-export function EditableResourceTable<T extends { id: string }>({ rows, columns, label, save, canEdit, refresh, onBusyChange, storageKey }: Props<T>) {
+export function EditableResourceTable<T extends { id: string }>({ rows, columns, label, save, canEdit, refresh, onBusyChange, storageKey, scrollMode = "page" }: Props<T>) {
 
   const [overrides, setOverrides] = useState<Record<string, T>>({});
 
@@ -189,13 +189,13 @@ export function EditableResourceTable<T extends { id: string }>({ rows, columns,
   const reviewedValue = reviewedColumn?.options?.find(option => option.value === String(jobs[0]?.value))?.label
     ?? (typeof jobs[0]?.value === "boolean" ? jobs[0].value ? "Yes" : "No" : String(jobs[0]?.value ?? "Empty"));
 
-  return <div className="resource-database">
+  return <div className={`resource-database${scrollMode === "contained" ? " resource-database--contained" : ""}`}>
 
     <div className="toolbar resource-table-toolbar">
 
       <button className="button" disabled={active} onClick={refreshRows}>Refresh</button>
 
-      <details className="resource-properties"><summary>Properties</summary>{columns.map(column => <label key={column.key}><input type="checkbox" checked={!hidden.has(column.key)} disabled={active || visible.length === 1 && !hidden.has(column.key)} onChange={() => { const next = new Set(hidden); if (next.has(column.key)) next.delete(column.key); else next.add(column.key); setHidden(next); try { localStorage.setItem(storageKey, JSON.stringify([...next])); } catch { /* In-memory preferences remain available. */ } }} />{column.label}</label>)}</details>
+      <details className="resource-properties"><summary>Properties</summary><div className="resource-property-options">{columns.map(column => <label key={column.key}><input type="checkbox" checked={!hidden.has(column.key)} disabled={active || visible.length === 1 && !hidden.has(column.key)} onChange={() => { const next = new Set(hidden); if (next.has(column.key)) next.delete(column.key); else next.add(column.key); setHidden(next); try { localStorage.setItem(storageKey, JSON.stringify([...next])); } catch { /* In-memory preferences remain available. */ } }} />{column.label}</label>)}</div></details>
 
       {canEdit && <button className="button" disabled={active || !items.some(row => highlight.ids.has(row.id))} onClick={() => setSelected(new Set([...selected, ...items.filter(row => highlight.ids.has(row.id)).map(row => row.id)]))}>Select highlighted ({items.filter(row => highlight.ids.has(row.id)).length})</button>}
       {canEdit && <span>{items.filter(row => selected.has(row.id)).length} selected</span>}
@@ -208,7 +208,7 @@ export function EditableResourceTable<T extends { id: string }>({ rows, columns,
 
     {inline && jobs.length > 0 && <div role="status">{pending ? "Saving…" : jobs.every(job => job.state === "saved") ? "Saved. Refresh to reapply filters." : "Review the result."}{!pending && results}{jobs.some(job => job.state === "unknown") && <button className="button" disabled={pending || jobs.some(job => job.state === "unknown" && job.generation !== sessionGeneration())} onClick={() => void run()}>Retry same request</button>}</div>}
 
-    <DatabaseTableViewport className="table-card resource-table-scroll" label="Database results"><table><thead><tr>{canEdit && <th><input aria-label="Select all filtered rows" type="checkbox" disabled={active || !items.length} ref={element => { if (element) element.indeterminate = items.some(row => selected.has(row.id)) && !items.every(row => selected.has(row.id)); }} checked={items.length > 0 && items.every(row => selected.has(row.id))} onChange={e => setSelected(e.target.checked ? new Set(items.map(row => row.id)) : new Set())} /></th>}{visible.map(column => <th key={column.key}>{column.label}</th>)}</tr></thead>
+    <DatabaseTableViewport scrollMode={scrollMode} className="table-card resource-table-scroll" label="Database results"><table><thead><tr>{canEdit && <th><input aria-label="Select all filtered rows" type="checkbox" disabled={active || !items.length} ref={element => { if (element) element.indeterminate = items.some(row => selected.has(row.id)) && !items.every(row => selected.has(row.id)); }} checked={items.length > 0 && items.every(row => selected.has(row.id))} onChange={e => setSelected(e.target.checked ? new Set(items.map(row => row.id)) : new Set())} /></th>}{visible.map(column => <th key={column.key}>{column.label}</th>)}</tr></thead>
 
       <tbody>{items.map(row => <tr key={row.id} aria-label={`Record row ${label(row)}`} aria-selected={highlight.ids.has(row.id)} tabIndex={canEdit ? 0 : undefined} className={`${selected.has(row.id) ? "is-selected " : ""}${highlight.ids.has(row.id) ? "is-highlighted" : ""}`}
         onMouseDown={event => { if ((event.shiftKey || event.ctrlKey || event.metaKey) && !isInteractiveTarget(event.target)) event.preventDefault(); }}

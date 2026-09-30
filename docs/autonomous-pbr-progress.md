@@ -1,6 +1,42 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-30, automatic-check filters and source rules)
+## Latest checkpoint (2026-09-30, Customers / Orders)
+
+Resumed the approved directory iteration on `codex/autonomous-pbr-completion`.
+Remote main still resolves to `88a1f99d748d2a0edbb1fce509e13d18bfc03908`.
+The running local test at `http://127.0.0.1:53033` is upgraded to schema 0035.
+
+- One-level Customers and Orders replace the old directory UI. Shared tables
+  support inline edits, reviewed bulk changes, Properties and Ctrl/Shift
+  highlighting; Catalog no longer requires a reason. Navigation has distinct icons.
+- Orders use the supplied uppercase naming formula, explicit folder-rename
+  confirmation, durable new-folder creation under `R:\0. PROJECTS`, and profile
+  properties matching the approved Notion schema. Customer categories derive
+  from assigned materials; logo upload is available.
+- One-time bootstrap completed: 303 Customers, 282 Orders, 50 unchanged materials,
+  and all 252 original order folder paths preserved. Ambiguous matches remain
+  separate/unlinked. Existing manufacturer names used by metadata.json remain
+  unchanged. Exact source data and conflicts are private, outside Git.
+- Ongoing Notion writes are one-way, durable and currently **disabled** because
+  the application integration token is missing. Historical inbound adoption is
+  retired (410); historical receipts remain readable. No real Notion or NAS
+  writes were used for acceptance. New user-created orders can now create folders.
+- Frontend: 1,108 tests, build and lint passed; final focused corrections 20/20.
+  Backend: 110 targeted tests and 41 outbound/API/migration tests passed, with
+  one Windows symlink privilege skip. PostgreSQL: 343 initial passes; all 24
+  stale fixture/retired-feature failures corrected and rerun successfully;
+  8 additional new concurrency/migration checks passed. Auth gate 27/27.
+  Clone and live test-instance API/upgrade acceptance passed. Fresh browser
+  visual/E2E verification remains unavailable under the existing browser denial.
+
+See [version notes and rollback](customers-orders-version.md) and
+[outbound integration contract](customers-orders-outbound.md). The owned runtime
+retains a pre-migration dump. Source material and publication-worker image pins
+were preserved. Templates, OneDrive links and ZIP refinements remain the next
+user-directed iterations. Current remaining inputs: Notion application token and
+decisions on one conflicting customer identifier and two duplicate order numbers.
+
+## Previous checkpoint (2026-09-30, automatic-check filters and source rules)
 
 Continued the existing `codex/autonomous-pbr-completion` branch. This slice adds
 the Materials **Automatic check** filter (not checked / OK / issues) across the

@@ -1,16 +1,39 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MaterialsPage } from "./MaterialsPage";
 import { mockApiClient } from "../api/client";
-import { materialFromDto } from "../api/materialDto";
+import { internalUserFromDto, materialFromDto } from "../api/materialDto";
 import { materialDto } from "../test/materialFixtures";
 import { previewClient } from "../api/previewClient";
 import { SessionContext } from "../auth/context";
-import { processorDto } from "../test/materialFixtures";
+import { inactiveDto, processorDto } from "../test/materialFixtures";
 import type { MaterialFilters } from "../api/materialClient";
 
 beforeEach(() => localStorage.clear());
 afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
+
+it.each([false, true])("offers active processors and assigned or selected historical people without duplicate aliases (archived=%s)", async archived => {
+  const material = { ...materialFromDto(materialDto), assignedProcessorId: inactiveDto.id, isArchived: archived };
+  const users = [processorDto, inactiveDto,
+    { ...inactiveDto, id: "40000000-0000-4000-8000-000000000003", display_name: "Unused duplicate" },
+    { ...processorDto, id: "40000000-0000-4000-8000-000000000004", display_name: "Administrator", role: "ADMIN" as const },
+  ].map(internalUserFromDto);
+  const getInternalUsers = vi.fn().mockResolvedValue(users);
+  const getMaterials = vi.fn(async (filters: MaterialFilters) => filters.search ? [] : [material]);
+  render(<MaterialsPage client={{ ...mockApiClient, getMaterials, getInternalUsers }} navigate={vi.fn()} archived={archived} />);
+  await screen.findByRole("table");
+  const filter = screen.getByRole("combobox", { name: "Processor" });
+  expect(within(filter).getAllByRole("option").map(option => option.textContent)).toEqual(["All", processorDto.display_name, `${inactiveDto.display_name} (inactive)`]);
+  fireEvent.change(filter, { target: { value: inactiveDto.id } });
+  await waitFor(() => expect(getMaterials).toHaveBeenLastCalledWith(expect.objectContaining({ assigned_processor_id: inactiveDto.id })));
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search materials" }), { target: { value: "Missing" } });
+  await screen.findByText("No materials found");
+  expect(filter).toHaveValue(inactiveDto.id);
+  expect(within(filter).getByRole("option", { name: `${inactiveDto.display_name} (inactive)` })).toBeInTheDocument();
+  fireEvent.change(filter, { target: { value: "" } });
+  await waitFor(() => expect(within(filter).queryByRole("option", { name: `${inactiveDto.display_name} (inactive)` })).not.toBeInTheDocument());
+  expect(getInternalUsers).toHaveBeenCalledOnce();
+});
 
 it.each([false, true])("filters automatic checks in list and gallery and clears the filter (archived=%s)", async archived => {
   const first = { ...materialFromDto(materialDto), isArchived: archived, automaticFileCheckStatus: "ISSUES" as const };

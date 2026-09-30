@@ -115,9 +115,9 @@ it("confirms bulk activity only for the current filtered catalog values", async 
   const fetch = setup("ADMIN", [category, { ...category, id: "10000000-0000-4000-8000-000000000002", value: "Wood", abbreviation: "A" }]);
   await screen.findByText("Stone");
   fireEvent.change(screen.getByRole("searchbox", { name: "Search catalog" }), { target: { value: "Stone" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select all filtered rows" }));
   fireEvent.change(screen.getByRole("combobox", { name: "Bulk property" }), { target: { value: "is_active" } });
   fireEvent.click(screen.getByRole("checkbox", { name: "Bulk value" }));
-  fireEvent.click(screen.getByRole("checkbox", { name: "Select all filtered rows" }));
   fireEvent.click(screen.getByRole("button", { name: "Review bulk change" }));
   expect(fetch.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
   expect(screen.getByRole("searchbox", { name: "Search catalog" })).toBeDisabled();

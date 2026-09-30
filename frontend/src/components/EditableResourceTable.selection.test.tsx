@@ -7,6 +7,7 @@ const row = (name: string) => screen.getByRole("row", { name: `Record row ${name
 afterEach(() => localStorage.clear());
 it("shares Materials click, Shift, Ctrl and explicit selection behavior", () => {
   render(table());
+  expect(screen.queryByRole("combobox", { name: "Bulk property" })).not.toBeInTheDocument();
   fireEvent.click(row("First")); fireEvent.click(row("Third"), { shiftKey: true });
   expect(row("Second")).toHaveAttribute("aria-selected", "true");
   expect(screen.getByRole("checkbox", { name: "Select First" })).not.toBeChecked();
@@ -16,6 +17,7 @@ it("shares Materials click, Shift, Ctrl and explicit selection behavior", () => 
   expect(screen.getByRole("checkbox", { name: "Select First" })).toBeChecked();
   expect(screen.getByRole("checkbox", { name: "Select Second" })).not.toBeChecked();
   expect(screen.getByRole("checkbox", { name: "Select all filtered rows" })).toBePartiallyChecked();
+  expect(screen.getByRole("combobox", { name: "Bulk property" })).toBeVisible();
   fireEvent.click(screen.getByRole("textbox", { name: "Name for Second" }));
   expect(row("Second")).toHaveAttribute("aria-selected", "false");
 });
@@ -26,4 +28,6 @@ it("prunes both highlights and selection when a filter removes rows", () => {
   expect(screen.getByRole("button", { name: "Select highlighted (1)" })).toBeEnabled();
   expect(screen.getByRole("checkbox", { name: "Select First" })).not.toBeChecked();
   expect(screen.getByRole("checkbox", { name: "Select Second" })).toBeChecked();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select Second" }));
+  expect(screen.queryByRole("combobox", { name: "Bulk property" })).not.toBeInTheDocument();
 });

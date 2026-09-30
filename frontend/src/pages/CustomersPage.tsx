@@ -12,13 +12,16 @@ import { categoryLabel } from "../data/materialCategories";
 export function CustomersPage({ navigate }: { navigate: (path: string) => void }) {
   const resource = useResource(useCallback(() => directoryClient.customers(), []));
   const [search, setSearch] = useState(""), [status, setStatus] = useState(""), [category, setCategory] = useState(""), [busy, setBusy] = useState(false);
+  const [dates, setDates] = useState({ createdFrom: "", createdTo: "", updatedFrom: "", updatedTo: "" });
   const role = useSession()?.session.user.role, canEdit = role === "ADMIN" || role === "PRODUCTION_LEAD";
   const all = resource.data ?? [], categories = [...new Set(all.flatMap(item => item.mainCategoryCodes))].sort();
   const filtered = all.filter(item => (!status || item.status === status) && (!category || item.mainCategoryCodes.includes(category)) &&
+    (!dates.createdFrom || item.createdAt.slice(0, 10) >= dates.createdFrom) && (!dates.createdTo || item.createdAt.slice(0, 10) <= dates.createdTo) &&
+    (!dates.updatedFrom || item.updatedAt.slice(0, 10) >= dates.updatedFrom) && (!dates.updatedTo || item.updatedAt.slice(0, 10) <= dates.updatedTo) &&
     [item.name, item.legalName, item.brandIdentifier, item.address, item.shippingAddress, item.vatId, item.website, item.description, item.notes].some(value => value?.toLowerCase().includes(search.toLowerCase())));
   const columns: ResourceColumn<Customer>[] = [
     { key: "logo", label: "Logo", value: () => null, render: item => item.hasLogo ? <img className="customer-logo customer-logo--thumbnail" src={directoryClient.logoUrl(item)} alt={`${item.name} logo`} loading="lazy" /> : <span className="company-monogram">{item.name.slice(0, 2).toUpperCase()}</span> },
-    { key: "name", label: "Customer", value: item => item.name, editable: true, render: item => <NavigationLink className="table-link" href={`/customers/${item.id}`} navigate={navigate}>{item.name}</NavigationLink> },
+    { key: "name", label: "Customer", value: item => item.name, render: item => <NavigationLink className="table-link" href={`/customers/${item.id}`} navigate={navigate}>{item.name}</NavigationLink> },
     { key: "brand_identifier", label: "Brand identifier", value: item => item.brandIdentifier, editable: true },
     { key: "status", label: "Status", value: item => item.status, editable: true, bulk: true, options: customerStatuses.map(value => ({ value, label: value })) },
     { key: "categories", label: "Main categories", value: item => item.mainCategoryCodes.map(categoryLabel).join(", ") },
@@ -38,7 +41,8 @@ export function CustomersPage({ navigate }: { navigate: (path: string) => void }
       <label>Search customers<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Name, identifier or notes" /></label>
       <label>Status<select value={status} onChange={event => setStatus(event.target.value)}><option value="">All</option>{customerStatuses.map(value => <option key={value}>{value}</option>)}</select></label>
       <label>Main category<select value={category} onChange={event => setCategory(event.target.value)}><option value="">All categories</option>{categories.map(value => <option key={value} value={value}>{categoryLabel(value)}</option>)}</select></label>
-      <button className="button" onClick={() => { setSearch(""); setStatus(""); setCategory(""); }}>Clear filters</button>
+      {([["createdFrom", "Created from"], ["createdTo", "Created to"], ["updatedFrom", "Updated from"], ["updatedTo", "Updated to"]] as const).map(([key, label]) => <label key={key}>{label}<input type="date" value={dates[key]} onChange={event => setDates(previous => ({ ...previous, [key]: event.target.value }))} /></label>)}
+      <button className="button" onClick={() => { setSearch(""); setStatus(""); setCategory(""); setDates({ createdFrom: "", createdTo: "", updatedFrom: "", updatedTo: "" }); }}>Clear filters</button>
     </fieldset><p className="result-count">{filtered.length} customers</p>
     {resource.error ? <ErrorState message="Customers could not be loaded." retry={resource.retry} /> : !resource.data ? <LoadingState label="Loading customers…" /> : <>
       {!filtered.length && <p>No customers match these filters.</p>}

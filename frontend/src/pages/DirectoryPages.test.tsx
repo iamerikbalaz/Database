@@ -10,6 +10,7 @@ import { setSessionToken } from "../auth/sessionTransport";
 import { processorDto } from "../test/materialFixtures";
 import { customerDtos, orderDtos } from "../test/directoryFixtures";
 import { requestNavigation } from "../navigationGuard";
+import { directoryClient, parseCustomer } from "../api/directoryClient";
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
 const customer = customerDtos[0], order = orderDtos[0];
 function manager(children: ReactNode) { return <SessionContext.Provider value={{ session: { user: { ...processorDto, role: "ADMIN" }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}>{children}</SessionContext.Provider>; }
@@ -25,6 +26,7 @@ function backend(options: { folder?: boolean; order?: object; write?: (path: str
     }
     if (path === "/api/customers") return json([customerRow, customerDtos[1]]);
     if (path === `/api/customers/${customer.id}`) return json(customerRow);
+    if (path.endsWith("/rename-operations")) return json([]);
     if (path === "/api/orders") return json([orderRow]);
     if (path === `/api/orders/${order.id}`) return json(orderRow);
     if (path.endsWith("/folder")) return json({ enabled: options.folder === true });
@@ -38,6 +40,7 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); setSessionToken(n
 it("filters Customers using material main categories and sends versioned inline edits", async () => {
   const fetch = backend(); render(manager(<CustomersPage navigate={vi.fn()} />));
   await screen.findByRole("link", { name: customer.name });
+  expect(screen.queryByRole("textbox", { name: `Customer for ${customer.name}` })).not.toBeInTheDocument();
   fireEvent.change(screen.getByRole("combobox", { name: "Main category" }), { target: { value: "H01" } });
   expect(screen.queryByRole("link", { name: customerDtos[1].name })).not.toBeInTheDocument();
   fireEvent.change(screen.getByRole("combobox", { name: `Status for ${customer.name}` }), { target: { value: "test" } });
@@ -47,12 +50,31 @@ it("filters Customers using material main categories and sends versioned inline 
   expect(JSON.parse(String(call[1]?.body))).toEqual({ status: "test", expected_updated_at: customer.updated_at });
   expect(call[1]?.headers).toMatchObject({ "Idempotency-Key": expect.any(String), "X-CSRF-Token": "t".repeat(43) });
 });
+it("filters Customer creation and update dates independently and clears the bounds", async () => {
+  vi.spyOn(directoryClient, "customers").mockResolvedValue([
+    parseCustomer({ ...customer, created_at: "2026-01-01T23:59:00Z", updated_at: "2026-03-02T12:00:00Z" }),
+    parseCustomer({ ...customerDtos[1], created_at: "2026-02-01T00:01:00Z", updated_at: "2026-04-02T12:00:00Z" }),
+  ]);
+  render(manager(<CustomersPage navigate={vi.fn()} />)); await screen.findByRole("link", { name: customer.name });
+  fireEvent.change(screen.getByLabelText("Created from"), { target: { value: "2026-02-01" } });
+  expect(screen.queryByRole("link", { name: customer.name })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Created to"), { target: { value: "2026-02-01" } });
+  expect(screen.getByRole("link", { name: customerDtos[1].name })).toBeVisible();
+  fireEvent.change(screen.getByLabelText("Updated to"), { target: { value: "2026-03-31" } });
+  expect(screen.getByText("No customers match these filters.")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+  fireEvent.change(screen.getByLabelText("Updated from"), { target: { value: "2026-03-02" } });
+  fireEvent.change(screen.getByLabelText("Updated to"), { target: { value: "2026-03-02" } });
+  expect(screen.getByRole("link", { name: customer.name })).toBeVisible();
+  expect(screen.queryByRole("link", { name: customerDtos[1].name })).not.toBeInTheDocument();
+});
 it("shows all Notion order statuses and keeps folder renames separate from inline changes", async () => {
   const fetch = backend(); render(manager(<OrdersPage client={httpApiClient} navigate={vi.fn()} />));
   await screen.findByRole("link", { name: order.number });
   expect(within(screen.getByRole("combobox", { name: "Status" })).getAllByRole("option")).toHaveLength(14);
   const customerCell = screen.getByRole("combobox", { name: `Customer for ${order.number} · ${order.generated_name}` });
   expect(within(customerCell).getByRole("option", { name: "Not assigned" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select all filtered rows" }));
   fireEvent.change(screen.getByRole("combobox", { name: "Bulk property" }), { target: { value: "customer_id" } });
   expect(screen.getByRole("combobox", { name: "Bulk value" })).toHaveValue(customer.id);
   fireEvent.change(screen.getByRole("combobox", { name: `Status for ${order.number} · ${order.generated_name}` }), { target: { value: "Visualize" } });

@@ -10,7 +10,6 @@ const items = [
   ["Materials", "/materials", "materials"],
   ["Archived materials", "/material-archives", "archive"],
   ["Catalog", "/catalog", "catalog"],
-  ["Imports", "/imports", "imports"],
   ["Settings", "/settings", "settings"],
 ];
 export function AppShell({
@@ -26,7 +25,7 @@ export function AppShell({
   const account = useSession();
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const close = () => dialog.current?.close();
+  const close = () => { dialog.current?.close(); setOpen(false); trigger.current?.focus(); };
   const go = (event: MouseEvent<HTMLAnchorElement>, path: string) => {
     if (
       event.button !== 0 ||
@@ -51,8 +50,7 @@ export function AppShell({
         <img className="brand-logo" src={reawoteLogo} alt="REAWOTE" width="191" height="42" />
       </a>
       <nav aria-label="Main navigation">
-        {items.filter(([, href]) => (href !== "/imports" || account?.session.user.role === "ADMIN") &&
-          (href !== "/material-archives" || account?.session.user.role === "ADMIN")).map(([label, href, icon]) => {
+        {items.filter(([, href]) => href !== "/material-archives" || account?.session.user.role === "ADMIN").map(([label, href, icon]) => {
           const active =
             currentPath === href ||
             (href === "/customers" && currentPath.startsWith("/companies/")) ||
@@ -85,6 +83,7 @@ export function AppShell({
         id="mobile-navigation"
         className="mobile-navigation"
         aria-label="Navigation"
+        onClick={event => { if (event.target === event.currentTarget) close(); }}
         onCancel={(event) => {
           event.preventDefault();
           close();

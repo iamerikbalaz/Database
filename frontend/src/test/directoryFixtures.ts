@@ -12,4 +12,5 @@ export function mockDirectory() {
   vi.spyOn(directoryClient, "customer").mockImplementation(async id => { const item = customers.find(row => row.id === id); if (!item) throw new Error("missing"); return item; });
   vi.spyOn(directoryClient, "order").mockImplementation(async id => { const item = orders.find(row => row.id === id); if (!item) throw new Error("missing"); return item; });
   vi.spyOn(directoryClient, "folderInfo").mockResolvedValue({ enabled: false });
+  vi.spyOn(directoryClient, "customerRenameOperations").mockResolvedValue([]);
 }

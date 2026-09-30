@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { SettingsPage } from "./SettingsPage";
+import { PackagingSettingsPage, SettingsPage } from "./SettingsPage";
 import { packagingSettingsClient as api } from "../api/packagingSettingsClient";
 import { ApiError } from "../api/errors";
 import { SessionContext } from "../auth/context";
@@ -11,9 +11,18 @@ const initial = { version: 0, cutoffDate: "2026-03-04", storageTimezone: "Europe
 afterEach(() => vi.restoreAllMocks());
 function mount(role: "ADMIN" | "LEADERSHIP" = "ADMIN") {
   return render(<SessionContext.Provider value={{ session: { user: { ...processorDto, role }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}>
-    <SettingsPage navigate={vi.fn()} />
+    <PackagingSettingsPage navigate={vi.fn()} />
   </SessionContext.Provider>);
 }
+
+it("groups imports, packaging and accounts in Settings without loading packaging on the hub", () => {
+  const current = vi.spyOn(api, "current");
+  render(<SessionContext.Provider value={{ session: { user: { ...processorDto, role: "ADMIN" }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}><SettingsPage navigate={vi.fn()} /></SessionContext.Provider>);
+  expect(screen.getByRole("link", { name: /Imports/ })).toHaveAttribute("href", "/settings/imports");
+  expect(screen.getByRole("link", { name: /Automatic ZIP packaging/ })).toHaveAttribute("href", "/settings/packaging");
+  expect(screen.getByRole("link", { name: /Accounts/ })).toHaveAttribute("href", "/settings/users");
+  expect(current).not.toHaveBeenCalled();
+});
 
 it("shows the global automatic methods and edits with the current version", async () => {
   const current = vi.spyOn(api, "current").mockResolvedValue(initial);

@@ -16,6 +16,7 @@ import { MaterialThumbnail } from "./MaterialsGrid";
 import { NavigationLink } from "./NavigationLink";
 import { useNavigationGuard } from "../navigationGuard";
 import { highlightMaterial, isInteractiveTarget, type HighlightState } from "./materialHighlight";
+import { DatabaseTableViewport } from "./DatabaseTableViewport";
 
 const columns = [
   ["project", "Order", 180], ["brand", "Customer", 180], ["category", "Category", 225],
@@ -218,7 +219,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     if (key === "archived") return <MaterialLifecyclePanel materialId={row.id} archived={row.isArchived} label={`Archived for ${row.materialName}`} navigate={navigate} disabled={active || lifecycleBusy || Boolean(identity)} onBusyChange={setLifecycleBusy} onApplied={() => { refresh(); }} />;
     if (key === "archivedAt") return row.archivedAt ? new Date(row.archivedAt).toLocaleString() : "—";
     if (key === "processor") return manager ? <select aria-label={`Processor for ${row.materialName}`} disabled={disable} value={row.assignedProcessorId} onChange={e => save({ assigned_processor_id: e.target.value })}>
-      {users.filter(u => u.id === row.assignedProcessorId || u.isActive && u.role === "PROCESSOR").map(u => <option key={u.id} value={u.id}>{u.displayName}{!u.isActive ? " (inactive)" : ""}</option>)}</select> : users.find(u => u.id === row.assignedProcessorId)?.displayName ?? row.assignedProcessorId;
+      {users.filter(u => u.id === row.assignedProcessorId || u.isActive && u.role === "PROCESSOR").map(u => <option key={u.id} value={u.id} disabled={!u.isActive || u.role !== "PROCESSOR"}>{u.displayName}{!u.isActive ? " (inactive)" : ""}</option>)}</select> : users.find(u => u.id === row.assignedProcessorId)?.displayName ?? row.assignedProcessorId;
     if (key === "note") return editor ? <NoteCell key={`${row.id}:${row.note ?? ""}`} material={row} disabled={disable} save={save} /> : <span className="note-text">{row.note ?? "—"}</span>;
     if (key === "folder") return <span className="material-folder-path">{row.folderPath ? validateFolderPath(row.folderPath).error ? "Unavailable (unsafe path hidden)" : row.folderPath : "No folder linked"}</span>;
     if (key === "number") return String(row.sequenceNumber).padStart(4, "0");
@@ -255,7 +256,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     {inline && jobs.some(j => j.status === "failed" || j.status === "unknown") && <div role="alert" className="form-error">
       {jobs[0].message}{unknown && <button className="button" disabled={pending} onClick={() => void run()}>Retry same request</button>}
     </div>}
-    {detail ? <dl className="info-list material-property-editor">{columns.filter(([key]) => key !== "archivedAt" || rows[0].isArchived).map(([key, name]) => <div key={key}><dt>{name}</dt><dd>{renderCell(key, rows[0])}</dd></div>)}</dl> : <div className="table-card material-table material-table--editable" role="region" aria-label="Material results" tabIndex={0}>
+    {detail ? <dl className="info-list material-property-editor">{columns.filter(([key]) => key !== "archivedAt" || rows[0].isArchived).map(([key, name]) => <div key={key}><dt>{name}</dt><dd>{renderCell(key, rows[0])}</dd></div>)}</dl> : <DatabaseTableViewport className="table-card material-table material-table--editable" label="Material results">
       <table style={{ width: 356 + visible.reduce((n, c) => n + c.width, 0) }}><caption className="sr-only">Materials and production status</caption>
         <colgroup><col style={{ width: 40 }} /><col style={{ width: 76 }} /><col style={{ width: 240 }} />{visible.map(c => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
         <thead><tr><th scope="col">{selectable && <input type="checkbox" aria-label="Select all visible materials" disabled={active || lifecycleBusy} checked={rows.length > 0 && selectedRows.length === rows.length} onChange={e => setSelected(new Set(e.target.checked ? rows.map(r => r.id) : []))} />}</th><th scope="col">Preview</th><th scope="col">Material</th>{visible.map(c => <th key={c.key} scope="col">{title(c.key)}</th>)}</tr></thead>
@@ -268,7 +269,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
           <td><MaterialThumbnail material={row} store={store} /></td><td><NavigationLink className="table-link" href={row.isArchived ? `/material-archives/${row.id}` : `/materials/${row.id}`} navigate={navigate}>{row.materialName}</NavigationLink><NavigationLink className="table-identity" href={row.isArchived ? `/material-archives/${row.id}` : `/materials/${row.id}`} navigate={navigate}>{row.technicalIdentity}</NavigationLink></td>
           {visible.map(c => <td key={c.key}>{renderCell(c.key, row)}</td>)}</tr>)}</tbody>
       </table>
-    </div>}
+    </DatabaseTableViewport>}
     <dialog className="confirm-dialog material-bulk-dialog" ref={dialog} aria-labelledby="material-change-title" onCancel={e => { e.preventDefault(); close(); }}>
       <div className="confirm-dialog__body"><h2 id="material-change-title">Change {jobs.length} material{jobs.length === 1 ? "" : "s"}</h2>
         <p>Selected records are fixed for this operation. Each write checks that the material has not changed.</p>

@@ -5,6 +5,7 @@ import { ApiError } from "../api/errors";
 
 import { sessionGeneration } from "../auth/sessionTransport";
 import { highlightMaterial, isInteractiveTarget, type HighlightState } from "./materialHighlight";
+import { DatabaseTableViewport } from "./DatabaseTableViewport";
 
 
 
@@ -14,7 +15,7 @@ export type ResourceColumn<T> = {
 
   key: string; label: string; value: (row: T) => ResourceValue;
 
-  options?: { value: string; label: string; disabled?: boolean }[];
+  options?: { value: string; label: string; disabled?: boolean; currentOnly?: boolean }[];
 
   type?: "text" | "textarea" | "date" | "boolean";
 
@@ -32,11 +33,11 @@ type Props<T> = { rows: T[]; columns: ResourceColumn<T>[]; label: (row: T) => st
 
 
 
-function ValueInput({ column, value, set, label, disabled }: { column: { type?: string; options?: { value: string; label: string; disabled?: boolean }[] }; value: string; set: (value: string) => void; label: string; disabled: boolean }) {
+function ValueInput({ column, value, set, label, disabled }: { column: { type?: string; options?: { value: string; label: string; disabled?: boolean; currentOnly?: boolean }[] }; value: string; set: (value: string) => void; label: string; disabled: boolean }) {
 
   if (column.type === "boolean") return <input type="checkbox" aria-label={label} checked={value === "true"} onChange={e => set(String(e.target.checked))} disabled={disabled} />;
 
-  if (column.options) return <select aria-label={label} value={value} onChange={e => set(e.target.value)} disabled={disabled}>{column.options.map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}</select>;
+  if (column.options) return <select aria-label={label} value={value} onChange={e => set(e.target.value)} disabled={disabled}>{column.options.filter(option => !option.currentOnly || option.value === value).map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}</select>;
 
   if (column.type === "textarea") return <textarea rows={2} aria-label={label} value={value} onChange={e => set(e.target.value)} disabled={disabled} maxLength={10000} />;
 
@@ -199,7 +200,7 @@ export function EditableResourceTable<T extends { id: string }>({ rows, columns,
       {canEdit && <button className="button" disabled={active || !items.some(row => highlight.ids.has(row.id))} onClick={() => setSelected(new Set([...selected, ...items.filter(row => highlight.ids.has(row.id)).map(row => row.id)]))}>Select highlighted ({items.filter(row => highlight.ids.has(row.id)).length})</button>}
       {canEdit && <span>{items.filter(row => selected.has(row.id)).length} selected</span>}
     </div>
-    {canEdit && bulkColumn && <fieldset className="material-bulk-bar resource-bulk-bar" disabled={active}><legend>Apply to {items.filter(row => selected.has(row.id)).length} selected records</legend>
+    {canEdit && bulkColumn && items.some(row => selected.has(row.id)) && <fieldset className="material-bulk-bar resource-bulk-bar" disabled={active}><legend>Apply to {items.filter(row => selected.has(row.id)).length} selected records</legend>
       <label>Property<select aria-label="Bulk property" value={bulkColumn.key} onChange={e => { setField(e.target.value); setValue(initialValue(editable.find(column => column.key === e.target.value))); }}>{editable.map(column => <option key={column.key} value={column.key}>{column.label}</option>)}</select></label>
       <label>New value<ValueInput column={bulkColumn} label="Bulk value" value={value} set={setValue} disabled={active} /></label>
       <button className="button button--primary" disabled={!items.some(row => selected.has(row.id)) || Boolean(bulkColumn.options && !bulkColumn.options.some(option => !option.disabled && option.value === value))} onClick={() => prepare(items.filter(row => selected.has(row.id)), bulkColumn, cellValue(bulkColumn, value))}>Review bulk change</button>
@@ -207,11 +208,12 @@ export function EditableResourceTable<T extends { id: string }>({ rows, columns,
 
     {inline && jobs.length > 0 && <div role="status">{pending ? "Saving…" : jobs.every(job => job.state === "saved") ? "Saved. Refresh to reapply filters." : "Review the result."}{!pending && results}{jobs.some(job => job.state === "unknown") && <button className="button" disabled={pending || jobs.some(job => job.state === "unknown" && job.generation !== sessionGeneration())} onClick={() => void run()}>Retry same request</button>}</div>}
 
-    <div className="table-card resource-table-scroll"><table><thead><tr>{canEdit && <th><input aria-label="Select all filtered rows" type="checkbox" disabled={active || !items.length} ref={element => { if (element) element.indeterminate = items.some(row => selected.has(row.id)) && !items.every(row => selected.has(row.id)); }} checked={items.length > 0 && items.every(row => selected.has(row.id))} onChange={e => setSelected(e.target.checked ? new Set(items.map(row => row.id)) : new Set())} /></th>}{visible.map(column => <th key={column.key}>{column.label}</th>)}</tr></thead>
+    <DatabaseTableViewport className="table-card resource-table-scroll" label="Database results"><table><thead><tr>{canEdit && <th><input aria-label="Select all filtered rows" type="checkbox" disabled={active || !items.length} ref={element => { if (element) element.indeterminate = items.some(row => selected.has(row.id)) && !items.every(row => selected.has(row.id)); }} checked={items.length > 0 && items.every(row => selected.has(row.id))} onChange={e => setSelected(e.target.checked ? new Set(items.map(row => row.id)) : new Set())} /></th>}{visible.map(column => <th key={column.key}>{column.label}</th>)}</tr></thead>
 
       <tbody>{items.map(row => <tr key={row.id} aria-label={`Record row ${label(row)}`} aria-selected={highlight.ids.has(row.id)} tabIndex={canEdit ? 0 : undefined} className={`${selected.has(row.id) ? "is-selected " : ""}${highlight.ids.has(row.id) ? "is-highlighted" : ""}`}
+        onMouseDown={event => { if ((event.shiftKey || event.ctrlKey || event.metaKey) && !isInteractiveTarget(event.target)) event.preventDefault(); }}
         onClick={event => { if (canEdit && !active && !isInteractiveTarget(event.target)) setHighlight(current => highlightMaterial(current, row.id, items.map(item => item.id), event)); }}
-        onKeyDown={event => { if (canEdit && !active && event.target === event.currentTarget && event.key === " ") { event.preventDefault(); setHighlight(current => highlightMaterial(current, row.id, items.map(item => item.id), event)); } }}>{canEdit && <td><input aria-label={`Select ${label(row)}`} type="checkbox" disabled={active} checked={selected.has(row.id)} onChange={e => { const next = new Set(selected); if (e.target.checked) next.add(row.id); else next.delete(row.id); setSelected(next); }} /></td>}{visible.map(column => <td key={column.key}>{column.render?.(row)}{canEdit && column.editable ? <EditableCell key={`${row.id}:${column.key}:${String(column.value(row))}`} row={row} column={column} label={label(row)} disabled={active} save={next => prepare([row], column, next, true)} /> : !column.render && (column.type === "boolean" ? column.value(row) ? "Yes" : "No" : (column.options?.find(option => option.value === String(column.value(row)))?.label ?? column.value(row)) || "—")}</td>)}</tr>)}</tbody></table></div>
+        onKeyDown={event => { if (canEdit && !active && event.target === event.currentTarget && event.key === " ") { event.preventDefault(); setHighlight(current => highlightMaterial(current, row.id, items.map(item => item.id), event)); } }}>{canEdit && <td><input aria-label={`Select ${label(row)}`} type="checkbox" disabled={active} checked={selected.has(row.id)} onChange={e => { const next = new Set(selected); if (e.target.checked) next.add(row.id); else next.delete(row.id); setSelected(next); }} /></td>}{visible.map(column => <td key={column.key}>{column.render?.(row)}{canEdit && column.editable ? <EditableCell key={`${row.id}:${column.key}:${String(column.value(row))}`} row={row} column={column} label={label(row)} disabled={active} save={next => prepare([row], column, next, true)} /> : !column.render && (column.type === "boolean" ? column.value(row) ? "Yes" : "No" : (column.options?.find(option => option.value === String(column.value(row)))?.label ?? column.value(row)) || "—")}</td>)}</tr>)}</tbody></table></DatabaseTableViewport>
 
     <dialog ref={dialog} className="resource-bulk-dialog" aria-labelledby={`${storageKey}-bulk-title`} onCancel={event => { event.preventDefault(); close(); }}><h2 id={`${storageKey}-bulk-title`}>Review changes to {jobs.length} records</h2><p>{reviewedColumn?.label}: {reviewedValue}</p><p>The current filtered or selected rows and their versions are fixed for this operation. Results are recorded separately for every row.</p>{results}
 

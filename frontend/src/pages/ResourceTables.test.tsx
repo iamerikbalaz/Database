@@ -19,9 +19,9 @@ it("searches project notes and links folders, then bulk changes only the filtere
   await screen.findByRole("link", { name: project.name });
   expect(screen.getByText(project.folderPath)).toBeVisible();
   fireEvent.change(screen.getByRole("textbox", { name: "Search projects" }), { target: { value: "#fabrics" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select all filtered rows" }));
   fireEvent.change(screen.getByRole("combobox", { name: "Bulk property" }), { target: { value: "status" } });
   fireEvent.change(screen.getByRole("combobox", { name: "Bulk value" }), { target: { value: "DONE" } });
-  fireEvent.click(screen.getByRole("checkbox", { name: "Select all filtered rows" }));
   fireEvent.click(screen.getByRole("button", { name: "Review bulk change" }));
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirm changes" }));
   await waitFor(() => expect(updateProject).toHaveBeenCalledWith(project.id, { status: "DONE", expected_updated_at: project.updatedAt }, expect.any(String)));

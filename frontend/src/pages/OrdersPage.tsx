@@ -56,7 +56,7 @@ export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: 
 
     { key: "priority", label: "Priority", value: item => item.priority, editable: true, bulk: true, options: [{ value: "", label: "Not set" }, ...priorities.map(value => ({ value, label: value }))] },
 
-    { key: "responsible_id", label: "Responsible", value: item => item.responsibleId, editable: true, bulk: true, options: [{ value: "", label: "Not assigned" }, ...users.filter(item => item.role === "PROCESSOR" || all.some(order => order.responsibleId === item.id)).map(item => ({ value: item.id, label: item.displayName + (item.isActive ? "" : " (inactive)"), disabled: !item.isActive || item.role !== "PROCESSOR" }))] },
+    { key: "responsible_id", label: "Responsible", value: item => item.responsibleId, editable: true, bulk: true, options: [{ value: "", label: "Not assigned" }, ...users.filter(item => item.role === "PROCESSOR" && item.isActive || all.some(order => order.responsibleId === item.id)).map(item => ({ value: item.id, label: item.displayName + (item.isActive ? "" : " (inactive)"), disabled: !item.isActive || item.role !== "PROCESSOR", currentOnly: !item.isActive || item.role !== "PROCESSOR" }))] },
 
     { key: "notes", label: "Note", value: item => item.notes, type: "textarea", editable: true, bulk: true },
 

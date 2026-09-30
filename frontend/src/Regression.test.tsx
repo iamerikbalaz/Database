@@ -180,6 +180,17 @@ describe("frontend regression coverage", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveFocus();
   });
+  it("dismisses mobile navigation through its close button or backdrop without navigating", () => {
+    render(<App client={mockApiClient} initialPath="/settings" />);
+    const trigger = screen.getByRole("button", { name: "Open navigation" });
+    fireEvent.click(trigger);
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Navigation" })).getByRole("button", { name: "Close navigation" }));
+    expect(trigger).toHaveFocus(); expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeVisible();
+    fireEvent.click(trigger); fireEvent.click(screen.getByRole("dialog", { name: "Navigation" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeVisible(); expect(trigger).toHaveFocus();
+  });
   it("keeps unauthenticated controls read-only", async () => {
     render(<App client={mockApiClient} initialPath="/customers" />);
     await screen.findByRole("link", { name: "Swisspearl" });

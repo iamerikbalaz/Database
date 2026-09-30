@@ -61,7 +61,7 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
   const selectors: { key: Exclude<keyof MaterialFilters, "color_hex">; label: string; options: { value: string; label: string }[] }[] = [
     { key: "project_id", label: "Order", options: projects.map((p) => ({ value: p.id, label: p.name })) },
     { key: "published_brand_id", label: "Customer", options: brands.map((b) => ({ value: b.id, label: b.name })) },
-    { key: "assigned_processor_id", label: "Processor", options: users.map((u) => ({ value: u.id, label: u.displayName + (u.isActive ? "" : " (inactive)") })) },
+    { key: "assigned_processor_id", label: "Processor", options: users.filter(u => u.role === "PROCESSOR" && (u.isActive || materials?.some(material => material.assignedProcessorId === u.id) || filters.assigned_processor_id === u.id)).map((u) => ({ value: u.id, label: u.displayName + (u.isActive ? "" : " (inactive)") })) },
     { key: "workflow_status", label: "Status", options: workflowStatuses.map((value) => ({ value, label: statusLabel(value) })) },
     { key: "checked_status", label: "Checked", options: checkedStatuses.map((value) => ({ value, label: value })) },
     { key: "automatic_file_check_status", label: "Automatic check", options: automaticFileCheckStatuses.map(value => ({ value, label: value === "NOT_CHECKED" ? "Not checked" : value === "ISSUES" ? "Issues" : "OK" })) },

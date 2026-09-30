@@ -32,6 +32,7 @@ function AccountsPageWork({ actorId, navigate }: { actorId: string; navigate: (p
   const [notice, setNotice] = useState("");
   const saved = (message: string) => { setSelected(null); setNotice(message); users.retry(); };
   return <section>
+    <NavigationLink className="back-link" href="/settings" navigate={navigate}>Back to settings</NavigationLink>
     <div className="page-heading"><div><p className="eyebrow">Administration</p><h1>Accounts</h1><p>Manage roles and issue temporary access. Changing roles or access signs out existing sessions.</p></div></div>
     {notice && <p role="status" className="success-notice">{notice}</p>}
     {pending && <p role="status">Resolve the pending save before changing another profile. {pending.scope.kind === "USER" ?

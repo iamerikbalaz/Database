@@ -3,9 +3,24 @@ import { ApiError } from "../api/errors";
 import { packagingSettingsClient as api, type PackagingSettings, type PackagingSettingsUpdate } from "../api/packagingSettingsClient";
 import { useSession } from "../auth/context";
 import { NavigationLink } from "../components/NavigationLink";
+import { Icon } from "../components/Icon";
 import { useNavigationGuard } from "../navigationGuard";
 
 export function SettingsPage({ navigate }: { navigate: (path: string) => void }) {
+  const admin = useSession()?.session.user.role === "ADMIN";
+  const destinations = [
+    ...(admin ? [{ title: "Imports", description: "Review and import source records into the database.", href: "/settings/imports", icon: "imports" }] : []),
+    { title: "Automatic ZIP packaging", description: "Set the shared date rule for material packaging.", href: "/settings/packaging", icon: "archive" },
+    ...(admin ? [{ title: "Accounts", description: "Manage workspace accounts and access.", href: "/settings/users", icon: "users" }] : []),
+  ];
+  return <section><div className="page-heading"><div><p className="eyebrow">Workspace</p><h1>Settings</h1><p>Imports, packaging and workspace access.</p></div></div>
+    <div className="settings-destinations">{destinations.map(destination => <NavigationLink key={destination.href} className="panel settings-destination" href={destination.href} navigate={navigate}>
+      <Icon name={destination.icon} /><h2>{destination.title}</h2><p>{destination.description}</p><span>Open →</span>
+    </NavigationLink>)}</div>
+  </section>;
+}
+
+export function PackagingSettingsPage({ navigate }: { navigate: (path: string) => void }) {
   const user = useSession()?.session.user;
   return <SettingsWork key={user?.id ?? "signed-out"} admin={user?.role === "ADMIN"} navigate={navigate} />;
 }
@@ -57,22 +72,21 @@ function SettingsWork({ admin, navigate }: { admin: boolean; navigate: (path: st
     pending.current = { idempotency_key: crypto.randomUUID(), expected_version: settings.version, cutoff_date: cutoff, storage_timezone: timezone.trim() };
     void send();
   };
-  return <section><div className="page-heading"><div><p className="eyebrow">Workspace</p><h1>Settings</h1></div></div>
+  return <section><NavigationLink className="back-link" href="/settings" navigate={navigate}>Back to settings</NavigationLink><div className="page-heading"><div><p className="eyebrow">Settings</p><h1>Automatic ZIP packaging</h1></div></div>
     {error && <p className="form-error" role="alert">{error}</p>}{notice && <p className="success-notice" role="status">{notice}</p>}
     {uncertain && <button className="button" disabled={busy} onClick={() => void send()}>Recover same settings request</button>}
-    <article className="panel"><h2>Automatic ZIP packaging</h2>
+    <article className="panel record-form"><h2>Packaging rules</h2>
       <p>The original master folder date selects method A before the cutoff and method B on or after it.</p>
       <dl><dt>Method A</dt><dd>Normalize ZIP dates to 1 January 2026.</dd><dt>Method B</dt><dd>Retain packaging dates.</dd></dl>
       <p>Changes apply to future batches. Saved batches, jobs and files retain their recorded settings.</p>
-      {settings ? <fieldset disabled={!admin || busy || uncertain}><legend>Global date rule</legend>
+      {settings ? <fieldset disabled={!admin || busy || uncertain}><legend>Global date rule</legend><div className="directory-fields">
         <label>Cutoff date<input type="date" min="1980-01-01" max="2100-12-31" value={cutoff} onChange={event => setCutoff(event.target.value)} /></label>
         <label>Timezone<input value={timezone} maxLength={100} onChange={event => setTimezone(event.target.value)} placeholder="Europe/Prague" /></label>
-        <p>The boundary is midnight in this timezone.</p>
+        </div><p>The boundary is midnight in this timezone.</p>
         {admin && <button className="button button--primary" disabled={!cutoff || !timezone.trim()} onClick={save}>Save packaging settings</button>}
       </fieldset> : !error && <p role="status">Loading packaging settings…</p>}
       {!admin && <p>An administrator can change these settings.</p>}
       <button className="button" disabled={busy || uncertain} onClick={() => void refresh()}>Refresh settings</button>
     </article>
-    {admin && <article className="panel"><h2>Accounts</h2><NavigationLink href="/settings/users" navigate={navigate}>Manage users</NavigationLink></article>}
   </section>;
 }

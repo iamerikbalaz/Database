@@ -35,11 +35,26 @@ export function parseOrder(input: unknown) {
 }
 export type Customer = ReturnType<typeof parseCustomer>;
 export type Order = ReturnType<typeof parseOrder>;
+export type CustomerRenameRequest = { name: string; folder_prefix?: string; rename_materials: boolean; expected_updated_at: string };
+export type CustomerRenamePlan = { proposalHash: string; ready: boolean; materialCount: number; issues: string[] };
+export type CustomerRenameOperation = { id: string; status: string; completedCount: number; totalCount: number; customer: Customer | null; failures: string[] };
+function renameOperation(input: unknown): CustomerRenameOperation {
+  const value = record(input);
+  return { id: uuid(value.id), status: string(value.status), completedCount: Number(value.completed_count), totalCount: Number(value.total_count), customer: value.customer ? parseCustomer(value.customer) : null,
+    failures: Array.isArray(value.materials) ? value.materials.map(record).filter(item => item.failure_code).map(item => `${string(item.material_id)}: ${string(item.failure_code)}`) : [] };
+}
 function list<T>(input: unknown, parse: (value: unknown) => T): T[] { if (!Array.isArray(input)) throw new Error("Invalid directory list"); return input.map(parse); }
 export const directoryClient = {
   async customers() { return list(await request("/customers"), parseCustomer); },
   async customer(id: string) { return parseCustomer(await request(`/customers/${uuid(id)}`)); },
   async saveCustomer(id: string | undefined, payload: DirectoryValues, key: string) { return parseCustomer(await request(id ? `/customers/${uuid(id)}` : "/customers", id ? "PATCH" : "POST", payload, key)); },
+  async customerRenamePlan(id: string, payload: CustomerRenameRequest): Promise<CustomerRenamePlan> {
+    const value = record(await request(`/customers/${uuid(id)}/rename-plan`, "POST", payload));
+    return { proposalHash: string(value.proposal_hash), ready: boolean(value.ready), materialCount: Number(value.material_count), issues: Array.isArray(value.issues) ? value.issues.map(record).map(issue => typeof issue.message === "string" ? issue.message : string(issue.code)) : [] };
+  },
+  async renameCustomer(id: string, payload: CustomerRenameRequest, proposalHash: string, key: string) { return renameOperation(await request(`/customers/${uuid(id)}/rename`, "POST", { ...payload, confirmed: true, expected_proposal_hash: proposalHash }, key)); },
+  async customerRenameOperations(id: string) { const result = await request(`/customers/${uuid(id)}/rename-operations`); return list(Array.isArray(result) ? result : record(result).items, renameOperation); },
+  async resumeCustomerRename(id: string, operationId: string) { return renameOperation(await request(`/customers/${uuid(id)}/rename-operations/${uuid(operationId)}/resume`, "POST")); },
   async orders() { return list(await request("/orders"), parseOrder); },
   async order(id: string) { return parseOrder(await request(`/orders/${uuid(id)}`)); },
   async saveOrder(id: string | undefined, payload: DirectoryValues, key: string) { return parseOrder(await request(id ? `/orders/${uuid(id)}` : "/orders", id ? "PATCH" : "POST", payload, key)); },

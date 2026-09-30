@@ -5,11 +5,12 @@ import { isMaterialId } from "./api/materialDto";
 import { lazy, Suspense, useEffect, useState, useRef } from "react";
 import { apiClient, type ApiClient } from "./api/client";
 import { AppShell } from "./components/AppShell";
+import { NavigationLink } from "./components/NavigationLink";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { useSession } from "./auth/context";
 import { restrictedDestination } from "./auth/permissions";
 import { AccountsPage } from "./pages/AccountsPage";
-import { SettingsPage } from "./pages/SettingsPage";
+import { PackagingSettingsPage, SettingsPage } from "./pages/SettingsPage";
 import { CatalogPage } from "./pages/CatalogPage";
 import { PublicationPage } from "./pages/PublicationPage";
 import { MaterialArchivesPage } from "./pages/MaterialArchivesPage";
@@ -30,6 +31,7 @@ interface AppProps {
 }
 const normalizePath = (path: string) => {
   const clean = path.split(/[?#]/)[0].replace(/\/+$/, "") || "/";
+  if (clean === "/imports") return "/settings/imports";
   if (clean === "/companies" || clean === "/companies/new" || /^\/companies\/[^/]+\/brands\/new$/.test(clean)) return clean === "/companies" ? "/customers" : "/customers/new";
   return clean.replace(/^\/projects(?=\/|$)/, "/orders").replace(/^\/brands(?=\/|$)/, "/customers");
 };
@@ -101,12 +103,14 @@ function App({ client = apiClient, initialPath }: AppProps) {
     page = <SettingsPage navigate={navigate} />;
   else if (path === "/settings/users")
     page = <AccountsPage navigate={navigate} />;
+  else if (path === "/settings/packaging")
+    page = <PackagingSettingsPage navigate={navigate} />;
   else if (path === "/catalog")
     page = <CatalogPage client={client} />;
   else if (path === "/compare")
     page = <MaterialsPage client={client} navigate={navigate} initialView="gallery" />;
-  else if (path === "/imports")
-    page = <ImportsPage client={client} navigate={navigate} />;
+  else if (path === "/settings/imports")
+    page = <><NavigationLink className="back-link" href="/settings" navigate={navigate}>Back to settings</NavigationLink><ImportsPage client={client} navigate={navigate} /></>;
   else if (path === "/publication")
     page = <PublicationPage client={client} navigate={navigate} />;
   else if (path === "/material-archives")

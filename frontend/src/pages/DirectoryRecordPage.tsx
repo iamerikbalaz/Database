@@ -7,6 +7,7 @@ import { useSession } from "../auth/context";
 import { sessionGeneration } from "../auth/sessionTransport";
 import { NavigationLink } from "../components/NavigationLink";
 import { DirectoryHistory } from "../components/DirectoryHistory";
+import { CustomerRenamePanel } from "../components/CustomerRenamePanel";
 import { DirectorySync } from "../components/DirectorySync";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { NasFolderReference } from "../components/NasFolderReference";
@@ -44,6 +45,7 @@ function DirectoryRecordEditor({ kind, id, item, customers, users, orders, folde
   const summary = useRef<HTMLParagraphElement>(null);
   useEffect(() => { if (error) summary.current?.focus(); }, [error]);
   const [file, setFile] = useState<File>(), [folderAction, setFolderAction] = useState<"CREATE" | "RENAME" | null>(null);
+  const [renameBusy, setRenameBusy] = useState(false);
   const packet = useRef<{ key: string; generation: number; run: (key: string) => Promise<unknown>; done: (result: unknown) => void } | null>(null), sending = useRef(false), alive = useRef(true), dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { if (folderAction) dialog.current?.showModal(); }, [folderAction]);
@@ -69,7 +71,7 @@ function DirectoryRecordEditor({ kind, id, item, customers, users, orders, folde
     } finally { sending.current = false; if (alive.current) setBusy(false); }
   };
   const fields: Field[] = kind === "customer" ? [
-    { key: "name", label: "Name", required: true }, { key: "brand_identifier", label: "Brand identifier" },
+    ...(!id ? [{ key: "name", label: "Name", required: true }] : []), { key: "brand_identifier", label: "Brand identifier" },
     { key: "status", label: "Status", options: customerStatuses.map(value => ({ value, label: value })) },
     { key: "website", label: "Website", type: "url" }, { key: "legal_name", label: "Legal name" }, { key: "vat_id", label: "VAT ID" },
     { key: "address", label: "Address", type: "textarea" }, { key: "shipping_address", label: "Shipping address", type: "textarea" },
@@ -80,10 +82,10 @@ function DirectoryRecordEditor({ kind, id, item, customers, users, orders, folde
     { key: "project_type", label: "Project type", required: !id }, { key: "starting_date", label: "Starting date", type: "date", required: !id },
     { key: "due_date", label: "Due date", type: "date" }, { key: "status", label: "Status", options: orderStatuses.map(value => ({ value, label: value })) },
     { key: "priority", label: "Priority", options: [{ value: "", label: "Not set" }, ...priorities.map(value => ({ value, label: value }))] },
-    { key: "responsible_id", label: "Responsible", options: [{ value: "", label: "Not assigned" }, ...users.filter(value => value.role === "PROCESSOR" || value.id === order?.responsibleId).map(value => ({ value: value.id, label: value.displayName + (value.isActive ? "" : " (inactive)"), disabled: !value.isActive || value.role !== "PROCESSOR" }))] },
+    { key: "responsible_id", label: "Responsible", options: [{ value: "", label: "Not assigned" }, ...users.filter(value => value.role === "PROCESSOR" && value.isActive || value.id === order?.responsibleId).map(value => ({ value: value.id, label: value.displayName + (value.isActive ? "" : " (inactive)"), disabled: !value.isActive || value.role !== "PROCESSOR" }))] },
     { key: "notes", label: "Note", type: "textarea" },
   ];
-  const locked = busy || uncertain || !canEdit;
+  const locked = busy || uncertain || renameBusy || !canEdit;
   const title = id ? kind === "customer" ? customer!.name : `Order ${order!.number}` : `Add ${kind}`;
   const date = String(values.starting_date ?? "");
   const generatedPreview = [order?.number ?? String(values.number || "0000"), customers.find(value => value.id === values.customer_id)?.name ?? "", values.project_type ?? "", /^\d{4}-\d{2}-\d{2}$/.test(date) ? date.slice(5, 7) + date.slice(0, 4) : ""].join("_").toUpperCase();
@@ -91,6 +93,7 @@ function DirectoryRecordEditor({ kind, id, item, customers, users, orders, folde
     <div className="page-heading"><div><p className="eyebrow">{kind === "customer" ? "Directory" : "Production"}</p><h1>{title}</h1>{order && <p>{order.generatedName}</p>}</div>{item && <DirectorySync detailed sync={item.sync} notionPageId={item.notionPageId} />}</div>
     {error && <p ref={summary} tabIndex={-1} role="alert" className="form-error">{error}</p>}{notice && <p role="status">{notice}</p>}
     {uncertain && <button className="button" disabled={busy || requestGeneration !== sessionGeneration()} onClick={() => void submit()}>Retry same request</button>}
+    {customer && canEdit && <CustomerRenamePanel customer={customer} disabled={busy || uncertain} onChanged={refresh} onBusyChange={setRenameBusy} />}
     <form noValidate className="panel record-form" aria-label={`${id ? "Edit" : "Add"} ${kind}`} onSubmit={event => {
       event.preventDefault();
       const errors: Record<string, string> = {};

@@ -38,7 +38,7 @@ export interface ContentPayload {
 }
 export interface CatalogCreate { idempotency_key: string; value: string; brand_id?: string; abbreviation?: string | null; }
 export interface CatalogActivity { idempotency_key: string; expected_version: number; is_active: boolean; reason: string; }
-export type CatalogTableUpdate = { idempotency_key: string; expected_version: number; reason: string } &
+export type CatalogTableUpdate = { idempotency_key: string; expected_version: number; reason?: string } &
   ({ is_active: boolean } | { abbreviation: string | null });
 export type CatalogKind = "online-categories" | "collections";
 export const catalogClient = {

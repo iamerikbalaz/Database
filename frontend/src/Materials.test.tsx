@@ -62,8 +62,8 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const change = (label: string, value: string) => fireEvent.change((screen.queryByRole("search", { name: "Material filters" }) ? within(screen.getByRole("search", { name: "Material filters" })) : screen).getByLabelText(label, { exact: true }), { target: { value } });
 async function fillCreate() {
   await screen.findByRole("form", { name: "Add material" });
-  change("Project *", materialProject.id);
-  change("Published brand *", materialBrand.id);
+  change("Order *", materialProject.id);
+  change("Customer *", materialBrand.id);
   change("Material name *", "  New surface  ");
   change("Main category *", "G02");
   change("Processor *", processorDto.id);
@@ -92,10 +92,10 @@ it("handles an empty material list", async () => {
 it("opens a historical material without requiring a project", async () => {
   backend({ projectless: true });
   render(<App initialPath="/materials" />);
-  expect(await screen.findByText("No project assigned")).toBeInTheDocument();
+  expect(await screen.findByText("No order assigned")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("link", { name: materialDto.technical_identity }));
   await screen.findByRole("heading", { name: materialDto.material_name });
-  expect(screen.getByText("No project assigned")).toBeInTheDocument();
+  expect(screen.getByText("No order assigned")).toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Edit material" })).not.toBeInTheDocument();
 });
 it.each([false, true])("handles API/network list failure (offline=%s) and retries", async (offline) => {
@@ -107,8 +107,8 @@ it.each([false, true])("handles API/network list failure (offline=%s) and retrie
   expect(await screen.findByRole("link", { name: materialDto.technical_identity })).toBeInTheDocument();
 });
 it.each([
-  ["Search materials", "search", "Crystal"], ["Project", "project_id", materialProject.id],
-  ["Published brand", "published_brand_id", materialBrand.id], ["Processor", "assigned_processor_id", processorDto.id],
+  ["Search materials", "search", "Crystal"], ["Order", "project_id", materialProject.id],
+  ["Customer", "published_brand_id", materialBrand.id], ["Processor", "assigned_processor_id", processorDto.id],
   ["Main category", "main_category_code", "G03"], ["Status", "workflow_status", "IN_PROGRESS"],
   ["Checked", "checked_status", "no"],
   ["Published", "is_published", "false"],
@@ -122,7 +122,7 @@ it.each([
 it("combines all filters, honors an empty response and clears filters", async () => {
   const { queries } = backend(); render(<App initialPath="/materials" />);
   await screen.findByRole("option", { name: processorDto.display_name });
-  for (const [label, value] of [["Search materials", "missing"], ["Project", materialProject.id], ["Published brand", materialBrand.id], ["Processor", processorDto.id], ["Main category", "G03"], ["Status", "DONE"], ["Checked", "OK"], ["Published", "true"]]) change(label, value);
+  for (const [label, value] of [["Search materials", "missing"], ["Order", materialProject.id], ["Customer", materialBrand.id], ["Processor", processorDto.id], ["Main category", "G03"], ["Status", "DONE"], ["Checked", "OK"], ["Published", "true"]]) change(label, value);
   await waitFor(() => expect(queries.at(-1)?.size).toBe(8));
   expect(await screen.findByText("No materials found")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
@@ -161,7 +161,7 @@ it.each(["/materials/not-a-uuid", "/materials/not-a-uuid/edit"])("rejects invali
 });
 it("creates with independent owners, active processors, first-field focus and exact POST", async () => {
   const { writes, fetchMock } = backend(); render(<App initialPath="/materials/new" />);
-  expect(await screen.findByLabelText("Project *")).toHaveFocus();
+  expect(await screen.findByLabelText("Order *")).toHaveFocus();
   expect(screen.queryByRole("option", { name: inactiveDto.display_name })).not.toBeInTheDocument();
   await fillCreate(); submit();
   expect(await screen.findByRole("heading", { name: "New surface" })).toBeInTheDocument();
@@ -176,7 +176,7 @@ it("creates with independent owners, active processors, first-field focus and ex
 it("edits with a minimal PATCH and shows managed fields read-only", async () => {
   const { writes } = backend(); render(<App initialPath={"/materials/" + materialDto.id + "/edit"} />);
   expect(await screen.findByLabelText("Material name *")).toHaveValue(materialDto.material_name);
-  expect(screen.queryByLabelText("Published brand *")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Customer *")).not.toBeInTheDocument();
   expect(screen.getByText("Current record (read-only)")).toBeInTheDocument();
   change("Material name *", "Updated surface"); submit();
   await screen.findByText("Material updated successfully.");
@@ -204,7 +204,7 @@ it("maps 422 to labelled fields and focuses summary", async () => {
   expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   await act(async () => { await Promise.resolve(); });
   expect(summary).toHaveFocus();
-  expect(screen.getByLabelText("Project *")).not.toHaveFocus();
+  expect(screen.getByLabelText("Order *")).not.toHaveFocus();
   fireEvent.click(screen.getByRole("link", { name: "Invalid material name" }));
   expect(screen.getByLabelText("Material name *")).toHaveFocus();
 });

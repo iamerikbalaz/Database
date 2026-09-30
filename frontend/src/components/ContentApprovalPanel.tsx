@@ -8,7 +8,7 @@ import { HistoryPages } from "./HistoryPages";
 
 const findings: Record<string, string> = {
   CONTENT_DRAFT_REQUIRED: "Save a publication draft first.", CONTENT_CREDITS_REQUIRED: "Enter credits.",
-  CONTENT_CATEGORIES_REQUIRED: "Select at least one online category.", CONTENT_BRAND_INACTIVE: "The published brand is inactive.",
+  CONTENT_CATEGORIES_REQUIRED: "Select at least one online category.", CONTENT_BRAND_INACTIVE: "The customer is inactive.",
   CONTENT_CATALOG_VALUE_INACTIVE: "Remove or replace inactive categories and collections.",
   CONTENT_COLLECTION_BRAND_MISMATCH: "A collection belongs to a different brand.",
   CONTENT_DESCRIPTION_EMPTY: "The description is empty.", CONTENT_TAGS_EMPTY: "The tag list is empty.",

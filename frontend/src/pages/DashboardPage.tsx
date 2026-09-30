@@ -63,7 +63,7 @@ function Dashboard({ client, navigate }: Props) {
         <p className="dashboard-note">Counts cover the active records you can access, as of the last refresh. Validation findings include warnings, errors and missing metadata. Done does not mean approved or published.</p>
         {!result.data.length ? <EmptyState title="No materials available" description={user?.role === "PROCESSOR"
           ? "No active materials are assigned to you. Ask your production lead about your next assignment."
-          : "Add a material or browse projects to start production."} />
+          : "Add a material or browse orders to start production."} />
           : <section className="panel" aria-labelledby="dashboard-materials-title">
             <h2 id="dashboard-materials-title">{selectedView.label}</h2>
             <label className="form-field">Find a material<input type="search" value={search}

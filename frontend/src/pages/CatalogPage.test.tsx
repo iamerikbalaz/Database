@@ -36,19 +36,19 @@ function setup(role: Role = "ADMIN", categories = [category]) {
 it("creates a brand collection with an explicit selected brand", async () => {
   const fetch = setup(); await screen.findByRole("button", { name: "Create catalog value" });
   fireEvent.change(screen.getByRole("combobox", { name: "Value type" }), { target: { value: "collections" } });
-  fireEvent.change(screen.getByRole("combobox", { name: "Collection brand" }), { target: { value: materialBrand.id } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Collection customer" }), { target: { value: materialBrand.id } });
   fireEvent.change(screen.getByLabelText("Catalog value"), { target: { value: "Studio" } });
   fireEvent.click(screen.getByRole("button", { name: "Create catalog value" })); await screen.findByText("Catalog change saved.");
   const call = fetch.mock.calls.find(([, init]) => init?.method === "POST")!;
   expect(call[0]).toBe("/api/collections"); expect(JSON.parse(String(call[1]?.body))).toEqual({ idempotency_key: expect.any(String), value: "Studio", brand_id: materialBrand.id });
 });
-it("changes availability inline with a reason and exact catalog version", async () => {
-  const fetch = setup(); await screen.findByRole("combobox", { name: "Active for Stone" });
-  fireEvent.change(screen.getByLabelText("Reason for catalog change"), { target: { value: "Replace duplicate category" } });
-  fireEvent.change(screen.getByRole("combobox", { name: "Active for Stone" }), { target: { value: "false" } });
+it("changes availability inline without a reason and with the exact catalog version", async () => {
+  const fetch = setup(); await screen.findByRole("checkbox", { name: "Active for Stone" });
+  expect(screen.queryByLabelText("Reason for catalog change")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Active for Stone" }));
   await screen.findByText("Saved. Refresh to reapply filters.");
   const call = fetch.mock.calls.find(([, init]) => init?.method === "PATCH")!;
-  expect(JSON.parse(String(call[1]?.body))).toEqual({ idempotency_key: expect.any(String), expected_version: 1, is_active: false, reason: "Replace duplicate category" });
+  expect(JSON.parse(String(call[1]?.body))).toEqual({ idempotency_key: expect.any(String), expected_version: 1, is_active: false });
   expect(call[0]).toBe(`/api/online-categories/${category.id}/table`);
 });
 it("replays an unknown catalog mutation with its original key and frozen inputs", async () => {
@@ -63,7 +63,7 @@ it("replays an unknown catalog mutation with its original key and frozen inputs"
 });
 it.each(["PROCESSOR", "LEADERSHIP"] as const)("keeps %s catalog access read-only", async (role) => {
   setup(role); await screen.findByText("Stone"); expect(screen.queryByRole("button", { name: "Create catalog value" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("combobox", { name: "Active for Stone" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("checkbox", { name: "Active for Stone" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Create replacement for Stone" })).not.toBeInTheDocument();
 });
 
@@ -80,7 +80,7 @@ it("filters by persisted abbreviation, active state and creation date inside fix
   expect(screen.getByText("No catalog values match these filters.")).toBeVisible();
   fireEvent.click(screen.getByRole("tab", { name: "Brand collections" }));
   expect(screen.getByRole("tab", { name: "Brand collections" })).toHaveAttribute("aria-selected", "true");
-  expect(screen.getByRole("combobox", { name: "Brand filter" })).toBeVisible();
+  expect(screen.getByRole("combobox", { name: "Customer filter" })).toBeVisible();
 });
 
 it("edits abbreviations inline and keeps canonical names behind explicit replacement", async () => {
@@ -116,8 +116,9 @@ it("confirms bulk activity only for the current filtered catalog values", async 
   await screen.findByText("Stone");
   fireEvent.change(screen.getByRole("searchbox", { name: "Search catalog" }), { target: { value: "Stone" } });
   fireEvent.change(screen.getByRole("combobox", { name: "Bulk property" }), { target: { value: "is_active" } });
-  fireEvent.change(screen.getByRole("combobox", { name: "Bulk value" }), { target: { value: "false" } });
-  fireEvent.click(screen.getByRole("button", { name: "Apply to all 1 filtered" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Bulk value" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select all filtered rows" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review bulk change" }));
   expect(fetch.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
   expect(screen.getByRole("searchbox", { name: "Search catalog" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Confirm changes" }));

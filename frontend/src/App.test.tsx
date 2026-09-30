@@ -1,67 +1,40 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import { mockApiClient, type ApiClient } from "./api/client";
-describe("REAWOTE frontend", () => {
-  afterEach(() => vi.restoreAllMocks());
-  it("navigates between primary sections", async () => {
+import { mockApiClient } from "./api/client";
+import { directoryClient } from "./api/directoryClient";
+import { mockDirectory } from "./test/directoryFixtures";
+beforeEach(mockDirectory);
+afterEach(() => vi.restoreAllMocks());
+describe("REAWOTE directory navigation", () => {
+  it("navigates between Customers and Orders with canonical naming", async () => {
     render(<App client={mockApiClient} initialPath="/dashboard" />);
-    expect(
-      await screen.findByRole("heading", { name: "Dashboard" }),
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("link", { name: /Companies/ }));
-    expect(
-      await screen.findByRole("heading", { name: "Companies" }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Companies/ })).toHaveClass(
-      "active",
-    );
-    fireEvent.click(screen.getByRole("link", { name: /Projects/ }));
-    expect(
-      await screen.findByRole("heading", { name: "Projects" }),
-    ).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Dashboard" });
+    fireEvent.click(screen.getByRole("link", { name: "Customers" }));
+    await screen.findByRole("link", { name: "Swisspearl" });
+    expect(screen.getByRole("link", { name: "Customers" })).toHaveClass("active");
+    fireEvent.click(screen.getByRole("link", { name: "Orders" }));
+    expect(await screen.findByRole("heading", { name: "Orders" })).toBeVisible();
   });
-  it("shows and filters the company list", async () => {
+  it("keeps old list URLs compatible and filters the single-level customer list", async () => {
     render(<App client={mockApiClient} initialPath="/companies" />);
-    expect(
-      await screen.findByRole("link", { name: "Swisspearl" }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Lasvit" })).toBeInTheDocument();
-    fireEvent.change(
-      screen.getByRole("textbox", { name: "Search companies" }),
-      { target: { value: "Swiss" } },
-    );
-    expect(
-      screen.getByRole("link", { name: "Swisspearl" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("link", { name: "Lasvit" }),
-    ).not.toBeInTheDocument();
+    await screen.findByRole("link", { name: "Swisspearl" });
+    expect(screen.getByRole("link", { name: "Lasvit" })).toBeVisible();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search customers" }), { target: { value: "Swiss" } });
+    expect(screen.queryByRole("link", { name: "Lasvit" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Swisspearl" })).toHaveAttribute("href", expect.stringContaining("/customers/"));
   });
-  it("shows an empty company state", async () => {
-    const client: ApiClient = {
-      ...mockApiClient,
-      getCompanies: vi.fn().mockResolvedValue([]),
-    };
-    render(<App client={client} initialPath="/companies" />);
-    expect(
-      await screen.findByRole("heading", { name: "No companies yet" }),
-    ).toBeInTheDocument();
+  it("shows an empty customer state", async () => {
+    vi.mocked(directoryClient.customers).mockResolvedValue([]);
+    render(<App client={mockApiClient} initialPath="/customers" />);
+    expect(await screen.findByText("No customers match these filters.")).toBeVisible();
   });
-  it("shows a readable error and supports retry", async () => {
-    const getCompanies = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("offline"))
-      .mockResolvedValueOnce([]);
-    const client: ApiClient = { ...mockApiClient, getCompanies };
-    render(<App client={client} initialPath="/companies" />);
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Companies are temporarily unavailable",
-    );
+  it("supports retry after a failed directory read", async () => {
+    vi.mocked(directoryClient.customers).mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce([]);
+    render(<App client={mockApiClient} initialPath="/customers" />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Customers could not be loaded");
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(
-      await screen.findByRole("heading", { name: "No companies yet" }),
-    ).toBeInTheDocument();
-    expect(getCompanies).toHaveBeenCalledTimes(2);
+    await screen.findByText("No customers match these filters.");
+    expect(directoryClient.customers).toHaveBeenCalledTimes(2);
   });
 });

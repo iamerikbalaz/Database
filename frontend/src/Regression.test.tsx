@@ -13,6 +13,8 @@ import { companies } from "./api/mockData";
 import { CompaniesPage } from "./pages/CompaniesPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { CompanyDetailPage } from "./pages/CompanyDetailPage";
+import { ProjectDetailPage } from "./pages/ProjectDetailPage";
+import { mockDirectory } from "./test/directoryFixtures";
 
 Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
   configurable: true,
@@ -25,6 +27,7 @@ Object.defineProperty(HTMLDialogElement.prototype, "close", {
   value() {},
 });
 beforeEach(() => {
+  mockDirectory();
   // jsdom has no native dialog implementation; emulate the browser methods for component tests.
   vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(
     function (this: HTMLDialogElement) {
@@ -43,7 +46,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("frontend regression coverage", () => {
   it("shows projects and all supported status labels", async () => {
-    render(<App client={mockApiClient} initialPath="/projects" />);
+    render(<ProjectsPage client={mockApiClient} navigate={vi.fn()} />);
     expect(
       await screen.findByRole("link", { name: "Swisspearl facade collection" }),
     ).toBeInTheDocument();
@@ -52,10 +55,7 @@ describe("frontend regression coverage", () => {
   });
   it("shows full company detail and related records", async () => {
     render(
-      <App
-        client={mockApiClient}
-        initialPath="/companies/10000000-0000-4000-8000-000000000001"
-      />,
+      <CompanyDetailPage client={mockApiClient} id="10000000-0000-4000-8000-000000000001" navigate={vi.fn()} />,
     );
     expect(
       await screen.findByRole("heading", { name: "Swisspearl" }),
@@ -72,10 +72,7 @@ describe("frontend regression coverage", () => {
   });
   it("shows project details", async () => {
     render(
-      <App
-        client={mockApiClient}
-        initialPath="/projects/20000000-0000-4000-8000-000000000001"
-      />,
+      <ProjectDetailPage client={mockApiClient} id="20000000-0000-4000-8000-000000000001" navigate={vi.fn()} />,
     );
     expect(
       await screen.findByRole("heading", {
@@ -90,7 +87,7 @@ describe("frontend regression coverage", () => {
     async (path) => {
       render(<App client={mockApiClient} initialPath={path} />);
       expect(await screen.findByRole("alert")).toHaveTextContent(
-        "could not be found or loaded",
+        /could not be loaded|valid UUID/,
       );
     },
   );
@@ -114,13 +111,7 @@ describe("frontend regression coverage", () => {
   );
   it("shows a controlled error when a company detail dependency fails", async () => {
     render(
-      <App
-        client={{
-          ...mockApiClient,
-          getCompany: vi.fn().mockRejectedValue(new Error("brands failed")),
-        }}
-        initialPath="/companies/10000000-0000-4000-8000-000000000001"
-      />,
+      <CompanyDetailPage client={{ ...mockApiClient, getCompany: vi.fn().mockRejectedValue(new Error("brands failed")) }} id="10000000-0000-4000-8000-000000000001" navigate={vi.fn()} />,
     );
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(
@@ -155,7 +146,7 @@ describe("frontend regression coverage", () => {
     const trigger = screen.getByRole("button", { name: "Open navigation" });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Companies" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Customers" })).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -166,7 +157,7 @@ describe("frontend regression coverage", () => {
       within(dialog).getByRole("button", { name: "Close navigation" }),
     ).toHaveFocus();
     expect(
-      within(dialog).getByRole("link", { name: "Companies" }),
+      within(dialog).getByRole("link", { name: "Customers" }),
     ).toHaveAttribute("aria-current", "page");
     // Escape dispatches cancel on a native modal dialog.
     fireEvent(dialog, new Event("cancel", { cancelable: true }));
@@ -180,37 +171,20 @@ describe("frontend regression coverage", () => {
     fireEvent.click(trigger);
     fireEvent.click(
       within(screen.getByRole("dialog")).getByRole("link", {
-        name: "Projects",
+        name: "Orders",
       }),
     );
     expect(
-      screen.getByRole("heading", { name: "Projects" }),
+      screen.getByRole("heading", { name: "Orders" }),
     ).toBeInTheDocument();
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveFocus();
   });
-  it("disables unfinished actions", async () => {
-    const { unmount } = render(
-      <App client={mockApiClient} initialPath="/companies" />,
-    );
-    expect(screen.getByRole("link", { name: "Add company" })).toHaveAttribute(
-      "href",
-      "/companies/new",
-    );
+  it("keeps unauthenticated controls read-only", async () => {
+    render(<App client={mockApiClient} initialPath="/customers" />);
+    await screen.findByRole("link", { name: "Swisspearl" });
+    expect(screen.queryByRole("link", { name: "Add customer" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "User menu" })).toBeDisabled();
-    unmount();
-    render(
-      <App
-        client={mockApiClient}
-        initialPath="/projects/20000000-0000-4000-8000-000000000001"
-      />,
-    );
-    expect(
-      await screen.findByRole("link", { name: "Edit project" }),
-    ).toHaveAttribute(
-      "href",
-      "/projects/20000000-0000-4000-8000-000000000001/edit",
-    );
   });
   it("ignores a late detail response after the ID changes", async () => {
     let finish: (
@@ -258,11 +232,11 @@ describe("frontend regression coverage", () => {
       await screen.findByRole("heading", { name: "Swisspearl" }),
     ).toBeInTheDocument();
     fireEvent.click(
-      screen.getByRole("link", { name: /Swisspearl facade collection/ }),
+      screen.getByRole("link", { name: /0001_SWISSPEARL_SCANNING_FABRICS/ }),
     );
     expect(
       await screen.findByRole("heading", {
-        name: "Swisspearl facade collection",
+        name: "Order 0001",
       }),
     ).toBeInTheDocument();
     expect(error).not.toHaveBeenCalled();
@@ -272,10 +246,7 @@ describe("frontend regression coverage", () => {
 
 it("renders an empty project list", async () => {
   render(
-    <App
-      client={{ ...mockApiClient, getProjects: async () => [] }}
-      initialPath="/projects"
-    />,
+    <ProjectsPage client={{ ...mockApiClient, getProjects: async () => [] }} navigate={vi.fn()} />,
   );
   expect(
     await screen.findByRole("heading", { name: "No projects yet" }),
@@ -283,13 +254,7 @@ it("renders an empty project list", async () => {
 });
 it("renders an empty company detail without undefined list access", async () => {
   render(
-    <App
-      client={{
-        ...mockApiClient,
-        getCompany: async () => ({ ...companies[0], brands: [], projects: [] }),
-      }}
-      initialPath={"/companies/" + companies[0].id}
-    />,
+    <CompanyDetailPage client={{ ...mockApiClient, getCompany: async () => ({ ...companies[0], brands: [], projects: [] }) }} id={companies[0].id} navigate={vi.fn()} />,
   );
   expect(await screen.findByText("No published brands.")).toBeInTheDocument();
   expect(screen.getByText("No projects for this company.")).toBeInTheDocument();

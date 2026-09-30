@@ -25,6 +25,9 @@ export function Icon({ name, size = 20 }: { name: string; size?: number }) {
         <path d="m3 12 9 5 9-5M3 16l9 5 9-5" />
       </>
     ),
+    archive: <><path d="M4 8h16v13H4zM3 3h18v5H3zM9 12h6" /></>,
+    catalog: <><path d="M4 3h7v7H4zM14 3h7v7h-7zM4 14h7v7H4z" /><circle cx="17.5" cy="17.5" r="3.5" /></>,
+    imports: <><path d="M12 3v12M7 10l5 5 5-5M4 16v5h16v-5" /></>,
     publication: (
       <>
         <path d="M12 3v12M7 8l5-5 5 5" />

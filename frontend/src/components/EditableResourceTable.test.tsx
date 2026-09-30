@@ -14,7 +14,8 @@ afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
 function setup(save = vi.fn(async (row: Row, field: string, value: string | boolean | null) => ({ ...row, [field]: value, version: row.version + 1 }))) {
   return { save, ...render(<EditableResourceTable rows={rows} columns={columns} label={row => row.name} save={save} canEdit refresh={vi.fn()} storageKey="test.columns" />) };
 }
-function bulk() { fireEvent.change(screen.getByRole("combobox", { name: "Bulk value" }), { target: { value: "DONE" } }); fireEvent.click(screen.getByRole("button", { name: "Apply to all 2 filtered" })); return screen.getByRole("dialog"); }
+function bulk() { fireEvent.change(screen.getByRole("combobox", { name: "Bulk value" }), { target: { value: "DONE" } }); fireEvent.click(screen.getByRole("checkbox", { name: "Select all filtered rows" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review bulk change" })); return screen.getByRole("dialog"); }
 it("uses the original row version, applies the saved row and preserves an unsaved note", async () => {
   const { save } = setup(); fireEvent.change(screen.getByRole("textbox", { name: "Note for First" }), { target: { value: "Draft #tag" } });
   fireEvent.change(screen.getByRole("combobox", { name: "Status for First" }), { target: { value: "DONE" } });

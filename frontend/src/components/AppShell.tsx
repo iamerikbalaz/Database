@@ -5,12 +5,12 @@ import reawoteLogo from "../assets/brand/reawote-logo-long.png";
 
 const items = [
   ["Dashboard", "/dashboard", "dashboard"],
-  ["Companies", "/companies", "companies"],
-  ["Projects", "/projects", "projects"],
+  ["Customers", "/customers", "companies"],
+  ["Orders", "/orders", "projects"],
   ["Materials", "/materials", "materials"],
-  ["Archived materials", "/material-archives", "materials"],
-  ["Catalog", "/catalog", "materials"],
-  ["Imports", "/imports", "materials"],
+  ["Archived materials", "/material-archives", "archive"],
+  ["Catalog", "/catalog", "catalog"],
+  ["Imports", "/imports", "imports"],
   ["Settings", "/settings", "settings"],
 ];
 export function AppShell({
@@ -55,6 +55,7 @@ export function AppShell({
           (href !== "/material-archives" || account?.session.user.role === "ADMIN")).map(([label, href, icon]) => {
           const active =
             currentPath === href ||
+            (href === "/customers" && currentPath.startsWith("/companies/")) ||
             (href === "/dashboard" && currentPath === "/") ||
             currentPath.startsWith(href + "/");
           return (

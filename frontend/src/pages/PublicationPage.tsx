@@ -102,7 +102,7 @@ export function PublicationWorkspace({ client, navigate, initialSelection, onBus
       {initialSelection ? <p>This selection is fixed from Materials. Review all findings before preparing CSV and ZIP files. Return to the list to choose a different set; each batch supports up to 100 materials.</p> : <p>Only DONE materials are listed. Check source files and review export values for up to 100 materials.</p>}
       {!initialSelection && <>
       <div className="publication-filters"><label>Search materials<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
-        <label>Project<select value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="">All projects</option>{projects.data?.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+        <label>Order<select value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="">All orders</option>{projects.data?.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
         <button className="button" onClick={() => void find()}>Find materials</button></div>
       {projects.error && <p role="alert">Project options could not be loaded. <button className="button" onClick={projects.retry}>Retry project options</button></p>}
       {materials && <><p>{materials.length} matching materials.</p><ul className="publication-selection">{materials.slice(offset, offset + 50).map((material) => <li key={material.id}><label>

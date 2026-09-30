@@ -34,9 +34,9 @@ export function MaterialEditorPage({ id, client, navigate, onSaved }: {
     const unavailableProcessor = material && !active.some((u) => u.id === material.assignedProcessorId);
     if (unavailableProcessor) processorOptions.push({ value: material.assignedProcessorId, label: "Current processor (inactive or unavailable): " + material.assignedProcessorId, disabled: true });
     const fields: Field[] = [
-      { name: "projectId", apiName: "project_id", label: "Project", type: "select", required: !id || Boolean(material?.projectId),
+      { name: "projectId", apiName: "project_id", label: "Order", type: "select", required: !id || Boolean(material?.projectId),
         options: projects.map((p) => ({ value: p.id, label: p.name })) },
-      ...(!id ? [{ name: "publishedBrandId", apiName: "published_brand_id", label: "Published brand", type: "select" as const, required: true,
+      ...(!id ? [{ name: "publishedBrandId", apiName: "published_brand_id", label: "Customer", type: "select" as const, required: true,
         options: brands.map((b) => ({ value: b.id, label: b.name })) }] : []),
       { name: "materialName", apiName: "material_name", label: "Material name", required: true, maxLength: 255 },
       { name: "mainCategoryCode", apiName: "main_category_code", label: "Main category", type: "select", required: true, options: [...materialCategories.map(c => ({ value: c.code, label: categoryLabel(c.code) })), ...(material && !materialCategories.some(c => c.code === material.mainCategoryCode) ? [{ value: material.mainCategoryCode, label: categoryLabel(material.mainCategoryCode) }] : [])] },
@@ -63,12 +63,12 @@ export function MaterialEditorPage({ id, client, navigate, onSaved }: {
   return <>
     <p>{id ? "Editing the display name does not rename the recorded folder. Linked folder changes use the controlled identity workflow."
       : "Folder names use BRAND_0001_MATERIAL-NAME_CATEGORY. New name components use uppercase letters and hyphens instead of spaces; the display name is kept."}</p>
-    {data.missingChoices && <p role="alert" className="form-error">A project, published brand and active processor must be available before creating a material.</p>}
+    {data.missingChoices && <p role="alert" className="form-error">An order, customer and active processor must be available before creating a material.</p>}
     {data.unavailableProcessor && <p role="status">The current processor is inactive or unavailable. Only active processors can be selected as a replacement.</p>}
     <RecordForm key={id ?? "new"} definition={data.definition} navigate={navigate} onSaved={onSaved} />
     {data.material && <article className="panel panel--wide" aria-label="Current material record">
       <h2>Current record (read-only)</h2>
-      <p>Published brand: {data.brands.find((b) => b.id === data.material?.publishedBrandId)?.name ?? data.material.publishedBrandId}</p>
+      <p>Customer: {data.brands.find((b) => b.id === data.material?.publishedBrandId)?.name ?? data.material.publishedBrandId}</p>
       <MaterialFacts material={data.material} />
     </article>}
   </>;

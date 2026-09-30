@@ -14,13 +14,13 @@ export const resourceHistorySchema: Record<ResourceKind, Record<string, Field>> 
   PROJECT: { company_id: ["Company ID", uuid], project_number: ["Project number", string], name: ["Name", string],
     status: ["Status", string], due_date: ["Deadline", nullable], notes: ["Notes", nullable], folder_path: ["NAS folder", nullable] },
   USER: { display_name: ["Display name", string], email: ["Email", string], role: ["Role", string], is_active: ["Active", boolean] },
-  MATERIAL: { project_id: ["Project ID", (value) => value === null ? null : uuid(value)], published_brand_id: ["Published brand ID", uuid], sequence_number: ["Sequence number", sequence],
+  MATERIAL: { project_id: ["Order ID", (value) => value === null ? null : uuid(value)], published_brand_id: ["Customer ID", uuid], sequence_number: ["Sequence number", sequence],
     material_name: ["Material name", string], main_category_code: ["Main category", string], assigned_processor_id: ["Assigned processor ID", nullableUuid],
     technical_identity: ["Technical identity", string], folder_path: ["Folder path", nullable], workflow_status: ["Workflow status", string],
     validation_status: ["Validation status", string], is_published: ["Published", boolean], publication_status: ["Technical publication state", string], checked_status: ["Checked", string], note: ["Note", nullable] },
 };
 export type ResourceKind = "BRAND" | "PROJECT" | "USER" | "MATERIAL";
-export const resourceHistoryNames: Record<ResourceKind, string> = { BRAND: "Brand", PROJECT: "Project", USER: "Account profile", MATERIAL: "Material record" };
+export const resourceHistoryNames: Record<ResourceKind, string> = { BRAND: "Brand", PROJECT: "Order", USER: "Account profile", MATERIAL: "Material record" };
 const segments: Record<ResourceKind, string> = { BRAND: "brands", PROJECT: "projects", USER: "internal-users", MATERIAL: "materials" };
 function digest(input: unknown) { const result = string(input); if (!/^[a-f0-9]{64}$/.test(result)) throw new Error("Invalid history digest"); return result; }
 function snapshot(input: unknown, kind: ResourceKind, id: string): Record<string, Value> {

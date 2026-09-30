@@ -1,26 +1,25 @@
-import { EditorPage } from "./pages/EditorPage";
 import { MaterialsPage } from "./pages/MaterialsPage";
 import { MaterialDetailPage } from "./pages/MaterialDetailPage";
 import { MaterialEditorPage } from "./pages/MaterialEditorPage";
 import { isMaterialId } from "./api/materialDto";
-import { BrandDetailPage } from "./pages/BrandDetailPage";
 import { lazy, Suspense, useEffect, useState, useRef } from "react";
 import { apiClient, type ApiClient } from "./api/client";
 import { AppShell } from "./components/AppShell";
-import { CompanyDetailPage } from "./pages/CompanyDetailPage";
-import { CompaniesPage } from "./pages/CompaniesPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
-import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { useSession } from "./auth/context";
 import { restrictedDestination } from "./auth/permissions";
 import { AccountsPage } from "./pages/AccountsPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import { ProjectsPage } from "./pages/ProjectsPage";
 import { CatalogPage } from "./pages/CatalogPage";
 import { PublicationPage } from "./pages/PublicationPage";
 import { MaterialArchivesPage } from "./pages/MaterialArchivesPage";
 import { LoadingState } from "./components/PageState";
 import { navigationBlocked, navigationRecoveryMessage, requestNavigation } from "./navigationGuard";
+
+import { CustomersPage } from "./pages/CustomersPage";
+import { OrdersPage } from "./pages/OrdersPage";
+import { DirectoryRecordPage } from "./pages/DirectoryRecordPage";
+import { LegacyCustomerPage } from "./pages/LegacyCustomerPage";
 
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then((module) => ({ default: module.DashboardPage })));
 const ImportsPage = lazy(() => import("./pages/ImportsPage").then((module) => ({ default: module.ImportsPage })));
@@ -29,8 +28,11 @@ interface AppProps {
   client?: ApiClient;
   initialPath?: string;
 }
-const normalizePath = (path: string) =>
-  path.split(/[?#]/)[0].replace(/\/+$/, "") || "/";
+const normalizePath = (path: string) => {
+  const clean = path.split(/[?#]/)[0].replace(/\/+$/, "") || "/";
+  if (clean === "/companies" || clean === "/companies/new" || /^\/companies\/[^/]+\/brands\/new$/.test(clean)) return clean === "/companies" ? "/customers" : "/customers/new";
+  return clean.replace(/^\/projects(?=\/|$)/, "/orders").replace(/^\/brands(?=\/|$)/, "/customers");
+};
 
 function App({ client = apiClient, initialPath }: AppProps) {
   const role = useSession()?.session.user.role;
@@ -80,13 +82,9 @@ function App({ client = apiClient, initialPath }: AppProps) {
   } catch {
     invalidUrl = true;
   }
-  const companyMatch = path.match(/^\/companies\/([^/]+)$/);
-  const projectMatch = path.match(/^\/projects\/([^/]+)$/);
-  const companyEdit = path.match(/^\/companies\/([^/]+)\/edit$/);
-  const brandNew = path.match(/^\/companies\/([^/]+)\/brands\/new$/);
-  const brandEdit = path.match(/^\/brands\/([^/]+)\/edit$/);
-  const brandMatch = path.match(/^\/brands\/([^/]+)$/);
-  const projectEdit = path.match(/^\/projects\/([^/]+)\/edit$/);
+  const legacyCompanyMatch = path.match(/^\/companies\/([^/]+)(?:\/edit)?$/);
+  const customerMatch = path.match(/^\/customers\/([^/]+)(?:\/edit)?$/);
+  const orderMatch = path.match(/^\/orders\/([^/]+)(?:\/edit)?$/);
   const materialMatch = path.match(/^\/materials\/([^/]+)(\/edit)?$/);
   const archiveMatch = path.match(/^\/material-archives\/([^/]+)$/);
   let page;
@@ -130,100 +128,19 @@ function App({ client = apiClient, initialPath }: AppProps) {
         ? <MaterialEditorPage key={path} id={id} client={client} navigate={navigate} onSaved={navigate} />
         : <MaterialDetailPage key={path} id={id} client={client} navigate={navigate} />;
   }
-  else if (path === "/companies/new")
-    page = (
-      <EditorPage
-        key={path}
-        kind="company"
-        client={client}
-        navigate={navigate}
-        onSaved={navigate}
-      />
-    );
-  else if (companyEdit)
-    page = (
-      <EditorPage
-        key={path}
-        kind="company"
-        id={decodeURIComponent(companyEdit[1])}
-        client={client}
-        navigate={navigate}
-        onSaved={navigate}
-      />
-    );
-  else if (brandNew)
-    page = (
-      <EditorPage
-        key={path}
-        kind="brand"
-        companyId={decodeURIComponent(brandNew[1])}
-        client={client}
-        navigate={navigate}
-        onSaved={navigate}
-      />
-    );
-  else if (brandEdit)
-    page = (
-      <EditorPage
-        key={path}
-        kind="brand"
-        id={decodeURIComponent(brandEdit[1])}
-        client={client}
-        navigate={navigate}
-        onSaved={navigate}
-      />
-    );
-  else if (brandMatch)
-    page = (
-      <BrandDetailPage
-        id={decodeURIComponent(brandMatch[1])}
-        client={client}
-        navigate={navigate}
-      />
-    );
-  else if (path === "/projects/new")
-    page = (
-      <EditorPage
-        key={path}
-        kind="project"
-        client={client}
-        navigate={navigate}
-        onSaved={navigate}
-      />
-    );
-  else if (projectEdit)
-    page = (
-      <EditorPage
-        key={path}
-        kind="project"
-        id={decodeURIComponent(projectEdit[1])}
-        client={client}
-        navigate={navigate}
-        onSaved={navigate}
-      />
-    );
+  else if (path === "/customers/new" || path === "/orders/new")
+    page = <DirectoryRecordPage key={path} kind={path === "/customers/new" ? "customer" : "order"} client={client} navigate={navigate} onSaved={navigate} />;
   else if (path === "/" || path === "/dashboard")
     page = <Suspense fallback={<LoadingState label="Loading overview…" />}><DashboardPage client={client} navigate={navigate} /></Suspense>;
-  else if (path === "/companies")
-    page = <CompaniesPage client={client} navigate={navigate} />;
-  else if (companyMatch)
-    page = (
-      <CompanyDetailPage
-        id={decodeURIComponent(companyMatch[1])}
-        client={client}
-        navigate={navigate}
-      />
-    );
-  else if (path === "/projects")
-    page = <ProjectsPage client={client} navigate={navigate} />;
-  else if (projectMatch)
-    page = (
-      <ProjectDetailPage
-        id={decodeURIComponent(projectMatch[1])}
-        client={client}
-        navigate={navigate}
-      />
-    );
+  else if (path === "/customers") page = <CustomersPage navigate={navigate} />;
+  else if (path === "/orders") page = <OrdersPage client={client} navigate={navigate} />;
+  else if (legacyCompanyMatch) page = isMaterialId(decodeURIComponent(legacyCompanyMatch[1])) ? <LegacyCustomerPage id={decodeURIComponent(legacyCompanyMatch[1])} navigate={navigate} /> : <section><h1>Invalid record ID</h1><p role="alert">The URL must contain a valid UUID.</p></section>;
+  else if (customerMatch || orderMatch) {
+    const match = customerMatch ?? orderMatch!;
+    const id = decodeURIComponent(match[1]);
+    page = isMaterialId(id) ? <DirectoryRecordPage key={path} kind={customerMatch ? "customer" : "order"} id={id} client={client} navigate={navigate} onSaved={navigate} />
+      : <section><h1>Invalid record ID</h1><p role="alert">The URL must contain a valid UUID.</p></section>;
+  }
   else {
     const labels: Record<string, string> = {
       "/settings": "Settings",

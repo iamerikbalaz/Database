@@ -148,7 +148,7 @@ it("shows identical editable properties in detail and allows archived database f
   </SessionContext.Provider>);
   expect(screen.getByRole("combobox", { name: `Status for ${first.materialName}` })).toBeDisabled();
   expect(screen.getByRole("combobox", { name: `Category for ${first.materialName}` })).toBeDisabled();
-  expect(screen.getByRole("combobox", { name: `Project for ${first.materialName}` })).toBeEnabled();
+  expect(screen.getByRole("combobox", { name: `Order for ${first.materialName}` })).toBeEnabled();
   expect(screen.getByRole("checkbox", { name: `Published for ${first.materialName}` })).toBeEnabled();
   expect(screen.getByRole("checkbox", { name: `Archived for ${first.materialName}` })).toBeChecked();
   fireEvent.change(screen.getByRole("textbox", { name: `Note for ${first.materialName}` }), { target: { value: "Archive note" } });

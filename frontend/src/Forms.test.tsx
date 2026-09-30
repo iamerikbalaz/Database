@@ -6,7 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import App from "./App";
+import App from "./test/LegacyDirectoryForms";
 import { companies, brands, projects } from "./api/mockData";
 import { companyToDto, publishedBrandToDto, projectToDto } from "./api/dto";
 
@@ -67,7 +67,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("HTTP forms", () => {
+describe("Legacy API form compatibility", () => {
   it("creates a company using only writable snake_case fields and navigates to detail", async () => {
     const { writes, fetchMock } = backend();
     render(<App initialPath="/companies/new" />);

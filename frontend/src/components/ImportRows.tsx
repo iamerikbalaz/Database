@@ -16,7 +16,7 @@ export function ImportRows({ data, navigate }: { data: ImportPreview | ImportRes
           {"materialId" in row && typeof row.materialId === "string"
             ? <NavigationLink href={`/materials/${row.materialId}`} navigate={navigate}>{row.identity}</NavigationLink> : <strong>{row.identity}</strong>}
           <small>{row.name}</small>{row.folderPath && <small>Unverified folder reference: {row.folderPath}</small>}</td>
-          <td>{row.projectId === null ? "No project assigned" : project?.name ?? "Unavailable project"}<small>{project ? company(project.companyId) : ""}</small></td>
+          <td>{row.projectId === null ? "No order assigned" : project?.name ?? "Unavailable order"}<small>{project ? company(project.companyId) : ""}</small></td>
           <td>{brand?.name ?? "Unavailable brand"}<small>{brand ? company(brand.companyId) : ""}</small></td>
           <td>{references.processors.find((item) => item.id === row.processorId)?.name ?? "Unavailable processor"}</td>
           {data.rows.some((item) => item.properties) && <td>{row.properties && Object.entries(row.properties).map(([key, value]) => <small key={key}>{key.replaceAll("_", " ")}: {value ?? "Empty"}</small>)}</td>}</tr>;

@@ -21,7 +21,8 @@ it("searches project notes and links folders, then bulk changes only the filtere
   fireEvent.change(screen.getByRole("textbox", { name: "Search projects" }), { target: { value: "#fabrics" } });
   fireEvent.change(screen.getByRole("combobox", { name: "Bulk property" }), { target: { value: "status" } });
   fireEvent.change(screen.getByRole("combobox", { name: "Bulk value" }), { target: { value: "DONE" } });
-  fireEvent.click(screen.getByRole("button", { name: "Apply to all 1 filtered" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select all filtered rows" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review bulk change" }));
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirm changes" }));
   await waitFor(() => expect(updateProject).toHaveBeenCalledWith(project.id, { status: "DONE", expected_updated_at: project.updatedAt }, expect.any(String)));
   expect(updateProject).toHaveBeenCalledTimes(1);
@@ -34,7 +35,7 @@ it("filters companies by activity and edits a cell with the exact database revis
   await screen.findByRole("link", { name: company.name });
   fireEvent.change(screen.getByRole("combobox", { name: "Filter company activity" }), { target: { value: "active" } });
   expect(screen.queryByRole("link", { name: companies[1].name })).not.toBeInTheDocument();
-  fireEvent.change(screen.getByRole("combobox", { name: `Active for ${company.name}` }), { target: { value: "false" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: `Active for ${company.name}` }));
   await screen.findByText("Saved. Refresh to reapply filters.");
   expect(updateCompany).toHaveBeenCalledWith(company.id, { is_active: false, expected_updated_at: company.updatedAt }, expect.any(String));
 });

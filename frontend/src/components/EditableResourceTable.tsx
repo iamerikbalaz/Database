@@ -4,6 +4,7 @@ import { useNavigationGuard } from "../navigationGuard";
 import { ApiError } from "../api/errors";
 
 import { sessionGeneration } from "../auth/sessionTransport";
+import { highlightMaterial, isInteractiveTarget, type HighlightState } from "./materialHighlight";
 
 
 
@@ -13,7 +14,7 @@ export type ResourceColumn<T> = {
 
   key: string; label: string; value: (row: T) => ResourceValue;
 
-  options?: { value: string; label: string }[];
+  options?: { value: string; label: string; disabled?: boolean }[];
 
   type?: "text" | "textarea" | "date" | "boolean";
 
@@ -31,11 +32,11 @@ type Props<T> = { rows: T[]; columns: ResourceColumn<T>[]; label: (row: T) => st
 
 
 
-function ValueInput({ column, value, set, label, disabled }: { column: { type?: string; options?: { value: string; label: string }[] }; value: string; set: (value: string) => void; label: string; disabled: boolean }) {
+function ValueInput({ column, value, set, label, disabled }: { column: { type?: string; options?: { value: string; label: string; disabled?: boolean }[] }; value: string; set: (value: string) => void; label: string; disabled: boolean }) {
 
-  if (column.type === "boolean") return <select aria-label={label} value={value} onChange={e => set(e.target.value)} disabled={disabled}><option value="true">Yes</option><option value="false">No</option></select>;
+  if (column.type === "boolean") return <input type="checkbox" aria-label={label} checked={value === "true"} onChange={e => set(String(e.target.checked))} disabled={disabled} />;
 
-  if (column.options) return <select aria-label={label} value={value} onChange={e => set(e.target.value)} disabled={disabled}>{column.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>;
+  if (column.options) return <select aria-label={label} value={value} onChange={e => set(e.target.value)} disabled={disabled}>{column.options.map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}</select>;
 
   if (column.type === "textarea") return <textarea rows={2} aria-label={label} value={value} onChange={e => set(e.target.value)} disabled={disabled} maxLength={10000} />;
 
@@ -70,8 +71,17 @@ export function EditableResourceTable<T extends { id: string }>({ rows, columns,
   const [overrides, setOverrides] = useState<Record<string, T>>({});
 
   const items = rows.map(row => overrides[row.id] ?? row);
+  const [highlight, setHighlight] = useState<HighlightState>({ ids: new Set(), anchor: null });
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const visibleKey = rows.map(row => row.id).join(":");
+  const [previousVisibleKey, setPreviousVisibleKey] = useState(visibleKey);
+  if (previousVisibleKey !== visibleKey) {
+    setPreviousVisibleKey(visibleKey);
+    const visible = new Set(rows.map(row => row.id));
+    setHighlight({ ids: new Set([...highlight.ids].filter(id => visible.has(id))), anchor: highlight.anchor && visible.has(highlight.anchor) ? highlight.anchor : null });
+    setSelected(new Set([...selected].filter(id => visible.has(id))));
+  }
 
   const editable = columns.filter(column => column.editable && column.bulk);
 
@@ -79,7 +89,7 @@ export function EditableResourceTable<T extends { id: string }>({ rows, columns,
 
   const bulkColumn = editable.find(column => column.key === field) ?? editable[0];
 
-  const initialValue = (column?: ResourceColumn<T>) => column?.options?.[0]?.value ?? (column?.type === "boolean" ? "true" : "");
+  const initialValue = (column?: ResourceColumn<T>) => column?.options?.find(option => !option.disabled)?.value ?? (column?.type === "boolean" ? "true" : "");
 
   const [value, setValue] = useState(() => initialValue(bulkColumn));
 
@@ -155,7 +165,7 @@ export function EditableResourceTable<T extends { id: string }>({ rows, columns,
 
   const prepare = (targets: T[], column: ResourceColumn<T>, next: ResourceValue, immediate = false) => {
 
-    if (active || sending.current || !targets.length) return;
+    if (active || sending.current || !targets.length || column.options && !column.options.some(option => !option.disabled && option.value === String(next ?? ""))) return;
 
     focus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
@@ -171,7 +181,7 @@ export function EditableResourceTable<T extends { id: string }>({ rows, columns,
 
   const results = <ul className="resource-table-results">{jobs.map(job => <li key={job.key}><strong>{label(job.row)}</strong>: {job.message ?? "Waiting"}</li>)}</ul>;
 
-  const refreshRows = () => { setOverrides({}); setSelected(new Set()); setJobs([]); refresh(); };
+  const refreshRows = () => { setOverrides({}); setSelected(new Set()); setHighlight({ ids: new Set(), anchor: null }); setJobs([]); refresh(); };
 
   const visible = columns.filter(column => !hidden.has(column.key));
   const reviewedColumn = columns.find(column => column.key === jobs[0]?.field);
@@ -186,21 +196,22 @@ export function EditableResourceTable<T extends { id: string }>({ rows, columns,
 
       <details className="resource-properties"><summary>Properties</summary>{columns.map(column => <label key={column.key}><input type="checkbox" checked={!hidden.has(column.key)} disabled={active || visible.length === 1 && !hidden.has(column.key)} onChange={() => { const next = new Set(hidden); if (next.has(column.key)) next.delete(column.key); else next.add(column.key); setHidden(next); try { localStorage.setItem(storageKey, JSON.stringify([...next])); } catch { /* In-memory preferences remain available. */ } }} />{column.label}</label>)}</details>
 
-      {canEdit && bulkColumn && <><span>{items.filter(row => selected.has(row.id)).length} selected</span><label>Property<select aria-label="Bulk property" disabled={active} value={bulkColumn.key} onChange={e => { setField(e.target.value); setValue(initialValue(editable.find(column => column.key === e.target.value))); }}>{editable.map(column => <option key={column.key} value={column.key}>{column.label}</option>)}</select></label>
-
-        <ValueInput column={bulkColumn} label="Bulk value" value={value} set={setValue} disabled={active} />
-
-        <button className="button" disabled={active || !items.some(row => selected.has(row.id))} onClick={() => prepare(items.filter(row => selected.has(row.id)), bulkColumn, cellValue(bulkColumn, value))}>Apply to selected</button>
-
-        <button className="button" disabled={active || !items.length} onClick={() => prepare(items, bulkColumn, cellValue(bulkColumn, value))}>Apply to all {items.length} filtered</button></>}
-
+      {canEdit && <button className="button" disabled={active || !items.some(row => highlight.ids.has(row.id))} onClick={() => setSelected(new Set([...selected, ...items.filter(row => highlight.ids.has(row.id)).map(row => row.id)]))}>Select highlighted ({items.filter(row => highlight.ids.has(row.id)).length})</button>}
+      {canEdit && <span>{items.filter(row => selected.has(row.id)).length} selected</span>}
     </div>
+    {canEdit && bulkColumn && <fieldset className="material-bulk-bar resource-bulk-bar" disabled={active}><legend>Apply to {items.filter(row => selected.has(row.id)).length} selected records</legend>
+      <label>Property<select aria-label="Bulk property" value={bulkColumn.key} onChange={e => { setField(e.target.value); setValue(initialValue(editable.find(column => column.key === e.target.value))); }}>{editable.map(column => <option key={column.key} value={column.key}>{column.label}</option>)}</select></label>
+      <label>New value<ValueInput column={bulkColumn} label="Bulk value" value={value} set={setValue} disabled={active} /></label>
+      <button className="button button--primary" disabled={!items.some(row => selected.has(row.id)) || Boolean(bulkColumn.options && !bulkColumn.options.some(option => !option.disabled && option.value === value))} onClick={() => prepare(items.filter(row => selected.has(row.id)), bulkColumn, cellValue(bulkColumn, value))}>Review bulk change</button>
+    </fieldset>}
 
     {inline && jobs.length > 0 && <div role="status">{pending ? "Saving…" : jobs.every(job => job.state === "saved") ? "Saved. Refresh to reapply filters." : "Review the result."}{!pending && results}{jobs.some(job => job.state === "unknown") && <button className="button" disabled={pending || jobs.some(job => job.state === "unknown" && job.generation !== sessionGeneration())} onClick={() => void run()}>Retry same request</button>}</div>}
 
-    <div className="table-card resource-table-scroll"><table><thead><tr>{canEdit && <th><input aria-label="Select all filtered rows" type="checkbox" disabled={active || !items.length} checked={items.length > 0 && items.every(row => selected.has(row.id))} onChange={e => setSelected(e.target.checked ? new Set(items.map(row => row.id)) : new Set())} /></th>}{visible.map(column => <th key={column.key}>{column.label}</th>)}</tr></thead>
+    <div className="table-card resource-table-scroll"><table><thead><tr>{canEdit && <th><input aria-label="Select all filtered rows" type="checkbox" disabled={active || !items.length} ref={element => { if (element) element.indeterminate = items.some(row => selected.has(row.id)) && !items.every(row => selected.has(row.id)); }} checked={items.length > 0 && items.every(row => selected.has(row.id))} onChange={e => setSelected(e.target.checked ? new Set(items.map(row => row.id)) : new Set())} /></th>}{visible.map(column => <th key={column.key}>{column.label}</th>)}</tr></thead>
 
-      <tbody>{items.map(row => <tr key={row.id}>{canEdit && <td><input aria-label={`Select ${label(row)}`} type="checkbox" disabled={active} checked={selected.has(row.id)} onChange={e => { const next = new Set(selected); if (e.target.checked) next.add(row.id); else next.delete(row.id); setSelected(next); }} /></td>}{visible.map(column => <td key={column.key}>{column.render?.(row)}{canEdit && column.editable ? <EditableCell key={`${row.id}:${column.key}:${String(column.value(row))}`} row={row} column={column} label={label(row)} disabled={active} save={next => prepare([row], column, next, true)} /> : !column.render && (column.type === "boolean" ? column.value(row) ? "Yes" : "No" : (column.options?.find(option => option.value === String(column.value(row)))?.label ?? column.value(row)) || "—")}</td>)}</tr>)}</tbody></table></div>
+      <tbody>{items.map(row => <tr key={row.id} aria-label={`Record row ${label(row)}`} aria-selected={highlight.ids.has(row.id)} tabIndex={canEdit ? 0 : undefined} className={`${selected.has(row.id) ? "is-selected " : ""}${highlight.ids.has(row.id) ? "is-highlighted" : ""}`}
+        onClick={event => { if (canEdit && !active && !isInteractiveTarget(event.target)) setHighlight(current => highlightMaterial(current, row.id, items.map(item => item.id), event)); }}
+        onKeyDown={event => { if (canEdit && !active && event.target === event.currentTarget && event.key === " ") { event.preventDefault(); setHighlight(current => highlightMaterial(current, row.id, items.map(item => item.id), event)); } }}>{canEdit && <td><input aria-label={`Select ${label(row)}`} type="checkbox" disabled={active} checked={selected.has(row.id)} onChange={e => { const next = new Set(selected); if (e.target.checked) next.add(row.id); else next.delete(row.id); setSelected(next); }} /></td>}{visible.map(column => <td key={column.key}>{column.render?.(row)}{canEdit && column.editable ? <EditableCell key={`${row.id}:${column.key}:${String(column.value(row))}`} row={row} column={column} label={label(row)} disabled={active} save={next => prepare([row], column, next, true)} /> : !column.render && (column.type === "boolean" ? column.value(row) ? "Yes" : "No" : (column.options?.find(option => option.value === String(column.value(row)))?.label ?? column.value(row)) || "—")}</td>)}</tr>)}</tbody></table></div>
 
     <dialog ref={dialog} className="resource-bulk-dialog" aria-labelledby={`${storageKey}-bulk-title`} onCancel={event => { event.preventDefault(); close(); }}><h2 id={`${storageKey}-bulk-title`}>Review changes to {jobs.length} records</h2><p>{reviewedColumn?.label}: {reviewedValue}</p><p>The current filtered or selected rows and their versions are fixed for this operation. Results are recorded separately for every row.</p>{results}
 

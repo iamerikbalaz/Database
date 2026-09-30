@@ -57,7 +57,7 @@ it("signs in with one request, preserves the destination and clears the password
   expect(fetch.mock.calls.filter(([path]) => path === "/api/auth/login")).toHaveLength(1);
   expect(screen.getByRole("button", { name: "Signing in…" })).toBeDisabled();
   await act(async () => resolve(json(session)));
-  expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Orders" })).toBeInTheDocument();
   expect(window.location.pathname).toBe("/projects");
   expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
 });
@@ -167,8 +167,8 @@ it.each(["PROCESSOR", "LEADERSHIP"])("hides catalog writes and rejects direct ed
   vi.stubGlobal("fetch", vi.fn(async (path: string) => path === "/api/auth/session"
     ? json({ ...session, user: { ...session.user, role } }) : json([])));
   const view = render(<AuthenticatedApp />);
-  await screen.findByRole("heading", { name: "Companies" });
-  expect(screen.queryByRole("link", { name: "Add company" })).not.toBeInTheDocument();
+  await screen.findByRole("heading", { name: "Customers" });
+  expect(screen.queryByRole("link", { name: "Add customer" })).not.toBeInTheDocument();
   view.unmount();
   window.history.replaceState({}, "", "/companies/new");
   render(<AuthenticatedApp />);

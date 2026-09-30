@@ -18,7 +18,7 @@ import { useNavigationGuard } from "../navigationGuard";
 import { highlightMaterial, isInteractiveTarget, type HighlightState } from "./materialHighlight";
 
 const columns = [
-  ["project", "Project", 180], ["brand", "Published brand", 180], ["category", "Category", 225],
+  ["project", "Order", 180], ["brand", "Customer", 180], ["category", "Category", 225],
   ["status", "Status", 140], ["checked", "Checked", 140], ["published", "Published", 100],
   ["archived", "Archived", 110], ["archivedAt", "Archive date", 200],
   ["processor", "Processor", 180], ["note", "Note", 240], ["folder", "Folder path", 340],
@@ -172,7 +172,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     if (field === "workflow_status") return [{ value: "DONE", label: "Done" }, { value: "IN_PROGRESS", label: "In progress" }];
     if (field === "checked_status") return checkedStatuses.map(value => ({ value, label: value }));
     if (field === "is_published" || field === "is_archived") return [{ value: "true", label: "Yes" }, { value: "false", label: "No" }];
-    if (field === "project_id") return [{ value: "", label: "No project assigned" }, ...projects.map(p => ({ value: p.id, label: p.name }))];
+    if (field === "project_id") return [{ value: "", label: "No order assigned" }, ...projects.map(p => ({ value: p.id, label: p.name }))];
     if (field === "assigned_processor_id") return users.filter(u => u.isActive && u.role === "PROCESSOR").map(u => ({ value: u.id, label: u.displayName }));
     return [];
   };
@@ -182,9 +182,9 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     if ("checked_status" in change) return ["Checked", change.checked_status];
     if ("is_archived" in change) return ["Archived", change.is_archived ? "Yes" : "No"];
     if ("is_published" in change) return ["Published", change.is_published ? "Yes" : "No"];
-    if ("project_id" in change) return ["Project", change.project_id === null ? "No project assigned" : projects.find(p => p.id === change.project_id)?.name ?? change.project_id];
+    if ("project_id" in change) return ["Order", change.project_id === null ? "No order assigned" : projects.find(p => p.id === change.project_id)?.name ?? change.project_id];
     if ("assigned_processor_id" in change) return ["Processor", users.find(u => u.id === change.assigned_processor_id)?.displayName ?? change.assigned_processor_id];
-    if ("published_brand_id" in change) return ["Published brand", brands.find(b => b.id === change.published_brand_id)?.name ?? change.published_brand_id];
+    if ("published_brand_id" in change) return ["Customer", brands.find(b => b.id === change.published_brand_id)?.name ?? change.published_brand_id];
     if ("main_category_code" in change) return ["Category", categoryLabel(change.main_category_code)];
     return ["Note", change.note ?? "Empty"];
   };
@@ -203,9 +203,9 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     const save = (change: TableChange) => edit(row, change);
     const disable = active || lifecycleBusy || Boolean(identity);
     const productionDisabled = disable || row.isArchived;
-    if (key === "project") return manager ? <select aria-label={`Project for ${row.materialName}`} disabled={disable} value={row.projectId ?? ""} onChange={e => save({ project_id: e.target.value || null })}>
-      <option value="">No project assigned</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select> : projects.find(p => p.id === row.projectId)?.name ?? row.projectId ?? "No project assigned";
-    if (key === "brand") return manager ? <select aria-label={`Published brand for ${row.materialName}`} disabled={productionDisabled} value={row.publishedBrandId} onChange={e => openIdentity(row, { brand: e.target.value })}>
+    if (key === "project") return manager ? <select aria-label={`Order for ${row.materialName}`} disabled={disable} value={row.projectId ?? ""} onChange={e => save({ project_id: e.target.value || null })}>
+      <option value="">No order assigned</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select> : projects.find(p => p.id === row.projectId)?.name ?? row.projectId ?? "No order assigned";
+    if (key === "brand") return manager ? <select aria-label={`Customer for ${row.materialName}`} disabled={productionDisabled} value={row.publishedBrandId} onChange={e => openIdentity(row, { brand: e.target.value })}>
       {brands.filter(b => b.isActive || b.id === row.publishedBrandId).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select> : brands.find(b => b.id === row.publishedBrandId)?.name ?? row.publishedBrandId;
     if (key === "category") return manager ? <select aria-label={`Category for ${row.materialName}`} disabled={productionDisabled} value={row.mainCategoryCode} onChange={e => openIdentity(row, { category: e.target.value })}>
       {!materialCategories.some(c => c.code === row.mainCategoryCode) && <option value={row.mainCategoryCode}>{categoryLabel(row.mainCategoryCode)}</option>}
@@ -246,7 +246,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     </div>}
     {!detail && editor && selectedRows.length > 0 && <fieldset className="material-bulk-bar" disabled={active || lifecycleBusy}><legend>Apply to {selectedRows.length} selected materials</legend>
       <label>Property<select value={bulkField} onChange={e => { const field = e.target.value as EditField; setBulkField(field); setBulkValue(bulkChoices(field)[0]?.value ?? ""); }}>
-        {!archivedView && <option value="workflow_status">Status</option>}{manager && <>{!archivedView && <option value="checked_status">Checked</option>}<option value="is_published">Published</option>{role === "ADMIN" && <option value="is_archived">Archived</option>}<option value="project_id">Project</option><option value="assigned_processor_id">Processor</option></>}<option value="note">Note</option></select></label>
+        {!archivedView && <option value="workflow_status">Status</option>}{manager && <>{!archivedView && <option value="checked_status">Checked</option>}<option value="is_published">Published</option>{role === "ADMIN" && <option value="is_archived">Archived</option>}<option value="project_id">Order</option><option value="assigned_processor_id">Processor</option></>}<option value="note">Note</option></select></label>
       <label>New value{bulkField === "note" ? <textarea value={bulkValue} maxLength={10000} onChange={e => setBulkValue(e.target.value)} /> : <select value={bulkValue} onChange={e => setBulkValue(e.target.value)}>{bulkChoices(bulkField).map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select>}</label>
       <button className="button button--primary" disabled={bulkField === "assigned_processor_id" && !bulkValue} onClick={() => prepare(selectedRows, bulkChange())}>Review bulk change</button>
     </fieldset>}

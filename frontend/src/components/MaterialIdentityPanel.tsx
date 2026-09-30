@@ -69,7 +69,7 @@ export function MaterialIdentityPanel({ material, client, onChanged, initialBran
   };
   return <article className="panel material-review" aria-label="Material identity">
     <h2>Controlled identity changes</h2>
-    <p>Move a linked folder, change its category or transfer it to another brand. The material UUID and project stay the same. Review the exact changes before confirmation.</p>
+    <p>Move a linked folder, change its category or transfer it to another customer. The material UUID and order stay the same. Review the exact changes before confirmation.</p>
     {error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status">{notice}</p>}
     {resource.error ? <ErrorState message="Identity operations could not be loaded." retry={resource.retry} /> : !resource.data ? <LoadingState label="Loading identity operations…" /> : <>
       {active && <section aria-label="Active identity operation"><h3>{labels[active.status]}</h3>
@@ -84,20 +84,20 @@ export function MaterialIdentityPanel({ material, client, onChanged, initialBran
       {eligible && <>
         {!resource.data.operations.enabled && <p>Source changes are disabled in this environment. Read-only planning remains available.</p>}
         <fieldset disabled={pending || uncertain}><legend>Target identity</legend>
-          <label>Target brand<select value={targetBrand} onChange={(event) => { setTargetBrand(event.target.value); invalidate(); }}>
+          <label>Target customer<select value={targetBrand} onChange={(event) => { setTargetBrand(event.target.value); invalidate(); }}>
             {resource.data.brands.filter((brand) => brand.isActive).map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
           </select></label>
           <label>Target category code<select value={category} onChange={(event) => { setCategory(event.target.value); invalidate(); }}>{!materialCategories.some(c => c.code === category) && <option value={category}>{categoryLabel(category)}</option>}{materialCategories.map(c => <option key={c.code} value={c.code}>{categoryLabel(c.code)}</option>)}</select></label>
           <label>Destination parent folder<input value={parent} maxLength={1792} onChange={(event) => { setParent(event.target.value); invalidate(); }} /></label>
           <p>Use an existing relative parent folder. An empty value means the materials root.</p>
-          <p>Remove collection assignments in Publication content before transferring to another brand.</p>
+          <p>Remove collection assignments in Publication content before transferring to another customer.</p>
           <button className="button" disabled={!category.trim() || !targetBrand} onClick={() => void run("plan")}>Preview identity changes</button>
         </fieldset>
         {proposal && <section aria-label="Identity change preview"><h3>Review the proposed changes</h3>
           <dl className="info-list"><div><dt>Current folder</dt><dd><code>{proposal.source.folder}</code></dd></div>
             <div><dt>New folder</dt><dd><code>{proposal.target.folder}</code></dd></div>
             <div><dt>New identity</dt><dd>{proposal.target.identity}</dd></div></dl>
-          {proposal.reservesNumber && <p>Confirmation reserves number {proposal.target.number} in the target brand. This number stays used even if the source operation fails.</p>}
+          {proposal.reservesNumber && <p>Confirmation reserves number {proposal.target.number} in the target customer. This number stays used even if the source operation fails.</p>}
           <p>Confirmation invalidates current checks and approvals. Run technical checks again after the change.</p>
           {proposal.errors.length > 0 && <section aria-label="Blocking identity findings"><h4>Resolve before confirmation</h4><ul>{proposal.errors.map((item, index) => <li key={index}>{labels[item.code] ?? item.code.replaceAll("_", " ")} · {item.path}</li>)}</ul></section>}
           {proposal.warnings.length > 0 && <section aria-label="Identity warnings"><h4>Warnings</h4><ul>{proposal.warnings.map((item, index) => <li key={index}>{labels[item.code] ?? item.code.replaceAll("_", " ")} · {item.path}</li>)}</ul></section>}

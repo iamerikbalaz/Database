@@ -169,7 +169,7 @@ function ImportWorkspace({ client, navigate }: { client: ApiClient; navigate: (p
       <p>Project company and brand company can differ. Compare both companies before confirming.</p>
       {references.error ? <ErrorState message="Existing records could not be loaded." retry={references.retry} /> : !references.data ? <LoadingState label="Loading existing records…" /> :
         <form onSubmit={(event) => { event.preventDefault(); prepare(); }}><fieldset disabled={locked}><legend>Explicit source label mappings</legend>
-          {groups.map((group) => <section key={group} aria-label={`${group} mappings`}><h3>{group === "project" ? "Projects" : group === "brand" ? "Brands" : "Processors"}</h3>
+          {groups.map((group) => <section key={group} aria-label={`${group} mappings`}><h3>{group === "project" ? "Orders" : group === "brand" ? "Customers" : "Processors"}</h3>
             {mappedValues[group].map((label) => <label key={label}>{group[0].toUpperCase() + group.slice(1)}: {label}
               <select required value={links[groupKeys[group]][label] ?? ""} onChange={(event) => {
                 setLinks({ ...links, [groupKeys[group]]: { ...links[groupKeys[group]], [label]: event.target.value } }); invalidatePreview();

@@ -41,13 +41,13 @@ class CatalogActivityUpdate(ApiSchema):
     idempotency_key: UUID
     expected_version: Annotated[int, Field(strict=True, ge=1)]
     is_active: Annotated[bool, Field(strict=True)]
-    reason: Reason
+    reason: Reason | None = None
 
 
 class CatalogTableUpdate(ApiSchema):
     idempotency_key: UUID
     expected_version: Annotated[int, Field(strict=True, ge=1)]
-    reason: Reason
+    reason: Reason | None = None
     is_active: Annotated[bool, Field(strict=True)] | None = None
     abbreviation: Abbreviation | None = None
 

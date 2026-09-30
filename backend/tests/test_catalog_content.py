@@ -86,9 +86,22 @@ def test_legacy_explicit_reason_receipt_retains_original_request_hash(access_cas
 
 
 @pytest.mark.parametrize("model", [CatalogActivityUpdate, CatalogTableUpdate])
-def test_catalog_changes_still_require_a_reason(model):
-    with pytest.raises(ValidationError):
-        model(idempotency_key=uuid4(), expected_version=1, is_active=False)
+def test_catalog_changes_allow_omitted_reason(model):
+    assert model(idempotency_key=uuid4(), expected_version=1, is_active=False).reason is None
+
+
+def test_catalog_change_without_reason_preserves_audit_and_replay(access_case):
+    with access_case.client("ADMIN") as client:
+        category, _ = create_vocabulary(client, access_case.materials[0].published_brand_id)
+        payload = {"idempotency_key": str(uuid4()), "expected_version": 1, "is_active": False}
+        path = f"/api/online-categories/{category['id']}"
+        changed = client.patch(path, json=payload)
+        assert changed.status_code == 200
+        assert client.patch(path, json=payload).json() == changed.json()
+        events = client.get("/api/catalog-audit").json()
+        event = next(item for item in events if item["details"]["action"] == "ACTIVITY_CHANGED")
+        assert event["details"]["reason"] == "Catalog property updated"
+        assert event["details"]["before"] is True and event["details"]["after"] is False
 
 
 @pytest.mark.parametrize("role,allowed", [("PROCESSOR", False), ("LEADERSHIP", False), ("PRODUCTION_LEAD", True), ("ADMIN", True)])

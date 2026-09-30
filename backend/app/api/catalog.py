@@ -107,7 +107,7 @@ def build_catalog_router(database):
                         invalidate_review(session, material, actor.id, "CATALOG_ACTIVITY_CHANGED" if property_name == "is_active" else "CATALOG_ABBREVIATION_CHANGED")
                     setattr(item, property_name, next_value)
                     item.version += 1
-                audit = {"action": "ACTIVITY_CHANGED" if property_name == "is_active" else "ABBREVIATION_CHANGED", "reason": payload.reason,
+                audit = {"action": "ACTIVITY_CHANGED" if property_name == "is_active" else "ABBREVIATION_CHANGED", "reason": payload.reason or "Catalog property updated",
                          "property": property_name, "before": previous_value, "after": next_value}
             try:
                 session.flush()

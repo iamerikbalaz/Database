@@ -14,6 +14,7 @@ from app.inventory import AUTOMATIC_FILES_SCOPE, InventoryError, InventoryLimits
 from app.material_naming import NAMED_IDENTITY, map_bases
 from app.secure_filesystem import _metadata_flags, open_material_directory
 from app.technical_validation import STRICT_PROBE_WALL_SECONDS, VALIDATION_SLOT, _validate_material, probe_image
+from app.technical_validation import master_dimensions_match
 
 PROFILE = "PBR_FILES_V1"
 RGB_JPEG = frozenset({"COL", "DIFF", "NRM", "SPEC", "SPECLVL", "SSS", "SSSABSORB", "TRANSL", "ANISO"})
@@ -24,6 +25,11 @@ MAP_RULES = {**{name: ("JPEG", 8, frozenset({"RGB"})) for name in RGB_JPEG},
     "DISP16": ("TIFF", 16, frozenset({"I;16", "I;16B", "I;16L", "L"})),
     "ID": ("PNG", 8, frozenset({"L"})),
     "SHEEN": ("PNG", 8, frozenset({"L", "RGB"}))}
+ALTERNATE_RULES = {
+    "ID": (("JPEG", 8, frozenset({"L", "RGB"})),),
+    "COL": (("TIFF", 8, frozenset({"RGB"})),),
+}
+FORMAT_EXTENSIONS = {"JPEG": {"jpg", "jpeg"}, "PNG": {"png"}, "TIFF": {"tif", "tiff"}}
 MAX_PREVIEWS = 256
 INCOMPLETE_PROBES = frozenset({"IMAGE_PROBE_UNAVAILABLE", "IMAGE_PROBE_FAILED", "IMAGE_PROBE_TIMEOUT", "IMAGE_SOURCE_CHANGED"})
 
@@ -59,7 +65,7 @@ def _check(root, parts, *, for_export, source_root=None, prepared_inventory=None
         raise InventoryError("FILE_CHECK_INCOMPLETE")
     master = inventory["master_resolution"]
     identity = parts[-1]
-    issues = []; findings = []; seen = set()
+    issues = []; warnings = []; warning_findings = []; findings = []; seen = set()
 
     def add(code, path, expected, actual):
         key = (code, path, expected)
@@ -112,19 +118,30 @@ def _check(root, parts, *, for_export, source_root=None, prepared_inventory=None
         if rule is None:
             add("MAP_SHORTCUT_UNSUPPORTED", path, "ID for a mask map" if shortcut == "MASK" else "a supported map shortcut", shortcut)
             continue
-        fmt, bits, modes = rule
+        permitted_rules = (rule, *ALTERNATE_RULES.get(shortcut, ()))
         actual = f"{image['format']}, {image['bits']} bits/channel, {image['mode']}"
-        expected_mode = "grayscale" if shortcut == "DISP16" else "/".join(sorted(modes))
-        if image["format"] != fmt or image["bits"] != bits or image["mode"] not in modes:
-            add("MAP_PIXEL_FORMAT_INVALID", path, f"{fmt}, {bits} bits/channel, {expected_mode}", actual)
+        valid_pixels = any(image["format"] == fmt and image["bits"] == bits and image["mode"] in modes
+            for fmt, bits, modes in permitted_rules)
+        if not valid_pixels:
+            expected = " or ".join(f"{fmt}, {bits} bits/channel, " +
+                ("grayscale" if shortcut == "DISP16" else "/".join(sorted(modes)))
+                for fmt, bits, modes in permitted_rules)
+            add("MAP_PIXEL_FORMAT_INVALID", path, expected, actual)
         extension = path.rsplit(".", 1)[-1].lower()
-        permitted_extensions = {"JPEG": {"jpg", "jpeg"}, "PNG": {"png"}, "TIFF": {"tif", "tiff"}}[fmt]
-        if extension not in permitted_extensions or image["format"] != fmt:
-            add("MAP_EXTENSION_MISMATCH", path, f"{fmt} file with {'/'.join(sorted(permitted_extensions))} extension", f".{extension}, decoded {image['format']}")
+        valid_extension = any(image["format"] == fmt and extension in FORMAT_EXTENSIONS[fmt]
+            for fmt, _, _ in permitted_rules)
+        if not valid_extension:
+            expected = " or ".join(f"{fmt} file with {'/'.join(sorted(FORMAT_EXTENSIONS[fmt]))} extension"
+                for fmt, _, _ in permitted_rules)
+            add("MAP_EXTENSION_MISMATCH", path, expected, f".{extension}, decoded {image['format']}")
+        if shortcut == "COL" and image["format"] == "TIFF" and valid_pixels and valid_extension:
+            warnings.append(f"{path}: legacy RGB 8-bit TIFF COL accepted; use RGB 8-bit JPEG for new materials [COL_TIFF_LEGACY]")
+            warning_findings.append({"code": "COL_TIFF_LEGACY", "path": path})
         if color is not None and (image["width"], image["height"]) != (color["width"], color["height"]):
             add("MAP_DIMENSIONS_MISMATCH", path, f"{color['width']}x{color['height']} pixels, matching COL", f"{image['width']}x{image['height']} pixels")
-        if master is not None and max(image["width"], image["height"]) != int(master[:-1]) * 1024:
-            add("MASTER_DIMENSIONS_DIFFER", path, f"longest side exactly {int(master[:-1]) * 1024} pixels for {master}",
+        if master is not None and not master_dimensions_match(master, image["width"], image["height"]):
+            lower = int(master[:-1]) * 1000
+            add("MASTER_DIMENSIONS_DIFFER", path, f"longest side {lower}-{lower + 999} pixels for {master}",
                 f"{image['width']}x{image['height']} pixels")
 
     entries = inventory["entries"]
@@ -176,11 +193,13 @@ def _check(root, parts, *, for_export, source_root=None, prepared_inventory=None
     packaging_report = deepcopy(technical) if for_export else None
     if packaging_report is not None:
         for image in packaging_report["images"]: image.pop("mode", None)
+        packaging_report["warnings"].extend(warning_findings)
     status = "ISSUES" if issues else "OK"
     lines = [f"Material: {identity}", f"Folder: {'/'.join(parts)}", f"Profile: {PROFILE}",
         f"Status: {status}", f"Master: {master or 'missing'}", f"Maps decoded: {len(images)}; previews found: {len(previews)}", ""]
     if not for_export:
         lines.insert(-1, "Checked inputs: resolution folders, PREVIEW and root metadata; authoring/SOURCE payloads excluded.")
     lines.extend(issues or ["All automatic source checks passed."])
-    return {"profile": PROFILE, "complete": True, "issues": issues, "report": "\n".join(lines),
+    if warnings: lines.extend(["", "Warnings (non-blocking):", *warnings])
+    return {"profile": PROFILE, "complete": True, "issues": issues, "warnings": warnings, "report": "\n".join(lines),
         "findings": findings, "packaging_report": packaging_report}

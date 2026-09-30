@@ -27,6 +27,13 @@ DEFAULT_PROBE_WALL_SECONDS = 35
 STRICT_PROBE_WALL_SECONDS = 120
 
 
+def master_dimensions_match(master: str, width: int, height: int) -> bool:
+    # The source folder label is the thousands bucket of the longest side;
+    # publication output resolutions retain their separate 1024-based policy.
+    lower = int(master[:-1]) * 1000
+    return lower <= max(width, height) < lower + 1000
+
+
 def probe_image(fd: int, *, timeout: float = DEFAULT_PROBE_WALL_SECONDS, include_mode: bool = False,
                 wall_limit: int = DEFAULT_PROBE_WALL_SECONDS) -> dict:
     from app.packaging_lease import inherited_lease_fds
@@ -139,9 +146,12 @@ def _validate_material(root: Path, parts: tuple[str, ...], *, include_mode: bool
                 for image in images:
                     if (image["width"], image["height"]) != (color["width"], color["height"]):
                         errors.append(finding("MAP_DIMENSIONS_MISMATCH", image["path"]))
+                # Legacy technical approval feeds the fixed 1024-based export
+                # contract. Full source checks classify 1K from 1000px but do
+                # not remove this separate minimum for publication output.
                 if max(color["width"], color["height"]) < 1024:
                     errors.append(finding("MASTER_BELOW_1K", color["path"]))
-                if max(color["width"], color["height"]) != int(master[:-1]) * 1024:
+                if not master_dimensions_match(master, color["width"], color["height"]):
                     warnings.append(finding("MASTER_DIMENSIONS_DIFFER", color["path"]))
             if not any(image["map"] in {"NRM", "NRM16"} for image in images): warnings.append(finding("NORMAL_MAP_MISSING", master))
             if not any(image["map"] in {"ROUGH", "GLOSS"} for image in images): warnings.append(finding("SURFACE_RESPONSE_MAP_MISSING", master))

@@ -44,7 +44,7 @@ def _process_material(root, parts, identifier, index, options, events):
     try:
         value = check_material_files(root, parts, execution=MaterialExecution(options, update))
         events.put(("result", index, {"id": identifier,
-            **{key: value[key] for key in ("profile", "complete", "issues", "report")}}))
+            **{key: value[key] for key in ("profile", "complete", "issues", "warnings", "report")}}))
     except Exception as error:
         events.put(("error", index, safe_error_code(error)))
 
@@ -146,7 +146,7 @@ def run(root: Path, request: dict, *, progress=None, execution_options=None, wor
             value = check_material_files(root, parts)
         except Exception as error:
             raise FileCheckRunError(error, identifier, index, len(parsed)) from None
-        results.append({"id": identifier, **{key: value[key] for key in ("profile", "complete", "issues", "report")}})
+        results.append({"id": identifier, **{key: value[key] for key in ("profile", "complete", "issues", "warnings", "report")}})
     return {"schema_version": 1, "results": results}
 
 

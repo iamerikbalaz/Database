@@ -13,18 +13,39 @@ const report = { items: [], report: "Checked: 1. OK: 1. Issues: 0.\nNo materials
 beforeEach(() => { vi.spyOn(materialLocalClient, "checkMany").mockResolvedValue(report); });
 afterEach(() => { vi.restoreAllMocks(); setSessionToken(null); });
 
-it("checks only explicit selection with versions and displays its saved TXT report", async () => {
+it("checks only explicit selection with versions and shows the report without local save details", async () => {
   const onChecked = vi.fn(), onBusyChange = vi.fn();
   render(<MaterialBulkCheck materials={[second]} onChecked={onChecked} onBusyChange={onBusyChange} />);
   expect(materialLocalClient.checkMany).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Check selected materials (1)" }));
   expect(await screen.findByRole("textbox", { name: "Automatic file check report" })).toHaveValue(report.report);
-  expect(screen.getByText(report.reportPath)).toBeVisible();
-  expect(screen.getByRole("status")).toHaveTextContent("opened in the desktop editor");
+  expect(screen.queryByText(report.reportPath)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Saved report:|opened in the desktop editor/)).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Download TXT report" })).toBeEnabled();
   expect(materialLocalClient.checkMany).toHaveBeenCalledExactlyOnceWith([{ id: second.id, updatedAt: second.updatedAt }], true, expect.objectContaining({ signal: expect.any(AbortSignal), onProgress: expect.any(Function), onPaused: expect.any(Function) }));
   expect(onChecked).toHaveBeenCalledOnce();
   expect(onBusyChange).toHaveBeenCalledWith(true); await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(false));
+});
+
+it("downloads the complete TXT report with the download action after the report", async () => {
+  const create = vi.fn<(blob: Blob) => string>(() => "blob:check-report"), revoke = vi.fn();
+  vi.stubGlobal("URL", class extends URL { static createObjectURL = create; static revokeObjectURL = revoke; });
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  try {
+    render(<MaterialBulkCheck materials={[first]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Check selected materials (1)" }));
+    const textbox = await screen.findByRole("textbox", { name: "Automatic file check report" });
+    const download = screen.getByRole("button", { name: "Download TXT report" });
+    expect(textbox.compareDocumentPosition(download) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    vi.useFakeTimers();
+    fireEvent.click(download);
+    expect(create).toHaveBeenCalledOnce();
+    expect(create.mock.calls[0][0]).toMatchObject({ type: "text/plain;charset=utf-8", size: new TextEncoder().encode(report.report).length + 3 });
+    expect(click).toHaveBeenCalledOnce();
+    expect(click.mock.instances[0]).toMatchObject({ download: "reawote-material-check.txt", href: "blob:check-report" });
+    vi.runAllTimers();
+    expect(revoke).toHaveBeenCalledWith("blob:check-report");
+  } finally { vi.useRealTimers(); vi.unstubAllGlobals(); }
 });
 
 it.each([{ materials: [] }, { materials: Array.from({ length: 101 }, () => first) }, { materials: [first], disabled: true }])("does not send empty, oversized or disabled checks", ({ materials, disabled }) => {

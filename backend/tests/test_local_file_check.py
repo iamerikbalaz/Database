@@ -20,6 +20,22 @@ def test_complete_results_are_bound_to_exact_requested_ids_and_restore_selection
     assert result[1] == {"profile": PROFILE, "complete": True, "issues": [], "report": "No issues."}
 
 
+def test_native_bridge_preserves_nonblocking_warnings():
+    value = response()
+    value["results"][0]["warnings"] = ["Legacy COL TIFF accepted [COL_TIFF_LEGACY]"]
+    result = _parse_results(json.dumps(value), ["first", "second"])
+    assert result[0]["issues"] == []
+    assert result[0]["warnings"] == value["results"][0]["warnings"]
+
+
+@pytest.mark.parametrize("warnings", [None, "text", [None], [""], ["x" * 4097], ["x"] * 4097])
+def test_native_bridge_rejects_invalid_warning_evidence(warnings):
+    value = response()
+    value["results"][0]["warnings"] = warnings
+    with pytest.raises(LocalFilesError, match="LOCAL_FILE_CHECK_RESULT_INVALID"):
+        _parse_results(json.dumps(value), ["first", "second"])
+
+
 @pytest.mark.parametrize("mutation", [
     lambda value: value.update(schema_version=True),
     lambda value: value.update(schema_version=2),

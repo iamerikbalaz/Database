@@ -7,9 +7,36 @@ import { materialDto } from "../test/materialFixtures";
 import { previewClient } from "../api/previewClient";
 import { SessionContext } from "../auth/context";
 import { processorDto } from "../test/materialFixtures";
+import type { MaterialFilters } from "../api/materialClient";
 
 beforeEach(() => localStorage.clear());
 afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
+
+it.each([false, true])("filters automatic checks in list and gallery and clears the filter (archived=%s)", async archived => {
+  const first = { ...materialFromDto(materialDto), isArchived: archived, automaticFileCheckStatus: "ISSUES" as const };
+  const second = { ...first, id: "50000000-0000-4000-8000-000000000002", materialName: "SECOND-MATERIAL", automaticFileCheckStatus: "OK" as const };
+  const getMaterials = vi.fn(async (filters: MaterialFilters) => [first, second].filter(row => !filters.automatic_file_check_status || row.automaticFileCheckStatus === filters.automatic_file_check_status));
+  render(<MaterialsPage client={{ ...mockApiClient, getMaterials }} navigate={vi.fn()} archived={archived} />);
+  await screen.findByRole("table");
+  const filter = screen.getByRole("combobox", { name: "Automatic check" });
+  expect(Array.from(filter.querySelectorAll("option"), option => [option.value, option.textContent])).toEqual([["", "All"], ["NOT_CHECKED", "Not checked"], ["OK", "OK"], ["ISSUES", "Issues"]]);
+  fireEvent.change(filter, { target: { value: "ISSUES" } });
+  await waitFor(() => expect(getMaterials).toHaveBeenLastCalledWith({ ...(archived ? { is_archived: "true" } : {}), automatic_file_check_status: "ISSUES" }));
+  await screen.findByRole("table");
+  expect(screen.queryByRole("link", { name: second.materialName })).not.toBeInTheDocument();
+  const calls = getMaterials.mock.calls.length;
+  fireEvent.click(screen.getByRole("button", { name: "Gallery" }));
+  expect(screen.getByRole("list", { name: "Material gallery" })).toHaveTextContent(first.materialName);
+  expect(screen.getByRole("list", { name: "Material gallery" })).not.toHaveTextContent(second.materialName);
+  expect(getMaterials).toHaveBeenCalledTimes(calls);
+  expect(filter).toHaveValue("ISSUES");
+  fireEvent.change(filter, { target: { value: "NOT_CHECKED" } });
+  expect(await screen.findByText("No materials found")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+  await waitFor(() => expect(getMaterials).toHaveBeenLastCalledWith(archived ? { is_archived: "true" } : {}));
+  expect(filter).toHaveValue("");
+  expect(await screen.findByRole("list", { name: "Material gallery" })).toHaveTextContent(second.materialName);
+});
 it("uses the same filtered records in list and four-size gallery, and remembers the display preference", async () => {
   const material = materialFromDto(materialDto);
   const getMaterials = vi.fn().mockResolvedValue([material]);

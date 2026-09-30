@@ -104,6 +104,97 @@ def test_each_approved_map_format_is_accepted(tmp_path, shortcut):
     assert checked(root, folder)["issues"] == []
 
 
+@pytest.mark.parametrize("mode,extension", [("L", "jpg"), ("RGB", "jpg"), ("L", "jpeg"), ("RGB", "JPEG")])
+def test_id_accepts_real_grayscale_and_color_jpeg_without_warnings(tmp_path, mode, extension):
+    root, folder = make_valid(tmp_path)
+    add_map(folder, "ID", fmt="JPEG", mode=mode, extension=extension)
+    before = digest_tree(folder)
+    result = checked(root, folder)
+    assert result["issues"] == [] and result["warnings"] == []
+    assert digest_tree(folder) == before
+
+
+@pytest.mark.parametrize("extension", ["tif", "tiff", "TIFF"])
+def test_rgb8_tiff_color_is_ok_with_nonblocking_report_warning(tmp_path, extension):
+    root, folder = make_valid(tmp_path)
+    next((folder / "1K").glob("*_COL_*.jpg")).unlink()
+    path = add_map(folder, "COL", fmt="TIFF", extension=extension)
+    before = digest_tree(folder)
+    result = checked(root, folder)
+    assert result["issues"] == [] and "Status: OK" in result["report"]
+    assert len(result["warnings"]) == 1 and path.name in result["warnings"][0]
+    assert "COL_TIFF_LEGACY" in result["warnings"][0]
+    assert "Warnings (non-blocking):" in result["report"]
+    assert result["warnings"][0] in result["report"]
+    exported = check_material_files(root, (folder.name,), for_export=True)
+    assert exported["issues"] == [] and exported["warnings"] == result["warnings"]
+    assert exported["packaging_report"]["can_approve"] is True
+    assert digest_tree(folder) == before
+
+
+@pytest.mark.parametrize("master,longest,accepted", [("8K", 7999, False), ("8K", 8000, True),
+    ("8K", 8192, True), ("8K", 8600, True), ("8K", 8999, True), ("8K", 9000, False),
+    ("1K", 999, False), ("1K", 1000, True), ("1K", 1024, True), ("1K", 1999, True),
+    ("1K", 2000, False)])
+def test_master_is_thousands_bucket_of_longest_dimension(tmp_path, master, longest, accepted):
+    root, folder = make_valid(tmp_path, master=master, size=(32, longest))
+    result = checked(root, folder)
+    assert ("MASTER_DIMENSIONS_DIFFER" not in codes(result)) is accepted
+    assert (result["issues"] == []) is accepted
+    exported = check_material_files(root, (folder.name,), for_export=True)
+    assert exported["issues"] == result["issues"]
+    if accepted:
+        assert exported["packaging_report"]["can_approve"] is (longest >= 1024)
+        assert not any(item["code"] == "MASTER_DIMENSIONS_DIFFER" for item in exported["packaging_report"]["warnings"])
+
+
+def test_source_bucket_does_not_override_legacy_export_minimum(tmp_path):
+    from app.packaging_plan import PackagingPlanError, build_packaging_plan
+    from app.preflight import ZipPolicy
+    root, folder = make_valid(tmp_path, size=(1000, 512))
+    result = check_material_files(root, (folder.name,), for_export=True)
+    assert result["issues"] == []
+    report = result["packaging_report"]
+    assert report["can_approve"] is False
+    assert any(item["code"] == "MASTER_BELOW_1K" for item in report["errors"])
+    with pytest.raises(PackagingPlanError):
+        build_packaging_plan(report, expected_source_revision_hash=report["inventory"]["source_revision_hash"],
+            policy=ZipPolicy.CURRENT_ON_OR_AFTER_2026_03_04.value)
+
+
+def test_maps_within_same_resolution_bucket_must_still_match_color(tmp_path):
+    root, folder = make_valid(tmp_path, master="8K", size=(8600, 32))
+    add_map(folder, "NRM", size=(8192, 32))
+    result = checked(root, folder)
+    assert "MAP_DIMENSIONS_MISMATCH" in codes(result)
+    assert "MASTER_DIMENSIONS_DIFFER" not in codes(result)
+
+
+def test_user_8600_by_8192_master_passes_check_and_export_preflight(tmp_path):
+    root, folder = make_valid(tmp_path, master="8K", size=(8600, 8192))
+    result = check_material_files(root, (folder.name,), for_export=True)
+    assert result["issues"] == [] and result["warnings"] == []
+    assert result["packaging_report"]["can_approve"] is True
+    from app.packaging_plan import build_packaging_plan
+    from app.preflight import ZipPolicy
+    report = result["packaging_report"]
+    plan = build_packaging_plan(report, expected_source_revision_hash=report["inventory"]["source_revision_hash"],
+        policy=ZipPolicy.CURRENT_ON_OR_AFTER_2026_03_04.value)
+    assert plan.effective_master == "8K"
+    assert plan.resolutions[0].width == 8192
+
+
+@pytest.mark.parametrize("shortcut,fmt,extension", [("COL", "TIFF", "jpg"), ("COL", "JPEG", "tif"),
+    ("ID", "JPEG", "png")])
+def test_newly_supported_formats_must_match_real_file_extension(tmp_path, shortcut, fmt, extension):
+    root, folder = make_valid(tmp_path)
+    for existing in (folder / "1K").glob(f"*_{shortcut}_1K.*"): existing.unlink()
+    add_map(folder, shortcut, fmt=fmt, mode="RGB", extension=extension)
+    result = checked(root, folder)
+    assert "MAP_EXTENSION_MISMATCH" in codes(result)
+    assert result["warnings"] == []
+
+
 @pytest.mark.parametrize("shortcut,mode", [("SHEEN", "L"), ("SHEEN", "RGB"), ("NRM16", "RGBA")])
 def test_sheen_gray_and_rgb_and_normal16_alpha_are_supported(tmp_path, shortcut, mode):
     root, folder = make_valid(tmp_path)
@@ -112,10 +203,11 @@ def test_sheen_gray_and_rgb_and_normal16_alpha_are_supported(tmp_path, shortcut,
 
 
 @pytest.mark.parametrize("shortcut,fmt,mode,bits", [
-    ("ID", "PNG", "RGB", 8), ("ID", "PNG", "LA", 8), ("ID", "PNG", "1", 1),
+    ("ID", "PNG", "RGB", 8), ("ID", "PNG", "LA", 8), ("ID", "PNG", "1", 1), ("ID", "TIFF", "RGB", 8),
     ("SHEEN", "PNG", "RGBA", 8), ("SHEEN", "JPEG", "RGB", 8), ("SHEEN", "PNG", "I;16", 16),
     ("NRM16", "PNG", "L", 8), ("NRM16", "PNG", "RGB", 8), ("DISP16", "TIFF", "L", 8),
-    ("COL", "PNG", "RGB", 8), ("ROUGH", "JPEG", "RGB", 8), ("NRM", "JPEG", "L", 8),
+    ("COL", "PNG", "RGB", 8), ("COL", "TIFF", "L", 8), ("COL", "TIFF", "RGBA", 8),
+    ("COL", "TIFF", "I;16", 16), ("ROUGH", "JPEG", "RGB", 8), ("NRM", "JPEG", "L", 8),
 ])
 def test_wrong_channels_formats_and_stored_depth_are_rejected(tmp_path, shortcut, fmt, mode, bits):
     root, folder = make_valid(tmp_path)
@@ -143,7 +235,7 @@ def test_mask_does_not_silently_alias_id(tmp_path):
 
 
 @pytest.mark.parametrize("change,expected", [
-    ("additional-resolution", "SINGLE_MASTER_REQUIRED"), ("wrong-exact-resolution", "MASTER_DIMENSIONS_DIFFER"),
+    ("additional-resolution", "SINGLE_MASTER_REQUIRED"), ("wrong-resolution-bucket", "MASTER_DIMENSIONS_DIFFER"),
     ("different-size", "MAP_DIMENSIONS_MISMATCH"), ("wrong-prefix", "MAP_FILENAME_INVALID"),
     ("lowercase-identity", "MATERIAL_FOLDER_NAME_INVALID"), ("duplicate-map", "MAP_SHORTCUT_DUPLICATE"),
     ("wrong-extension", "MAP_EXTENSION_MISMATCH"), ("broken-image", "IMAGE_UNREADABLE"),
@@ -153,7 +245,7 @@ def test_source_structure_and_content_defects_are_reported(tmp_path, change, exp
     root, folder = make_valid(tmp_path)
     color = next((folder / "1K").glob("*_COL_*.jpg"))
     if change == "additional-resolution": (folder / "2K").mkdir()
-    elif change == "wrong-exact-resolution": add_map(folder, "COL", size=(1100, 512))
+    elif change == "wrong-resolution-bucket": add_map(folder, "COL", size=(2000, 512))
     elif change == "different-size": add_map(folder, "ROUGH", size=(1024, 500))
     elif change == "wrong-prefix": color.rename(color.with_name(color.name.replace("ROUBAL", "OTHER")))
     elif change == "lowercase-identity":
@@ -313,7 +405,7 @@ def test_cli_wire_shape_contains_only_full_results(tmp_path):
     root, folder = make_valid(tmp_path); identifier = str(uuid4())
     result = run(root, {"schema_version": 1, "materials": [{"id": identifier, "folder_path": folder.name}]})
     assert set(result) == {"schema_version", "results"}
-    assert set(result["results"][0]) == {"id", "profile", "complete", "issues", "report"}
+    assert set(result["results"][0]) == {"id", "profile", "complete", "issues", "warnings", "report"}
     assert result["results"][0]["id"] == identifier and result["results"][0]["issues"] == []
     with pytest.raises(ValueError):
         run(root, {"schema_version": 1, "materials": [{"id": identifier, "folder_path": "../outside"}]})
@@ -326,7 +418,7 @@ def test_cli_private_progress_and_errors_contain_only_safe_identifiers(tmp_path,
         nonlocal count
         count += 1
         if count == 2: raise InventoryError("INVENTORY_TIME_LIMIT")
-        return {"profile": PROFILE, "complete": True, "issues": [], "report": "OK"}
+        return {"profile": PROFILE, "complete": True, "issues": [], "warnings": [], "report": "OK"}
     monkeypatch.setattr(command, "check_material_files", check)
     with pytest.raises(FileCheckRunError) as raised:
         run(tmp_path, {"schema_version": 1, "materials": [

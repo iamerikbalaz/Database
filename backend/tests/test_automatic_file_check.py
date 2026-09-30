@@ -224,3 +224,41 @@ def test_clean_full_report_has_summary_without_material_details(local_case):
         report = response.json()["report"]
         assert "OK: 1 | Issues: 0" in report and "No issues found." in report
         assert "CLEAN_DETAIL" not in report and "Preliminary" not in report
+
+
+def test_tiff_warning_stays_ok_and_is_present_in_bulk_report_and_audit(local_case):
+    case, library, _, _ = local_case
+    choices = selected(case, both=True)
+    warning = "8K/SAFE_0001_COL_8K.tiff: legacy COL TIFF accepted; use JPG for new materials [COL_TIFF_LEGACY]"
+    library.file_check_profile = "PBR_FILES_V1"
+    library.check_many = lambda folders: [
+        {"profile": "PBR_FILES_V1", "complete": True, "issues": [], "warnings": [warning], "report": "Status: OK\nWarnings:\n" + warning},
+        {"profile": "PBR_FILES_V1", "complete": True, "issues": [], "warnings": [], "report": "ORDINARY_CLEAN_DETAIL"},
+    ]
+    with case.client("ADMIN") as client:
+        response = client.post("/api/materials/check-data", json={"materials": choices, "open_report": False})
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert [item["status"] for item in body["items"]] == ["OK", "OK"]
+        assert body["items"][0]["warnings"] == [warning]
+        assert "OK: 2 | Issues: 0" in body["report"]
+        assert "Warnings — passed materials (OK)" in body["report"] and warning in body["report"]
+        assert case.materials[0].technical_identity in body["report"]
+        assert "ORDINARY_CLEAN_DETAIL" not in body["report"]
+    with case.database.session() as session:
+        material = session.get(PBRMaterial, case.materials[0].id)
+        assert material.automatic_file_check_status == "OK" and warning in material.automatic_file_check_report
+        event = session.scalar(select(MaterialAuditEvent).where(MaterialAuditEvent.material_id == material.id))
+        assert event.result["audit"]["warnings"] == [warning]
+
+
+@pytest.mark.parametrize("warnings", [None, "text", [None], [""], ["x" * 4097], ["x"] * 4097])
+def test_malformed_warning_results_do_not_store_a_check(local_case, warnings):
+    case, library, url, _ = local_case
+    library.file_check_profile = "PBR_FILES_V1"
+    library.check_many = lambda folders: [{"profile": "PBR_FILES_V1", "complete": True,
+        "issues": [], "warnings": warnings, "report": "Invalid warning"}]
+    with case.client("ADMIN") as client:
+        assert client.post(url + "/check-data").status_code == 409
+    with case.database.session() as session:
+        assert session.get(PBRMaterial, case.materials[0].id).automatic_file_checked_at is None

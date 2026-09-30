@@ -32,10 +32,13 @@ def check(root, folder, config, callback=None):
     return result, session
 
 
-@pytest.mark.parametrize("defect", [None, "wrong-ID", "missing-metadata", "broken-preview", "missing-ROUGH"])
+@pytest.mark.parametrize("defect", [None, "wrong-ID", "legacy-COL", "missing-metadata", "broken-preview", "missing-ROUGH"])
 def test_snapshot_results_exactly_match_original_check_and_cleanup(tmp_path, defect):
     root, folder = make_valid(tmp_path); config = options(tmp_path)
-    if defect == "wrong-ID": add_map(folder, "ID", fmt="JPEG", mode="L")
+    if defect == "wrong-ID": add_map(folder, "ID", fmt="TIFF", mode="L")
+    if defect == "legacy-COL":
+        next((folder / "1K").glob("*_COL_1K.jpg")).unlink()
+        add_map(folder, "COL", fmt="TIFF")
     if defect == "missing-metadata": (folder / "metadata.json").unlink()
     if defect == "broken-preview": (folder / "PREVIEW/SPHERE_1.png").write_bytes(b"broken")
     if defect == "missing-ROUGH": next((folder / "1K").glob("*_ROUGH_1K.jpg")).unlink()

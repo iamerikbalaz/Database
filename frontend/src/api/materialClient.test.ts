@@ -53,6 +53,13 @@ it("encodes multiple color choices as repeated query parameters", async () => {
   await httpApiClient.getMaterials({ color_hex: ["#FFFFFF", "#FF822D"], main_category_code: "B03" });
   expect(fetchMock).toHaveBeenCalledWith("/api/materials?color_hex=%23FFFFFF&color_hex=%23FF822D&main_category_code=B03", expect.any(Object));
 });
+it.each(["NOT_CHECKED", "OK", "ISSUES"])("combines automatic check %s with archive and color filters, omitting All", async status => {
+  const fetchMock = vi.fn(async () => new Response("[]")); vi.stubGlobal("fetch", fetchMock);
+  await httpApiClient.getMaterials({ automatic_file_check_status: status, is_archived: "true", color_hex: ["#FFFFFF"] });
+  expect(fetchMock).toHaveBeenLastCalledWith(`/api/materials?automatic_file_check_status=${status}&is_archived=true&color_hex=%23FFFFFF`, expect.any(Object));
+  await httpApiClient.getMaterials({ automatic_file_check_status: "", is_archived: "true" });
+  expect(fetchMock).toHaveBeenLastCalledWith("/api/materials?is_archived=true", expect.any(Object));
+});
 
 it("uses the exact material-operation endpoints, bodies and explicit response mappings", async () => {
   const linked = { ...materialDto, folder_path: `library/${materialDto.technical_identity}` };

@@ -30,6 +30,7 @@ export interface MaterialFilters {
   assigned_processor_id?: string;
   main_category_code?: string;
   checked_status?: string;
+  automatic_file_check_status?: string;
   workflow_status?: string;
   validation_status?: string;
   publication_status?: string;

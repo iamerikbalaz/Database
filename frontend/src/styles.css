@@ -918,11 +918,13 @@ a.button {
 
 .material-filters {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  min-width: 0;
   gap: 16px;
   margin-bottom: 24px;
   align-items: end;
 }
+.material-filters > *, .material-filters input, .material-filters select { min-width: 0; max-width: 100%; }
 .material-table { overflow-x: auto; }
 .material-table table { min-width: 1300px; }
 .material-table:focus-visible { outline: 3px solid var(--focus); }
@@ -1421,10 +1423,16 @@ a.button {
 .material-color-swatch { width:28px; height:28px; flex:0 0 28px; border:1px solid var(--border); border-radius:7px; }
 .material-color-swatch--empty { background:linear-gradient(135deg, transparent 46%, #9093b9 47%, #9093b9 53%, transparent 54%), #fff; }
 
-.material-color-filter { min-width:210px; }
+.material-color-filter { min-width:0; }
+.material-color-filter .material-color-select { gap:.4rem; padding:10px; }
+.material-color-value { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .material-color-filter .material-color-swatch { width:20px; height:20px; flex-basis:20px; border-radius:4px; }
-.material-color-filter-chip { display:flex; margin-right:-.35rem; }
-.material-color-filter .material-color-options { min-width:270px; }
+.material-color-filter-chip { display:flex; flex-shrink:0; margin-right:-.15rem; }
+.material-color-filter .material-color-options { min-width:0; max-width:100%; }
+.material-color-filter .material-color-option { display:grid; grid-template-columns:20px minmax(0, 1fr) auto; gap:2px .5rem; overflow-wrap:anywhere; }
+.material-color-filter .material-color-option .material-color-swatch { grid-row:1 / span 2; }
+.material-color-filter .material-color-option .material-color-code { grid-column:2; margin-left:0; }
+.material-color-filter .material-color-option .material-color-check { grid-column:3; grid-row:1 / span 2; }
 .material-color-code { margin-left:auto; color:var(--muted); font-size:.7rem; }
 .material-color-filter-clear { margin:6px; }
 .material-table--editable tbody tr { cursor:default; }

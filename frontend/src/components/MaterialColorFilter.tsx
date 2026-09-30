@@ -38,7 +38,7 @@ export function MaterialColorFilter({ value, onChange, disabled = false }: { val
       aria-expanded={expanded} aria-controls={expanded ? `${id}-options` : undefined} aria-activedescendant={expanded ? `${id}-color-${active}` : undefined}
       disabled={disabled} onClick={() => setOpen(!expanded)} onKeyDown={keyDown}>
       {value.slice(0, 3).map(color => <span key={color} className="material-color-filter-chip">{swatch(color)}</span>)}
-      <span>{value.length === 0 ? "All colors" : value.length === 1 ? materialColorLabel(value[0]) : `${value.length} colors`}</span><span className="material-color-chevron" aria-hidden="true">⌄</span>
+      <span className="material-color-value">{value.length === 0 ? "All colors" : value.length === 1 ? materialColorLabel(value[0]) : `${value.length} colors`}</span><span className="material-color-chevron" aria-hidden="true">⌄</span>
     </button>
     {expanded && <div className="material-color-options">
       <div role="listbox" id={`${id}-options`} aria-label="Material colors" aria-multiselectable="true">

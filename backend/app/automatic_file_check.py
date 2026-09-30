@@ -64,6 +64,9 @@ def _result(value, *, profile=PROFILE):
     issues = value.get("issues")
     if not isinstance(issues, list) or len(issues) > 4096 or any(not isinstance(item, str) or len(item) > 4096 for item in issues):
         raise ValueError("Invalid check issues")
+    warnings = value.get("warnings", [])
+    if not isinstance(warnings, list) or len(warnings) > 4096 or any(not isinstance(item, str) or not item or len(item) > 4096 for item in warnings):
+        raise ValueError("Invalid check warnings")
     if len(value["report"]) > 1024 * 1024:
         raise ValueError("Invalid check report")
     # Only the installed full checker can certify a result; a preliminary
@@ -72,11 +75,11 @@ def _result(value, *, profile=PROFILE):
         if value.get("profile") != FULL_PROFILE or value.get("complete") is not True:
             raise ValueError("Incomplete full check result")
         return {"status": "ISSUES" if issues else "OK", "profile": FULL_PROFILE,
-            "complete": True, "issues": issues, "report": value["report"]}
+            "complete": True, "issues": issues, "warnings": warnings, "report": value["report"]}
     if profile != PROFILE:
         raise ValueError("Unknown check profile")
     return {"status": "ISSUES" if issues else "NOT_CHECKED", "profile": PROFILE,
-        "complete": False, "issues": issues, "report": value["report"] + "\n\n" + LIMITATION}
+        "complete": False, "issues": issues, "warnings": warnings, "report": value["report"] + "\n\n" + LIMITATION}
 
 
 def check_materials(database, library, access, selections, *, progress=None):
@@ -130,7 +133,8 @@ def check_materials(database, library, access, selections, *, progress=None):
             session.add(MaterialAuditEvent(material_id=material.id, actor_id=access.user.id,
                 event_type="AUTOMATIC_FILE_CHECK", generation=0, revision_hash=None,
                 result={"audit": {"values": {"automatic_file_check_status": result["status"]},
-                    "profile": result["profile"], "complete": result["complete"], "issues": result["issues"], "report": result["report"]}}))
+                    "profile": result["profile"], "complete": result["complete"], "issues": result["issues"],
+                    "warnings": result["warnings"], "report": result["report"]}}))
             result.update(material_id=str(material.id), checked_at=_aware(checked_at).isoformat(),
                 identity=material.technical_identity, folder_path=material.folder_path)
         session.commit()
@@ -141,14 +145,21 @@ def check_materials(database, library, access, selections, *, progress=None):
 
 def combined_report(items):
     issues = [item for item in items if item["status"] == "ISSUES"]
+    warnings_only = [item for item in items if item["status"] == "OK" and item.get("warnings")]
+    warning_count = sum(bool(item.get("warnings")) for item in items)
     counts = {status: sum(item["status"] == status for item in items) for status in ("OK", "ISSUES", "NOT_CHECKED")}
     sections = ["REAWOTE — Automatic file check",
         f"Checked: {len(items)} | OK: {counts['OK']} | Issues: {counts['ISSUES']} | Incomplete: {counts['NOT_CHECKED']}"]
+    if warning_count:
+        sections.append(f"Materials with warnings: {warning_count} (warnings alone do not change OK status).")
     if any(not item["complete"] for item in items):
         sections.append(LIMITATION)
     if not issues:
         sections.append("No issues found." if counts["NOT_CHECKED"] == 0 else "No issues observed in the preliminary inspection.")
     sections.extend(f"Material: {item.get('identity', item['material_id'])}\nFolder: {item.get('folder_path', '')}\nChecked: {item['checked_at']}\n{item['report']}" for item in issues)
+    if warnings_only:
+        sections.append("Warnings — passed materials (OK)")
+        sections.extend(f"Material: {item.get('identity', item['material_id'])}\nFolder: {item.get('folder_path', '')}\nChecked: {item['checked_at']}\n" + "\n".join(item["warnings"]) for item in warnings_only)
     return "\n\n".join(sections) + "\n"
 
 

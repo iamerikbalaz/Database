@@ -4,6 +4,8 @@ The materials table displays a server-produced field independent of human
 **Checked** and the older technical validation/approval records. Users cannot
 PATCH this field. The material card and the explicitly selected bulk operation
 run the same inspection and append the actor to material activity.
+The **Automatic check** filter selects not checked, OK or issues and combines
+with the other Materials filters in the list, gallery and archive.
 
 ## Full validation profile
 
@@ -129,23 +131,33 @@ There is one source resolution folder: the highest/master resolution, for exampl
 **NRM16** does not replace NRM. Additional maps are optional but, when present,
 must meet their respective rules. Duplicate map types are issues.
 
-All maps must match the COL width and height. The longest side is exactly the
-folder's K value multiplied by 1024, so a `4K` source has a longest side of 4096
-pixels. Rectangular images are allowed. File contents are decoded and checked;
+All maps must match the COL width and height. The folder's K number is the number
+of complete thousands in the longest side: `8K` accepts **8000–8999 pixels**,
+including 8192 and 8600. `4K` accepts 4000–4999 pixels. Rectangular images are
+allowed. This source classification does not change publication's existing
+1024-based output resizing or ZIP policy. File contents are decoded and checked;
 a correct extension alone is insufficient.
+The existing publication minimum remains 1024 pixels: a 1K source of 1000–1023
+pixels fits the source naming rule, but cannot be packaged by the current exporter.
 
 | Maps | File format | Color and depth |
 | --- | --- | --- |
-| COL, DIFF, NRM, SPEC, SPECLVL, SSS, SSSABSORB, TRANSL, ANISO | JPEG | RGB, 8 bits per channel |
+| COL | JPEG; legacy TIFF with warning | RGB, 8 bits per channel |
+| DIFF, NRM, SPEC, SPECLVL, SSS, SSSABSORB, TRANSL, ANISO | JPEG | RGB, 8 bits per channel |
 | ROUGH, GLOSS, DISP, SHEENGLOSS, OPAC, AO, METAL | JPEG | Grayscale, 8 bits |
 | NRM16 | PNG | RGB or RGBA, 16 bits per channel |
 | DISP16 | TIFF | Grayscale, 16 bits |
-| ID | PNG | Grayscale, 8 bits, no alpha |
+| ID | JPEG or PNG | JPEG: grayscale or RGB, 8 bits; PNG: grayscale, 8 bits, no alpha |
 | SHEEN | PNG | Grayscale or RGB, 8 bits per channel, no alpha |
 
 **ID** is the mask token. `MASK` is not substituted or renamed automatically.
 ID permits gray pixels at antialiased boundaries; this check does not require
 every pixel to be exactly black or white. SHEEN permits both grayscale and color.
+Valid RGB8 COL TIFF files (`.tif` or `.tiff`, matching decoded content) produce a
+nonblocking `COL_TIFF_LEGACY` warning. A material with only that warning is **OK**.
+The warning tells authors to use JPEG for new materials. No TIFF cutoff date or
+new-material rejection is inferred from the separate ZIP policy; a hard rule for
+new materials awaits a defined age/provenance boundary.
 Bit depth means bits per channel, not total bits per pixel: RGB 8-bit has 24 bits
 per pixel, and RGB 16-bit has 48.
 
@@ -182,17 +194,19 @@ The TXT report is saved under `%LOCALAPPDATA%\REAWOTE\Reports\Checks` with a
 timestamp and unique ID. This durable location is outside `Test_data` and does
 not disappear during temporary-file cleanup. An explicit bulk check opens its
 report in Notepad, including an optional check during publication review.
-The report begins with a summary and includes material sections **only for
-materials with issues**. Passing materials are counted in the summary and are
-not repeated in the diagnostic list. A clean selection produces a summary with
-no defect sections. The report contains the material identity and folder path
+The report begins with a summary and includes defect sections **only for
+materials with issues**. Materials that pass with legacy TIFF warnings appear in
+a separate **Warnings — passed materials (OK)** section. Ordinary passing
+materials are counted in the summary and are not repeated in the diagnostic list.
+A clean selection produces a summary with no defect sections. The report contains the material identity and folder path
 so the person correcting files can find them directly. Full image decoding can
 take several minutes for large materials or selections; the UI keeps the check
 pending until the result arrives and blocks duplicate submissions.
 When launched through a packaged Windows app, Windows can redirect this folder
 under `%LOCALAPPDATA%\Packages\<package>\LocalCache\Local\REAWOTE`. The report
-adapter resolves and validates that fixed physical location and displays the
-actual saved path. Material-source path checks are unchanged.
+adapter resolves and validates that fixed physical location. The report panel
+hides the saved TXT path and desktop-editor status and offers **Download TXT
+report** below the report. Material-source path checks are unchanged.
 `open_report: false` supports integrations and automated tests without opening
 an editor. The response includes
 the report text even if the desktop editor or report storage is unavailable, so

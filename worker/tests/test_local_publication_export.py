@@ -110,3 +110,35 @@ def test_export_enforces_identical_required_normal_and_preview_rules(tmp_path):
     assert result["status"] == "FAILED"
     assert {item["code"] for item in result["items"][0]["issues"]} >= {"REQUIRED_MAP_MISSING", "PREVIEW_DIMENSIONS_INVALID"}
     assert list(output.iterdir()) == []
+
+
+@pytest.mark.parametrize("extension,mode", [("tif", "L"), ("tiff", "RGB")])
+def test_export_accepts_thousands_bucket_tiff_color_and_jpeg_id_preserving_source(tmp_path, extension, mode):
+    from PIL import Image
+    import io
+    source, output, request = prepared(tmp_path)
+    # A non-1024-multiple rectangular 8K master is a valid source. Export
+    # continues to normalize the generated output using its existing policy.
+    (source[2] / "2K").rename(source[2] / "8K")
+    for old in (source[2] / "8K").iterdir(): old.unlink()
+    for shortcut in ("COL", "ROUGH", "NRM"):
+        add_map(source[2], shortcut, size=(8600, 256),
+            **({"fmt": "TIFF", "extension": extension} if shortcut == "COL" else {}))
+    add_map(source[2], "ID", size=(8600, 256), fmt="JPEG", mode=mode)
+    before = snapshot(source[2])
+    result = run(source[0], source[1], output, request)
+    assert result["status"] == "COMPLETED"
+    assert any(item["code"] == "COL_TIFF_LEGACY" for item in result["items"][0]["warnings"])
+    assert len(result["items"][0]["archives"]) == 4
+    for item in result["items"][0]["archives"]:
+        with zipfile.ZipFile(output / item["name"]) as archive:
+            assert archive.testzip() is None
+            root = item["name"][:-4]
+            resolution = root.rsplit("_", 1)[1]
+            for shortcut, suffix, fmt in (("COL", extension, "TIFF"), ("ID", "jpg", "JPEG")):
+                raw = archive.read(f"{root}/{resolution}/{base_name(source[2].name)}_{shortcut}_{resolution}.{suffix}")
+                with Image.open(io.BytesIO(raw)) as image:
+                    image.load()
+                    assert image.format == fmt and image.width == int(resolution[:-1]) * 1024
+    assert snapshot(source[2]) == before
+    assert list(source[1].iterdir()) == []

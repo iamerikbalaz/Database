@@ -109,14 +109,21 @@ def _parse_results(raw, identifiers):
             raise ValueError()
         by_id = {}
         for item in value["results"]:
-            if (type(item) is not dict or set(item) != {"id", "profile", "complete", "issues", "report"}
+            if (type(item) is not dict or set(item) not in (
+                    {"id", "profile", "complete", "issues", "report"},
+                    {"id", "profile", "complete", "issues", "warnings", "report"})
                     or type(item["id"]) is not str or item["id"] not in identifiers or item["id"] in by_id
                     or item["profile"] != PROFILE or item["complete"] is not True
                     or type(item["report"]) is not str or not item["report"] or len(item["report"]) > 1_000_000
                     or type(item["issues"]) is not list or len(item["issues"]) > 4096
                     or any(type(issue) is not str or not issue or len(issue) > 4096 for issue in item["issues"])):
                 raise ValueError()
+            if "warnings" in item and (type(item["warnings"]) is not list or len(item["warnings"]) > 4096
+                    or any(type(warning) is not str or not warning or len(warning) > 4096 for warning in item["warnings"])):
+                raise ValueError()
             by_id[item["id"]] = {key: item[key] for key in ("profile", "complete", "issues", "report")}
+            if "warnings" in item:
+                by_id[item["id"]]["warnings"] = item["warnings"]
         return [by_id[identifier] for identifier in identifiers]
     except (ValueError, KeyError, TypeError, UnicodeError, RecursionError):
         raise LocalFilesError("LOCAL_FILE_CHECK_RESULT_INVALID") from None

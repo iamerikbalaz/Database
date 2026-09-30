@@ -567,6 +567,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 "main_category_code",
                 "workflow_status",
                 "checked_status",
+                "automatic_file_check_status",
                 "validation_status",
                 "publication_status",
                 "is_published",

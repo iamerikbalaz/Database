@@ -105,6 +105,15 @@ def test_supported_real_formats_are_decoded(tmp_path, extension, mode, expected_
 
 
 @POSIX
+def test_legacy_technical_approval_keeps_1024_pixel_publication_minimum(tmp_path):
+    make(tmp_path, size=(1000, 500))
+    result = validate_material(tmp_path, (IDENTITY,))
+    assert result["can_approve"] is False
+    assert "MASTER_BELOW_1K" in codes(result)
+    assert "MASTER_DIMENSIONS_DIFFER" not in codes(result, "warnings")
+
+
+@POSIX
 @pytest.mark.parametrize("defect,expected", [("frames", "IMAGE_MULTIFRAME_UNSUPPORTED"),
                                            ("cmyk", "IMAGE_MODE_UNSUPPORTED"),
                                            ("float", "IMAGE_BIT_DEPTH_UNSUPPORTED")])

@@ -18,8 +18,6 @@ export function CheckReportView({ result }: { result: CheckReport }) {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   return <details className="material-check-summary" open><summary>Automatic file check report</summary>
-    {result.reportPath && <p>Saved report: <span className="folder-absolute-path">{result.reportPath}</span></p>}
-    {result.reportOpened ? <p role="status">The text report was opened in the desktop editor.</p> : <p>The report is available below. You can also save a text copy.</p>}
     <textarea aria-label="Automatic file check report" className="material-check-report-text" readOnly rows={12} value={result.report} />
     <button type="button" className="button" onClick={download}>Download TXT report</button>
   </details>;

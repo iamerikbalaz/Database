@@ -319,6 +319,7 @@ class PBRMaterialListingRead(PBRMaterialRead):
 class PBRMaterialListFilters(ApiSchema):
     color_hex: list[HexColor] = Field(default_factory=list, max_length=32)
     is_archived: bool = False
+    automatic_file_check_status: Literal["NOT_CHECKED", "OK", "ISSUES"] | None = None
     checked_status: Literal["no", "OK", "Correction"] | None = None
     project_id: UUID | None = None
     published_brand_id: UUID | None = None

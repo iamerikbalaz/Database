@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApiClient } from "../api/client";
 import { materialLoadError, type MaterialFilters } from "../api/materialClient";
-import { checkedStatuses, statusLabel, workflowStatuses, type Material } from "../api/materialDto";
+import { automaticFileCheckStatuses, checkedStatuses, statusLabel, workflowStatuses, type Material } from "../api/materialDto";
 import { useResource } from "../api/useResource";
 import { NavigationLink } from "../components/NavigationLink";
 import { EmptyState, ErrorState, LoadingState } from "../components/PageState";
@@ -64,6 +64,7 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
     { key: "assigned_processor_id", label: "Processor", options: users.map((u) => ({ value: u.id, label: u.displayName + (u.isActive ? "" : " (inactive)") })) },
     { key: "workflow_status", label: "Status", options: workflowStatuses.map((value) => ({ value, label: statusLabel(value) })) },
     { key: "checked_status", label: "Checked", options: checkedStatuses.map((value) => ({ value, label: value })) },
+    { key: "automatic_file_check_status", label: "Automatic check", options: automaticFileCheckStatuses.map(value => ({ value, label: value === "NOT_CHECKED" ? "Not checked" : value === "ISSUES" ? "Issues" : "OK" })) },
     { key: "is_published", label: "Published", options: [{ value: "true", label: "Yes" }, { value: "false", label: "No" }] },
   ];
   return <section>

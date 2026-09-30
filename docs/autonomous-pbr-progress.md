@@ -1,6 +1,62 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-29, faster automatic checks and live progress)
+## Latest checkpoint (2026-09-30, automatic-check filters and source rules)
+
+Continued the existing `codex/autonomous-pbr-completion` branch. This slice adds
+the Materials **Automatic check** filter (not checked / OK / issues) across the
+active list, gallery and archive. It composes with existing filters and access
+scope. The Color control now fits narrow filter tracks without touching Project.
+The report panel shows the downloadable TXT without a saved-path field or editor
+status message.
+
+ID maps additionally accept RGB/grayscale JPEG8. Source resolution folders now
+represent complete thousands of pixels on the longest side: 8K accepts
+8000–8999, including 8600×8192. All maps must still match COL dimensions. COL RGB8
+TIFF is accepted with a nonblocking `COL_TIFF_LEGACY` warning; warning-only
+materials remain OK and appear separately in the bulk report. Warnings cross the
+bounded native/API contracts and are retained in material audit evidence.
+
+The cutoff distinguishing old from new materials is not yet defined. TIFF
+therefore warns authors to use JPEG for new materials; it is not rejected based
+on an invented date or the unrelated ZIP policy. Publication retains its existing
+1024-based output sizing, including the 1024px minimum (a 1000–1023px source can
+fit a 1K folder yet remain too small to package). The legacy technical approval
+contract retains that minimum as well.
+
+### Verification
+
+- Backend/API/native result parsing: **189 passed**, including status filters,
+  archive/access scope, warning-only OK/report/audit, invalid-warning rejection,
+  existing check jobs and material operations.
+- Frontend: **67 focused tests passed**; build and lint passed. Browser visual
+  verification remains unavailable after the browser tool rejected access to the
+  local tab; responsive sizing was inspected in CSS and component tests passed.
+- Linux worker: **269 focused tests passed**, followed by **14 final regression
+  cases** on the final source. Includes the exact 8600×8192 example, interval
+  boundaries, TIFF/JPEG ID real ZIP output, legacy approval minimum and TIFF
+  cache reuse. Final test image:
+  `sha256:8b80cffd8d4631c1aed2908233df968274389f9e323526f539ae75a2dd4ad1ef`.
+- Automatic-check runtime updated to
+  `sha256:cf1bf7c7965aff69db2c9caf70f43e60b3429f1cd0d87885c6c0bf394e57ee75`.
+  The server restarted successfully and `/health` reports database connected.
+- The proposed joint update of `publication-image.txt` was rejected by automatic
+  approval review as outside this check-focused request. The safer deployment
+  updates **only** `file-check-image.txt`; publication retains
+  `sha256:b43d0b49565e2ce7b84dfbd7d687a36c2219fe366c5654ce1019005addabd91a`.
+  Shared-rule export code is tested and ready, but applying that runtime update
+  awaits user approval. Until then export can still reject these newly accepted
+  source formats/dimensions under its older preflight rules.
+- Full 50-material API acceptance passed in **326.0 seconds**: **35 OK / 15
+  issues**. All three active and archive filter values returned exactly the
+  expected IDs (the current dataset has no archived materials). All 990 source
+  file sizes/mtimes and all other material DTO properties remained unchanged.
+  Report persistence matched the API response. This real set contains no COL
+  TIFF warnings; TIFF behavior is covered by the synthetic decode/export tests.
+  The new image's first run inspected 460 images and reused 155 facts. Evidence:
+  `tmp/local-materials-v5-20260928/v10-summary.json`, `v10-job.private.json`
+  and `v10-before.private.json`. No source repair was performed.
+
+## Previous checkpoint (2026-09-29, faster automatic checks and live progress)
 
 Continued `codex/autonomous-pbr-completion`; a fresh fetch confirms `origin/main`
 remains `88a1f99d748d2a0edbb1fce509e13d18bfc03908`. No main merge or original NAS

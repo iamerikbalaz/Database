@@ -11,12 +11,13 @@ is scoped to page mode, so it cannot hide the workspace scrollbar.
 
 The contained results area hides its own horizontal scrollbar and takes horizontal
 position from the single native top bar. The bar uses intrinsic height without a
-frame or spacer height. Vertical scrolling remains native. Direct horizontal wheel
+frame. Its width spacer must remain 1 px high: a zero-area box does not contribute
+scrollable overflow and makes the native bar inert. Vertical scrolling remains native. Direct horizontal wheel
 gestures over the contained results are not handled; use the top bar.
 
 Customer logos render in grayscale in lists and record cards while their stored
 source files remain unchanged. The shared resource toolbar begins with Select
-highlighted and Properties; Refresh is an accessible icon button at the end.
+highlighted, the selected count and Properties; Refresh is an accessible icon button at the end.
 Bulk property/value labels use equal rows, with 40 px editors and review button;
 notes scroll within that height and boolean controls center in the same row.
 

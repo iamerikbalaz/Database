@@ -195,11 +195,11 @@ export function EditableResourceTable<T extends { id: string }>({ rows, columns,
     <div className="toolbar resource-table-toolbar">
 
       {canEdit && <button className="button" disabled={active || !items.some(row => highlight.ids.has(row.id))} onClick={() => setSelected(new Set([...selected, ...items.filter(row => highlight.ids.has(row.id)).map(row => row.id)]))}>Select highlighted ({items.filter(row => highlight.ids.has(row.id)).length})</button>}
+      {canEdit && <span>{items.filter(row => selected.has(row.id)).length} selected</span>}
 
       <details className="resource-properties"><summary>Properties</summary><div className="resource-property-options">{columns.map(column => <label key={column.key}><input type="checkbox" checked={!hidden.has(column.key)} disabled={active || visible.length === 1 && !hidden.has(column.key)} onChange={() => { const next = new Set(hidden); if (next.has(column.key)) next.delete(column.key); else next.add(column.key); setHidden(next); try { localStorage.setItem(storageKey, JSON.stringify([...next])); } catch { /* In-memory preferences remain available. */ } }} />{column.label}</label>)}</div></details>
 
-      {canEdit && <span>{items.filter(row => selected.has(row.id)).length} selected</span>}
-      <button className="button resource-table-refresh" aria-label="Refresh" title="Refresh" disabled={active} onClick={refreshRows}><Icon name="refresh" size={18} /></button>
+      <button className="button resource-table-refresh" aria-label="Refresh" title="Refresh" disabled={active} onClick={refreshRows}><Icon name="refresh" size={20} /></button>
     </div>
     {canEdit && bulkColumn && items.some(row => selected.has(row.id)) && <fieldset className="material-bulk-bar resource-bulk-bar" disabled={active}><legend>Apply to {items.filter(row => selected.has(row.id)).length} selected records</legend>
       <label>Property<select aria-label="Bulk property" value={bulkColumn.key} onChange={e => { setField(e.target.value); setValue(initialValue(editable.find(column => column.key === e.target.value))); }}>{editable.map(column => <option key={column.key} value={column.key}>{column.label}</option>)}</select></label>

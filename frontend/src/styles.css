@@ -1352,6 +1352,7 @@ a.button {
 }
 .resource-table-toolbar { flex-wrap: wrap; align-items: center; justify-content:flex-start; gap: .65rem; }
 .resource-table-toolbar .button.resource-table-refresh { margin-inline-start:auto; width:40px; min-width:40px; height:40px; min-height:40px; padding:0; }
+.resource-table-refresh > .icon { display:block; flex:none; }
 .resource-table-toolbar > input, .resource-table-toolbar > textarea, .resource-table-toolbar > select { max-width: 260px; }
 .resource-table-toolbar > * { max-width: 100%; }
 .resource-table-toolbar label { display: grid; grid-template-columns: minmax(0, 1fr); gap: .25rem; font-size: .8rem; min-width: 0; max-width: 100%; }
@@ -1500,7 +1501,8 @@ a.button {
 /* The page owns vertical scrolling; all database tables share a top scrollbar. */
 .database-table-viewport { position:relative; min-width:0; max-width:100%; }
 .database-table-scrollbar { position:sticky; top:0; z-index:8; width:100%; height:auto; min-height:14px; overflow-x:scroll; overflow-y:hidden; background:var(--canvas); border:0; border-radius:0; scrollbar-color:var(--muted) var(--canvas); }
-.database-table-scrollbar > div { height:0; }
+/* A nonzero height is required: zero-area boxes do not extend scrollable overflow. */
+.database-table-scrollbar > div { height:1px; }
 .database-table-body { max-height:none; overflow-x:auto; overflow-y:hidden; border-radius:0; }
 .database-table-viewport:not(.database-table-viewport--contained) > .database-table-body { scrollbar-width:none; }
 .database-table-viewport:not(.database-table-viewport--contained) > .database-table-body::-webkit-scrollbar { display:none; }

@@ -4,7 +4,9 @@ import { record, string, uuid } from "./dto";
 export interface MaterialBatchCreate {
   idempotency_key: string; expected_paths_version: number; project_id: string | null;
   published_brand_id: string; assigned_processor_id: string; main_category_code: string;
-  names: string[]; category_ids: string[]; collection_ids: string[]; resolution: number; template_name: string;
+  names: string[]; category_ids: string[]; collection_ids: string[]; template_name: string;
+  /** Kept only when replaying a request saved by an older desktop version. */
+  resolution?: number;
 }
 export interface MaterialCreationResult {
   id: string; status: "PENDING" | "PARTIAL" | "COMPLETED"; completedCount: number; totalCount: number;

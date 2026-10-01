@@ -24,8 +24,8 @@ export function CheckReportView({ result }: { result: CheckReport }) {
   </details>;
 }
 
-export function MaterialBulkCheck({ materials, disabled = false, onBusyChange, onChecked, compact = false, actionTarget }: {
-  materials: Material[]; disabled?: boolean; onBusyChange?: (busy: boolean) => void; onChecked?: () => void; compact?: boolean; actionTarget?: HTMLElement | null;
+export function MaterialBulkCheck({ materials, disabled = false, onBusyChange, onChecked, compact = false, actionTarget, dockOnly = false }: {
+  materials: Material[]; disabled?: boolean; onBusyChange?: (busy: boolean) => void; onChecked?: () => void; compact?: boolean; actionTarget?: HTMLElement | null; dockOnly?: boolean;
 }) {
   const [pending, setPending] = useState(false), [error, setError] = useState("");
   const [report, setReport] = useState<CheckReport | null>(null);
@@ -56,7 +56,8 @@ export function MaterialBulkCheck({ materials, disabled = false, onBusyChange, o
     {compact && pending && <span role="status">{checkProgress.progress ? `${checkProgress.progress.completed} / ${checkProgress.progress.total} materials inspected` : "Starting file check…"}{checkProgress.resume ? " · Resume is available in check progress." : ""}</span>}
   </>;
   return <div className={`material-bulk-check${actionTarget ? " material-bulk-check--docked" : ""}`}>
-    {actionTarget ? createPortal(controls, actionTarget) : controls}
+    {actionTarget ? createPortal(controls, actionTarget) : dockOnly ? null : controls}
+    {dockOnly && !actionTarget && compact && report && <button type="button" className="button" onClick={() => detailsDialog.current?.showModal()}>View check report</button>}
     {!compact && pending && <FileCheckProgress progress={checkProgress.progress} resume={checkProgress.resume} total={materials.length} />}
     {error && <p role="alert" className="field-error">{error}</p>}
     {!compact && report && <CheckReportView result={report} />}

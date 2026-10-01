@@ -21,7 +21,8 @@ import { ErrorState, LoadingState } from "../components/PageState";
 import { Icon } from "../components/Icon";
 import { useDatabaseWorkspace } from "../components/useDatabaseWorkspace";
 import { ResponsiveFilters } from "../components/ResponsiveFilters";
-import { databaseSortOptions, sortDatabaseRecords, useDatabaseFilters } from "../components/useDatabaseFilters";
+import { numberedDatabaseSortOptions, sortDatabaseRecords, useDatabaseFilters } from "../components/useDatabaseFilters";
+import { DatabaseResultsToolbar } from "../components/DatabaseResultsToolbar";
 
 
 
@@ -30,7 +31,7 @@ export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: 
 
   const resource = useResource(useCallback(() => Promise.all([directoryClient.orders(), directoryClient.customers(), client.getInternalUsers()]), [client]));
 
-  const { filters, setFilters, keepFilters, setKeepFilters, resetFilters } = useDatabaseFilters("orders", { search: "", status: "", customer: "", priority: "", responsible: "", from: "", to: "", sort: "created-desc" });
+  const { filters, setFilters, keepFilters, setKeepFilters, resetFilters } = useDatabaseFilters("orders", { search: "", status: "", customer: "", priority: "", responsible: "", from: "", to: "", sort: "number-desc" });
   const { search, status, customer, priority, responsible, from, to, sort } = filters;
   const [busy, setBusy] = useState(false);
   const changeFilter = (key: keyof typeof filters, value: string) => setFilters(current => ({ ...current, [key]: value }));
@@ -47,7 +48,7 @@ export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: 
     (!from || Boolean(item.startingDate && item.startingDate >= from)) && (!to || Boolean(item.dueDate && item.dueDate <= to)) &&
 
     [item.number, item.generatedName, item.projectType, item.notes, names.get(item.customerId ?? "")].some(value => value?.toLowerCase().includes(search.toLowerCase())));
-  const filtered = sort.startsWith("number-") ? [...matching].sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }) * (sort === "number-desc" ? -1 : 1) || a.id.localeCompare(b.id)) : sortDatabaseRecords(matching, sort, item => item.generatedName, item => item.createdAt);
+  const filtered = sortDatabaseRecords(matching, sort, item => item.generatedName, item => item.createdAt, item => item.number);
 
   const columns: ResourceColumn<Order>[] = [
 
@@ -89,8 +90,9 @@ export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: 
       { key: "from", width: 142, active: Boolean(from), content: <label>Starting from<input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label> },
       { key: "due", width: 142, active: Boolean(to), content: <label>Due date<input type="date" value={to} onChange={event => setTo(event.target.value)} /></label> },
       { key: "priority", width: 115, active: Boolean(priority), content: <label>Priority<select value={priority} onChange={event => setPriority(event.target.value)}><option value="">All</option>{priorities.map(value => <option key={value}>{value}</option>)}</select></label> },
-      { key: "sort", width: 155, active: sort !== "created-desc", content: <label>Sort orders<select value={sort} onChange={event => changeFilter("sort", event.target.value)}>{[...databaseSortOptions, { value: "number-asc", label: "Number: ascending" }, { value: "number-desc", label: "Number: descending" }].map(value => <option key={value.value} value={value.value}>{value.label}</option>)}</select></label> },
-    ]} /><p className="result-count">{filtered.length} orders</p>
+    ]} />
+    <DatabaseResultsToolbar count={`${filtered.length} orders`} sort={sort} sortLabel="Sort orders" options={numberedDatabaseSortOptions}
+      disabled={busy} onSortChange={value => changeFilter("sort", value)} />
 
     {resource.error ? <ErrorState message="Orders could not be loaded." retry={resource.retry} /> : !resource.data ? <LoadingState label="Loading orders…" /> : <>
 

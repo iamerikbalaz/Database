@@ -72,6 +72,8 @@ async function fill() {
   fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Synthetic stone" } });
   fireEvent.change(screen.getByLabelText("Credits"), { target: { value: "8" } });
   fireEvent.change(screen.getByLabelText("Tags, one per line"), { target: { value: "matte\nstone" } });
+  fireEvent.click(screen.getByText(/^Online categories/));
+  fireEvent.click(screen.getByText(/^Brand collections/));
   fireEvent.click(screen.getByRole("checkbox", { name: "Stone" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Studio" }));
 }
@@ -109,7 +111,8 @@ it("keeps a rejected draft visible for correction and explicit reload", async ()
   expect(screen.getByLabelText("Description")).toHaveValue("Synthetic stone"); expect(changed).not.toHaveBeenCalled();
 });
 it("allows removal of a retired selected value, then prevents adding it back", async () => {
-  setup("ADMIN", true); const checkbox = await screen.findByRole("checkbox", { name: /Stone/ });
+  setup("ADMIN", true); fireEvent.click(await screen.findByText(/^Online categories/));
+  const checkbox = screen.getByRole("checkbox", { name: /Stone/ });
   expect(checkbox).toBeChecked(); expect(checkbox).toBeEnabled(); fireEvent.click(checkbox); expect(checkbox).toBeDisabled();
 });
 it("offers leadership read-only content and audit history", async () => {
@@ -126,7 +129,8 @@ it.each(["METAL", null])("uses the persisted category abbreviation %s instead of
   render(<SessionContext.Provider value={{ session: { user: { ...processorDto, role: "ADMIN" }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}>
     <MaterialContentPanel material={materialFromDto(materialDto)} onChanged={vi.fn()} />
   </SessionContext.Provider>);
-  expect(await screen.findByRole("checkbox", { name: abbreviation ? "METAL · Metal / Tiles" : "Metal / Tiles" })).toBeVisible();
+  fireEvent.click(await screen.findByText(/^Online categories/));
+  expect(screen.getByRole("checkbox", { name: abbreviation ? "METAL · Metal / Tiles" : "Metal / Tiles" })).toBeVisible();
   expect(screen.queryByRole("checkbox", { name: "K03 · Metal / Tiles" })).not.toBeInTheDocument();
 });
 it.each([{ revision: -1 }, { credits: 1.5 }, { tags: "a:b" }, { content_status: "UNKNOWN" }, { categories: [{ ...category, id: "invalid" }] }])(
@@ -138,7 +142,8 @@ it("locks the main category and saves content and source values in one durable r
     sha256: "a".repeat(64), sourceStatus: "VALID", active: null, values: { hex_color: "#A1B2C3", width_cm: "12.957", height_cm: "13.845" } });
   const save = vi.spyOn(metadataClient, "save").mockResolvedValue({ id: category.id, status: "COMPLETED", failure: null });
   const { changed, posts } = setup("ADMIN", false, true);
-  const main = await screen.findByRole("checkbox", { name: "Stone (Main category)" });
+  fireEvent.click(await screen.findByText(/^Online categories/));
+  const main = screen.getByRole("checkbox", { name: "Stone (Main category)" });
   expect(main).toBeChecked(); expect(main).toBeDisabled();
   expect(screen.getByRole("combobox", { name: "Color HEX" })).toHaveTextContent("#A1B2C3");
   expect(screen.getByRole("spinbutton", { name: "Sample width (cm)" })).toHaveAttribute("step", "0.1");

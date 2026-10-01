@@ -16,6 +16,7 @@ import { MaterialsTable } from "../components/MaterialsTable";
 import { MaterialDataFolder, MaterialDataCheck } from "../components/MaterialDataFolder";
 import { MaterialNameDialog } from "../components/MaterialNameDialog";
 import { MaterialHistoryPanel } from "../components/MaterialHistoryPanel";
+import "../components/MaterialLayout.css";
 
 export function MaterialFacts({ material: m }: { material: Material }) {
   const visibleFolderPath = m.folderPath && validateFolderPath(m.folderPath).error === null ? m.folderPath : null;
@@ -64,13 +65,14 @@ function MaterialDetailContent({ initialMaterial, client, navigate, includeArchi
   const refreshFromProperties = useCallback(() => { void refresh(); }, [refresh]);
   const canEdit = (role === "ADMIN" || role === "PRODUCTION_LEAD") && !material.isArchived;
   const [editName, setEditName] = useState(false);
-  return <section>
+  return <section className="material-detail-page">
     <NavigationLink className="back-link" href={material.isArchived ? "/material-archives" : "/materials"} navigate={navigate}>{material.isArchived ? "Back to archived materials" : "Back to materials"}</NavigationLink>
     <div className="page-heading"><div><p className="eyebrow">{material.technicalIdentity}</p><h1>{material.materialName}</h1></div>
       {canEdit && <button className="button" disabled={refreshing || propertiesBusy || libraryBusy} onClick={() => setEditName(true)}>Edit Name</button>}
     </div>
+    <div className="material-detail-summary">
     {role && <MaterialGallery key={`gallery-${material.id}-${material.folderPath}-${material.updatedAt}`} materialId={material.id} linked={Boolean(material.folderPath)} initiallyOpen />}
-    <article className="panel" aria-label="Material properties">
+    <article className="panel material-basic-panel" aria-label="Material properties">
       {options.error && <p role="alert">Related property choices could not be loaded. <button onClick={options.retry}>Retry related records</button></p>}
       {catalog.error && <p role="alert">Category choices could not be loaded. The current category is retained. <button onClick={catalog.retry}>Retry categories</button></p>}
       <fieldset className="material-properties-fieldset" disabled={libraryBusy}><legend>Material properties</legend><MaterialsTable detail materials={[material]} store={store} client={client} projects={projects} brands={brands} users={users}
@@ -78,6 +80,7 @@ function MaterialDetailContent({ initialMaterial, client, navigate, includeArchi
         navigate={navigate} refresh={refreshFromProperties} onBusyChange={setPropertiesBusy} onMaterialChanged={setMaterial} />
       </fieldset>
     </article>
+    </div>
     {refreshError && <div role="alert">{refreshError}<button className="button" disabled={libraryBusy} onClick={() => void refresh()}>Reload material data</button></div>}
     {role && <MaterialDataFolder key={`folder-${material.id}-${material.folderPath}`} material={material} onChanged={refresh} disabled={propertiesBusy || libraryBusy || refreshing} />}
     {role && !material.isArchived && <MaterialContentPanel key={`content-${material.id}-${material.publishedBrandId}`} material={material} onChanged={refresh} onBusyChange={setLibraryBusy} disabled={propertiesBusy} />}

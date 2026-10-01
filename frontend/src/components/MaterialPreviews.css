@@ -1,0 +1,38 @@
+.material-preview-strip { display:flex; align-items:flex-start; justify-content:flex-start; gap:10px; min-height:130px; }
+.material-preview-strip figure { position:relative; flex:0 0 112px; width:112px; margin:0; }
+.material-strip-image { width:112px; height:112px; display:grid; place-items:center; background:#f2f3f9; border-radius:4px; overflow:hidden; }
+.material-strip-image img { width:100%; height:100%; object-fit:contain; }
+.material-strip-image span { font-size:11px; color:var(--muted); }
+.material-preview-strip .preview-filename { display:block; width:100%; padding:4px 0 0; margin:0; border:0; background:none; border-radius:0; color:var(--text); font:400 10px/1.35 Poppins,sans-serif; text-align:left; overflow-wrap:anywhere; white-space:normal; }
+.material-preview-strip button.preview-filename { cursor:text; }
+.material-preview-strip button.preview-filename:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+.material-preview-strip .preview-delete { display:grid; place-items:center; position:absolute; inset:3px 3px auto auto; border:1px solid var(--border); width:24px; height:24px; padding:0; background:#fff; color:var(--text); border-radius:5px; cursor:pointer; }
+.material-preview-strip .preview-delete:hover { color:#a32727; background:#fff0f0; }
+.preview-column-toggle { display:inline-flex; gap:5px; align-items:center; padding:0; border:0; background:none; color:inherit; font:inherit; font-weight:inherit; cursor:pointer; }
+.preview-column-toggle[aria-expanded="true"] .icon { transform:rotate(180deg); }
+.material-table-name { display:flex; align-items:center; gap:5px; }
+.material-table-name .material-name-edit { flex:0 0 24px; width:24px; height:24px; display:grid; place-items:center; padding:0; border:1px solid transparent; background:transparent; color:var(--primary); border-radius:5px; cursor:pointer; }
+.material-table-name .material-name-edit:hover { background:#dde0ed; }
+.material-table-name .material-name-edit:disabled { opacity:.4; cursor:default; }
+.material-table--editable .material-name-column { position:sticky; left:var(--material-name-left,116px); z-index:2; box-shadow:1px 0 #dde0ed; }
+.material-table--editable thead .material-name-column { z-index:7; }
+.material-table--editable.material-table--previews-expanded th:nth-child(2), .material-table--editable.material-table--previews-expanded td:nth-child(2),
+.material-table--editable.material-table--previews-expanded th:nth-child(3), .material-table--editable.material-table--previews-expanded td:nth-child(3),
+.material-table--editable.material-table--previews-expanded .material-name-column { position:static; box-shadow:none; }
+.material-table--editable.material-table--previews-expanded thead th:nth-child(2), .material-table--editable.material-table--previews-expanded thead th:nth-child(3),
+.material-table--editable.material-table--previews-expanded thead .material-name-column { position:sticky; top:0; z-index:4; left:auto; }
+.material-bulk-bar .material-bulk-actions { margin-inline-start:auto; display:flex; justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:8px; }
+.material-bulk-actions .material-check-actions-slot { display:contents; }
+.material-bulk-actions .button { min-height:40px; }
+.confirm-dialog.preview-edit-dialog { width:min(620px,calc(100vw - 24px)); max-height:90dvh; overflow:auto; border:1px solid var(--border); border-radius:16px; padding:20px; color:var(--text); }
+.preview-edit-dialog h2 { margin:0 0 10px; }
+.preview-edit-dialog p { font-size:12px; margin:8px 0; }
+.preview-edit-dialog fieldset { border:0; padding:0; margin:12px 0; }
+.preview-edit-dialog label { display:grid; gap:4px; font-size:12px; }
+.preview-edit-dialog input { min-width:0; width:100%; height:38px; border:1px solid var(--border); border-radius:8px; padding:8px; font:inherit; }
+.preview-edit-dialog small { display:block; font-size:11px; margin-top:8px; }
+.preview-edit-replace { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+.preview-edit-report { max-height:230px; overflow:auto; padding:8px; background:var(--background,#f2f3f9); font-size:11px; overflow-wrap:anywhere; }
+.preview-edit-report ul { margin:4px 0 10px; padding-left:18px; }
+.preview-edit-filename { overflow-wrap:anywhere; }
+@media(max-width:760px) { .material-table--editable.table-card .material-name-column { position:static; box-shadow:none; } .material-bulk-bar .material-bulk-actions { margin-inline-start:0; justify-content:flex-start; } }

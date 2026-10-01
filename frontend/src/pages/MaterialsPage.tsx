@@ -20,7 +20,9 @@ import { requestNavigation } from "../navigationGuard";
 import { Icon } from "../components/Icon";
 import { useDatabaseWorkspace } from "../components/useDatabaseWorkspace";
 import { ResponsiveFilters } from "../components/ResponsiveFilters";
-import { databaseSortOptions, sortDatabaseRecords, useDatabaseFilters } from "../components/useDatabaseFilters";
+import { numberedDatabaseSortOptions, sortDatabaseRecords, useDatabaseFilters } from "../components/useDatabaseFilters";
+import { DatabaseResultsToolbar } from "../components/DatabaseResultsToolbar";
+import { PreviewEditDialog, type PreviewEditSelection } from "../components/PreviewEditDialog";
 
 const sizes: GallerySize[] = ["small", "medium", "large", "extra-large"];
 const filterDefaults = { search: "", main_category_code: "", published_brand_id: "", project_id: "", workflow_status: "", assigned_processor_id: "", checked_status: "", is_published: "", automatic_file_check_status: "", color_hex: [] as string[], sort: "created-desc" };
@@ -34,12 +36,13 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
   const [publicationBusy, setPublicationBusy] = useState(false);
   const [checkBusy, setCheckBusy] = useState(false);
   const [contentBusy, setContentBusy] = useState(false);
+  const [previewSelection, setPreviewSelection] = useState<PreviewEditSelection | null>(null);
   const [checkActionTarget, setCheckActionTarget] = useState<HTMLDivElement | null>(null);
   const role = useSession()?.session.user.role;
   const canPublish = !archived && (role === "ADMIN" || role === "PRODUCTION_LEAD");
   const canCheck = !archived && (role === "ADMIN" || role === "PRODUCTION_LEAD" || role === "PROCESSOR");
   const canSelect = role === "ADMIN" || role === "PRODUCTION_LEAD" || role === "PROCESSOR";
-  const busy = tableBusy || checkBusy || contentBusy || publicationSelection !== null;
+  const busy = tableBusy || checkBusy || contentBusy || publicationSelection !== null || previewSelection !== null;
   const { filters: savedFilters, setFilters: setSavedFilters, keepFilters, setKeepFilters } = useDatabaseFilters(archived ? "material-archives" : "materials", filterDefaults);
   const queryKey = JSON.stringify(Object.fromEntries(Object.entries(savedFilters).filter(([key, value]) => key !== "sort" && (Array.isArray(value) ? value.length > 0 : Boolean(value)))));
   const filters = useMemo<MaterialFilters>(() => JSON.parse(queryKey), [queryKey]);
@@ -53,7 +56,7 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
   useEffect(() => () => store.clear(), [store]);
   const load = useCallback(() => client.getMaterials(archived ? { ...filters, is_archived: "true" } : filters), [client, filters, archived]);
   const result = useResource(load);
-  const materials = result.data ? sortDatabaseRecords(result.data.map(row => overrides[row.id] && overrides[row.id].updatedAt > row.updatedAt ? overrides[row.id] : row), savedFilters.sort, row => row.materialName, row => row.createdAt) : undefined;
+  const materials = result.data ? sortDatabaseRecords(result.data.map(row => overrides[row.id] && overrides[row.id].updatedAt > row.updatedAt ? overrides[row.id] : row), savedFilters.sort, row => row.materialName, row => row.createdAt, row => row.sequenceNumber) : undefined;
   const selectedMaterials = materials?.filter(row => selectedIds.has(row.id)) ?? [];
   const [lastResult, setLastResult] = useState(result.data);
   if (result.data && lastResult !== result.data) {
@@ -97,35 +100,38 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
         </select>
       </label> })),
       { key: "color_hex", width: 140, active: Boolean(filters.color_hex?.length), content: <MaterialColorFilter value={filters.color_hex ?? []} onChange={colors => changeFilters({ ...filters, color_hex: colors })} disabled={busy} /> },
-      { key: "sort", width: 165, active: savedFilters.sort !== "created-desc", content: <label className="form-field">Sort materials<select value={savedFilters.sort} onChange={event => setSavedFilters(current => ({ ...current, sort: event.target.value }))}>{databaseSortOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label> },
     ]} />
     {options.error && <div role="alert" className="form-error">Related names and filter options could not be loaded. IDs are shown instead. <button onClick={options.retry}>Retry related records</button></div>}
     {catalog.error && <div role="alert" className="form-error">Category options could not be loaded. Existing material categories are retained. <button onClick={catalog.retry}>Retry categories</button></div>}
-    <div className="materials-view-toolbar">
-      <span className="materials-count" aria-live="polite">{result.data ? `${result.data.length} materials` : "Materials"}</span>
+    <DatabaseResultsToolbar count={result.data ? `${result.data.length} materials` : "Materials"} sort={savedFilters.sort}
+      sortLabel="Sort materials" options={numberedDatabaseSortOptions} disabled={busy} onSortChange={sort => setSavedFilters(current => ({ ...current, sort }))}>
       <div className="materials-view-controls" role="group" aria-label="Material display">
         <button disabled={busy} className="button" aria-pressed={view === "list"} onClick={() => { setView("list"); savePreference("materials.view", "list"); }}>List</button>
         <button disabled={busy} className="button" aria-pressed={view === "gallery"} onClick={() => { setView("gallery"); savePreference("materials.view", "gallery"); }}>Gallery</button>
       </div>
-      {view === "gallery" && <><label className="gallery-size-control">Preview size<select value={size} onChange={event => { setSize(event.target.value as GallerySize); savePreference("materials.gallerySize", event.target.value); }}>
+      {view === "gallery" && <><label className="gallery-size-control">Preview size<select disabled={busy} value={size} onChange={event => { setSize(event.target.value as GallerySize); savePreference("materials.gallerySize", event.target.value); }}>
         {sizes.map(value => <option key={value} value={value}>{value === "extra-large" ? "Extra large" : value[0].toUpperCase() + value.slice(1)}</option>)}
       </select></label></>}
-    </div>
+    </DatabaseResultsToolbar>
     {view === "gallery" && publicationSelection === null && materials && <div className="material-table-toolbar resource-table-toolbar">
       {canSelect && <><label><input type="checkbox" aria-label="Select all visible materials" disabled={busy} checked={materials.length > 0 && selectedMaterials.length === materials.length}
         onChange={event => setSelectedIds(new Set(event.target.checked ? materials.map(row => row.id) : []))} />Select all</label>
       <span>{selectedMaterials.length} selected</span></>}
       <div className="materials-table-actions">
-      {canCheck && <div className="material-check-actions-slot" ref={setCheckActionTarget} />}
-      {canPublish && <button className="button" disabled={busy || !selectedMaterials.length || selectedMaterials.length > 100} onClick={() => preparePublication(selectedMaterials)}>Prepare selected for publication ({selectedMaterials.length})</button>}
       <button className="button resource-table-refresh gallery-refresh" aria-label="Refresh previews" title="Refresh previews" disabled={busy} onClick={() => { store.clear(); setPreviewEpoch(value => value + 1); }}><Icon name="refresh" size={20} /></button>
       </div>
     </div>}
+    {view === "gallery" && canCheck && publicationSelection === null && selectedMaterials.length > 0 && <fieldset className="material-bulk-bar"><legend>Apply to {selectedMaterials.length} selected materials</legend>
+      <div className="material-bulk-actions"><button className="button" disabled={busy || selectedMaterials.length > 100} onClick={() => setPreviewSelection({ materials: selectedMaterials.map(item => ({ ...item })), action: "BULK" })}>Edit previews</button>
+        <div className="material-check-actions-slot" ref={setCheckActionTarget} />
+        {canPublish && <button className="button" disabled={busy || selectedMaterials.length > 100} onClick={() => preparePublication(selectedMaterials)}>Prepare selected for publication ({selectedMaterials.length})</button>}
+      </div>
+    </fieldset>}
     {canPublish && publicationSelection === null && selectedMaterials.length > 100 && <p>Each publication batch supports up to 100 materials. Select up to 100 rows.</p>}
-    {canCheck && publicationSelection === null && <MaterialBulkContent materials={selectedMaterials} actionTarget={checkActionTarget}
-      disabled={tableBusy || checkBusy || contentBusy || Boolean(result.error) || !result.data} onBusyChange={setContentBusy} onChanged={result.retry} />}
+    {canCheck && publicationSelection === null && <MaterialBulkContent materials={selectedMaterials} actionTarget={checkActionTarget} dockOnly
+      disabled={tableBusy || checkBusy || contentBusy || previewSelection !== null || Boolean(result.error) || !result.data} onBusyChange={setContentBusy} onChanged={result.retry} />}
     {canCheck && publicationSelection === null && <div className="material-table-toolbar materials-check-controls"><MaterialBulkCheck materials={selectedMaterials}
-      actionTarget={checkActionTarget} compact={compact} disabled={tableBusy || contentBusy || Boolean(result.error) || !result.data} onBusyChange={setCheckBusy} onChecked={result.retry} /></div>}
+      actionTarget={checkActionTarget} dockOnly compact={compact} disabled={tableBusy || contentBusy || previewSelection !== null || Boolean(result.error) || !result.data} onBusyChange={setCheckBusy} onChecked={result.retry} /></div>}
     {publicationSelection !== null ? <section aria-label="Material publication preparation">
       <div className="page-heading"><div><h2>Prepare publication</h2><p>Review materials, prepare ZIP files and export CSV for the library.</p></div>
         <button className="button" disabled={publicationBusy} onClick={() => { if (requestNavigation("/materials")) setPublicationSelection(null); }}>Back to material list</button>
@@ -142,5 +148,6 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
           checkActionsRef={canCheck ? setCheckActionTarget : undefined}
           navigate={navigate} refresh={result.retry} onBusyChange={setTableBusy} onPreparePublication={canPublish ? preparePublication : undefined}
           selection={{ ids: selectedIds, change: setSelectedIds }} operationBusy={checkBusy || contentBusy} onMaterialChanged={row => setOverrides(current => ({ ...current, [row.id]: row }))} />}
+    {previewSelection && <PreviewEditDialog selection={previewSelection} onClose={() => setPreviewSelection(null)} onChanged={() => { previewSelection.materials.forEach(item => store.forget(item.id, item.folderPath ?? "")); setPreviewEpoch(value => value + 1); result.retry(); }} />}
   </section>;
 }

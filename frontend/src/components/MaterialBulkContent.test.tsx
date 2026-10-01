@@ -21,6 +21,7 @@ it("adds only explicit selected IDs and revisions and closes after atomic save",
   render(<MaterialBulkContent materials={[second]} actionTarget={null} onChanged={changed} onBusyChange={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Categories / collections" }));
   fireEvent.click(await screen.findByRole("checkbox", { name: "G02 · Extra category" }));
+  fireEvent.click(screen.getByText(/^Brand collections/, { selector: "summary" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Collection" }));
   fireEvent.click(screen.getByRole("button", { name: "Add to selected materials" }));
   await waitFor(() => expect(changed).toHaveBeenCalledOnce());
@@ -49,7 +50,26 @@ it("recovers an uncertain save with the same key and prevents closing", async ()
 });
 it("does not offer empty or oversized selections", () => {
   const view = render(<MaterialBulkContent materials={[]} actionTarget={null} onChanged={vi.fn()} onBusyChange={vi.fn()} />);
-  expect(screen.getByRole("button")).toBeDisabled();
+  expect(screen.queryByRole("button")).not.toBeInTheDocument();
   view.rerender(<MaterialBulkContent materials={Array.from({length:101}, () => material)} actionTarget={null} onChanged={vi.fn()} onBusyChange={vi.fn()} />);
   expect(screen.getByRole("button")).toBeDisabled();
+});
+it("waits for its dock and preserves an open dialog when the selected-only dock disappears", async () => {
+  const changed = vi.fn(), busy = vi.fn(), target = document.createElement("div");
+  document.body.append(target);
+  try {
+    const view = render(<MaterialBulkContent dockOnly materials={[material]} actionTarget={null} onChanged={changed} onBusyChange={busy} />);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    view.rerender(<MaterialBulkContent dockOnly materials={[material]} actionTarget={target} onChanged={changed} onBusyChange={busy} />);
+    const action = screen.getByRole("button", { name: "Categories / collections" });
+    expect(target).toContainElement(action);
+    fireEvent.click(action);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "G02 · Extra category" }));
+    view.rerender(<MaterialBulkContent dockOnly materials={[]} actionTarget={null} onChanged={changed} onBusyChange={busy} />);
+    expect(screen.queryByRole("button", { name: "Categories / collections" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "G02 · Extra category" })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Add to selected materials" }));
+    await waitFor(() => expect(changed).toHaveBeenCalledOnce());
+    expect(materialBulkContentClient.add).toHaveBeenCalledWith(expect.objectContaining({ materials: [{ id: material.id, expected_updated_at: material.updatedAt, expected_revision: 3 }] }));
+  } finally { target.remove(); }
 });

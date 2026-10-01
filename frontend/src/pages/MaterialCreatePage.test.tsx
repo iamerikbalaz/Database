@@ -35,13 +35,16 @@ async function fill() {
 }
 it("creates without Order, includes additional categories and Customer collections", async () => {
   setup(); await fill();
+  fireEvent.click(screen.getByText(/Additional categories/));
+  fireEvent.click(screen.getByText(/Brand collections/));
   fireEvent.click(screen.getByRole("checkbox", { name: "F03 · Upholstery" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Collection" }));
   expect(screen.getByRole("checkbox", { name: "F · Fabrics (Main category)" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Create material" }));
   await screen.findByRole("heading", { name: "1 of 1 folders created" });
   expect(materialCreationClient.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ project_id: null, published_brand_id: customer.id,
-    names: ["New material"], resolution: 8, template_name: "base.sbs", expected_paths_version: 2, category_ids: [extra.id], collection_ids: [collection.id] }));
+    names: ["New material"], template_name: "base.sbs", expected_paths_version: 2, category_ids: [extra.id], collection_ids: [collection.id] }));
+  expect(vi.mocked(materialCreationClient.create).mock.calls[0][0]).not.toHaveProperty("resolution");
 });
 it("selecting Order sets and locks Customer until Order is cleared", async () => {
   setup(); await screen.findByLabelText("Order");
@@ -53,9 +56,8 @@ it("selecting Order sets and locks Customer until Order is cleared", async () =>
 it("pastes one Excel column into an explicit multiple-material creation", async () => {
   setup(); await fill(); fireEvent.click(screen.getByRole("checkbox", { name: "Create multiple materials" }));
   fireEvent.change(screen.getByRole("textbox", { name: /one Excel column/ }), { target: { value: "Orange tiles\r\nYellow tiles\r\n" } });
-  fireEvent.change(screen.getByRole("spinbutton", { name: "Resolution (K)" }), { target: { value: "12" } });
   fireEvent.click(screen.getByRole("button", { name: "Create materials" }));
-  await waitFor(() => expect(materialCreationClient.create).toHaveBeenCalledWith(expect.objectContaining({ names: ["Orange tiles", "Yellow tiles"], resolution: 12 })));
+  await waitFor(() => expect(materialCreationClient.create).toHaveBeenCalledWith(expect.objectContaining({ names: ["Orange tiles", "Yellow tiles"] })));
 });
 it("rejects several pasted Excel columns without creating records", async () => {
   setup(); await fill(); fireEvent.click(screen.getByRole("checkbox", { name: "Create multiple materials" }));
@@ -63,13 +65,28 @@ it("rejects several pasted Excel columns without creating records", async () => 
   fireEvent.click(screen.getByRole("button", { name: "Create materials" }));
   expect(screen.getByRole("alert")).toHaveTextContent("one Excel column only"); expect(materialCreationClient.create).not.toHaveBeenCalled();
 });
-it("rejects a resolution above the supported packaging master limit before creating records", async () => {
+it("recovers an older frozen resolution request without showing or changing its fields", async () => {
+  const original = { idempotency_key: "60000000-0000-4000-8000-000000000010", expected_paths_version: 2, project_id: null,
+    published_brand_id: customer.id, assigned_processor_id: processorDto.id, main_category_code: "F", names: ["New material"],
+    category_ids: [], collection_ids: [], resolution: 12, template_name: "base.sbs" };
+  sessionStorage.setItem("reawote.material-create.current", JSON.stringify(original));
+  setup();
+  const recover = await screen.findByRole("button", { name: "Recover / finish this batch" });
+  expect(screen.queryByLabelText("Resolution (K)")).not.toBeInTheDocument();
+  fireEvent.click(recover);
+  await screen.findByRole("heading", { name: "1 of 1 folders created" });
+  expect(materialCreationClient.create).toHaveBeenCalledExactlyOnceWith(original);
+});
+
+it("collapses catalog choices without losing selected values or the names draft", async () => {
   setup(); await fill();
-  expect(screen.getByRole("spinbutton", { name: "Resolution (K)" })).toHaveAttribute("max", "32");
-  fireEvent.change(screen.getByRole("spinbutton", { name: "Resolution (K)" }), { target: { value: "33" } });
-  fireEvent.click(screen.getByRole("button", { name: "Create material" }));
-  expect(screen.getByRole("alert")).toHaveTextContent("from 1 to 32K");
-  expect(materialCreationClient.create).not.toHaveBeenCalled();
+  const summary = screen.getByText(/Additional categories/);
+  expect(summary.closest("details")).not.toHaveAttribute("open");
+  fireEvent.click(summary);
+  fireEvent.click(screen.getByRole("checkbox", { name: "F03 · Upholstery" }));
+  fireEvent.click(summary); fireEvent.click(summary);
+  expect(screen.getByRole("checkbox", { name: "F03 · Upholstery" })).toBeChecked();
+  expect(screen.getByRole("textbox", { name: "Material name" })).toHaveValue("New material");
 });
 it("recovers a lost response with the identical persisted request and blocks duplicate submits", async () => {
   vi.mocked(materialCreationClient.create).mockRejectedValueOnce(new TypeError("Lost response"));

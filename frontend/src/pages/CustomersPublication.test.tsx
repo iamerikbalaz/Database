@@ -50,6 +50,8 @@ it("filters publication state and sends an inline change with the expected custo
 
 it("restores opted-in Customer filters and sort for their user and clears values without disabling persistence", async () => {
   const view = render(page()); await screen.findByRole("link", { name: customers[0].name });
+  const sort = screen.getByRole("combobox", { name: "Sort by" });
+  expect(sort).toHaveValue("name-asc"); expect(sort.closest("fieldset")).toBeNull();
   fireEvent.change(screen.getByRole("combobox", { name: "Published" }), { target: { value: "true" } });
   fireEvent.change(screen.getByRole("combobox", { name: "Sort by" }), { target: { value: "created-desc" } });
   fireEvent.click(screen.getByRole("checkbox", { name: "Keep filters" }));

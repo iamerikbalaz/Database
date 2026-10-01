@@ -91,7 +91,7 @@ it("retains the gallery, size and checked selection across responsive changes", 
   expect(getMaterials).toHaveBeenCalledOnce();
 });
 
-it.each(["list", "gallery"] as const)("groups selected actions by Refresh and retains check report after %s reload", async view => {
+it.each(["list", "gallery"] as const)("groups selected actions in the bulk panel and retains check report after %s reload", async view => {
   viewport();
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
   HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
@@ -105,9 +105,11 @@ it.each(["list", "gallery"] as const)("groups selected actions by Refresh and re
   const start = screen.getByRole("button", { name: "Auto-check selected materials (1)" });
   const publish = screen.getByRole("button", { name: "Prepare selected for publication (1)" });
   const refresh = screen.getByRole("button", { name: view === "gallery" ? "Refresh previews" : "Refresh materials" });
-  expect(start.closest(".materials-table-actions")).toBe(refresh.parentElement);
+  const bulk = screen.getByRole("group", { name: "Apply to 1 selected materials" });
+  expect(bulk).toContainElement(start); expect(bulk).toContainElement(publish);
+  expect(bulk).not.toContainElement(refresh);
   expect(start.compareDocumentPosition(publish) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(publish.compareDocumentPosition(refresh) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(start.closest(".material-bulk-actions")).toBe(publish.parentElement);
   fireEvent.click(start);
   await waitFor(() => expect(getMaterials).toHaveBeenCalledTimes(2));
   fireEvent.click(await screen.findByRole("button", { name: "View check report" }));
@@ -118,16 +120,23 @@ it.each(["list", "gallery"] as const)("groups selected actions by Refresh and re
 it("sorts without reloading or losing note drafts and keeps selected filters for this user", async () => {
   viewport();
   const material = materialFromDto(materialDto);
-  const records = [{ ...material, materialName: "WOOD", createdAt: "2026-09-01T00:00:00Z" }, { ...material, id: "00000000-0000-4000-8000-000000000009", materialName: "STONE", createdAt: "2026-10-01T00:00:00Z" }];
+  const records = [{ ...material, materialName: "WOOD", sequenceNumber: 10, createdAt: "2026-09-01T00:00:00Z" }, { ...material, id: "00000000-0000-4000-8000-000000000009", materialName: "STONE", sequenceNumber: 2, createdAt: "2026-10-01T00:00:00Z" }];
   const getMaterials = vi.fn().mockResolvedValue(records);
   const content = <SessionContext.Provider value={{ session: { user: { ...processorDto, role: "ADMIN" }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}>
     <MaterialsPage client={{ ...mockApiClient, getMaterials }} navigate={vi.fn()} />
   </SessionContext.Provider>;
   const view = render(content); await screen.findByRole("table");
+  const sort = screen.getByRole("combobox", { name: "Sort materials" });
+  expect(sort).toHaveValue("created-desc"); expect(sort.closest("fieldset")).toBeNull();
+  expect(sort.closest(".database-results-toolbar")).toContainElement(screen.getByRole("group", { name: "Material display" }));
   const draft = screen.getByRole("textbox", { name: "Note for WOOD" });
   fireEvent.change(draft, { target: { value: "Draft" } });
   fireEvent.click(screen.getByRole("checkbox", { name: "Select WOOD" }));
   const names = () => screen.getAllByRole("row").filter(row => row.hasAttribute("aria-label")).map(row => row.getAttribute("aria-label"));
+  expect(names()).toEqual(["Material row STONE", "Material row WOOD"]);
+  fireEvent.change(sort, { target: { value: "number-desc" } });
+  expect(names()).toEqual(["Material row WOOD", "Material row STONE"]);
+  fireEvent.change(sort, { target: { value: "number-asc" } });
   expect(names()).toEqual(["Material row STONE", "Material row WOOD"]);
   fireEvent.change(screen.getByRole("combobox", { name: "Sort materials" }), { target: { value: "created-asc" } });
   expect(names()).toEqual(["Material row WOOD", "Material row STONE"]);

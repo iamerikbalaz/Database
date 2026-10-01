@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties
 import "./ResponsiveFilters.css";
 
 export type PriorityFilter = { key: string; width: number; active?: boolean; content: ReactNode };
-const gap = 10, clearWidth = 106, moreWidth = 132, keepWidth = 116, panelPadding = 12, rowHeight = 64;
+const gap = 10, clearWidth = 106, moreWidth = 132, panelPadding = 12, rowHeight = 64;
 
 function visibleCount(filters: PriorityFilter[], width: number, controlsWidth: number) {
   if (!width || filters.reduce((sum, field) => sum + field.width + gap, controlsWidth) <= width) return filters.length;
@@ -21,7 +21,7 @@ export function ResponsiveFilters({ filters, compact, disabled, label, onClear, 
 }) {
   const root = useRef<HTMLFieldSetElement>(null), track = useRef<HTMLDivElement>(null), toggle = useRef<HTMLButtonElement>(null);
   const latestFilters = useRef(filters), focusOverflow = useRef(false);
-  const controlsWidth = clearWidth + (onKeepFiltersChange ? keepWidth + gap : 0), latestControlsWidth = useRef(controlsWidth);
+  const controlsWidth = clearWidth, latestControlsWidth = useRef(controlsWidth);
   const id = useId(), [width, setWidth] = useState(0), [open, setOpen] = useState(false);
   const count = compact ? visibleCount(filters, width, controlsWidth) : filters.length;
   const overflow = filters.slice(count), expanded = open && overflow.length > 0;
@@ -76,8 +76,10 @@ export function ResponsiveFilters({ filters, compact, disabled, label, onClear, 
         aria-controls={overflow.map(field => `${id}-${field.key}`).join(" ")} onClick={() => { focusOverflow.current = !expanded; setOpen(!expanded); }}>
         More filters{activeCount ? ` (${activeCount})` : ""}<span aria-hidden="true">{expanded ? "▴" : "▾"}</span>
       </button>}
-      {onKeepFiltersChange && <label className="priority-filters-keep"><input type="checkbox" checked={keepFilters ?? false} onChange={event => onKeepFiltersChange(event.target.checked)} />Keep filters</label>}
-      <button type="button" className="button priority-filters-clear" onClick={onClear}>Clear filters</button>
+      <div className="priority-filters-clear-group">
+        {onKeepFiltersChange && <label className="priority-filters-keep"><input type="checkbox" checked={keepFilters ?? false} onChange={event => onKeepFiltersChange(event.target.checked)} />Keep filters</label>}
+        <button type="button" className="button priority-filters-clear" onClick={onClear}>Clear filters</button>
+      </div>
       </div>
     </div>
     {expanded && <div className="priority-filters-backdrop" aria-hidden="true" style={{ width: panelWidth, height: Math.ceil(overflow.length / columns) * rowHeight + panelPadding * 2 - gap }} />}

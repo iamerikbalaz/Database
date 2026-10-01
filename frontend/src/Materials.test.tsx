@@ -185,7 +185,7 @@ it("creates with the Order Customer, active processors and one recoverable batch
   expect(writes).toEqual([{ path: "/api/material-create-batches", method: "POST", body: {
     idempotency_key: expect.any(String), expected_paths_version: 0,
     project_id: materialProject.id, published_brand_id: materialBrand.id, names: ["New surface"],
-    main_category_code: "G02", assigned_processor_id: processorDto.id, resolution: 8, template_name: "base.sbs", category_ids: [], collection_ids: [],
+    main_category_code: "G02", assigned_processor_id: processorDto.id, template_name: "base.sbs", category_ids: [], collection_ids: [],
   } }]);
 });
 it("edits with a minimal PATCH and shows managed fields read-only", async () => {

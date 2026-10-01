@@ -6,6 +6,7 @@ import type { Material } from "../api/materialDto";
 import { ApiError } from "../api/errors";
 import { useResource } from "../api/useResource";
 import { useNavigationGuard } from "../navigationGuard";
+import "./MaterialLayout.css";
 
 function BulkContentDialog({ materials, onClose, onSaved, onBusyChange }: {
   materials: Material[]; onClose: () => void; onSaved: () => void; onBusyChange: (value: boolean) => void;
@@ -38,22 +39,22 @@ function BulkContentDialog({ materials, onClose, onSaved, onBusyChange }: {
   };
   const close = () => { if (!sending.current && !pending.current) onClose(); };
   useEffect(() => { onBusyChange(true); return () => onBusyChange(false); }, [onBusyChange]);
-  return <dialog ref={dialog} className="material-name-dialog" aria-label="Add categories and collections" onCancel={event => { if (sending.current || pending.current) event.preventDefault(); else onClose(); }}>
+  return <dialog ref={dialog} className="material-name-dialog material-bulk-content-dialog" aria-label="Add categories and collections" onCancel={event => { if (sending.current || pending.current) event.preventDefault(); else onClose(); }}>
     <h2>Add categories and collections</h2><p>Add to {materials.length} selected materials. Existing categories, Main category and collections remain selected.</p>
     {error && <p role="alert" className="form-error">{error}</p>}
-    {loaded.error ? <p role="alert">Catalog or selected material content could not be loaded. <button onClick={loaded.retry}>Retry</button></p> : !loaded.data ? <p>Loading selected material content…</p> : <>
-      <fieldset disabled={busy || uncertain}><legend>Categories</legend>{loaded.data.categories.filter(item => item.active).map(item => <label className="checkbox-label" key={item.id}><input type="checkbox" checked={categoryIds.includes(item.id)} onChange={event => setCategories(toggle(categoryIds, item.id, event.target.checked))} />{item.abbreviation ? item.abbreviation + " · " : ""}{item.value}</label>)}</fieldset>
-      <fieldset disabled={busy || uncertain || !sameCustomer}><legend>Brand collections</legend>{!sameCustomer ? <p>Collections require all selected materials to belong to the same Customer.</p> : loaded.data.collections.filter(item => item.active).map(item => <label className="checkbox-label" key={item.id}><input type="checkbox" checked={collectionIds.includes(item.id)} onChange={event => setCollections(toggle(collectionIds, item.id, event.target.checked))} />{item.value}</label>)}</fieldset>
-    </>}
+    {loaded.error ? <p role="alert">Catalog or selected material content could not be loaded. <button onClick={loaded.retry}>Retry</button></p> : !loaded.data ? <p>Loading selected material content…</p> : <div className="material-bulk-content-columns">
+      <fieldset disabled={busy || uncertain}><legend>Categories</legend><div className="material-choice-grid">{loaded.data.categories.filter(item => item.active).map(item => <label className="checkbox-label" key={item.id}><input type="checkbox" checked={categoryIds.includes(item.id)} onChange={event => setCategories(toggle(categoryIds, item.id, event.target.checked))} />{item.abbreviation ? item.abbreviation + " · " : ""}{item.value}</label>)}</div></fieldset>
+      <details className="material-choice-group"><summary>Brand collections <span>{collectionIds.length} selected</span></summary><fieldset disabled={busy || uncertain || !sameCustomer}><legend className="sr-only">Brand collections</legend><div className="material-choice-grid">{!sameCustomer ? <p>Collections require all selected materials to belong to the same Customer.</p> : loaded.data.collections.filter(item => item.active).map(item => <label className="checkbox-label" key={item.id}><input type="checkbox" checked={collectionIds.includes(item.id)} onChange={event => setCollections(toggle(collectionIds, item.id, event.target.checked))} />{item.value}</label>)}</div></fieldset></details>
+    </div>}
     <div className="form-actions"><button className="button button--primary" disabled={busy || !loaded.data || (!uncertain && !categoryIds.length && !collectionIds.length)} onClick={() => void save()}>{busy ? "Applying…" : uncertain ? "Recover bulk content save" : "Add to selected materials"}</button>
       <button className="button" disabled={busy || uncertain} onClick={close}>Cancel</button></div>
   </dialog>;
 }
 
-export function MaterialBulkContent({ materials, actionTarget, disabled, onChanged, onBusyChange }: {
-  materials: Material[]; actionTarget: HTMLElement | null; disabled?: boolean; onChanged: () => void; onBusyChange: (value: boolean) => void;
+export function MaterialBulkContent({ materials, actionTarget, dockOnly = false, disabled, onChanged, onBusyChange }: {
+  materials: Material[]; actionTarget: HTMLElement | null; dockOnly?: boolean; disabled?: boolean; onChanged: () => void; onBusyChange: (value: boolean) => void;
 }) {
   const [selection, setSelection] = useState<Material[] | null>(null);
   const button = <button className="button" disabled={disabled || !materials.length || materials.length > 100} onClick={() => setSelection(materials.map(item => ({ ...item })))}>Categories / collections</button>;
-  return <>{actionTarget ? createPortal(button, actionTarget) : button}{selection && <BulkContentDialog materials={selection} onClose={() => setSelection(null)} onSaved={onChanged} onBusyChange={onBusyChange} />}</>;
+  return <>{materials.length > 0 && (actionTarget ? createPortal(button, actionTarget) : dockOnly ? null : button)}{selection && <BulkContentDialog materials={selection} onClose={() => setSelection(null)} onSaved={onChanged} onBusyChange={onBusyChange} />}</>;
 }

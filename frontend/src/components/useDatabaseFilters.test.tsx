@@ -44,3 +44,10 @@ it("sorts all four directions without mutating records, placing missing dates la
   expect(sorted("name-desc")).toEqual(["a", "c", "b"]);
   expect(records.map(item => item.id)).toEqual(["c", "b", "a"]);
 });
+it("sorts record numbers numerically in both directions with a stable tie breaker", () => {
+  const records = [{ id: "c", number: "0010" }, { id: "b", number: 2 }, { id: "a", number: "0002" }];
+  const sorted = (sort: string) => sortDatabaseRecords(records, sort, item => item.id, () => null, item => item.number).map(item => item.id);
+  expect(sorted("number-asc")).toEqual(["a", "b", "c"]);
+  expect(sorted("number-desc")).toEqual(["c", "a", "b"]);
+  expect(records.map(item => item.id)).toEqual(["c", "b", "a"]);
+});

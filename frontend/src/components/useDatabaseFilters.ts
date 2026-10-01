@@ -47,18 +47,21 @@ export function useDatabaseFilters<T extends Filters>(scope: string, defaults: T
   };
 }
 
-export type DatabaseSort = "created-desc" | "created-asc" | "name-asc" | "name-desc";
+export type DatabaseSort = "created-desc" | "created-asc" | "name-asc" | "name-desc" | "number-asc" | "number-desc";
 export const databaseSortOptions: { value: DatabaseSort; label: string }[] = [
   { value: "created-desc", label: "Created: newest first" },
   { value: "created-asc", label: "Created: oldest first" },
   { value: "name-asc", label: "Name: A–Z" },
   { value: "name-desc", label: "Name: Z–A" },
 ];
+export const numberedDatabaseSortOptions = [...databaseSortOptions,
+  { value: "number-asc", label: "Number: ascending" }, { value: "number-desc", label: "Number: descending" }];
 
-export function sortDatabaseRecords<T extends { id: string }>(records: T[], sort: string, name: (record: T) => string, created: (record: T) => string | null | undefined): T[] {
+export function sortDatabaseRecords<T extends { id: string }>(records: T[], sort: string, name: (record: T) => string, created: (record: T) => string | null | undefined, number?: (record: T) => number | string): T[] {
   return [...records].sort((a, b) => {
     let order: number;
-    if (sort === "name-asc" || sort === "name-desc") order = name(a).localeCompare(name(b), undefined, { numeric: true, sensitivity: "base" }) * (sort === "name-desc" ? -1 : 1);
+    if (number && (sort === "number-asc" || sort === "number-desc")) order = String(number(a)).localeCompare(String(number(b)), undefined, { numeric: true }) * (sort === "number-desc" ? -1 : 1);
+    else if (sort === "name-asc" || sort === "name-desc") order = name(a).localeCompare(name(b), undefined, { numeric: true, sensitivity: "base" }) * (sort === "name-desc" ? -1 : 1);
     else {
       const first = Date.parse(created(a) ?? ""), second = Date.parse(created(b) ?? "");
       if (!Number.isFinite(first) || !Number.isFinite(second)) order = Number.isFinite(first) ? -1 : Number.isFinite(second) ? 1 : 0;

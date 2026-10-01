@@ -1,6 +1,24 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-10-01, creation, categories and offline exports)
+## Latest checkpoint (2026-10-01, compact materials and preview file editing)
+
+The owned local test at `http://127.0.0.1:53033` runs schema 0042. Its fresh
+database backup and read-only live API acceptance passed; all 51 material records
+and their source files were retained during deployment.
+
+- Shared filter-label placement and independent Sort controls/defaults across
+  Materials, Orders, Customers and Catalog. Optional material Number follows Preview.
+- Expandable preview strips, confirmed single/bulk source PNG edits, durable
+  recovery and quarantine; selection-only bulk controls and Main category changes.
+- Compact material detail/Create/category choices; new folders contain PREVIEW,
+  SOURCE and SBS, with no generated XK folder. Old batch recovery remains compatible.
+- Full frontend: 1,205 tests, lint and build. Focused backend/native Windows:
+  creation 31, preview edits 28, shared identity/metadata/table guards 112 tests.
+  Four isolated PostgreSQL migration/ownership/recovery tests also passed.
+
+See [behavior, verification and limits](material-previews-iteration-2026-10-01.md).
+
+## Previous checkpoint (2026-10-01, creation, categories and offline exports)
 
 The owned local test at `http://127.0.0.1:53033` runs schema 0041 on the existing
 `codex/customer-scroll-pilot` branch. No merge to main was performed.

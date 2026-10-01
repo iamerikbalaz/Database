@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { ApiClient } from "../api/client";
 import { ApiError } from "../api/errors";
 import { validateFolderPath } from "../api/folderPathValidation";
@@ -18,6 +18,10 @@ import { useNavigationGuard } from "../navigationGuard";
 import { highlightMaterial, isInteractiveTarget, type HighlightState } from "./materialHighlight";
 import { DatabaseTableViewport } from "./DatabaseTableViewport";
 import { Icon } from "./Icon";
+import { MaterialNameDialog } from "./MaterialNameDialog";
+import { MaterialPreviewStrip } from "./MaterialPreviewStrip";
+import { PreviewEditDialog, type PreviewEditSelection } from "./PreviewEditDialog";
+import { identityClient, type IdentityConfirmation } from "../api/identityClient";
 
 const columns = [
   ["project", "Order", 180], ["brand", "Customer", 180], ["category", "Category", 225],
@@ -37,9 +41,9 @@ function readLayout(): Layout {
   } catch { /* Invalid/disabled storage falls back to defaults. */ }
   return defaultLayout();
 }
-type EditField = "is_archived" | "workflow_status" | "checked_status" | "is_published" | "project_id" | "assigned_processor_id" | "note";
+type EditField = "is_archived" | "workflow_status" | "checked_status" | "is_published" | "project_id" | "assigned_processor_id" | "note" | "main_category_code";
 type Change = TableChange | { is_archived: boolean };
-type Job = { material: Material; change: Change; lifecycle?: { preview: ArchivePreview; body: LifecycleRequest }; key: string; status: "waiting" | "saved" | "failed" | "unknown" | "stopped"; message?: string };
+type Job = { material: Material; change: Change; lifecycle?: { preview: ArchivePreview; body: LifecycleRequest }; identity?: IdentityConfirmation; identityOperation?: string; key: string; status: "waiting" | "saved" | "failed" | "unknown" | "stopped"; message?: string };
 type Props = { materials: Material[]; store: GalleryStore; client: ApiClient; projects: Project[]; brands: PublishedBrand[]; users: InternalUser[];
   categories?: { code: string; value: string }[];
   categoryLabels?: { code: string; value: string; aliases?: string[] }[];
@@ -91,6 +95,11 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
   const [notice, setNotice] = useState("");
   const [identityBusy, setIdentityBusy] = useState(false);
   const [identity, setIdentity] = useState<{ material: Material; brand?: string; category?: string }>();
+  const [rename, setRename] = useState<Material | null>(null), [previewEdit, setPreviewEdit] = useState<PreviewEditSelection | null>(null);
+  const previewsChanged = useRef(false);
+  const [expanded, setExpanded] = useState(false), [previewCounts, setPreviewCounts] = useState<Record<string, number>>({}), [previewEpoch, setPreviewEpoch] = useState(0);
+  const countPreviews = useCallback((id: string, count: number) => setPreviewCounts(current => current[id] === count ? current : { ...current, [id]: count }), []);
+  const editDialogOpen = Boolean(rename || previewEdit);
   const dialog = useRef<HTMLDialogElement>(null), identityDialog = useRef<HTMLDialogElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const alive = useRef(true), sending = useRef(false), stop = useRef(false);
@@ -98,9 +107,9 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
   useNavigationGuard(() => sending.current || jobsRef.current.some(job => job.status === "unknown") || identityBusy);
   useEffect(() => { alive.current = true; return () => { alive.current = false; stop.current = true; }; }, []);
   useEffect(() => {
-    onBusyChange(internallyActive || lifecycleBusy || Boolean(identity));
+    onBusyChange(internallyActive || lifecycleBusy || Boolean(identity) || editDialogOpen);
     return () => onBusyChange(false);
-  }, [internallyActive, lifecycleBusy, identity, onBusyChange]);
+  }, [internallyActive, lifecycleBusy, identity, editDialogOpen, onBusyChange]);
   useEffect(() => {
     if (!active) return;
     const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
@@ -117,7 +126,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
       if (job.status !== "waiting" && job.status !== "unknown") continue;
       if (!alive.current || generation !== sessionGeneration()) break;
       if (stop.current) { updateJob(i, { status: "stopped", message: "Not attempted" }); continue; }
-      let mutationStarted = Boolean(job.lifecycle);
+      let mutationStarted = Boolean(job.lifecycle || job.identity);
       try {
         if ("is_archived" in job.change) {
           let packet = job.lifecycle;
@@ -136,6 +145,31 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
           if (!alive.current || generation !== sessionGeneration()) break;
           updateJob(i, { status: "saved", message: "Saved" }); continue;
         }
+        if ("main_category_code" in job.change && job.material.folderPath) {
+          if (job.material.mainCategoryCode === job.change.main_category_code) { updateJob(i, { status: "saved", message: "Already saved" }); continue; }
+          let packet = job.identity;
+          if (!packet) {
+            if (job.material.isPublished || job.material.isArchived || job.material.workflowStatus !== "IN_PROGRESS") throw new ApiError(409, "Clear Published and set Status to In progress before changing Main category and its source folder.");
+            const current = await client.getMaterial(job.material.id);
+            if (current.updatedAt !== job.material.updatedAt) throw new ApiError(409, "Material changed. Refresh before changing Main category.");
+            const target = { target_brand_id: job.material.publishedBrandId, main_category_code: job.change.main_category_code, target_parent: job.material.folderPath.split("/").slice(0, -1).join("/") };
+            const plan = await identityClient.plan(job.material.id, target);
+            if (!alive.current || generation !== sessionGeneration()) break;
+            if (!plan.ready) throw new ApiError(409, plan.errors.map(item => `${item.code}: ${item.path}`).join(" · "));
+            packet = { ...target, expected_generation: plan.generation, expected_proposal_hash: plan.hash, idempotency_key: job.key, reason: "Bulk Main category change", warnings_acknowledged: true };
+            updateJob(i, { identity: packet });
+          }
+          mutationStarted = true;
+          const operation = job.identityOperation ? await identityClient.resume(job.material.id, job.identityOperation) : await identityClient.confirm(job.material.id, packet);
+          if (!alive.current || generation !== sessionGeneration()) break;
+          if (operation.status === "RUNNING" || operation.status === "RECOVERY_REQUIRED") { updateJob(i, { status: "unknown", identityOperation: operation.id, message: "Folder changes need recovery. Retry this recorded operation." }); break; }
+          if (operation.status !== "COMPLETED") { updateJob(i, { status: "failed", message: "Folder change was rejected or rolled back." }); continue; }
+          const updated = await client.getMaterial(job.material.id);
+          if (!alive.current || generation !== sessionGeneration()) break;
+          store.forget(job.material.id, job.material.folderPath); setPreviewEpoch(value => value + 1);
+          setOverrides(old => ({ ...old, [updated.id]: updated })); onMaterialChanged?.(updated);
+          updateJob(i, { status: "saved", message: "Main category and source folder updated" }); continue;
+        }
         mutationStarted = true;
         const saved = await materialTableClient.update(job.material, job.change, job.key);
         if (!alive.current || generation !== sessionGeneration()) break;
@@ -145,9 +179,9 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
       } catch (error) {
         if (!alive.current) break;
         if (!mutationStarted) {
-          updateJob(i, { status: "failed", message: error instanceof ApiError && error.status === 409 ? error.message : "Current archive eligibility could not be verified. Nothing was changed." });
+          updateJob(i, { status: "failed", message: error instanceof ApiError && error.status === 409 ? error.message : "Current material eligibility could not be verified. Nothing was changed." });
           if (!(error instanceof ApiError) || error.status !== 409) stop.current = true;
-        } else if (job.status !== "unknown" && error instanceof ApiError && (error.status >= 400 && error.status < 500 || error.code === "TABLE_PREFLIGHT_UNAVAILABLE")) {
+        } else if (job.status !== "unknown" && !job.identity && !jobsRef.current[i].identity && error instanceof ApiError && (error.status >= 400 && error.status < 500 || error.code === "TABLE_PREFLIGHT_UNAVAILABLE")) {
           updateJob(i, { status: "failed", message: error.code === "TABLE_PREFLIGHT_UNAVAILABLE" ? "Folder checking service unavailable. Nothing was changed; remaining materials were stopped." : error.status === 409 ? "Material changed or requirements not met. Reload before retrying." : error.message });
           if (error.status === 401 || error.status === 403 || error.code === "TABLE_PREFLIGHT_UNAVAILABLE") stop.current = true;
         } else {
@@ -178,6 +212,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     if (field === "is_published" || field === "is_archived") return [{ value: "true", label: "Yes" }, { value: "false", label: "No" }];
     if (field === "project_id") return [{ value: "", label: "No order assigned" }, ...projects.map(p => ({ value: p.id, label: p.name }))];
     if (field === "assigned_processor_id") return users.filter(u => u.isActive && u.role === "PROCESSOR").map(u => ({ value: u.id, label: u.displayName }));
+    if (field === "main_category_code") return categories.map(c => ({ value: c.code, label: categoryLabel(c.code, categoryLabels) }));
     return [];
   };
   const bulkChange = (): Change => ({ [bulkField]: bulkField === "is_published" || bulkField === "is_archived" ? bulkValue === "true" : bulkValue || null }) as Change;
@@ -232,7 +267,9 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     const status = row.automaticFileCheckStatus ?? "NOT_CHECKED";
     return <span className={`automatic-file-check automatic-file-check--${status.toLowerCase()}`}>{status === "NOT_CHECKED" ? "not checked" : status === "OK" ? "OK" : "issues"}</span>;
   };
-  const visible = layout.filter(c => c.visible || archivedView && c.key === "archivedAt");
+  const numberColumn = layout.find(c => c.key === "number" && c.visible);
+  const visible = layout.filter(c => c.key !== "number" && (c.visible || archivedView && c.key === "archivedAt"));
+  const previewWidth = expanded ? Math.max(160, ...rows.map(row => (previewCounts[row.id] ?? 1) * 122 + 6)) : 76;
   const review = jobs[0] ? describeChange(jobs[0].change) : null;
   const waiting = jobs.some(j => j.status === "waiting"), unknown = jobs.some(j => j.status === "unknown");
   return <div className={detail ? "material-detail-properties" : `resource-database materials-database${scrollMode === "contained" ? " resource-database--contained" : ""}`}>
@@ -244,35 +281,38 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
         {layout.map(column => <label key={column.key}><input type="checkbox" checked={column.visible || archivedView && column.key === "archivedAt"} disabled={archivedView && column.key === "archivedAt"} onChange={e => configure(layout.map(c => c.key === column.key ? { ...c, visible: e.target.checked } : c))} />{title(column.key)}</label>)}
       </div></details>
       <div className="materials-table-actions">
-      {editor && checkActionsRef && <div className="material-check-actions-slot" ref={checkActionsRef} />}
-      {editor && onCheckSelected && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || !selectedRows.length || selectedRows.length > 100}
-        onClick={() => onCheckSelected(selectedRows.map(row => ({ ...row })))}>Auto-check selected materials ({selectedRows.length})</button>}
-      {publisher && onPreparePublication && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || !selectedRows.length || selectedRows.length > 100} onClick={() => onPreparePublication(selectedRows.map(row => ({ ...row })))}>Prepare selected for publication ({selectedRows.length})</button>}
       <button className="button resource-table-refresh" aria-label="Refresh materials" title="Refresh materials" disabled={active || lifecycleBusy || Boolean(identity)} onClick={refresh}><Icon name="refresh" size={20} /></button>
       </div>
     </div>}
-    {!detail && editor && selectedRows.length > 0 && <fieldset className="material-bulk-bar" disabled={active || lifecycleBusy}><legend>Apply to {selectedRows.length} selected materials</legend>
-      <label>Property<select value={bulkField} onChange={e => { const field = e.target.value as EditField; setBulkField(field); setBulkValue(bulkChoices(field)[0]?.value ?? ""); }}>
-        {!archivedView && <option value="workflow_status">Status</option>}{manager && <>{!archivedView && <option value="checked_status">Checked</option>}<option value="is_published">Published</option>{role === "ADMIN" && <option value="is_archived">Archived</option>}<option value="project_id">Order</option><option value="assigned_processor_id">Processor</option></>}<option value="note">Note</option></select></label>
-      <label>New value{bulkField === "note" ? <textarea value={bulkValue} maxLength={10000} onChange={e => setBulkValue(e.target.value)} /> : <select value={bulkValue} onChange={e => setBulkValue(e.target.value)}>{bulkChoices(bulkField).map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select>}</label>
-      <button className="button button--primary" disabled={bulkField === "assigned_processor_id" && !bulkValue} onClick={() => prepare(selectedRows, bulkChange())}>Review bulk change</button>
+    {!detail && editor && selectedRows.length > 0 && <fieldset className="material-bulk-bar" disabled={internallyActive || lifecycleBusy}><legend>Apply to {selectedRows.length} selected materials</legend>
+      <label>Property<select disabled={active || editDialogOpen} value={bulkField} onChange={e => { const field = e.target.value as EditField; setBulkField(field); setBulkValue(bulkChoices(field)[0]?.value ?? ""); }}>
+        {!archivedView && <option value="workflow_status">Status</option>}{manager && <>{!archivedView && <><option value="checked_status">Checked</option><option value="main_category_code">Main category</option></>}<option value="is_published">Published</option>{role === "ADMIN" && <option value="is_archived">Archived</option>}<option value="project_id">Order</option><option value="assigned_processor_id">Processor</option></>}<option value="note">Note</option></select></label>
+      <label>New value{bulkField === "note" ? <textarea disabled={active || editDialogOpen} value={bulkValue} maxLength={10000} onChange={e => setBulkValue(e.target.value)} /> : <select disabled={active || editDialogOpen} value={bulkValue} onChange={e => setBulkValue(e.target.value)}>{bulkChoices(bulkField).map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select>}</label>
+      <button className="button button--primary" disabled={active || editDialogOpen || (bulkField === "assigned_processor_id" || bulkField === "main_category_code") && !bulkValue} onClick={() => prepare(selectedRows, bulkChange())}>Review bulk change</button>
+      <div className="material-bulk-actions">
+        {!archivedView && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || editDialogOpen || selectedRows.length > 100} onClick={() => setPreviewEdit({ materials: selectedRows.map(row => ({ ...row })), action: "BULK" })}>Edit previews</button>}
+        {checkActionsRef && <div className="material-check-actions-slot" ref={checkActionsRef} />}
+        {onCheckSelected && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || selectedRows.length > 100} onClick={() => onCheckSelected(selectedRows.map(row => ({ ...row })))}>Auto-check selected materials ({selectedRows.length})</button>}
+        {publisher && onPreparePublication && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || selectedRows.length > 100} onClick={() => onPreparePublication(selectedRows.map(row => ({ ...row })))}>Prepare selected for publication ({selectedRows.length})</button>}
+      </div>
     </fieldset>}
     {notice && <p role="status">{notice}</p>}
     {inline && pending && <p role="status">Saving {jobs[0]?.material.materialName}…</p>}
     {inline && jobs.some(j => j.status === "failed" || j.status === "unknown") && <div role="alert" className="form-error">
       {jobs[0].message}{unknown && <button className="button" disabled={pending} onClick={() => void run()}>Retry same request</button>}
     </div>}
-    {detail ? <dl className="info-list material-property-editor">{columns.filter(([key]) => key !== "archivedAt" || rows[0].isArchived).map(([key, name]) => <div key={key}><dt>{name}</dt><dd>{renderCell(key, rows[0])}</dd></div>)}</dl> : <DatabaseTableViewport scrollMode={scrollMode} className="table-card material-table material-table--editable" label="Material results">
-      <table style={{ width: 356 + visible.reduce((n, c) => n + c.width, 0) }}><caption className="sr-only">Materials and production status</caption>
-        <colgroup><col style={{ width: 40 }} /><col style={{ width: 76 }} /><col style={{ width: 240 }} />{visible.map(c => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
-        <thead><tr><th scope="col">{selectable && <input type="checkbox" aria-label="Select all visible materials" disabled={active || lifecycleBusy} checked={rows.length > 0 && selectedRows.length === rows.length} onChange={e => setSelected(new Set(e.target.checked ? rows.map(r => r.id) : []))} />}</th><th scope="col">Preview</th><th scope="col">Material</th>{visible.map(c => <th key={c.key} scope="col">{title(c.key)}</th>)}</tr></thead>
+    {detail ? <dl className="info-list material-property-editor">{columns.filter(([key]) => key !== "archivedAt" || rows[0].isArchived).map(([key, name]) => <div key={key}><dt>{name}</dt><dd>{renderCell(key, rows[0])}</dd></div>)}</dl> : <DatabaseTableViewport scrollMode={scrollMode} className={`table-card material-table material-table--editable${expanded ? " material-table--previews-expanded" : ""}`} label="Material results">
+      <table style={{ width: 280 + previewWidth + (numberColumn?.width ?? 0) + visible.reduce((n, c) => n + c.width, 0), "--material-name-left": `${40 + previewWidth + (numberColumn?.width ?? 0)}px` } as CSSProperties}><caption className="sr-only">Materials and production status</caption>
+        <colgroup><col style={{ width: 40 }} /><col style={{ width: previewWidth }} />{numberColumn && <col style={{ width: numberColumn.width }} />}<col style={{ width: 240 }} />{visible.map(c => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
+        <thead><tr><th scope="col">{selectable && <input type="checkbox" aria-label="Select all visible materials" disabled={active || lifecycleBusy} checked={rows.length > 0 && selectedRows.length === rows.length} onChange={e => setSelected(new Set(e.target.checked ? rows.map(r => r.id) : []))} />}</th><th scope="col"><button className="preview-column-toggle" aria-label={expanded ? "Collapse previews" : "Expand previews"} aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>Preview<Icon name="arrow" size={12} /></button></th>{numberColumn && <th scope="col">Number</th>}<th scope="col" className="material-name-column">Material</th>{visible.map(c => <th key={c.key} scope="col">{title(c.key)}</th>)}</tr></thead>
         <tbody>{rows.map(row => <tr key={row.id} className={`${selected.has(row.id) ? "is-selected " : ""}${highlight.ids.has(row.id) ? "is-highlighted" : ""}`} aria-selected={highlight.ids.has(row.id)}
           tabIndex={selectable ? 0 : undefined} aria-label={`Material row ${row.materialName}`}
           onMouseDown={event => { if ((event.shiftKey || event.ctrlKey || event.metaKey) && !isInteractiveTarget(event.target)) event.preventDefault(); }}
           onClick={event => { if (selectable && !active && !lifecycleBusy && !identity && !isInteractiveTarget(event.target)) setHighlight(current => highlightMaterial(current, row.id, rows.map(item => item.id), event)); }}
           onKeyDown={event => { if (selectable && !active && !lifecycleBusy && !identity && event.target === event.currentTarget && event.key === " ") { event.preventDefault(); setHighlight(current => highlightMaterial(current, row.id, rows.map(item => item.id), event)); } }}>
           <td>{selectable && <input type="checkbox" aria-label={`Select ${row.materialName}`} disabled={active || lifecycleBusy} checked={selected.has(row.id)} onChange={e => { const next = new Set(selected); if (e.target.checked) next.add(row.id); else next.delete(row.id); setSelected(next); }} />}</td>
-          <td><MaterialThumbnail material={row} store={store} /></td><td><NavigationLink className="table-link" href={row.isArchived ? `/material-archives/${row.id}` : `/materials/${row.id}`} navigate={navigate}>{row.materialName}</NavigationLink><NavigationLink className="table-identity" href={row.isArchived ? `/material-archives/${row.id}` : `/materials/${row.id}`} navigate={navigate}>{row.technicalIdentity}</NavigationLink></td>
+          <td>{expanded ? <MaterialPreviewStrip key={`${row.id}:${previewEpoch}`} material={row} store={store} editable={manager && !row.isArchived && !active && !lifecycleBusy && !identity && !editDialogOpen} onCount={countPreviews} onEdit={(action, filename) => setPreviewEdit({ materials: [{ ...row }], action, filename })} /> : <MaterialThumbnail key={`${row.id}:${previewEpoch}`} material={row} store={store} />}</td>
+          {numberColumn && <td>{renderCell("number", row)}</td>}<td className="material-name-column"><div className="material-table-name"><NavigationLink className="table-link" href={row.isArchived ? `/material-archives/${row.id}` : `/materials/${row.id}`} navigate={navigate}>{row.materialName}</NavigationLink>{manager && !row.isArchived && <button className="material-name-edit" aria-label={`Edit name of ${row.materialName}`} title="Edit name" disabled={active || lifecycleBusy || Boolean(identity) || editDialogOpen} onClick={() => setRename({ ...row })}><Icon name="pencil" size={14} /></button>}</div><NavigationLink className="table-identity" href={row.isArchived ? `/material-archives/${row.id}` : `/materials/${row.id}`} navigate={navigate}>{row.technicalIdentity}</NavigationLink></td>
           {visible.map(c => <td key={c.key}>{renderCell(c.key, row)}</td>)}</tr>)}</tbody>
       </table>
     </DatabaseTableViewport>}
@@ -281,6 +321,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
         <p>Selected records are fixed for this operation. Each write checks that the material has not changed.</p>
         {review && <p className="note-text"><strong>{review[0]}</strong> → {review[1]}</p>}
         {jobs[0] && "note" in jobs[0].change && <p>This replaces the existing note on each selected material.</p>}
+        {jobs[0] && "main_category_code" in jobs[0].change && <p>Main category changes also rename linked material folders, matching files and metadata. Linked materials must be unpublished and In progress. Checked and automatic checks must be repeated. Ineligible or changed records are skipped and listed below.</p>}
         {jobs[0] && "workflow_status" in jobs[0].change && jobs[0].change.workflow_status === "DONE" && <p>Done checks the linked folder and resets Checked to no. Missing metadata.txt is allowed when the folder is safe.</p>}
         {jobs[0] && "checked_status" in jobs[0].change && jobs[0].change.checked_status === "Correction" && <p>Correction returns the material to In progress.</p>}
         {jobs[0] && "is_published" in jobs[0].change && <p>Published records your manual evidence. It does not upload files.</p>}
@@ -297,5 +338,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
       }} />}
       <button disabled={identityBusy} className="button" onClick={() => { identityDialog.current?.close(); setIdentity(undefined); returnFocus.current?.focus(); }}>Back to materials</button>
     </dialog>
+    {rename && <MaterialNameDialog material={rename} onClose={() => setRename(null)} onChanged={async () => { store.forget(rename.id, rename.folderPath ?? ""); setPreviewEpoch(value => value + 1); refresh(); return true; }} />}
+    {previewEdit && <PreviewEditDialog selection={previewEdit} onClose={() => { setPreviewEdit(null); if (previewsChanged.current) { previewsChanged.current = false; refresh(); } }} onChanged={() => { previewEdit.materials.forEach(row => store.forget(row.id, row.folderPath ?? "")); setPreviewEpoch(value => value + 1); previewsChanged.current = true; }} />}
   </div>;
 }

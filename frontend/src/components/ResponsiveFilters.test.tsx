@@ -14,9 +14,10 @@ function observeWidth() {
   });
   return { disconnect, resize: (width: number) => act(() => resized?.([{ contentRect: { width } } as ResizeObserverEntry], {} as ResizeObserver)) };
 }
-function Fixture({ compact = true }: { compact?: boolean }) {
+function Fixture({ compact = true, withKeep = false }: { compact?: boolean; withKeep?: boolean }) {
   const [date, setDate] = useState("");
-  return <ResponsiveFilters compact={compact} label="Filters" onClear={() => setDate("")} filters={[
+  const [keep, setKeep] = useState(false);
+  return <ResponsiveFilters compact={compact} label="Filters" onClear={() => setDate("")} keepFilters={keep} onKeepFiltersChange={withKeep ? setKeep : undefined} filters={[
     { key: "search", width: 190, content: <label>Search<input type="search" /></label> },
     { key: "customer", width: 140, content: <label>Customer<select><option>All</option></select></label> },
     { key: "status", width: 115, content: <label>Status<select><option>All</option></select></label> },
@@ -47,6 +48,19 @@ it("uses the measured bar width to retain the highest priorities and hides More 
   expect(due).toBeVisible(); expect(due).toHaveValue("2026-10-15");
   expect(screen.queryByRole("button", { name: /More filters/ })).not.toBeInTheDocument();
   view.unmount(); expect(observer.disconnect).toHaveBeenCalledOnce();
+});
+it("places Keep filters with Clear filters without taking width from the filter inputs", () => {
+  const observer = observeWidth(); render(<Fixture withKeep />);
+  observer.resize(800);
+  expect(screen.queryByRole("button", { name: /More filters/ })).not.toBeInTheDocument();
+  const keep = screen.getByRole("checkbox", { name: "Keep filters" });
+  const clear = screen.getByRole("button", { name: "Clear filters" });
+  expect(keep.closest(".priority-filters-clear-group")).toContainElement(clear);
+  expect(keep.compareDocumentPosition(clear) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(keep); expect(keep).toBeChecked();
+  fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-10-15" } });
+  fireEvent.click(clear);
+  expect(screen.getByLabelText("Due date")).toHaveValue(""); expect(keep).toBeChecked();
 });
 it("keeps a focused filter available while resizing and preserves the same input across page fallback", () => {
   const observer = observeWidth(), view = render(<Fixture />);

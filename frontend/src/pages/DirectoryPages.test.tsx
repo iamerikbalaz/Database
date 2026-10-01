@@ -251,6 +251,11 @@ it("sorts orders by created date, name and number without changing records", asy
   await screen.findByRole("link", { name: "0010" });
   expect(screen.getByRole("columnheader", { name: "NUMBER" })).toBeVisible();
   const rows = () => within(screen.getByRole("table")).getAllByRole("link").map(link => link.textContent);
+  const sort = screen.getByRole("combobox", { name: "Sort orders" });
+  expect(sort.closest("fieldset")).toBeNull();
+  expect(sort).toHaveValue("number-desc");
+  expect(rows()).toEqual(["0020", "0010"]);
+  fireEvent.change(sort, { target: { value: "created-desc" } });
   expect(rows()).toEqual(["0010", "0020"]);
   fireEvent.change(screen.getByRole("combobox", { name: "Sort orders" }), { target: { value: "created-asc" } });
   expect(rows()).toEqual(["0020", "0010"]);

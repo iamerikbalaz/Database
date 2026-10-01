@@ -1,0 +1,89 @@
+.material-detail-page { display: grid; gap: 16px; min-width: 0; }
+.material-detail-page > .page-heading { margin-bottom: 0; }
+.material-detail-summary { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.material-detail-summary > .material-basic-panel:only-child { grid-column: 1 / -1; }
+.material-detail-summary > .panel, .material-detail-page > .panel { margin-top: 0; padding: 18px; min-width: 0; }
+.material-detail-summary .preview-gallery h2 { font-size: 17px; margin: 0 0 12px; }
+.material-detail-summary .material-preview { margin: 10px 0; }
+.material-detail-summary .material-preview img { width: 100%; aspect-ratio: 1; max-height: 280px; object-fit: contain; }
+.material-detail-summary .material-preview figcaption { margin-top: 8px; font-size: 11px; }
+.material-detail-summary .preview-navigation { gap: 12px; margin-bottom: 8px; }
+.material-detail-summary .preview-navigation .button { padding: 6px 10px; margin: 0; }
+.material-detail-summary .preview-gallery > .button { font-size: 11px; padding: 7px 10px; margin: 4px 4px 0 0; }
+.material-detail-summary .material-property-editor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; }
+.material-detail-summary .material-property-editor > div { grid-template-columns: minmax(85px, .55fr) minmax(0, 1fr); align-items: center; gap: 8px; padding: 6px 0; min-width: 0; }
+.material-detail-summary .material-property-editor dt { font-size: 11px; }
+.material-detail-summary .material-property-editor dd { margin: 0; overflow-wrap: anywhere; font-size: 12px; }
+.material-detail-summary .material-property-editor select { min-height: 34px; padding: 5px 24px 5px 8px; font-size: 12px; }
+.material-detail-summary .material-property-editor .table-note textarea { min-height: 34px; height: 34px; padding: 6px 8px; font-size: 12px; resize: vertical; }
+.material-detail-page .material-properties-fieldset > legend { margin-bottom: 8px; }
+
+.material-library-panel > h2 { margin: 0 0 8px; font-size: 19px; }
+.material-library-panel > p { margin: 6px 0 12px; font-size: 12px; }
+.material-library-panel form, .material-library-panel .material-library-fields { gap: 12px; }
+.material-library-panel .material-library-fields { border: 0; padding: 0; }
+.material-library-text, .material-library-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; align-items: start; }
+.material-library-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(155px, 100%), 1fr)); gap: 12px; align-items: end; }
+.material-library-panel .material-library-text > label, .material-library-panel .material-library-metrics > label { display: grid; gap: 5px; min-width: 0; font-size: 12px; }
+.material-library-panel .material-library-text textarea { min-height: 76px; padding: 8px 10px; font-size: 12px; }
+.material-library-panel .material-library-metrics input { min-height: 36px; padding: 6px 10px; font-size: 12px; }
+.material-library-panel .material-color-field { min-width: 0; }
+.material-library-panel .material-color-field > label { margin: 0 0 5px; font-size: 12px; }
+.material-library-panel .material-color-select { min-height: 36px; margin: 0; padding: 6px 10px; font-size: 12px; }
+.material-library-panel .form-actions { margin-top: 0; gap: 8px; }
+.material-library-panel .form-actions .button { margin: 0; }
+.material-library-panel .material-library-fields > p { margin: 0; font-size: 12px; }
+
+.material-choice-group { min-width: 0; border: 1px solid var(--border); border-radius: 10px; padding: 0 12px; }
+.material-choice-group > summary { padding: 10px 0; cursor: pointer; font-size: 12px; font-weight: 600; }
+.material-choice-group > summary > span { color: var(--muted); font-weight: 400; font-size: 11px; margin-left: 6px; }
+.material-choice-group[open] > summary { border-bottom: 1px solid var(--border); }
+.material-choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(205px, 100%), 1fr)); gap: 8px 16px; min-width: 0; padding: 12px 0; }
+.material-choice-grid .checkbox-label { margin: 0; align-items: flex-start; flex-wrap: nowrap; font-size: 12px; line-height: 1.5; font-weight: 400; overflow-wrap: anywhere; }
+.material-choice-grid .checkbox-label > input { margin-top: 1px; }
+.material-choice-grid > p { grid-column: 1 / -1; margin: 0; font-size: 12px; }
+
+.panel.material-create-page { padding: 22px; }
+.material-create-page > h1 { margin: 0 0 8px; }
+.material-create-page > p { margin: 0 0 20px; font-size: 13px; }
+.material-create-fields { min-width: 0; border: 0; margin: 0; padding: 0; display: grid; gap: 14px; }
+.material-create-fields > legend { font-size: 13px; font-weight: 600; padding: 0 0 12px; }
+.material-create-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.material-create-properties { display: grid; gap: 10px; }
+.material-create-properties > label { display: grid; grid-template-columns: 110px minmax(0, 1fr); align-items: center; gap: 12px; font-size: 12px; }
+.material-create-properties select, .material-create-names input:not([type=checkbox]), .material-create-names textarea { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--border); border-radius: 10px; background: var(--surface, #fff); padding: 8px 10px; font: inherit; color: inherit; }
+.material-create-properties select { min-height: 38px; }
+.material-create-names { display: grid; gap: 14px; padding: 14px 16px; border-radius: 12px; background: var(--canvas, #f2f3f9); }
+.material-create-names > label:not(.checkbox-label) { display: grid; gap: 8px; font-size: 12px; }
+.material-create-names textarea { min-height: 185px; resize: vertical; }
+.material-create-names .checkbox-label { font-size: 12px; margin: 0; }
+.material-create-page .form-actions { margin-top: 16px; }
+
+.material-name-dialog.material-bulk-content-dialog { width: min(640px, calc(100vw - 32px)); max-width: none; max-height: 90dvh; padding: 18px; overflow: auto; }
+.material-bulk-content-dialog > h2 { margin: 0 0 8px; }
+.material-bulk-content-dialog > p { margin: 0 0 16px; font-size: 13px; }
+.material-bulk-content-columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.material-bulk-content-columns > fieldset { min-width: 0; margin: 0; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; }
+.material-bulk-content-columns legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
+.material-bulk-content-columns .material-choice-group > fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.material-bulk-content-columns .material-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 45vh; overflow: auto; align-content: start; }
+.material-bulk-content-dialog .material-choice-grid .checkbox-label { margin: 0; }
+.material-bulk-content-dialog .form-actions { margin-top: 16px; }
+
+@media (max-width: 1100px) {
+  .material-detail-summary { grid-template-columns: minmax(190px, 250px) minmax(0, 1fr); }
+  .material-detail-summary .material-property-editor { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .material-detail-summary, .material-create-layout, .material-library-text, .material-library-choices, .material-bulk-content-columns { grid-template-columns: minmax(0, 1fr); }
+  .material-detail-summary .preview-gallery { width: 100%; box-sizing: border-box; }
+  .material-detail-summary .material-preview img { max-width: 280px; }
+  .material-library-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .material-bulk-content-columns .material-choice-grid { max-height: 35vh; }
+}
+@media (max-width: 420px) {
+  .material-create-properties > label { grid-template-columns: minmax(0, 1fr); gap: 5px; }
+  .material-library-metrics { grid-template-columns: minmax(0, 1fr); }
+  .material-detail-summary .material-property-editor > div { grid-template-columns: 85px minmax(0, 1fr); }
+  .material-bulk-content-columns .material-choice-grid { grid-template-columns: minmax(0, 1fr); }
+}

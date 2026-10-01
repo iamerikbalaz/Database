@@ -39,6 +39,20 @@ async function openCreate() {
   fireEvent.click(screen.getByRole("button", { name: "Add catalog value" }));
   return screen.getByRole("dialog", { name: "Add catalog value" });
 }
+it("defaults catalog to A–Z and keeps sorting outside its filters without reloading", async () => {
+  const fetch = setup("ADMIN", [category, { ...category, id: "10000000-0000-4000-8000-000000000002", value: "Alpine stone", abbreviation: "A", created_at: "2026-08-01T00:00:00Z" }]);
+  await screen.findByText("Alpine stone");
+  const sort = screen.getByRole("combobox", { name: "Sort catalog" });
+  const names = () => within(screen.getByRole("table")).getAllByRole("button", { name: /^Edit category / }).map(button => button.getAttribute("aria-label"));
+  expect(sort).toHaveValue("name-asc"); expect(sort.closest("fieldset")).toBeNull();
+  expect(names()).toEqual(["Edit category Alpine stone", "Edit category Stone"]);
+  const requests = fetch.mock.calls.length;
+  fireEvent.change(sort, { target: { value: "created-desc" } });
+  expect(names()).toEqual(["Edit category Stone", "Edit category Alpine stone"]);
+  fireEvent.change(sort, { target: { value: "name-desc" } });
+  expect(names()).toEqual(["Edit category Stone", "Edit category Alpine stone"]);
+  expect(fetch).toHaveBeenCalledTimes(requests);
+});
 it("creates a brand collection with an explicit selected brand", async () => {
   const fetch = setup(); await openCreate();
   fireEvent.change(screen.getByRole("combobox", { name: "Value type" }), { target: { value: "collections" } });

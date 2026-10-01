@@ -30,7 +30,7 @@ it("prepares only checked materials and preserves filters on return", async () =
   expect(screen.getByRole("heading", { name: "Materials" }).closest("section")).toHaveClass("database-page--workspace");
   expect(screen.queryByRole("button", { name: /Prepare filtered/ })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Publication batches" })).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Prepare selected for publication (0)" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Prepare selected for publication (0)" })).not.toBeInTheDocument();
   fireEvent.change(screen.getByRole("searchbox", { name: "Search materials" }), { target: { value: "#Autumn" } });
   await waitFor(() => expect(getMaterials).toHaveBeenLastCalledWith({ search: "#Autumn" }));
   fireEvent.click(await screen.findByRole("checkbox", { name: `Select ${first.materialName}` }));

@@ -140,7 +140,7 @@ def create_app(
     application.include_router(build_publication_preview_router(app_database, app_settings))
     application.include_router(build_publication_batches_router(app_database, app_settings))
     application.include_router(build_packaging_settings_router(app_database, app_settings))
-    application.include_router(build_path_settings_router(app_database, app_settings))
+    application.include_router(build_path_settings_router(app_database, app_settings, local_library))
     application.include_router(build_material_creation_router(app_database, app_settings, local_library))
     application.include_router(build_material_bulk_content_router(app_database))
     application.include_router(build_staging_preview_router(app_database, app_settings))

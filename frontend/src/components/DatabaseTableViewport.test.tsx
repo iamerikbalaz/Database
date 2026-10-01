@@ -3,6 +3,23 @@ import { afterEach, expect, it, vi } from "vitest";
 import { DatabaseTableViewport } from "./DatabaseTableViewport";
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+it.each(["page", "contained"] as const)("routes horizontal thumb-wheel and Shift-wheel input in %s mode without hijacking vertical scrolling", scrollMode => {
+  render(<DatabaseTableViewport label="Records" scrollMode={scrollMode}><table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Example</td></tr></tbody></table></DatabaseTableViewport>);
+  const body = screen.getByRole("region", { name: "Records" }), top = screen.getByRole("region", { name: "Records horizontal scroll" });
+  Object.defineProperties(body, { scrollWidth: { value: 1600 }, clientWidth: { value: 600 } });
+  const wheel = (target: Element, init: WheelEventInit) => { const event = new WheelEvent("wheel", { bubbles: true, cancelable: true, ...init }); fireEvent(target, event); return event; };
+  expect(wheel(screen.getByText("Example"), { deltaX: 120 }).defaultPrevented).toBe(true);
+  expect(body.scrollLeft).toBe(120); expect(top.scrollLeft).toBe(120);
+  wheel(top, { deltaY: 3, deltaMode: 1, shiftKey: true });
+  expect(body.scrollLeft).toBe(168); expect(top.scrollLeft).toBe(168);
+  wheel(body, { deltaX: 1, deltaMode: 2 }); expect(body.scrollLeft).toBe(768);
+  wheel(body, { deltaX: 600 }); expect(body.scrollLeft).toBe(1000);
+  expect(wheel(body, { deltaX: 200 }).defaultPrevented).toBe(false);
+  expect(wheel(body, { deltaY: 80 }).defaultPrevented).toBe(false);
+  expect(wheel(body, { deltaX: -100, ctrlKey: true }).defaultPrevented).toBe(false);
+  expect(body.scrollLeft).toBe(1000);
+  wheel(body, { deltaX: -160 }); expect(body.scrollLeft).toBe(840); expect(top.scrollLeft).toBe(840);
+});
 it("synchronizes the top scrollbar with one semantic table and native cell scrolling", () => {
   render(<DatabaseTableViewport label="Materials"><table><thead><tr><th>Material</th></tr></thead><tbody><tr><td>Stone</td></tr></tbody></table></DatabaseTableViewport>);
   const top = screen.getByRole("region", { name: "Materials horizontal scroll" }), body = screen.getByRole("region", { name: "Materials" });

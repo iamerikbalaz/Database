@@ -4,6 +4,25 @@ import { useEffect, useRef, type ReactNode } from "react";
 export function DatabaseTableViewport({ children, className = "", label, scrollMode = "page" }: { children: ReactNode; className?: string; label: string; scrollMode?: "page" | "contained" }) {
   const root = useRef<HTMLDivElement>(null), body = useRef<HTMLDivElement>(null), bar = useRef<HTMLDivElement>(null), track = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    const element = root.current!, viewport = body.current!, scrollbar = bar.current!;
+    const wheel = (event: WheelEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey) return;
+      // A hidden bottom scrollbar also disables native horizontal wheel input.
+      // Keep vertical wheel gestures native; route thumb-wheel and Shift+wheel
+      // movement to the same position used by the visible top scrollbar.
+      const horizontal = event.deltaX || (event.shiftKey ? event.deltaY : 0);
+      if (!horizontal || (!event.shiftKey && Math.abs(event.deltaY) > Math.abs(horizontal))) return;
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientWidth : 1;
+      const next = Math.max(0, Math.min(viewport.scrollWidth - viewport.clientWidth, viewport.scrollLeft + horizontal * unit));
+      if (next === viewport.scrollLeft) return;
+      viewport.scrollLeft = next;
+      scrollbar.scrollLeft = viewport.scrollLeft;
+      event.preventDefault();
+    };
+    element.addEventListener("wheel", wheel, { passive: false });
+    return () => element.removeEventListener("wheel", wheel);
+  }, []);
+  useEffect(() => {
     const viewport = body.current!, scrollbar = bar.current!, spacer = track.current!;
     const table = viewport.querySelector("table"), header = table?.querySelector("thead");
     if (!table || !header) return;

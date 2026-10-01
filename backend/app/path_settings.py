@@ -6,6 +6,8 @@ from sqlalchemy import select, text
 from app.db.path_settings_models import PathsSettingsRevision
 
 PATHS_LOCK = 737824936
+PATH_FIELDS = ("sbs_templates_root", "orders_root", "materials_root", "published_library_root")
+DEFAULT_PUBLISHED_LIBRARY_ROOT = r"Z:\3. LIBRARY\3.3 PBR MATERIALS LIBRARY"
 
 
 class PathSettingsError(ValueError):
@@ -21,18 +23,29 @@ def lock_paths(session, *, exclusive=False):
 def current_paths(session, runtime):
     saved = session.scalar(select(PathsSettingsRevision).order_by(PathsSettingsRevision.version.desc()).limit(1))
     if saved:
-        return dict(saved.response_snapshot)
+        return paths_snapshot(saved.response_snapshot, runtime)
     return {"version": 0, "sbs_templates_root": getattr(runtime, "sbs_templates_root", r"C:\Users\Admin\Desktop\Substance graphy vzory"),
-        "orders_root": runtime.order_folders_root or r"R:\0. PROJECTS", "materials_root": getattr(runtime, "materials_root", r"C:\Users\Admin\Desktop\Test_data")}
+        "orders_root": runtime.order_folders_root or r"R:\0. PROJECTS", "materials_root": getattr(runtime, "materials_root", r"C:\Users\Admin\Desktop\Test_data"),
+        "published_library_root": getattr(runtime, "published_library_root", DEFAULT_PUBLISHED_LIBRARY_ROOT)}
 
 
-def checked_directory(value):
-    from app.order_folders import checked_root, OrderFolderError
+def paths_snapshot(snapshot, runtime):
+    # Older immutable revisions predate this setting; preserve their stored bytes.
+    return {"published_library_root": getattr(runtime, "published_library_root", DEFAULT_PUBLISHED_LIBRARY_ROOT), **snapshot}
+
+
+def absolute_directory(value):
     if not isinstance(value, str) or any(ord(char) < 32 for char in value):
         raise PathSettingsError("Folder paths cannot contain control characters.")
     path = Path(value)
     if not value or not path.is_absolute() or ".." in path.parts or path == path.parent:
         raise PathSettingsError("Use an absolute folder path, not a drive root or a parent traversal.")
+    return path
+
+
+def checked_directory(value):
+    from app.order_folders import checked_root, OrderFolderError
+    path = absolute_directory(value)
     try:
         checked_root(value)
     except (OrderFolderError, OSError):
@@ -40,14 +53,26 @@ def checked_directory(value):
     return path
 
 
+def published_directory(value):
+    # This is only a future target, not a filesystem capability. A future copy
+    # operation must validate and authorize the live root again before any IO.
+    path = absolute_directory(value)
+    try:
+        path.lstat()
+    except OSError:
+        return path  # A disconnected NAS must not block unrelated path changes.
+    return checked_directory(value)
+
+
 def validate_paths(values, runtime):
-    roots = {key: checked_directory(values[key]) for key in ("sbs_templates_root", "orders_root", "materials_root")}
+    roots = {key: published_directory(values[key]) if key == "published_library_root" else checked_directory(values[key]) for key in PATH_FIELDS}
     allowed = checked_directory(runtime.materials_root)
     if not roots["materials_root"].is_relative_to(allowed):
         raise PathSettingsError("Material data must stay inside the configured Test_data root during testing.")
-    for left, right in (("sbs_templates_root", "orders_root"), ("sbs_templates_root", "materials_root"), ("orders_root", "materials_root")):
-        if roots[left].is_relative_to(roots[right]) or roots[right].is_relative_to(roots[left]):
-            raise PathSettingsError("Templates, orders and materials must use separate folders.")
+    for index, left in enumerate(PATH_FIELDS):
+        for right in PATH_FIELDS[index + 1:]:
+            if roots[left].is_relative_to(roots[right]) or roots[right].is_relative_to(roots[left]):
+                raise PathSettingsError("Templates, orders, material data and published library must use separate folders.")
     return {key: str(path) for key, path in roots.items()}
 
 

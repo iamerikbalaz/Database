@@ -10,10 +10,11 @@ MAX_SOURCE_BYTES = 64 * 1024**2
 MAX_PIXELS = 32 * 1024**2
 MAX_OUTPUT_BYTES = 2 * 1024**2
 MAX_OUTPUT_SIDE = 1024
+MAX_ORIGINAL_BYTES = 64 * 1024**2
 FORMATS = ("JPEG", "PNG", "TIFF", "WEBP")
 
 
-def decode(fd: int, size: int = 1024) -> dict:
+def decode(fd: int, size: int = 1024, *, original: bool = False) -> dict:
     if type(size) is not int or size not in {256, 512, 1024}: return {"error": "PREVIEW_SIZE_UNSUPPORTED"}
     import resource
     resource.setrlimit(resource.RLIMIT_AS, (768 * 1024**2, 768 * 1024**2))
@@ -48,6 +49,29 @@ def decode(fd: int, size: int = 1024) -> dict:
         stream.seek(0)
         with Image.open(stream, formats=FORMATS) as source:
             source.load()
+            if original:
+                if source_format == "TIFF":
+                    # Browsers cannot reliably display TIFF. Encode its decoded
+                    # pixels losslessly, without reducing dimensions or bit depth.
+                    clean = ImageOps.exif_transpose(source)
+                    icc_profile = clean.info.get("icc_profile")
+                    if clean.mode == "P": clean = clean.convert("RGBA")
+                    if clean.mode in {"I;16B", "I;16L"}: clean = Image.frombytes("I;16", clean.size, clean.tobytes(), "raw", clean.mode)
+                    clean = Image.frombytes(clean.mode, clean.size, clean.tobytes())
+                    output = io.BytesIO(); clean.save(output, format="PNG", **({"icc_profile":icc_profile} if icc_profile else {}))
+                    data = output.getvalue(); media_type = "image/png"
+                    width, height = clean.size
+                else:
+                    # Exact original bytes, after full decode and format checks.
+                    # Retains the source color profile and avoids JPEG recompression.
+                    stream.seek(0); data = stream.read(MAX_ORIGINAL_BYTES + 1)
+                    media_type = {"PNG": "image/png", "JPEG": "image/jpeg", "WEBP": "image/webp"}[source_format]
+                if len(data) > MAX_ORIGINAL_BYTES: return {"error": "PREVIEW_OUTPUT_LIMIT"}
+                if signature(before) != signature(os.fstat(stream.fileno())):
+                    return {"error": "PREVIEW_SOURCE_CHANGED"}
+                return {"source_sha256": digest.hexdigest(), "source_format": source_format,
+                    "width": width, "height": height, "media_type": media_type,
+                    "sha256": hashlib.sha256(data).hexdigest(), "data": base64.b64encode(data).decode("ascii")}
             oriented = ImageOps.exif_transpose(source)
             if oriented.mode in {"I;16", "I;16B", "I;16L"}:
                 # Preserve the full unsigned grayscale range; a direct RGB
@@ -74,7 +98,8 @@ def decode(fd: int, size: int = 1024) -> dict:
 def main():
     try:
         if len(sys.argv) not in {2, 3} or not sys.argv[1].isdigit() or int(sys.argv[1]) < 3: raise ValueError()
-        result = decode(int(sys.argv[1]), int(sys.argv[2]) if len(sys.argv) == 3 else 1024)
+        original = len(sys.argv) == 3 and sys.argv[2] == "original"
+        result = decode(int(sys.argv[1]), int(sys.argv[2]) if len(sys.argv) == 3 and not original else 1024, original=original)
     except ImportError:
         result = {"error": "PREVIEW_DECODER_UNAVAILABLE"}
     except MemoryError:

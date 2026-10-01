@@ -20,7 +20,7 @@ import { ErrorState, LoadingState } from "../components/PageState";
 
 import { Icon } from "../components/Icon";
 import { useDatabaseWorkspace } from "../components/useDatabaseWorkspace";
-import { ResponsiveFilters } from "../components/ResponsiveFilters";
+import { KeepFiltersControl, ResponsiveFilters } from "../components/ResponsiveFilters";
 import { numberedDatabaseSortOptions, sortDatabaseRecords, useDatabaseFilters } from "../components/useDatabaseFilters";
 import { DatabaseResultsToolbar } from "../components/DatabaseResultsToolbar";
 
@@ -80,9 +80,9 @@ export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: 
 
   ];
 
-  return <section className={`database-page orders-page${compact ? " database-page--workspace" : ""}`}><div className="page-heading"><div><p className="eyebrow">Production</p><h1>Orders</h1><p className="database-description">Customer work, delivery dates and project folders.</p></div>{canEdit && <NavigationLink className="button button--primary" href="/orders/new" navigate={navigate}><Icon name="plus" size={18} />Add order</NavigationLink>}</div>
+  return <section className={`database-page orders-page${compact ? " database-page--workspace" : ""}`}><div className="page-heading"><div><p className="eyebrow">Production</p><h1>Orders</h1><p className="database-description">Customer work, delivery dates and project folders.</p></div><div className="database-heading-actions">{canEdit && <NavigationLink className="button button--primary" href="/orders/new" navigate={navigate}><Icon name="plus" size={18} />Add order</NavigationLink>}<KeepFiltersControl checked={keepFilters} onChange={setKeepFilters} disabled={busy} /></div></div>
 
-    <ResponsiveFilters compact={compact} disabled={busy} label="Filter orders" keepFilters={keepFilters} onKeepFiltersChange={setKeepFilters} onClear={resetFilters} filters={[
+    <ResponsiveFilters compact={compact} disabled={busy} label="Filter orders" onClear={resetFilters} filters={[
       { key: "search", width: 190, active: Boolean(search), content: <label className="database-search">Search orders<span className="database-search-input"><Icon name="search" size={18} /><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Number, name or note" /></span></label> },
       { key: "customer", width: 135, active: Boolean(customer), content: <label>Customer<select value={customer} onChange={event => setCustomer(event.target.value)}><option value="">All</option>{customers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> },
       { key: "status", width: 115, active: Boolean(status), content: <label>Status<select value={status} onChange={event => setStatus(event.target.value)}><option value="">All</option>{orderStatuses.map(value => <option key={value}>{value}</option>)}</select></label> },

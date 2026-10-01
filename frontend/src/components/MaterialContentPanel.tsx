@@ -112,17 +112,18 @@ function ContentEditor({ material, content, categories, collections, source, onS
     {source.sourceStatus === "MISSING" && canWriteSource && <p>Saving creates the missing metadata.json from these recorded values.</p>}
     <form onSubmit={event => { event.preventDefault(); void save(); }} noValidate>
       <fieldset className="material-library-fields" disabled={!allowed || busy || disabled}><legend className="sr-only">Material data for library</legend>
-        <div className="material-library-text">
-          <label>Description<textarea rows={3} maxLength={10000} value={description} onChange={event => setDescription(event.target.value)} /></label>
-          <label>Tags, one per line<textarea rows={3} value={tags} onChange={event => setTags(event.target.value)} /></label>
-        </div>
-        <div className="material-library-metrics">
+        <div className="material-library-rows">
+          <label className="material-library-row"><span>Description</span><textarea rows={2} maxLength={10000} value={description} onChange={event => setDescription(event.target.value)} /></label>
           <MaterialColorSelect value={color} disabled={!sourceReady} onChange={setColor} />
-          <label>Sample width (cm)<input aria-label="Sample width (cm)" type="number" min="0.1" max="99999999.9" step="0.1" value={width} disabled={!sourceReady}
-            onChange={event => { setWidth(event.target.value); setWidthEdited(true); }} /></label>
-          <label>Sample height (cm)<input aria-label="Sample height (cm)" type="number" min="0.1" max="99999999.9" step="0.1" value={height} disabled={!sourceReady}
-            onChange={event => { setHeight(event.target.value); setHeightEdited(true); }} /></label>
-          <label>Credits<input type="number" min="0" max="2147483647" step="1" value={credits} onChange={event => setCredits(event.target.value)} /></label>
+          <label className="material-library-row"><span>Tags, one per line</span><textarea rows={2} value={tags} onChange={event => setTags(event.target.value)} /></label>
+          <div className="material-library-row"><span>Sample size (W x H)</span><div className="material-sample-size" role="group" aria-label="Sample size (W x H)">
+            <input aria-label="Sample width (cm)" type="number" min="0.1" max="99999999.9" step="0.1" value={width} disabled={!sourceReady}
+              onChange={event => { setWidth(event.target.value); setWidthEdited(true); }} />
+            <span aria-hidden="true">×</span>
+            <input aria-label="Sample height (cm)" type="number" min="0.1" max="99999999.9" step="0.1" value={height} disabled={!sourceReady}
+              onChange={event => { setHeight(event.target.value); setHeightEdited(true); }} /><span>cm</span>
+          </div></div>
+          <label className="material-library-row"><span>Credits</span><input className="material-library-credits" type="number" min="0" max="2147483647" step="1" value={credits} onChange={event => setCredits(event.target.value)} /></label>
         </div>
         <div className="material-library-choices">
         {choices("Online categories", categoryChoices, selectedCategories, setCategories)}

@@ -1,0 +1,50 @@
+.directory-record--compact { --directory-select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23394173' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); display: grid; gap: 16px; min-width: 0; }
+.directory-record--compact > .page-heading { margin-bottom: 0; gap: 12px 20px; align-items: center; flex-wrap: wrap; }
+.directory-record--compact > .page-heading > div { min-width: 0; }
+.directory-record--compact .page-heading p:not(.eyebrow) { margin: 6px 0 0; font-size: 12px; overflow-wrap: anywhere; }
+.directory-record-name { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; min-width: 0; }
+.directory-record--compact .directory-record-name h1 { margin: 0; overflow-wrap: anywhere; }
+.directory-record-name .customer-rename > .button { margin: 0; }
+.directory-record.directory-record--compact .panel { min-width: 0; margin: 0; padding: 18px; }
+.directory-record--compact .record-form > fieldset { gap: 10px; }
+.directory-record--compact .record-form > fieldset > .button { justify-self: start; margin: 0; }
+.directory-record--compact .panel h2, .directory-record--compact > details.panel > summary, .directory-record.directory-record--compact legend { margin: 0 0 12px; font-size: 17px; font-weight: 600; }
+.directory-record--compact > details.panel:not([open]) > summary { margin-bottom: 0; }
+.directory-record--compact .panel p { margin: 8px 0; font-size: 12px; overflow-wrap: anywhere; }
+.directory-record--compact .directory-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 24px; margin-bottom: 12px; }
+.directory-record--compact .directory-fields > .directory-field { display: grid; grid-template-columns: 145px minmax(0, 1fr); gap: 8px 12px; align-items: center; min-width: 0; }
+.directory-record--compact .directory-field > span { color: var(--muted); font-size: 11px; font-weight: 400; }
+.directory-record--compact .directory-field > input:not([type=checkbox]), .directory-record--compact .directory-field > select, .directory-record--compact .directory-field > textarea { width: 100%; min-width: 0; height: 34px; min-height: 34px; padding: 6px 10px; font: inherit; font-size: 12px; font-weight: 400; color: var(--text, #1f2444); border: 1px solid var(--border); border-radius: 8px; background: var(--surface, #fff); }
+.directory-record--compact .directory-field > select { appearance: none; padding-right: 30px; background-image: var(--directory-select-arrow); background-repeat: no-repeat; background-position: right 10px center; background-size: 12px; }
+.directory-record--compact .directory-field > textarea { min-height: 48px; height: 48px; resize: vertical; }
+.directory-record--compact .directory-field--checkbox > input { width: 16px; min-width: 16px; height: 16px; min-height: 16px; padding: 0; margin: 0; justify-self: start; }
+.directory-record--compact .directory-generated-name { margin: 8px 0 12px; font-size: 12px; }
+.directory-record--compact .directory-generated-name small { margin-top: 4px; font-size: 11px; color: var(--muted); }
+.directory-related-panels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: stretch; min-width: 0; }
+.directory-record--compact .directory-logo-panel .customer-logo { width: 150px; max-width: 100%; height: 64px; margin-bottom: 8px; }
+.directory-record--compact .directory-logo-panel label { display: grid; gap: 6px; min-width: 0; font-size: 12px; }
+.directory-record--compact .directory-logo-panel input[type=file] { max-width: 100%; min-width: 0; font-size: 12px; }
+.directory-record--compact .directory-logo-panel .button { margin-top: 4px; }
+.directory-related-orders { max-height: 240px; overflow-y: auto; }
+.directory-record--compact .directory-related-order { padding: 6px 0; font-size: 12px; line-height: 1.5; }
+.directory-record--compact .directory-related-order + .directory-related-order { border-top: 1px solid var(--border); }
+.directory-record--compact .order-materials .order-material-counts { font-size: 12px; }
+.directory-record--compact .panel .form-actions { margin-top: 12px; }
+
+@supports (field-sizing: content) {
+  .directory-record--compact .directory-field > textarea { field-sizing: content; height: auto; max-height: 160px; }
+}
+
+@media (max-width: 1000px) {
+  .directory-record--compact .directory-fields { grid-template-columns: minmax(0, 1fr); }
+  .directory-related-panels { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .directory-related-panels > .panel:last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 600px) {
+  .directory-related-panels { grid-template-columns: minmax(0, 1fr); }
+  .directory-record--compact .directory-fields > .directory-field { grid-template-columns: 120px minmax(0, 1fr); }
+}
+@media (max-width: 420px) {
+  .directory-record--compact .directory-fields > .directory-field { grid-template-columns: minmax(0, 1fr); gap: 5px; }
+  .directory-record--compact .directory-fields > .directory-field--checkbox { grid-template-columns: 120px minmax(0, 1fr); }
+}

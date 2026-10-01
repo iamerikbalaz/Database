@@ -26,7 +26,7 @@ from app.technical_validation import validate_material
 from app.identity_plan import IdentityPlanError, IdentityTarget, plan_identity_change
 from app.identity_execute import execute_identity_change
 from app.file_journal import JournalError
-from app.previews import PreviewError, list_previews, render_preview
+from app.previews import PreviewError, list_previews, render_preview, render_original_preview
 from app.folder_discovery import DiscoveryError, discovery_parts, discover_folders
 from app.metadata_edit import inspect_metadata, execute_metadata_edit
 
@@ -83,6 +83,11 @@ class MaterialPreviewRequest(MaterialPreflightRequest):
     name: str
     expected_sha256: str
     size: Literal[256, 512, 1024] = 1024
+
+
+class MaterialOriginalPreviewRequest(MaterialPreflightRequest):
+    name: str
+    expected_sha256: str
 
 
 class FindingResponse(StrictModel):
@@ -494,6 +499,10 @@ def create_app(
     @application.post("/internal/material-preview", tags=["internal"])
     def material_preview(request: MaterialPreviewRequest) -> dict:
         return execute_source_inspection(request, lambda root, parts: render_preview(root, parts, request.name, request.expected_sha256, request.size))
+
+    @application.post("/internal/material-preview-original", tags=["internal"])
+    def material_original_preview(request: MaterialOriginalPreviewRequest) -> dict:
+        return execute_source_inspection(request, lambda root, parts: render_original_preview(root, parts, request.name, request.expected_sha256))
 
     @application.post("/internal/material-inventory", response_model=InventoryResponse, tags=["internal"])
     def material_inventory(request: MaterialPreflightRequest) -> dict:

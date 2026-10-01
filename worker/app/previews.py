@@ -13,7 +13,7 @@ from threading import BoundedSemaphore
 import time
 
 from app.inventory import _safe_name, _signature
-from app.preview_decode import MAX_SOURCE_BYTES, MAX_OUTPUT_BYTES, MAX_OUTPUT_SIDE, MAX_PIXELS, FORMATS
+from app.preview_decode import MAX_SOURCE_BYTES, MAX_OUTPUT_BYTES, MAX_OUTPUT_SIDE, MAX_PIXELS, MAX_ORIGINAL_BYTES, FORMATS
 from app.secure_filesystem import _directory_flags, _metadata_flags, open_material_directory
 
 EXTENSIONS = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "tif": "TIFF", "tiff": "TIFF", "webp": "WEBP"}
@@ -151,20 +151,21 @@ def _list_previews(root, parts):
     return {"schema_version": 1, "folder_name": parts[-1], "missing": False, "ignored_entries": ignored, "items": items}
 
 
-def _decode(fd, size=1024):
+def _decode(fd, size=1024, *, original=False):
     try:
-        result = subprocess.run([sys.executable, "-m", "app.preview_decode", str(fd), *([str(size)] if size != 1024 else [])], pass_fds=(fd,),
+        arguments = ["original"] if original else [str(size)] if size != 1024 else []
+        result = subprocess.run([sys.executable, "-m", "app.preview_decode", str(fd), *arguments], pass_fds=(fd,),
             cwd=Path(__file__).resolve().parent.parent, env={"PATH": os.defpath, "PYTHONDONTWRITEBYTECODE": "1"},
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=25, check=False)
-        if len(result.stdout) > MAX_WIRE_BYTES: raise ValueError()
+        if len(result.stdout) > (90 * 1024**2 if original else MAX_WIRE_BYTES): raise ValueError()
         value = json.loads(result.stdout)
         if not isinstance(value, dict): raise ValueError()
         if "error" in value: raise PreviewError(value["error"])
         required = {"source_sha256", "source_format", "width", "height", "media_type", "sha256", "data"}
         dimensions = {"original_width", "original_height"}
         if (result.returncode != 0 or set(value) not in (required, required | dimensions)
-                or value["source_format"] not in FORMATS or value["media_type"] != "image/jpeg"
-                or any(type(value[key]) is not int or not 1 <= value[key] <= size for key in ("width", "height"))
+                or value["source_format"] not in FORMATS or value["media_type"] not in ({"image/jpeg", "image/png", "image/webp"} if original else {"image/jpeg"})
+                or any(type(value[key]) is not int or not 1 <= value[key] <= (32768 if original else size) for key in ("width", "height"))
                 or any(not isinstance(value[key], str) or re.fullmatch(r"[a-f0-9]{64}", value[key]) is None for key in ("sha256", "source_sha256"))):
             raise ValueError()
         if dimensions <= set(value):
@@ -172,7 +173,14 @@ def _decode(fd, size=1024):
                     or value["original_width"] * value["original_height"] > MAX_PIXELS):
                 raise ValueError()
         data = base64.b64decode(value["data"], validate=True)
-        if not 0 < len(data) <= MAX_OUTPUT_BYTES or not data.startswith(b"\xff\xd8\xff") or not data.endswith(b"\xff\xd9") or hashlib.sha256(data).hexdigest() != value["sha256"]:
+        signatures = {"image/jpeg": data.startswith(b"\xff\xd8\xff") and data.endswith(b"\xff\xd9"),
+            "image/png": data.startswith(b"\x89PNG\r\n\x1a\n") and data.endswith(b"IEND\xaeB`\x82"),
+            "image/webp": data.startswith(b"RIFF") and data[8:12] == b"WEBP"}
+        if not 0 < len(data) <= (MAX_ORIGINAL_BYTES if original else MAX_OUTPUT_BYTES) or not signatures[value["media_type"]] or hashlib.sha256(data).hexdigest() != value["sha256"]:
+            raise ValueError()
+        if original and (value["width"] * value["height"] > MAX_PIXELS or
+                value["media_type"] != {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp", "TIFF": "image/png"}[value["source_format"]] or
+                (value["source_format"] != "TIFF" and value["sha256"] != value["source_sha256"])):
             raise ValueError()
         return value
     except subprocess.TimeoutExpired:
@@ -189,7 +197,14 @@ def render_preview(root, parts, name, expected_sha256, size=1024):
     return _bounded(_render_preview, root, parts, name, expected_sha256, size)
 
 
-def _render_preview(root, parts, name, expected_sha256, size=1024):
+def render_original_preview(root, parts, name, expected_sha256):
+    if not valid_preview_name(name): raise PreviewError("PREVIEW_UNSAFE_NAME")
+    if not isinstance(expected_sha256, str) or re.fullmatch(r"[a-f0-9]{64}", expected_sha256) is None:
+        raise PreviewError("PREVIEW_SOURCE_CHANGED")
+    return _bounded(_render_preview, root, parts, name, expected_sha256, 1024, True)
+
+
+def _render_preview(root, parts, name, expected_sha256, size=1024, original=False):
     with _preview_directory(root, parts) as directory_fd:
         if directory_fd is None: raise PreviewError("PREVIEW_NOT_FOUND")
         try: before = _regular_file(directory_fd, name, os.fstat(directory_fd).st_dev)
@@ -197,7 +212,7 @@ def _render_preview(root, parts, name, expected_sha256, size=1024):
         fd = os.open(name, _metadata_flags(), dir_fd=directory_fd)
         try:
             _verify_file(directory_fd, name, fd, before)
-            value = _decode(fd) if size == 1024 else _decode(fd, size)
+            value = _decode(fd, original=True) if original else _decode(fd) if size == 1024 else _decode(fd, size)
             _verify_file(directory_fd, name, fd, before)
             if value["source_sha256"] != expected_sha256: raise PreviewError("PREVIEW_SOURCE_CHANGED")
             if value["source_format"] != EXTENSIONS[name.rsplit(".", 1)[-1].lower()]:

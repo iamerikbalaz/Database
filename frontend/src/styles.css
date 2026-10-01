@@ -1376,8 +1376,11 @@ a.button {
 .resource-bulk-dialog::backdrop { background: #0a0d2760; }
 .resource-bulk-dialog .button { margin: .5rem .4rem 0 0; }
 .resource-table-results { max-height: 260px; overflow: auto; }
-.resource-folder { display: grid; gap: .4rem; min-width: 260px; max-width: 380px; overflow-wrap: anywhere; }
-.resource-folder code { white-space: normal; }
+.resource-folder { display:grid; grid-template-columns:minmax(0, 1fr) 28px; align-items:center; gap:6px; min-width:0; width:100%; max-width:380px; }
+.resource-folder code { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; user-select:all; }
+.resource-folder .button.folder-copy-button { width:28px; min-width:28px; height:28px; min-height:28px; padding:0; margin:0; border-radius:6px; }
+.folder-copy-button > .icon { flex:none; }
+.resource-folder > small { grid-column:1 / -1; font-size:11px; }
 
 .resource-filters { min-width: 0; flex-wrap: wrap; gap: .75rem; border: 0; padding: 0; }
 .resource-filters label { display: grid; grid-template-columns: minmax(0, 1fr); gap: .25rem; min-width: 0; max-width: 100%; font-size: .8rem; }
@@ -1523,6 +1526,17 @@ a.button {
    header transforms. The flex chain includes optional banners outside React. */
 .database-heading-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:12px; }
 .database-heading-actions .checkbox-label { font-size:12px; white-space:nowrap; }
+.database-page .page-heading { flex-wrap:wrap; }
+.database-heading-actions .database-keep-filters { display:flex; flex-direction:row; align-items:center; gap:8px; margin:0; font-size:12px; font-weight:400; white-space:nowrap; }
+.database-heading-actions .database-keep-filters input { width:16px; min-width:16px; height:16px; min-height:16px; margin:0; padding:0; }
+.orders-page .resource-table-scroll th, .orders-page .resource-table-scroll td,
+.customers-page .resource-table-scroll th, .customers-page .resource-table-scroll td { padding:8px 10px; vertical-align:middle; font-size:12px; }
+.orders-page .resource-table-scroll th, .customers-page .resource-table-scroll th { font-size:11px; }
+.orders-page .resource-table-cell textarea, .customers-page .resource-table-cell textarea { height:36px; min-height:36px; resize:vertical; }
+.orders-page .resource-table-cell input:not([type=checkbox]), .orders-page .resource-table-cell select,
+.customers-page .resource-table-cell input:not([type=checkbox]), .customers-page .resource-table-cell select { height:34px; min-height:34px; padding:5px 8px; }
+.orders-page .resource-table-scroll [data-column="number"] { min-width:80px; }
+.customers-page .resource-table-scroll [data-column="logo"] { min-width:80px; width:80px; }
 .database-search-input { position:relative; display:block; min-width:0; }
 .database-search-input > .icon { position:absolute; left:11px; top:50%; transform:translateY(-50%); color:var(--muted); pointer-events:none; }
 .database-page .database-filters .database-search-input > input { padding-left:36px; }

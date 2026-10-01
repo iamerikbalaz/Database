@@ -19,7 +19,7 @@ import { MaterialBulkContent } from "../components/MaterialBulkContent";
 import { requestNavigation } from "../navigationGuard";
 import { Icon } from "../components/Icon";
 import { useDatabaseWorkspace } from "../components/useDatabaseWorkspace";
-import { ResponsiveFilters } from "../components/ResponsiveFilters";
+import { KeepFiltersControl, ResponsiveFilters } from "../components/ResponsiveFilters";
 import { numberedDatabaseSortOptions, sortDatabaseRecords, useDatabaseFilters } from "../components/useDatabaseFilters";
 import { DatabaseResultsToolbar } from "../components/DatabaseResultsToolbar";
 import { PreviewEditDialog, type PreviewEditSelection } from "../components/PreviewEditDialog";
@@ -91,9 +91,9 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
   ];
   return <section className={`database-page materials-page${compact ? " database-page--workspace" : ""}`}>
     <div className="page-heading"><div><p className="eyebrow">Production</p><h1>{archived ? "Archived materials" : "Materials"}</h1><p className="database-description">{archived ? "Manage archived material records. Clear Archived to return a material to active work." : "Manage material records and their production status."}</p></div>
-      <NavigationLink className="button button--primary" href="/materials/new" navigate={navigate}>Add material</NavigationLink>
+      <div className="database-heading-actions"><NavigationLink className="button button--primary" href="/materials/new" navigate={navigate}>Add material</NavigationLink><KeepFiltersControl checked={keepFilters} onChange={setKeepFilters} disabled={busy} /></div>
     </div>
-    <ResponsiveFilters disabled={busy} compact={compact} label="Material filters" search keepFilters={keepFilters} onKeepFiltersChange={setKeepFilters} onClear={() => changeFilters({})} filters={[
+    <ResponsiveFilters disabled={busy} compact={compact} label="Material filters" search onClear={() => changeFilters({})} filters={[
       { key: "search", width: 190, active: Boolean(filters.search), content: <label className="form-field database-search">Search materials<span className="database-search-input"><Icon name="search" size={18} /><input type="search" placeholder="Name, identity or note / #tag" value={filters.search ?? ""} onChange={(e) => changeFilters({ ...filters, search: e.target.value })} /></span></label> },
       { key: "main_category_code", width: 140, active: Boolean(filters.main_category_code), content: <label className="form-field">Main category<select value={filters.main_category_code ?? ""} onChange={(e) => changeFilters({ ...filters, main_category_code: e.target.value })}><option value="">All</option>{categories.map(c => <option key={c.code} value={c.code}>{categoryLabel(c.code, categories)}</option>)}{categoryCodes.filter(code => !categories.some(category => category.code === code || (category.aliases?.includes(code) && code !== filters.main_category_code))).map(code => <option key={code} value={code}>{categoryLabel(code, categories)}</option>)}</select></label> },
       ...selectors.map((s) => ({ key: s.key, width: s.key === "is_published" || s.key === "checked_status" ? 95 : s.key === "workflow_status" ? 100 : s.key === "project_id" || s.key === "published_brand_id" ? 130 : 125, active: Boolean(filters[s.key]), content: <label className="form-field">{s.label}

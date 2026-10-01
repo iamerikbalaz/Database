@@ -8,7 +8,7 @@ import pytest
 
 from app.db.models import InternalUser, PBRMaterial, UserCredential
 from app.main import create_app
-from app.preview_client import PreviewClientError, PreviewImage, PreviewListing, WorkerPreviewClient
+from app.preview_client import PreviewClientError, PreviewImage, PreviewOriginal, PreviewListing, WorkerPreviewClient
 from test_application_access import access_case
 from test_material_operations import StreamingResponse
 
@@ -16,6 +16,7 @@ from test_material_operations import StreamingResponse
 # Transport-only fixture. Actual JPEG decoding and metadata removal are exercised
 # by worker/tests/test_previews.py on Linux; this mock never enters production.
 PIXELS = b"\xff\xd8\xff\xe0synthetic-transport-fixture\xff\xd9"
+ORIGINAL = b"\x89PNG\r\n\x1a\nsynthetic-transport-fixtureIEND\xaeB`\x82"
 
 
 def test_busy_preview_retries_exact_request_with_a_bounded_delay(monkeypatch):
@@ -56,6 +57,12 @@ def image_payload(identity="SAFE_0001_G03"):
         "sha256": hashlib.sha256(PIXELS).hexdigest(), "data": base64.b64encode(PIXELS).decode()}
 
 
+def original_payload(identity="SAFE_0001_G03"):
+    return {**image_payload(identity), "width":1200, "height":1200, "media_type":"image/png",
+        "source_sha256":hashlib.sha256(ORIGINAL).hexdigest(), "sha256":hashlib.sha256(ORIGINAL).hexdigest(),
+        "data":base64.b64encode(ORIGINAL).decode()}
+
+
 class PreviewStub:
     def __init__(self): self.calls = []; self.callback = None; self.failure = None
     def _read(self, folder):
@@ -68,6 +75,9 @@ class PreviewStub:
     def image(self, folder, name, expected_sha256, size=1024):
         self._read(folder)
         return PreviewImage.model_validate_json(json.dumps(image_payload(folder.rsplit("/", 1)[-1])))
+    def original(self, folder, name, expected_sha256):
+        self._read(folder)
+        return PreviewOriginal.model_validate_json(json.dumps(original_payload(folder.rsplit("/", 1)[-1])))
 
 
 @pytest.mark.parametrize("size", [256, 512])
@@ -128,7 +138,7 @@ def test_preview_reads_use_actual_sessions_and_assignment(preview_case, role, co
         else: assert worker.calls == []
 
 
-@pytest.mark.parametrize("operation", ["listing", "image"])
+@pytest.mark.parametrize("operation", ["listing", "image", "original"])
 @pytest.mark.parametrize("change,code", [("assignment", 404), ("disable", 401), ("password", 403), ("folder", 409)])
 def test_source_result_is_reauthorized_after_actual_account_or_material_change(preview_case, operation, change, code):
     case, worker, path = preview_case
@@ -141,9 +151,10 @@ def test_source_result_is_reauthorized_after_actual_account_or_material_change(p
             session.commit()
     worker.callback = during_io
     with case.client("PROCESSOR") as client:
-        result = client.get(path + ("/previews" if operation == "listing" else "/preview"),
+        result = client.get(path + ("/previews" if operation == "listing" else "/preview-original" if operation == "original" else "/preview"),
             params={} if operation == "listing" else {"name": "Synthetic preview.png", "expected_sha256": "a" * 64})
         assert result.status_code == code and PIXELS not in result.content
+        assert ORIGINAL not in result.content
 
 
 def test_unlinked_folder_or_invalid_selection_never_calls_worker(preview_case):

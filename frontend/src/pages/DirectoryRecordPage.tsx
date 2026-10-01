@@ -16,6 +16,7 @@ import { catalogClient } from "../api/catalogClient";
 import { useNavigationGuard } from "../navigationGuard";
 import type { InternalUser } from "../api/materialDto";
 import { OrderMaterialsPanel } from "../components/OrderMaterialsPanel";
+import "./DirectoryRecordPage.css";
 
 type Kind = "customer" | "order";
 type Props = { kind: Kind; id?: string; client: ApiClient; navigate: (path: string) => void; onSaved: (path: string, message?: string) => void };
@@ -94,11 +95,12 @@ function DirectoryRecordEditor({ kind, id, item, customers, users, orders, folde
   const title = id ? kind === "customer" ? customer!.name : `Order ${order!.number}` : `Add ${kind}`;
   const date = String(values.starting_date ?? "");
   const generatedPreview = [order?.number ?? String(values.number || "0000"), customers.find(value => value.id === values.customer_id)?.name ?? "", values.project_type ?? "", /^\d{4}-\d{2}-\d{2}$/.test(date) ? date.slice(5, 7) + date.slice(0, 4) : ""].join("_").toUpperCase();
-  return <section className="directory-record"><NavigationLink className="back-link" href={`/${kind}s`} navigate={navigate}>Back to {kind}s</NavigationLink>
-    <div className="page-heading"><div><p className="eyebrow">{kind === "customer" ? "Directory" : "Production"}</p><h1>{title}</h1>{order && <p>{order.generatedName}</p>}</div>{item && <DirectorySync detailed sync={item.sync} notionPageId={item.notionPageId} />}</div>
+  return <section className="directory-record directory-record--compact"><NavigationLink className="back-link" href={`/${kind}s`} navigate={navigate}>Back to {kind}s</NavigationLink>
+    <div className="page-heading"><div><p className="eyebrow">{kind === "customer" ? "Directory" : "Production"}</p><div className="directory-record-name"><h1>{title}</h1>
+      {customer && canEdit && <CustomerRenamePanel customer={customer} disabled={busy || uncertain} onChanged={refresh} onBusyChange={setRenameBusy} />}
+    </div>{order && <p>{order.generatedName}</p>}</div>{item && <DirectorySync detailed sync={item.sync} notionPageId={item.notionPageId} />}</div>
     {error && <p ref={summary} tabIndex={-1} role="alert" className="form-error">{error}</p>}{notice && <p role="status">{notice}</p>}
     {uncertain && <button className="button" disabled={busy || requestGeneration !== sessionGeneration()} onClick={() => void submit()}>Retry same request</button>}
-    {customer && canEdit && <CustomerRenamePanel customer={customer} disabled={busy || uncertain} onChanged={refresh} onBusyChange={setRenameBusy} />}
     <form noValidate className="panel record-form" aria-label={`${id ? "Edit" : "Add"} ${kind}`} onSubmit={event => {
       event.preventDefault();
       const errors: Record<string, string> = {};
@@ -120,18 +122,18 @@ function DirectoryRecordEditor({ kind, id, item, customers, users, orders, folde
         if (id) refresh(); else onSaved(`/${kind}s/${saved.id}`, `${kind === "customer" ? "Customer" : "Order"} created. Notion synchronization is queued.`);
       } });
     }}><fieldset disabled={locked}><legend>{kind === "customer" ? "Customer properties" : "Order properties"}</legend><div className="directory-fields">
-      {fields.map(field => <label key={field.key} className={field.type === "textarea" ? "directory-field--wide" : ""}>{field.label}{field.required ? " *" : ""}
+      {fields.map(field => <label key={field.key} className={`directory-field${field.type === "checkbox" ? " directory-field--checkbox" : ""}`}><span>{field.label}{field.required ? " *" : ""}</span>
         {field.type === "checkbox" ? <input type="checkbox" checked={values[field.key] === true} onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.checked }))} /> : field.options ? <select aria-invalid={Boolean(fieldErrors[field.key])} required={field.required} value={String(values[field.key] ?? "")} onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.value }))}>{field.options.map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}</select>
-          : field.type === "textarea" ? <textarea aria-invalid={Boolean(fieldErrors[field.key])} rows={3} maxLength={10000} value={String(values[field.key] ?? "")} onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.value }))} />
+          : field.type === "textarea" ? <textarea aria-invalid={Boolean(fieldErrors[field.key])} rows={2} maxLength={10000} value={String(values[field.key] ?? "")} onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.value }))} />
             : <input autoFocus={!id && field.key === fields[0]?.key} aria-invalid={Boolean(fieldErrors[field.key])} type={field.type ?? "text"} required={field.required} maxLength={field.max ?? 2048} pattern={field.key === "number" ? "[0-9]{4}" : undefined} value={String(values[field.key] ?? "")} onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.value }))} />}
       </label>)}
     </div>{order && order.responsibleNotionPageIds.length > 1 && <p>This order also has {order.responsibleNotionPageIds.length - 1} linked people in Notion. Choosing a different Responsible replaces that list with the selected person.</p>}{kind === "order" && <p className="directory-generated-name"><strong>Generated name:</strong> {generatedPreview}{!id && <small>The number is assigned when the order is saved. Its folder is then created in the configured project location.</small>}</p>}
     {canEdit && <button className="button button--primary" type="submit">{busy ? "Saving…" : id ? `Save ${kind}` : `Create ${kind}`}</button>}
     </fieldset></form>
-    {customer && <><article className="panel"><h2>Logo</h2>{customer.hasLogo && <img className="customer-logo" src={directoryClient.logoUrl(customer)} alt={`${customer.name} logo`} />}
+    {customer && <div className="directory-related-panels"><article className="panel directory-logo-panel"><h2>Logo</h2>{customer.hasLogo && <img className="customer-logo" src={directoryClient.logoUrl(customer)} alt={`${customer.name} logo`} />}
       {canEdit && <form onSubmit={event => { event.preventDefault(); if (file) { const selectedFile = file; void submit({ run: key => directoryClient.logo(customer, selectedFile, key), done: () => refresh() }); } }}><fieldset disabled={locked}><label>Upload logo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => { const selected = event.target.files?.[0]; if (selected && (!selected.size || selected.size > 2 * 1024 * 1024 || !["image/png", "image/jpeg", "image/webp"].includes(selected.type))) { setFile(undefined); setError("Choose a PNG, JPEG or WebP image up to 2 MB."); } else { setError(""); setFile(selected); } }} /></label><p>PNG, JPEG or WebP, up to 2 MB.</p><button className="button" disabled={!file}>Save logo</button></fieldset></form>}
     </article><article className="panel"><h2>Main categories</h2><p>{customer.mainCategoryCodes.map(code => categoryLabel(code, catalogMaterialCategoryLabels(catalog.data ?? []))).join(", ") || "No materials assigned yet."}</p><p className="muted">Categories follow the main category of this customer's materials.</p></article>
-      <article className="panel"><h2>Orders</h2>{orders.filter(value => value.customerId === id).map(value => <NavigationLink key={value.id} className="directory-related-order" href={`/orders/${value.id}`} navigate={navigate}>{value.number} · {value.generatedName}</NavigationLink>)}{!orders.some(value => value.customerId === id) && <p>No orders assigned.</p>}</article></>}
+      <article className="panel"><h2>Orders</h2><div className="directory-related-orders">{orders.filter(value => value.customerId === id).map(value => <NavigationLink key={value.id} className="directory-related-order" href={`/orders/${value.id}`} navigate={navigate}>{value.number} · {value.generatedName}</NavigationLink>)}{!orders.some(value => value.customerId === id) && <p>No orders assigned.</p>}</div></article></div>}
     {order && <OrderMaterialsPanel orderId={order.id} client={client} navigate={navigate} />}
     {order && <article className="panel"><h2>Order data folder</h2><NasFolderReference path={order.folderPath} />
       {order.folderStatus && <p>Folder: {order.folderStatus.state.toLowerCase()}{order.folderStatus.error ? ` · ${order.folderStatus.error}` : ""}</p>}

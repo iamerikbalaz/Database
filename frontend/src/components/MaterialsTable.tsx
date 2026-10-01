@@ -33,6 +33,7 @@ const columns = [
   ["uuid", "Internal UUID", 310], ["technical", "Automatic file check", 180],
 ] as const;
 type Column = typeof columns[number][0];
+const detailColumns: Column[] = ["project", "brand", "category", "processor", "status", "checked", "published", "archived", "number", "technical", "created", "updated", "note", "folder", "uuid", "archivedAt"];
 type Layout = { key: Column; visible: boolean; width: number }[];
 const defaultLayout = (): Layout => columns.map(([key, , width]) => ({ key, width, visible: ["project", "brand", "category", "status", "checked", "technical", "published", "archived", "processor", "note"].includes(key) }));
 function readLayout(): Layout {
@@ -304,7 +305,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     {inline && jobs.some(j => j.status === "failed" || j.status === "unknown") && <div role="alert" className="form-error">
       {jobs[0].message}{unknown && <button className="button" disabled={pending} onClick={() => void run()}>Retry same request</button>}
     </div>}
-    {detail ? <dl className="info-list material-property-editor">{columns.filter(([key]) => key !== "archivedAt" || rows[0].isArchived).map(([key, name]) => <div key={key}><dt>{name}</dt><dd>{renderCell(key, rows[0])}</dd></div>)}</dl> : <DatabaseTableViewport scrollMode={scrollMode} className={`table-card material-table material-table--editable${expanded ? " material-table--previews-expanded" : ""}`} label="Material results">
+    {detail ? <dl className="info-list material-property-editor">{detailColumns.filter(key => key !== "archivedAt" || rows[0].isArchived).map(key => <div key={key}><dt>{title(key)}</dt><dd>{renderCell(key, rows[0])}</dd></div>)}</dl> : <DatabaseTableViewport scrollMode={scrollMode} className={`table-card material-table material-table--editable${expanded ? " material-table--previews-expanded" : ""}`} label="Material results">
       <table style={{ width: 280 + previewWidth + (numberColumn?.width ?? 0) + visible.reduce((n, c) => n + c.width, 0), "--material-preview-width": `${previewWidth}px`, "--material-name-left": `${40 + previewWidth + (numberColumn?.width ?? 0)}px` } as CSSProperties}><caption className="sr-only">Materials and production status</caption>
         <colgroup><col style={{ width: 40 }} /><col style={{ width: previewWidth }} />{numberColumn && <col style={{ width: numberColumn.width }} />}<col style={{ width: 240 }} />{visible.map(c => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
         <thead><tr><th scope="col">{selectable && <input type="checkbox" aria-label="Select all visible materials" disabled={active || lifecycleBusy} checked={rows.length > 0 && selectedRows.length === rows.length} onChange={e => setSelected(new Set(e.target.checked ? rows.map(r => r.id) : []))} />}</th><th scope="col"><button className="preview-column-toggle" aria-label={expanded ? "Collapse previews" : "Expand previews"} aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>Preview<Icon name="arrow" size={12} /></button></th>{numberColumn && <th scope="col">Number</th>}<th scope="col" className="material-name-column">Material</th>{visible.map(c => <th key={c.key} scope="col">{title(c.key)}</th>)}</tr></thead>

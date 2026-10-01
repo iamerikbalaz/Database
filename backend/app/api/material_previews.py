@@ -33,6 +33,7 @@ def build_material_previews_router(database, client: PreviewClient):
             require_material_idle(session, material_id)
             if (material.folder_path, material.technical_identity) != context:
                 raise HTTPException(409, {"code": "PREVIEW_MATERIAL_CHANGED"})
+            access.require_folder(material.folder_path, material.technical_identity)
             if failure:
                 code = 404 if failure in {"PREVIEW_NOT_FOUND", "MATERIAL_FOLDER_NOT_FOUND"} else 409 if failure == "PREVIEW_SOURCE_CHANGED" else 503 if failure in {
                     "PREVIEW_UNAVAILABLE", "PREVIEW_BUSY", "PREVIEW_TIMEOUT", "PREVIEW_DECODER_UNAVAILABLE", "MATERIALS_ROOT_UNAVAILABLE"} else 422
@@ -58,5 +59,15 @@ def build_material_previews_router(database, client: PreviewClient):
             "X-Preview-Width": str(result.width), "X-Preview-Height": str(result.height), "X-Preview-Sha256": result.sha256,
             **({"X-Preview-Original-Width": str(result.original_width), "X-Preview-Original-Height": str(result.original_height)}
                if result.original_width is not None else {})})
+
+    @router.get("/{material_id}/preview-original")
+    def original(material_id: UUID, access: AccessDependency, name: Annotated[str, Query(min_length=1, max_length=255)], expected_sha256: Sha256):
+        try: validate_preview_name(name)
+        except (ValueError, UnicodeError): raise HTTPException(422, {"code": "PREVIEW_UNSAFE_NAME"}) from None
+        result = read(material_id, access, lambda folder: client.original(folder, name, expected_sha256))
+        suffix = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}[result.media_type]
+        return Response(result.image_bytes(), media_type=result.media_type, headers={"Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff", "Content-Disposition": f'inline; filename="preview.{suffix}"',
+            "X-Preview-Width": str(result.width), "X-Preview-Height": str(result.height), "X-Preview-Sha256": result.sha256})
 
     return router

@@ -12,7 +12,7 @@ import { catalogClient } from "../api/catalogClient";
 import { useDatabaseWorkspace } from "../components/useDatabaseWorkspace";
 import { useDatabaseFilters, sortDatabaseRecords } from "../components/useDatabaseFilters";
 import { DatabaseResultsToolbar } from "../components/DatabaseResultsToolbar";
-import { ResponsiveFilters, type PriorityFilter } from "../components/ResponsiveFilters";
+import { KeepFiltersControl, ResponsiveFilters, type PriorityFilter } from "../components/ResponsiveFilters";
 import { CustomerCsvExport } from "../components/CustomerCsvExport";
 
 const defaults = { search: "", status: "", category: "", published: "", createdFrom: "", createdTo: "", updatedFrom: "", updatedTo: "", sort: "name-asc" };
@@ -59,8 +59,8 @@ export function CustomersPage({ navigate }: { navigate: (path: string) => void }
     { key: "published", width: 115, active: Boolean(published), content: <label>Published<select value={published} onChange={event => set("published", event.target.value)}><option value="">All</option><option value="true">Yes</option><option value="false">No</option></select></label> },
     ...([["createdFrom", "Created from"], ["createdTo", "Created to"], ["updatedFrom", "Updated from"], ["updatedTo", "Updated to"]] as const).map(([key, label]) => ({ key, width: 150, active: Boolean(dates[key]), content: <label>{label}<input type="date" value={dates[key]} onChange={event => set(key, event.target.value)} /></label> })),
   ];
-  return <section className={`database-page customers-page${compact ? " database-page--workspace" : ""}`}><div className="page-heading"><div><p className="eyebrow">Directory</p><h1>Customers</h1><p className="database-description">Customer profiles, materials and orders.</p></div><div className="database-heading-actions">{canEdit && <NavigationLink className="button button--primary" href="/customers/new" navigate={navigate}><Icon name="plus" size={18} />Add customer</NavigationLink>}</div></div>
-    <ResponsiveFilters compact={compact} filters={filterFields} disabled={busy} label="Filter customers" onClear={resetFilters} keepFilters={keepFilters} onKeepFiltersChange={setKeepFilters} />
+  return <section className={`database-page customers-page${compact ? " database-page--workspace" : ""}`}><div className="page-heading"><div><p className="eyebrow">Directory</p><h1>Customers</h1><p className="database-description">Customer profiles, materials and orders.</p></div><div className="database-heading-actions">{canEdit && <NavigationLink className="button button--primary" href="/customers/new" navigate={navigate}><Icon name="plus" size={18} />Add customer</NavigationLink>}<KeepFiltersControl checked={keepFilters} onChange={setKeepFilters} disabled={busy} /></div></div>
+    <ResponsiveFilters compact={compact} filters={filterFields} disabled={busy} label="Filter customers" onClear={resetFilters} />
     <DatabaseResultsToolbar count={`${filtered.length} customers`} sort={sort} sortLabel="Sort by" disabled={busy} onSortChange={value => set("sort", value)} />
     {resource.error ? <ErrorState message="Customers could not be loaded." retry={resource.retry} /> : !resource.data ? <LoadingState label="Loading customers…" /> : <>
       {!filtered.length && <p>No customers match these filters.</p>}

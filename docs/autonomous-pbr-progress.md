@@ -1,6 +1,28 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-10-01, material card controls and bulk names)
+## Latest checkpoint (2026-10-01, compact cards and full-quality previews)
+
+The owned test at `http://127.0.0.1:53033` now serves compact material,
+Order and Customer cards, full-quality preview browsing and native Paths pickers.
+Schema remains 0042. No source changes or NAS copies were performed.
+
+- Material panels align in height; library fields use compact rows; controls are
+  grouped by type. Keep filters follows Add in database headings. Order paths use
+  a compact copy icon. Horizontal thumb-wheel and Shift+wheel synchronize tables.
+- Full-quality previews load original PNG/JPEG/WebP bytes on demand, or lossless
+  TIFF-to-PNG with ICC and 16-bit preservation, through authorized read endpoints.
+- Paths adds the published-library destination on Z:, editable even when offline.
+  The future snapshot layout excludes SOURCE; copying is not implemented here.
+- Full frontend: 1,259 tests, lint and build passed. Preview backend/native Windows
+  99 tests and actual Linux worker 74 tests passed. Paths backend 59 passed,
+  1 Windows symlink privilege skip. No migration was required.
+- Live acceptance verified 51 records, original 1200 x 1200 PNG byte equality,
+  unchanged source hash/mtime, thumbnails, Paths and the fresh built assets.
+  Browser visual inspection and physical MX Master testing remain unverified.
+
+See [behavior, verification and rollback](compact-cards-original-previews-2026-10-01.md).
+
+## Previous checkpoint (2026-10-01, material card controls and bulk names)
 
 The local test at `http://127.0.0.1:53033` serves the refreshed material card and
 Edit names action in the selected-material toolbar for list and gallery views.

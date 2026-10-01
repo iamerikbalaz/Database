@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { useState } from "react";
-import { ResponsiveFilters } from "./ResponsiveFilters";
+import { KeepFiltersControl, ResponsiveFilters } from "./ResponsiveFilters";
 
 afterEach(() => vi.unstubAllGlobals());
 function observeWidth() {
@@ -17,12 +17,12 @@ function observeWidth() {
 function Fixture({ compact = true, withKeep = false }: { compact?: boolean; withKeep?: boolean }) {
   const [date, setDate] = useState("");
   const [keep, setKeep] = useState(false);
-  return <ResponsiveFilters compact={compact} label="Filters" onClear={() => setDate("")} keepFilters={keep} onKeepFiltersChange={withKeep ? setKeep : undefined} filters={[
+  return <>{withKeep && <div className="database-heading-actions"><button>Add record</button><KeepFiltersControl checked={keep} onChange={setKeep} /></div>}<ResponsiveFilters compact={compact} label="Filters" onClear={() => setDate("")} filters={[
     { key: "search", width: 190, content: <label>Search<input type="search" /></label> },
     { key: "customer", width: 140, content: <label>Customer<select><option>All</option></select></label> },
     { key: "status", width: 115, content: <label>Status<select><option>All</option></select></label> },
     { key: "due", width: 142, active: Boolean(date), content: <label>Due date<input type="date" value={date} onChange={event => setDate(event.target.value)} /></label> },
-  ]} />;
+  ]} /></>;
 }
 it("uses the measured bar width to retain the highest priorities and hides More filters when all fields fit", () => {
   const observer = observeWidth(), view = render(<Fixture />);
@@ -49,13 +49,16 @@ it("uses the measured bar width to retain the highest priorities and hides More 
   expect(screen.queryByRole("button", { name: /More filters/ })).not.toBeInTheDocument();
   view.unmount(); expect(observer.disconnect).toHaveBeenCalledOnce();
 });
-it("places Keep filters with Clear filters without taking width from the filter inputs", () => {
+it("keeps filter persistence beside Add outside the filters and retains it when clearing values", () => {
   const observer = observeWidth(); render(<Fixture withKeep />);
   observer.resize(800);
   expect(screen.queryByRole("button", { name: /More filters/ })).not.toBeInTheDocument();
   const keep = screen.getByRole("checkbox", { name: "Keep filters" });
   const clear = screen.getByRole("button", { name: "Clear filters" });
-  expect(keep.closest(".priority-filters-clear-group")).toContainElement(clear);
+  expect(keep.closest("fieldset")).toBeNull();
+  const add = screen.getByRole("button", { name: "Add record" });
+  expect(keep.closest(".database-heading-actions")).toContainElement(add);
+  expect(add.compareDocumentPosition(keep) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(keep.compareDocumentPosition(clear) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   fireEvent.click(keep); expect(keep).toBeChecked();
   fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-10-15" } });

@@ -9,7 +9,7 @@ import { EditableResourceTable, type ResourceColumn, type ResourceValue } from "
 import { Icon } from "../components/Icon";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { useDatabaseWorkspace } from "../components/useDatabaseWorkspace";
-import { ResponsiveFilters, type PriorityFilter } from "../components/ResponsiveFilters";
+import { KeepFiltersControl, ResponsiveFilters, type PriorityFilter } from "../components/ResponsiveFilters";
 import { sortDatabaseRecords, useDatabaseFilters } from "../components/useDatabaseFilters";
 import { DatabaseResultsToolbar } from "../components/DatabaseResultsToolbar";
 import "./CatalogPage.css";
@@ -103,13 +103,13 @@ export function CatalogPage({ client }: { client: ApiClient }) {
     ...(field === "is_active" ? { is_active: next === true } : { abbreviation: next === null ? null : String(next).trim() || null }),
   });
   return <section className={`database-page catalog-content catalog-database${compact ? " database-page--workspace" : ""}`}><div className="page-heading"><div><p className="eyebrow">Catalog</p><h1>Categories and collections</h1></div>
-      <div className="database-heading-actions"><button className="button" onClick={() => helpDialog.current?.showModal()}>Catalog help</button>{allowed && <button ref={addTrigger} className="button button--primary" disabled={locked || !resource.data} onClick={event => openCreate(event.currentTarget)}><Icon name="plus" size={16} />Add catalog value</button>}</div>
+      <div className="database-heading-actions"><button className="button" onClick={() => helpDialog.current?.showModal()}>Catalog help</button>{allowed && <button ref={addTrigger} className="button button--primary" disabled={locked || !resource.data} onClick={event => openCreate(event.currentTarget)}><Icon name="plus" size={16} />Add catalog value</button>}<KeepFiltersControl checked={keepFilters} onChange={setKeepFilters} disabled={locked} /></div>
     </div>
     <div role="tablist" aria-label="Catalog type" className="view-switch">
       <button role="tab" aria-selected={kind === "online-categories"} disabled={locked} onClick={() => setFilter("kind", "online-categories")}>Online categories</button>
       <button role="tab" aria-selected={kind === "collections"} disabled={locked} onClick={() => setFilter("kind", "collections")}>Brand collections</button>
     </div>
-    <ResponsiveFilters compact={compact} disabled={locked} label="Filter catalog" keepFilters={keepFilters} onKeepFiltersChange={setKeepFilters} onClear={() => setFilters(current => ({ ...filterDefaults, kind: current.kind, sort: current.sort }))} filters={[
+    <ResponsiveFilters compact={compact} disabled={locked} label="Filter catalog" onClear={() => setFilters(current => ({ ...filterDefaults, kind: current.kind, sort: current.sort }))} filters={[
       { key: "search", width: 190, active: Boolean(query), content: <label className="database-search">Search catalog<span className="database-search-input"><Icon name="search" size={18} /><input type="search" value={query} onChange={event => setFilter("query", event.target.value)} placeholder="Name, abbreviation or customer" /></span></label> },
       { key: "active", width: 110, active: activity !== "all", content: <label>Active filter<select value={activity} onChange={event => setFilter("activity", event.target.value)}><option value="all">All</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label> },
       ...(kind === "collections" ? [{ key: "customer", width: 140, active: Boolean(brandFilter), content: <label>Customer filter<select value={brandFilter} onChange={event => setFilter("brandFilter", event.target.value)}><option value="">All customers</option>{resource.data?.brands.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> }] satisfies PriorityFilter[] : []),

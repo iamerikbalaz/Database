@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     order_folders_root: str = ""
     sbs_templates_root: str = r"C:\Users\Admin\Desktop\Substance graphy vzory"
     materials_root: str = r"C:\Users\Admin\Desktop\Test_data"
+    published_library_root: str = r"Z:\3. LIBRARY\3.3 PBR MATERIALS LIBRARY"
     source_mutations_enabled: bool = False
     worker_mutation_token: SecretStr | None = None
     auth_cookie_secure: bool = True

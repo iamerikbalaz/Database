@@ -15,9 +15,12 @@ function visibleCount(filters: PriorityFilter[], width: number, controlsWidth: n
 }
 
 /** Resize the presentation without remounting filter inputs or changing their values. */
-export function ResponsiveFilters({ filters, compact, disabled, label, onClear, search = false, keepFilters, onKeepFiltersChange }: {
+export function KeepFiltersControl({ checked, onChange, disabled }: { checked: boolean; onChange: (keep: boolean) => void; disabled?: boolean }) {
+  return <label className="database-keep-filters"><span>Keep filters</span><input type="checkbox" checked={checked} disabled={disabled} onChange={event => onChange(event.target.checked)} /></label>;
+}
+
+export function ResponsiveFilters({ filters, compact, disabled, label, onClear, search = false }: {
   filters: PriorityFilter[]; compact: boolean; disabled?: boolean; label: string; onClear: () => void; search?: boolean;
-  keepFilters?: boolean; onKeepFiltersChange?: (keep: boolean) => void;
 }) {
   const root = useRef<HTMLFieldSetElement>(null), track = useRef<HTMLDivElement>(null), toggle = useRef<HTMLButtonElement>(null);
   const latestFilters = useRef(filters), focusOverflow = useRef(false);
@@ -77,7 +80,6 @@ export function ResponsiveFilters({ filters, compact, disabled, label, onClear, 
         More filters{activeCount ? ` (${activeCount})` : ""}<span aria-hidden="true">{expanded ? "▴" : "▾"}</span>
       </button>}
       <div className="priority-filters-clear-group">
-        {onKeepFiltersChange && <label className="priority-filters-keep"><span>Keep filters</span><input type="checkbox" checked={keepFilters ?? false} onChange={event => onKeepFiltersChange(event.target.checked)} /></label>}
         <button type="button" className="button priority-filters-clear" onClick={onClear}>Clear filters</button>
       </div>
       </div>

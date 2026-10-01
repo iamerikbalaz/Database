@@ -42,7 +42,7 @@ function MaterialHistory({ id }: { id: string }) {
 }
 export function MaterialHistoryPanel({ id, updatedAt, refreshRevision = 0 }: { id: string; updatedAt: string; refreshRevision?: number }) {
   const [open, setOpen] = useState(false);
-  return <details className="panel panel--wide" onToggle={event => { if (event.target === event.currentTarget) setOpen(event.currentTarget.open); }}>
-    <summary>Material record change history</summary>{open && <MaterialHistory key={`${id}:${updatedAt}:${refreshRevision}`} id={id} />}
+  return <details className="panel panel--wide material-history-panel" onToggle={event => { if (event.target === event.currentTarget) setOpen(event.currentTarget.open); }}>
+    <summary><h2>Material record change history</h2></summary>{open && <MaterialHistory key={`${id}:${updatedAt}:${refreshRevision}`} id={id} />}
   </details>;
 }

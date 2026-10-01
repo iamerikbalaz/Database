@@ -4,8 +4,9 @@ import { useResource } from "../api/useResource";
 import { ErrorState, LoadingState } from "./PageState";
 import { orderPreviews } from "../previewOrder";
 import { Icon } from "./Icon";
+import { PreviewLightbox } from "./PreviewLightbox";
 
-function PreviewImage({ materialId, entry }: { materialId: string; entry: PreviewEntry }) {
+function PreviewImage({ materialId, entry, onOpen }: { materialId: string; entry: PreviewEntry; onOpen: () => void }) {
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{ attempt: number; url?: string; width?: number; height?: number; originalWidth?: number; originalHeight?: number; failed?: boolean }>();
   useEffect(() => {
@@ -21,14 +22,15 @@ function PreviewImage({ materialId, entry }: { materialId: string; entry: Previe
   const current = result?.attempt === attempt ? result : undefined;
   if (current?.failed) return <ErrorState message="This preview could not be loaded. Reload the gallery if its source changed." retry={() => setAttempt((value) => value + 1)} />;
   if (!current?.url) return <LoadingState label="Loading preview…" />;
-  return <figure className="material-preview"><img src={current.url} alt={`Preview: ${entry.name}`} width={current.width} height={current.height}
-    onError={() => setResult({ attempt, failed: true })} /><figcaption>{entry.name} · {current.originalWidth && current.originalHeight ? `${current.originalWidth} × ${current.originalHeight} px (original)` : `Original resolution unavailable · display ${current.width} × ${current.height} px`}</figcaption></figure>;
+  return <figure className="material-preview"><button type="button" className="material-preview-open" aria-label={`Open ${entry.name} in full quality`} onClick={onOpen}><img src={current.url} alt={`Preview: ${entry.name}`} width={current.width} height={current.height}
+    onError={() => setResult({ attempt, failed: true })} /></button><figcaption>{entry.name} · {current.originalWidth && current.originalHeight ? `${current.originalWidth} × ${current.originalHeight} px (original)` : `Original resolution unavailable · display ${current.width} × ${current.height} px`}</figcaption></figure>;
 }
 
 function GalleryContents({ materialId }: { materialId: string }) {
   const load = useCallback(() => previewClient.listing(materialId), [materialId]);
   const resource = useResource(load);
   const [selectedName, setSelectedName] = useState("");
+  const [openedName, setOpenedName] = useState<string | null>(null);
   const items = useMemo(() => orderPreviews(resource.data?.items ?? []), [resource.data]);
   const selected = items.find((item) => item.name === selectedName) ?? items[0];
   return <>
@@ -42,10 +44,11 @@ function GalleryContents({ materialId }: { materialId: string }) {
     </div>
     {resource.error ? <ErrorState message="The preview gallery could not be loaded. Check access, the source folder and any active identity operation." retry={resource.retry} /> : !resource.data ? <LoadingState label="Loading gallery…" /> : <>
       {resource.data.missing ? <p>The linked material has no PREVIEW folder.</p> : resource.data.items.length === 0 ? <p>No supported preview images were found.</p> : <>
-        {selected && <PreviewImage key={`${materialId}-${selected.name}-${selected.sha256}`} materialId={materialId} entry={selected} />}
+        {selected && <PreviewImage key={`${materialId}-${selected.name}-${selected.sha256}`} materialId={materialId} entry={selected} onOpen={() => setOpenedName(selected.name)} />}
       </>}
       {resource.data.ignoredEntries > 0 && <p>{resource.data.ignoredEntries} other entries were omitted. The gallery shows images directly inside PREVIEW.</p>}
     </>}
+    {openedName !== null && <PreviewLightbox materialId={materialId} entries={items} selectedName={openedName} onClose={() => setOpenedName(null)} />}
   </>;
 }
 

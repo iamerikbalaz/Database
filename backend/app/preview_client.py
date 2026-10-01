@@ -1,4 +1,4 @@
-"""Strict bounded transport for derived preview images; never returns originals."""
+"""Strict bounded transport for thumbnails and authenticated full-quality images."""
 import base64
 import hashlib
 import json
@@ -15,6 +15,8 @@ from app.worker_client import FolderName, Sha256
 
 MAX_RESPONSE_BYTES = 3 * 1024**2
 MAX_IMAGE_BYTES = 2 * 1024**2
+MAX_ORIGINAL_BYTES = 64 * 1024**2
+MAX_ORIGINAL_RESPONSE_BYTES = 90 * 1024**2
 ERROR_CODES = frozenset({"PREVIEW_BUSY", "PREVIEW_UNSAFE_ENTRY", "PREVIEW_UNSAFE_NAME", "PREVIEW_SOURCE_CHANGED",
     "PREVIEW_FILE_LIMIT", "PREVIEW_TOTAL_LIMIT", "PREVIEW_ENTRY_LIMIT", "PREVIEW_TIME_LIMIT", "PREVIEW_READ_FAILED",
     "PREVIEW_PIXEL_LIMIT", "PREVIEW_MULTIFRAME_UNSUPPORTED", "PREVIEW_MODE_UNSUPPORTED", "PREVIEW_OUTPUT_LIMIT",
@@ -96,9 +98,43 @@ class PreviewImage(BaseModel):
         return base64.b64decode(self.data, validate=True)
 
 
+class PreviewOriginal(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    schema_version: Literal[1]
+    folder_name: FolderName
+    name: FolderName
+    source_sha256: Sha256
+    source_format: Literal["JPEG", "PNG", "TIFF", "WEBP"]
+    width: Annotated[int, Field(ge=1, le=32768)]
+    height: Annotated[int, Field(ge=1, le=32768)]
+    media_type: Literal["image/jpeg", "image/png", "image/webp"]
+    sha256: Sha256
+    data: Annotated[str, Field(max_length=89478488, repr=False)]
+
+    @model_validator(mode="after")
+    def check(self) -> Self:
+        validate_preview_name(self.name); validate_relative_path(self.folder_name)
+        if "/" in self.folder_name or self.width * self.height > 32 * 1024**2:
+            raise ValueError("Invalid original preview dimensions")
+        data = self.image_bytes()
+        signatures = {"image/jpeg": data.startswith(b"\xff\xd8\xff") and data.endswith(b"\xff\xd9"),
+            "image/png": data.startswith(b"\x89PNG\r\n\x1a\n") and data.endswith(b"IEND\xaeB`\x82"),
+            "image/webp": data.startswith(b"RIFF") and data[8:12] == b"WEBP"}
+        expected_type = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp", "TIFF": "image/png"}[self.source_format]
+        if (not 0 < len(data) <= MAX_ORIGINAL_BYTES or self.media_type != expected_type or not signatures[self.media_type]
+                or hashlib.sha256(data).hexdigest() != self.sha256
+                or (self.source_format != "TIFF" and self.sha256 != self.source_sha256)):
+            raise ValueError("Invalid original preview")
+        return self
+
+    def image_bytes(self):
+        return base64.b64decode(self.data, validate=True)
+
+
 class PreviewClient(Protocol):
     def listing(self, folder_path: str) -> PreviewListing: ...
     def image(self, folder_path: str, name: str, expected_sha256: str, size: int = 1024) -> PreviewImage: ...
+    def original(self, folder_path: str, name: str, expected_sha256: str) -> PreviewOriginal: ...
 
 
 class WorkerPreviewClient:
@@ -122,17 +158,18 @@ class WorkerPreviewClient:
                 time.sleep(delays[attempt])
 
     def _read_once(self, suffix, payload):
+        limit = MAX_ORIGINAL_RESPONSE_BYTES if suffix == "/internal/material-preview-original" else MAX_RESPONSE_BYTES
         try:
             validate_relative_path(payload["folder_path"])
             if len(payload["folder_path"]) > 2048: raise ValueError()
             with httpx.stream("POST", self.base_url + suffix, json=payload, timeout=httpx.Timeout(30, connect=5),
                               follow_redirects=False, trust_env=False) as response:
                 length = response.headers.get("Content-Length")
-                if length is not None and not 0 <= int(length) <= MAX_RESPONSE_BYTES: raise ValueError()
+                if length is not None and not 0 <= int(length) <= limit: raise ValueError()
                 chunks = []; size = 0
                 for chunk in response.iter_bytes(chunk_size=64 * 1024):
                     size += len(chunk)
-                    if size > MAX_RESPONSE_BYTES: raise ValueError()
+                    if size > limit: raise ValueError()
                     chunks.append(chunk)
                 content = b"".join(chunks)
                 if response.status_code != 200:
@@ -170,5 +207,18 @@ class WorkerPreviewClient:
             return result
         except PreviewClientError:
             raise
+        except (ValueError, TypeError, AttributeError, ArithmeticError):
+            raise PreviewClientError() from None
+
+    def original(self, folder_path, name, expected_sha256):
+        try:
+            validate_preview_name(name)
+            if not isinstance(expected_sha256, str) or re.fullmatch(r"[a-f0-9]{64}", expected_sha256) is None: raise ValueError()
+            result = PreviewOriginal.model_validate_json(self._read("/internal/material-preview-original", {
+                "folder_path": folder_path, "name": name, "expected_sha256": expected_sha256}), strict=True)
+            if result.folder_name != folder_path.rsplit("/", 1)[-1] or result.name != name or result.source_sha256 != expected_sha256:
+                raise ValueError()
+            return result
+        except PreviewClientError: raise
         except (ValueError, TypeError, AttributeError, ArithmeticError):
             raise PreviewClientError() from None

@@ -17,8 +17,6 @@
 .database-page .priority-filters .priority-filters-clear-group { display:grid; flex:0 0 106px; width:106px; gap:3px; }
 .database-page .priority-filters .priority-filters-clear { width:100%; }
 .database-page .priority-filters-actions { display:flex; align-items:flex-end; justify-content:flex-end; flex-wrap:wrap; margin-left:auto; gap:10px; }
-.database-page .priority-filters.priority-filters .priority-filters-keep { display:flex; align-items:center; justify-content:space-between; gap:7px; margin:0; font-size:11px; line-height:1.6; white-space:nowrap; }
-.database-page .priority-filters.priority-filters .priority-filters-keep input { width:16px; height:16px; min-height:0; padding:0; margin:0; }
 .database-page .priority-filters.priority-filters .priority-filter select,
 .database-page .priority-filters.priority-filters .material-color-select {
   appearance:none; padding-right:28px;

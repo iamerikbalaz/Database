@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MaterialContentPanel } from "./MaterialContentPanel";
 import { SessionContext } from "../auth/context";
@@ -173,12 +173,17 @@ it("requires one decimal place for edited sizes and preserves the exact combined
   vi.mocked(metadataClient.inspect).mockResolvedValue({ available: true, writesEnabled: true, editable: true, expectedUpdatedAt: materialDto.updated_at,
     sha256: null, sourceStatus: "MISSING", active: null, values: { hex_color: null, width_cm: null, height_cm: null } });
   const save = vi.spyOn(metadataClient, "save").mockRejectedValueOnce(new TypeError("timeout")).mockResolvedValue({ id: category.id, status: "COMPLETED", failure: null });
-  setup(); const width = await screen.findByRole("spinbutton", { name: "Sample width (cm)" });
+  setup(); const size = await screen.findByRole("group", { name: "Sample size (W x H)" });
+  const width = within(size).getByRole("spinbutton", { name: "Sample width (cm)" });
+  const height = within(size).getByRole("spinbutton", { name: "Sample height (cm)" });
+  fireEvent.change(height, { target: { value: "24.6" } });
   fireEvent.change(width, { target: { value: "12.34" } }); fireEvent.click(screen.getByRole("button", { name: "Save library data" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("one decimal"); expect(save).not.toHaveBeenCalled();
   fireEvent.change(width, { target: { value: "12.3" } }); fireEvent.click(screen.getByRole("button", { name: "Save library data" }));
   await screen.findByRole("button", { name: "Recover library data save" }); expect(width).toBeDisabled();
+  expect(height).toBeDisabled();
   const original = save.mock.calls[0][1];
+  expect(original.values).toEqual({ hex_color: null, width_cm: "12.3", height_cm: "24.6" });
   fireEvent.click(screen.getByRole("button", { name: "Recover library data save" }));
   await waitFor(() => expect(save).toHaveBeenCalledTimes(2)); expect(save.mock.calls[1][1]).toBe(original);
 });

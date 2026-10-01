@@ -21,7 +21,7 @@ from app.material_naming import base_name, match_identity
 from app.material_review import canonical_hash
 from app.metadata_client import MetadataClientError, MetadataObservation, MetadataResult, MetadataValues, SourceMetadata
 from app.metadata_document import rewrite_metadata_json
-from app.preview_client import PreviewClientError, PreviewListing, PreviewImage, validate_preview_name
+from app.preview_client import PreviewClientError, PreviewListing, PreviewImage, PreviewOriginal, validate_preview_name
 
 
 def digest(raw): return hashlib.sha256(raw).hexdigest()
@@ -124,20 +124,16 @@ class LocalMaterialLibrary:
             subprocess.Popen([str(Path(os.environ["WINDIR"]) / "System32" / "notepad.exe"), str(path / "metadata.json")], close_fds=True)
 
     def select_destination(self):
+        value = self.select_settings_folder(str(self.fs.root), "Select destination brand folder inside Test_data")
+        if value is None: return {"destination_path": None, "target_parent": None}
+        parent = self.fs.relative(value)
+        with self.fs.directory(parent) as path: return {"destination_path": str(path), "target_parent": parent}
+
+    def select_settings_folder(self, initial_path, description):
+        from app.native_folder_picker import select_native_directory
         if not self.picker_lock.acquire(False): raise LocalFilesError("LOCAL_PICKER_BUSY")
         try:
-            # UI belongs to the signed-in local desktop. The selected path is
-            # untrusted and must still pass root containment and handle checks.
-            script = "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description='Select destination brand folder inside Test_data'; $d.SelectedPath=$env:REAWOTE_PICKER_ROOT; $d.ShowNewFolderButton=$false; if($d.ShowDialog() -eq 'OK'){[Console]::Write($d.SelectedPath)}"
-            result = subprocess.run([str(Path(os.environ["WINDIR"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"),
-                "-NoProfile", "-STA", "-Command", script], env={**os.environ, "REAWOTE_PICKER_ROOT": str(self.fs.root)},
-                capture_output=True, text=True, encoding="utf-8", timeout=180, creationflags=0x08000000)
-            if result.returncode: raise LocalFilesError("LOCAL_PICKER_UNAVAILABLE")
-            value = result.stdout.strip()
-            if not value: return {"destination_path": None, "target_parent": None}
-            parent = self.fs.relative(value)
-            with self.fs.directory(parent) as path: return {"destination_path": str(path), "target_parent": parent}
-        except subprocess.TimeoutExpired: raise LocalFilesError("LOCAL_PICKER_TIMEOUT") from None
+            return select_native_directory(description, initial_path)
         finally: self.picker_lock.release()
 
     def check(self, folder, *, progress=None):
@@ -285,6 +281,53 @@ class LocalPreviews:
         if not self.slots.acquire(timeout=30): raise PreviewClientError("PREVIEW_BUSY")
         try: return self._image(folder, name, expected_sha256, size)
         finally: self.slots.release()
+
+    def original(self, folder, name, expected_sha256):
+        if not self.slots.acquire(timeout=30): raise PreviewClientError("PREVIEW_BUSY")
+        try:
+            validate_preview_name(name)
+            # Keep the source and every ancestor bound through decoding. Windows
+            # sharing flags block replacing/renaming the source while it is read.
+            with self.library.fs.directory(folder + "/PREVIEW") as directory:
+                with self.library.fs.opened(directory / name) as handle:
+                    raw = self.library.fs.read_handle(handle, limit=64*1024**2)
+                    return self._original_bytes(folder, name, expected_sha256, raw)
+        except PreviewClientError: raise
+        except (OSError, ValueError, LocalFilesError): raise PreviewClientError("PREVIEW_READ_FAILED") from None
+        finally: self.slots.release()
+
+    def _original_bytes(self, folder, name, expected_sha256, raw):
+        from PIL import Image, ImageOps
+        try:
+            if digest(raw) != expected_sha256: raise PreviewClientError("PREVIEW_SOURCE_CHANGED")
+            with Image.open(BytesIO(raw), formats=("PNG", "JPEG", "TIFF", "WEBP")) as image:
+                width, height = image.size
+                if width * height > 32 * 1024**2 or max(width, height) > 32768:
+                    raise PreviewClientError("PREVIEW_PIXEL_LIMIT")
+                if getattr(image, "n_frames", 1) != 1: raise PreviewClientError("PREVIEW_MULTIFRAME_UNSUPPORTED")
+                if image.mode not in {"1", "L", "LA", "P", "RGB", "RGBA", "I;16", "I;16B", "I;16L"}:
+                    raise PreviewClientError("PREVIEW_MODE_UNSUPPORTED")
+                source_format = image.format
+                expected_format = {"png":"PNG", "jpg":"JPEG", "jpeg":"JPEG", "tif":"TIFF", "tiff":"TIFF", "webp":"WEBP"}[name.rsplit(".", 1)[-1].lower()]
+                if source_format != expected_format: raise PreviewClientError("PREVIEW_EXTENSION_MISMATCH")
+                image.verify()
+            with Image.open(BytesIO(raw), formats=("PNG", "JPEG", "TIFF", "WEBP")) as image:
+                image.load()
+                if source_format == "TIFF":
+                    image = ImageOps.exif_transpose(image)
+                    icc_profile = image.info.get("icc_profile")
+                    if image.mode == "P": image = image.convert("RGBA")
+                    if image.mode in {"I;16B", "I;16L"}: image = Image.frombytes("I;16", image.size, image.tobytes(), "raw", image.mode)
+                    image = Image.frombytes(image.mode, image.size, image.tobytes())
+                    output = BytesIO(); image.save(output, format="PNG", **({"icc_profile":icc_profile} if icc_profile else {}))
+                    raw = output.getvalue(); width, height = image.size
+                media_type = {"PNG":"image/png", "JPEG":"image/jpeg", "TIFF":"image/png", "WEBP":"image/webp"}[source_format]
+            # Originals are only loaded on demand and are never added to the thumbnail cache.
+            return PreviewOriginal(schema_version=1, folder_name=folder.rsplit("/",1)[-1], name=name,
+                source_sha256=expected_sha256, source_format=source_format, width=width, height=height,
+                media_type=media_type, sha256=digest(raw), data=base64.b64encode(raw).decode())
+        except PreviewClientError: raise
+        except (OSError, ValueError, LocalFilesError): raise PreviewClientError("PREVIEW_READ_FAILED") from None
 
     def _image(self, folder, name, expected_sha256, size=1024):
         from PIL import Image, ImageOps

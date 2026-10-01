@@ -12,16 +12,16 @@ ENDPOINT = "/api/settings/paths"
 
 @pytest.fixture
 def paths_case(access_case, tmp_path):
-    paths = {key: tmp_path / key for key in ("templates", "orders", "materials")}
+    paths = {key: tmp_path / key for key in ("templates", "orders", "materials", "published")}
     for path in paths.values(): path.mkdir()
-    runtime = access_case.app.state.settings.model_copy(update={"sbs_templates_root": str(paths["templates"]), "order_folders_root": str(paths["orders"]), "materials_root": str(paths["materials"])})
+    runtime = access_case.app.state.settings.model_copy(update={"sbs_templates_root": str(paths["templates"]), "order_folders_root": str(paths["orders"]), "materials_root": str(paths["materials"]), "published_library_root": str(paths["published"])})
     access_case.app = create_app(runtime, access_case.database, access_case.worker)
     return access_case, paths
 
 
 def payload(paths, **changes):
     return {"idempotency_key": str(uuid4()), "expected_version": 0,
-        "sbs_templates_root": str(paths["templates"]), "orders_root": str(paths["orders"]), "materials_root": str(paths["materials"]), **changes}
+        "sbs_templates_root": str(paths["templates"]), "orders_root": str(paths["orders"]), "materials_root": str(paths["materials"]), "published_library_root": str(paths["published"]), **changes}
 
 
 @pytest.mark.parametrize("role,status", [(None, 401), ("ADMIN", 200), ("PROCESSOR", 403), ("PRODUCTION_LEAD", 403), ("LEADERSHIP", 403)])
@@ -107,3 +107,69 @@ def test_sbs_links_are_not_eligible(paths_case):
     try: link.symlink_to(actual)
     except OSError: pytest.skip("Symlinks unavailable on this Windows host")
     with pytest.raises(PathSettingsError): resolve_sbs_template(str(paths["templates"]), link.name)
+
+
+def test_legacy_receipt_replays_without_rewriting_immutable_snapshot(paths_case):
+    from app.material_review import canonical_hash
+    case, paths = paths_case
+    request = payload(paths)
+    request.pop("published_library_root")
+    snapshot = {key: request[key] for key in ("sbs_templates_root", "orders_root", "materials_root")}
+    snapshot["version"] = 1
+    from uuid import UUID
+    with case.database.session() as session:
+        session.add(PathsSettingsRevision(version=1, actor_id=case.users["ADMIN"].id,
+            request_key=UUID(request["idempotency_key"]), request_hash=canonical_hash(request), response_snapshot=snapshot))
+        session.commit()
+    with case.client("ADMIN") as client:
+        response = client.post(ENDPOINT, json=request)
+        assert response.status_code == 200, response.text
+        assert response.json() == {**snapshot, "published_library_root": str(paths["published"]), "can_select_folder": False}
+        assert client.get(ENDPOINT).json() == response.json()
+    with case.database.session() as session:
+        assert session.scalar(select(PathsSettingsRevision)).response_snapshot == snapshot
+
+
+def test_missing_published_target_does_not_block_saving_working_roots_or_expand_authority(paths_case, tmp_path):
+    case, paths = paths_case
+    missing = str(tmp_path / "offline-library" / "future")
+    with case.client("ADMIN") as client:
+        response = client.post(ENDPOINT, json=payload(paths, published_library_root=missing))
+        assert response.status_code == 200, response.text
+        assert response.json()["published_library_root"] == missing
+        assert response.json()["materials_root"] == str(paths["materials"])
+    assert case.app.state.settings.materials_root == str(paths["materials"])
+    assert not (tmp_path / "offline-library").exists()
+
+
+@pytest.mark.parametrize("field", ["templates", "orders", "materials"])
+def test_published_library_cannot_overlap_other_roots_even_if_it_does_not_exist(paths_case, field):
+    case, paths = paths_case
+    with case.client("ADMIN") as client:
+        response = client.post(ENDPOINT, json=payload(paths, published_library_root=str(paths[field] / "snapshots")))
+        assert response.status_code == 422, response.text
+        assert client.get(ENDPOINT).json()["version"] == 0
+
+
+@pytest.mark.parametrize("value", ["relative", "C:\\", "C:\\folder\\..\\published", "C:\\published\x00"])
+def test_published_library_still_requires_a_safe_absolute_path(paths_case, value):
+    case, paths = paths_case
+    with case.client("ADMIN") as client:
+        assert client.post(ENDPOINT, json=payload(paths, published_library_root=value)).status_code == 422
+
+
+def test_published_library_available_file_is_rejected(paths_case):
+    case, paths = paths_case
+    file = paths["published"] / "not-a-folder"; file.write_text("retained")
+    with case.client("ADMIN") as client:
+        assert client.post(ENDPOINT, json=payload(paths, published_library_root=str(file))).status_code == 422
+    assert file.read_text() == "retained"
+
+
+def test_old_runtime_and_saved_snapshot_receive_published_default_without_mutation():
+    from types import SimpleNamespace
+    from app.path_settings import paths_snapshot
+    original = {"version": 1, "materials_root": "C:/Test_data"}
+    result = paths_snapshot(original, SimpleNamespace())
+    assert result["published_library_root"] == r"Z:\3. LIBRARY\3.3 PBR MATERIALS LIBRARY"
+    assert "published_library_root" not in original

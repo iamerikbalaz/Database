@@ -4,6 +4,7 @@ import { apiUrl, notifySessionInvalidation, sessionGeneration } from "../auth/se
 import { orderPreviews } from "../previewOrder";
 
 const MAX_IMAGE_BYTES = 2 * 1024 ** 2;
+const MAX_ORIGINAL_BYTES = 64 * 1024 ** 2;
 function integer(input: unknown, max: number, min = 0): number {
   if (typeof input !== "number" || !Number.isSafeInteger(input) || input < min || input > max) throw new Error("Invalid preview response");
   return input;
@@ -34,6 +35,49 @@ export type PreviewEntry = ReturnType<typeof previewListingFromDto>["items"][num
 export const previewClient = {
   async listing(materialId: string, signal?: AbortSignal) {
     return previewListingFromDto(await request(`/materials/${uuid(materialId)}/previews`, "GET", undefined, undefined, signal), materialId);
+  },
+  async original(materialId: string, entry: PreviewEntry, signal: AbortSignal) {
+    const query = new URLSearchParams({ name: name(entry.name), expected_sha256: hash(entry.sha256) });
+    const sentGeneration = sessionGeneration();
+    const response = await fetch(apiUrl(`/materials/${uuid(materialId)}/preview-original?${query}`), {
+      credentials: "same-origin", cache: "no-store", headers: { Accept: "image/png, image/jpeg, image/webp" }, signal,
+    });
+    if (!response.ok) {
+      const body: unknown = await response.json().catch(() => null);
+      notifySessionInvalidation(response.status, body, sentGeneration);
+      throw new Error("Full-quality preview could not be loaded");
+    }
+    const type = response.headers.get("Content-Type"), declaredLength = response.headers.get("Content-Length");
+    let width: number, height: number, digest: string;
+    try {
+      width = integer(Number(response.headers.get("X-Preview-Width")), 32768, 1);
+      height = integer(Number(response.headers.get("X-Preview-Height")), 32768, 1);
+      digest = hash(response.headers.get("X-Preview-Sha256"));
+      if (width * height > 32 * 1024 ** 2 || !type || !["image/png", "image/jpeg", "image/webp"].includes(type) || !response.body ||
+          (declaredLength !== null && (!/^\d+$/.test(declaredLength) || Number(declaredLength) > MAX_ORIGINAL_BYTES))) throw new Error("Invalid original preview");
+      if (!/\.tiff?$/i.test(entry.name) && digest !== entry.sha256) throw new Error("Original source changed");
+    } catch { await response.body?.cancel(); throw new Error("Invalid original preview"); }
+    const reader = response.clone().body!.getReader();
+    let length = 0, finished = false;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) { finished = true; break; }
+        length += value.length;
+        if (length > MAX_ORIGINAL_BYTES) throw new Error("Original preview is too large");
+      }
+    } finally {
+      try { if (!finished) await Promise.allSettled([reader.cancel(), response.body!.cancel()]); }
+      finally { reader.releaseLock(); }
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const expected = new Map([["image/png", [137,80,78,71,13,10,26,10]], ["image/jpeg", [255,216,255]], ["image/webp", [82,73,70,70]]]);
+    if (!length || bytes.length !== length || (declaredLength !== null && Number(declaredLength) !== length) ||
+        !expected.get(type!)!.every((value, index) => bytes[index] === value) ||
+        (type === "image/webp" && String.fromCharCode(...bytes.slice(8,12)) !== "WEBP")) throw new Error("Invalid original preview");
+    const actual = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(value => value.toString(16).padStart(2, "0")).join("");
+    if (actual !== digest || sentGeneration !== sessionGeneration()) throw new Error("Original preview changed");
+    return { blob: new Blob([bytes], { type: type! }), width, height };
   },
   async image(materialId: string, entry: PreviewEntry, signal: AbortSignal, size: 256 | 512 | 1024 = 1024) {
     const query = new URLSearchParams({ name: name(entry.name), expected_sha256: hash(entry.sha256) });

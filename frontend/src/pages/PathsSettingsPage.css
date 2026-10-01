@@ -1,0 +1,4 @@
+.paths-folder-field { display: grid; gap: 8px; min-width: 0; }
+.paths-folder-control { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; }
+.record-form .paths-folder-control input { min-width: 0; flex: 1 1 18rem; width: auto; }
+.paths-folder-control .button { flex: 0 0 auto; white-space: nowrap; }

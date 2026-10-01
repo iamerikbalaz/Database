@@ -5,11 +5,12 @@ import { mockApiClient } from "../api/client";
 import { materialFromDto } from "../api/materialDto";
 import { materialTableClient } from "../api/materialTableClient";
 import { materialLocalClient } from "../api/materialLocalClient";
+import { catalogClient } from "../api/catalogClient";
 import { SessionContext } from "../auth/context";
 import { requestNavigation } from "../navigationGuard";
 import { materialDto, processorDto } from "../test/materialFixtures";
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => { localStorage.clear(); vi.spyOn(catalogClient, "categories").mockResolvedValue([]); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear(); });
 
 function viewport() {
@@ -112,4 +113,46 @@ it.each(["list", "gallery"] as const)("groups selected actions by Refresh and re
   fireEvent.click(await screen.findByRole("button", { name: "View check report" }));
   expect(screen.getByRole("textbox", { name: "Automatic file check report" })).toHaveValue(report);
   expect(check).toHaveBeenCalledOnce();
+});
+
+it("sorts without reloading or losing note drafts and keeps selected filters for this user", async () => {
+  viewport();
+  const material = materialFromDto(materialDto);
+  const records = [{ ...material, materialName: "WOOD", createdAt: "2026-09-01T00:00:00Z" }, { ...material, id: "00000000-0000-4000-8000-000000000009", materialName: "STONE", createdAt: "2026-10-01T00:00:00Z" }];
+  const getMaterials = vi.fn().mockResolvedValue(records);
+  const content = <SessionContext.Provider value={{ session: { user: { ...processorDto, role: "ADMIN" }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}>
+    <MaterialsPage client={{ ...mockApiClient, getMaterials }} navigate={vi.fn()} />
+  </SessionContext.Provider>;
+  const view = render(content); await screen.findByRole("table");
+  const draft = screen.getByRole("textbox", { name: "Note for WOOD" });
+  fireEvent.change(draft, { target: { value: "Draft" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select WOOD" }));
+  const names = () => screen.getAllByRole("row").filter(row => row.hasAttribute("aria-label")).map(row => row.getAttribute("aria-label"));
+  expect(names()).toEqual(["Material row STONE", "Material row WOOD"]);
+  fireEvent.change(screen.getByRole("combobox", { name: "Sort materials" }), { target: { value: "created-asc" } });
+  expect(names()).toEqual(["Material row WOOD", "Material row STONE"]);
+  expect(screen.getByRole("textbox", { name: "Note for WOOD" })).toBe(draft);
+  expect(draft).toHaveValue("Draft"); expect(screen.getByRole("checkbox", { name: "Select WOOD" })).toBeChecked();
+  expect(getMaterials).toHaveBeenCalledOnce();
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "#keep" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "Keep filters" }));
+  await screen.findByRole("table"); view.unmount(); render(content);
+  await waitFor(() => expect(getMaterials).toHaveBeenLastCalledWith({ search: "#keep" }));
+  expect(screen.getByRole("searchbox")).toHaveValue("#keep");
+  expect(screen.getByRole("combobox", { name: "Sort materials" })).toHaveValue("created-asc");
+});
+
+it("offers updated catalog codes for future identity changes and retains historical categories", async () => {
+  viewport();
+  const material = materialFromDto(materialDto);
+  vi.mocked(catalogClient.categories).mockResolvedValue([{ id: "00000000-0000-4000-8000-000000000001", value: "New stone category", abbreviation: "NEW01", aliases: [material.mainCategoryCode, "NEW01"], version: 2, active: true, brandId: null, createdAt: "2026-10-01T00:00:00Z" }]);
+  render(<SessionContext.Provider value={{ session: { user: { ...processorDto, role: "ADMIN" }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}>
+    <MaterialsPage client={{ ...mockApiClient, getMaterials: vi.fn().mockResolvedValue([material]) }} navigate={vi.fn()} />
+  </SessionContext.Provider>);
+  await screen.findByRole("table");
+  const rowCategory = screen.getByRole("combobox", { name: `Category for ${material.materialName}` });
+  expect(rowCategory).toHaveValue(material.mainCategoryCode);
+  expect(rowCategory.querySelector(`option[value="${material.mainCategoryCode}"]`)).toHaveTextContent("New stone category");
+  expect(rowCategory.querySelector('option[value="NEW01"]')).toHaveTextContent("New stone category");
+  expect(screen.getByRole("combobox", { name: "Main category" }).querySelector('option[value="NEW01"]')).toHaveTextContent("New stone category");
 });

@@ -2,11 +2,11 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties
 import "./ResponsiveFilters.css";
 
 export type PriorityFilter = { key: string; width: number; active?: boolean; content: ReactNode };
-const gap = 10, clearWidth = 106, moreWidth = 132, panelPadding = 12, rowHeight = 64;
+const gap = 10, clearWidth = 106, moreWidth = 132, keepWidth = 116, panelPadding = 12, rowHeight = 64;
 
-function visibleCount(filters: PriorityFilter[], width: number) {
-  if (!width || filters.reduce((sum, field) => sum + field.width + gap, clearWidth) <= width) return filters.length;
-  let used = clearWidth + moreWidth + gap, count = 0;
+function visibleCount(filters: PriorityFilter[], width: number, controlsWidth: number) {
+  if (!width || filters.reduce((sum, field) => sum + field.width + gap, controlsWidth) <= width) return filters.length;
+  let used = controlsWidth + moreWidth + gap, count = 0;
   for (const field of filters) {
     if (used + field.width + gap > width) break;
     used += field.width + gap; count++;
@@ -15,18 +15,20 @@ function visibleCount(filters: PriorityFilter[], width: number) {
 }
 
 /** Resize the presentation without remounting filter inputs or changing their values. */
-export function ResponsiveFilters({ filters, compact, disabled, label, onClear, search = false }: {
+export function ResponsiveFilters({ filters, compact, disabled, label, onClear, search = false, keepFilters, onKeepFiltersChange }: {
   filters: PriorityFilter[]; compact: boolean; disabled?: boolean; label: string; onClear: () => void; search?: boolean;
+  keepFilters?: boolean; onKeepFiltersChange?: (keep: boolean) => void;
 }) {
   const root = useRef<HTMLFieldSetElement>(null), track = useRef<HTMLDivElement>(null), toggle = useRef<HTMLButtonElement>(null);
   const latestFilters = useRef(filters), focusOverflow = useRef(false);
+  const controlsWidth = clearWidth + (onKeepFiltersChange ? keepWidth + gap : 0), latestControlsWidth = useRef(controlsWidth);
   const id = useId(), [width, setWidth] = useState(0), [open, setOpen] = useState(false);
-  const count = compact ? visibleCount(filters, width) : filters.length;
+  const count = compact ? visibleCount(filters, width, controlsWidth) : filters.length;
   const overflow = filters.slice(count), expanded = open && overflow.length > 0;
   const activeCount = overflow.filter(field => field.active).length;
   const panelWidth = Math.min(width || 620, 620), columns = panelWidth >= 520 ? 3 : panelWidth >= 340 ? 2 : 1;
   const fieldWidth = (panelWidth - panelPadding * 2 - gap * (columns - 1)) / columns;
-  useLayoutEffect(() => { latestFilters.current = filters; }, [filters]);
+  useLayoutEffect(() => { latestFilters.current = filters; latestControlsWidth.current = controlsWidth; }, [filters, controlsWidth]);
   useLayoutEffect(() => {
     if (!expanded || !focusOverflow.current) return;
     focusOverflow.current = false;
@@ -40,7 +42,7 @@ export function ResponsiveFilters({ filters, compact, disabled, label, onClear, 
       // Keep a focused filter accessible if a resize moves it into the overflow.
       const focused = document.activeElement?.closest(".priority-filter");
       const index = focused ? Array.from(element.querySelectorAll(".priority-filter")).indexOf(focused) : -1;
-      if (index >= visibleCount(latestFilters.current, next)) setOpen(true);
+      if (index >= visibleCount(latestFilters.current, next, latestControlsWidth.current)) setOpen(true);
       setWidth(next);
     };
     measure(element.clientWidth);
@@ -70,11 +72,13 @@ export function ResponsiveFilters({ filters, compact, disabled, label, onClear, 
         return <div id={`${id}-${field.key}`} key={field.key} style={style} hidden={extra && !expanded}
           className={`priority-filter${extra ? " priority-filter--overflow" : ""}`}>{field.content}</div>;
       })}
-      {overflow.length > 0 && <button ref={toggle} type="button" className="button priority-filters-more" aria-expanded={expanded}
+      <div className="priority-filters-actions">{overflow.length > 0 && <button ref={toggle} type="button" className="button priority-filters-more" aria-expanded={expanded}
         aria-controls={overflow.map(field => `${id}-${field.key}`).join(" ")} onClick={() => { focusOverflow.current = !expanded; setOpen(!expanded); }}>
         More filters{activeCount ? ` (${activeCount})` : ""}<span aria-hidden="true">{expanded ? "▴" : "▾"}</span>
       </button>}
+      {onKeepFiltersChange && <label className="priority-filters-keep"><input type="checkbox" checked={keepFilters ?? false} onChange={event => onKeepFiltersChange(event.target.checked)} />Keep filters</label>}
       <button type="button" className="button priority-filters-clear" onClick={onClear}>Clear filters</button>
+      </div>
     </div>
     {expanded && <div className="priority-filters-backdrop" aria-hidden="true" style={{ width: panelWidth, height: Math.ceil(overflow.length / columns) * rowHeight + panelPadding * 2 - gap }} />}
   </fieldset>;

@@ -17,6 +17,8 @@ from app.material_table import MaterialTableUpdate, utc
 from app.resource_commands import CommandInput, CommandKey, ResourceWrite
 from app.resource_history import resource_snapshot
 from app.schemas import PBRMaterialRead
+from app.material_assignment import require_order_customer
+from app.main_category import require_current_category_code
 
 
 def build_material_table_router(database, worker_client):
@@ -76,13 +78,16 @@ def build_material_table_router(database, worker_client):
             if replay is not None:
                 return replay
             before = resource_snapshot(material)
-            if field == "project_id" and value is not None:
-                _get_or_404(session, Project, value, "Project")
+            if field in {"project_id", "published_brand_id"} and getattr(material, field) != value:
+                require_order_customer(session, value if field == "project_id" else material.project_id,
+                    value if field == "published_brand_id" else material.published_brand_id)
             if field == "assigned_processor_id":
                 _require_active_internal_user(session, value)
             if field == "checked_status" and value == "OK" and material.workflow_status != "DONE":
                 raise HTTPException(409, "Mark the material Done before checking it OK.")
             changed = getattr(material, field) != value
+            if changed and field == "main_category_code":
+                require_current_category_code(session, value)
             if changed and field in {"main_category_code", "published_brand_id"}:
                 if material.folder_path is not None:
                     raise HTTPException(409, "Use a controlled identity plan for a linked folder.")

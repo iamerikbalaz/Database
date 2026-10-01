@@ -1,0 +1,4 @@
+.catalog-database .catalog-name-cell { display:flex; align-items:center; gap:10px; }
+.catalog-database .catalog-name-cell > strong { flex:1; min-width:0; }
+.catalog-database .catalog-name-cell > .button { flex-shrink:0; margin:0; padding:6px 10px; font-size:11px; }
+.catalog-edit-warning { border-left:3px solid #394173; background:#f2f3f9; padding:12px; line-height:1.6; }

@@ -1,0 +1,6 @@
+.order-material-counts { display:flex; flex-wrap:wrap; gap:12px 28px; margin:12px 0; }
+.order-material-counts strong { margin-left:8px; }
+.order-materials progress { width:100%; height:12px; accent-color:var(--primary, #394173); }
+.order-materials .order-material-list { overflow-x:auto; }
+.order-materials .order-material-list table { min-width:650px; }
+.order-material-list td > small { display:block; margin-top:4px; color:var(--muted); }

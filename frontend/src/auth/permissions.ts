@@ -9,7 +9,7 @@ export function restrictedDestination(path: string, role: Role | undefined): boo
       /^\/(companies|projects|customers|orders|brands)\/[^/]+\/edit$/.test(path) ||
       /^\/companies\/[^/]+\/brands\/new$/.test(path)) return !manages;
   if (/^\/materials\/[^/]+\/edit$/.test(path)) return role === "LEADERSHIP";
-  if (path === "/settings/users" || path === "/imports" || path === "/settings/imports") return role !== "ADMIN";
+  if (path === "/settings/users" || path === "/settings/paths" || path === "/imports" || path === "/settings/imports") return role !== "ADMIN";
   if (path === "/material-archives" || path.startsWith("/material-archives/")) return role !== "ADMIN";
   if (path === "/publication") return role !== "ADMIN" && role !== "LEADERSHIP";
   return false;

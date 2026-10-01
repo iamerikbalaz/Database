@@ -19,6 +19,7 @@ CUSTOMER_FIELDS = {
     "shipping_address": ("Shipping address", "rich_text"), "legal_name": ("Legal name", "rich_text"),
     "vat_id": ("VAT ID", "rich_text"), "description": ("Company describtion", "rich_text"),
     "notes": ("Notes", "rich_text"), "brand_identifier": ("Brand Identifier", "rich_text"),
+    "is_published": ("Published", "checkbox"),
 }
 ORDER_FIELDS = {
     "project_number": ("Number", "title"), "project_type": ("Project type", "rich_text"),
@@ -139,12 +140,18 @@ def notion_properties(kind, payload):
     for field, (name, property_type) in fields.items():
         if field == "responsible_page_ids" and payload.get("skip_responsible"): continue
         value = payload.get(field)
+        if field == "is_published" and field not in payload:
+            # Old outbox snapshots must not clear a newer Published flag.
+            continue
+        if field == "customer_status":
+            value = {"Active": "Active cooperation", "test": "Test sample", "In library": "In library (not verified)"}.get(value, value)
         if property_type in {"rich_text", "title"}:
             value = value or ""
             if not isinstance(value, str) or len(value) > 200000: raise SyncError("NOTION_TEXT_TOO_LONG")
             encoded = [{"type": "text", "text": {"content": value[offset:offset + 2000]}}
                 for offset in range(0, len(value), 2000)]
         elif property_type == "date": encoded = {"start": value} if value else None
+        elif property_type == "checkbox": encoded = bool(value)
         elif property_type in {"select", "status"}: encoded = {"name": value} if value else None
         elif property_type == "relation":
             values = value if isinstance(value, list) else [value] if value else []

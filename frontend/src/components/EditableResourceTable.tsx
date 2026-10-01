@@ -30,7 +30,7 @@ type Job<T> = { row: T; field: string; value: ResourceValue; key: string; genera
 
 type Props<T> = { rows: T[]; columns: ResourceColumn<T>[]; label: (row: T) => string;
 
-  save: Job<T>["save"]; canEdit: boolean; refresh: () => void; onBusyChange?: (busy: boolean) => void; storageKey: string; scrollMode?: "page" | "contained" };
+  save: Job<T>["save"]; canEdit: boolean; refresh: () => void; onBusyChange?: (busy: boolean) => void; storageKey: string; scrollMode?: "page" | "contained"; selectionActions?: (rows: T[], busy: boolean) => ReactNode };
 
 
 
@@ -68,7 +68,7 @@ function EditableCell<T>({ row, column, label, disabled, save }: { row: T; colum
 
 /** One immutable request per row. An uncertain write pauses the queue and keeps its key. */
 
-export function EditableResourceTable<T extends { id: string }>({ rows, columns, label, save, canEdit, refresh, onBusyChange, storageKey, scrollMode = "page" }: Props<T>) {
+export function EditableResourceTable<T extends { id: string }>({ rows, columns, label, save, canEdit, refresh, onBusyChange, storageKey, scrollMode = "page", selectionActions }: Props<T>) {
 
   const [overrides, setOverrides] = useState<Record<string, T>>({});
 
@@ -193,6 +193,7 @@ export function EditableResourceTable<T extends { id: string }>({ rows, columns,
   return <div className={`resource-database${scrollMode === "contained" ? " resource-database--contained" : ""}`}>
 
     <div className="toolbar resource-table-toolbar">
+      {selectionActions?.(items.filter(row => selected.has(row.id)), active)}
 
       {canEdit && <button className="button" disabled={active || !items.some(row => highlight.ids.has(row.id))} onClick={() => setSelected(new Set([...selected, ...items.filter(row => highlight.ids.has(row.id)).map(row => row.id)]))}>Select highlighted ({items.filter(row => highlight.ids.has(row.id)).length})</button>}
       {canEdit && <span>{items.filter(row => selected.has(row.id)).length} selected</span>}

@@ -115,12 +115,17 @@ def test_unlinked_published_material_unchanged_name_and_category_are_allowed(acc
 
 
 @pytest.mark.parametrize("archived", [False, True])
-def test_brand_name_cannot_desynchronize_active_or_archived_linked_materials(access_case, archived):
+@pytest.mark.parametrize("is_customer,expected_code", [
+    (True, "CUSTOMER_RENAME_CONFIRMATION_REQUIRED"),
+    (False, "BRAND_SOURCE_REWRITE_REQUIRED"),
+])
+def test_brand_name_cannot_desynchronize_active_or_archived_linked_materials(access_case, archived, is_customer, expected_code):
     case = access_case
     with case.database.session() as session:
         material = session.get(PBRMaterial, case.materials[0].id)
         material.folder_path = "Library/" + material.technical_identity
         brand_id = material.published_brand_id
+        session.get(PublishedBrand, brand_id).is_customer = is_customer
         session.commit()
     with case.client("ADMIN") as client:
         if archived:
@@ -129,7 +134,7 @@ def test_brand_name_cannot_desynchronize_active_or_archived_linked_materials(acc
         before = client.get(path).json()
         rejected = client.patch(path, json={"name": "Unsynchronized manufacturer"}, headers={"Idempotency-Key": str(uuid4())})
         assert rejected.status_code == 409
-        assert rejected.json()["detail"]["code"] == "BRAND_SOURCE_REWRITE_REQUIRED"
+        assert rejected.json()["detail"]["code"] == expected_code
         assert client.get(path).json() == before
         assert client.patch(path, json={"name": before["name"]}).status_code == 200
 

@@ -11,7 +11,7 @@ from sqlalchemy import select
 from app.db.models import PBRMaterial, Project, PublishedBrand
 
 CUSTOMER_FIELDS = ("id", "name", "company_id", "is_customer", "customer_status", "customer_brand_identifier", "folder_prefix",
-    "website", "address", "shipping_address", "legal_name", "vat_id", "description", "notes", "is_active",
+    "website", "address", "shipping_address", "legal_name", "vat_id", "description", "notes", "is_active", "is_published", "country",
     "notion_page_id", "logo_sha256", "logo_content_type", "logo_filename")
 ORDER_FIELDS = ("id", "project_number", "customer_id", "company_id", "project_type", "starting_date", "due_date", "notes",
     "responsible_id", "responsible_notion_page_ids", "order_status", "priority", "name", "folder_path", "notion_page_id")
@@ -97,7 +97,7 @@ def customer_view(session, customer, categories=None, *, sync_enabled=False):
         "name": customer.name, "status": customer.customer_status,
         "brand_identifier": customer.customer_brand_identifier,
         "folder_prefix": customer.folder_prefix,
-        **{key: getattr(customer, key) for key in ("website", "address", "shipping_address", "legal_name", "vat_id", "description", "notes", "is_active", "notion_page_id", "created_at", "updated_at")},
+        **{key: getattr(customer, key) for key in ("website", "address", "shipping_address", "legal_name", "vat_id", "description", "notes", "is_active", "is_published", "country", "notion_page_id", "created_at", "updated_at")},
         "main_category_codes": categories,
         "has_logo": customer.logo_sha256 is not None,
         "logo_url": f"/api/customers/{customer.id}/logo?v={customer.logo_sha256}" if customer.logo_sha256 else None,

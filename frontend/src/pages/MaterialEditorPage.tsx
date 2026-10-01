@@ -1,4 +1,6 @@
-import { categoryLabel, materialCategories } from "../data/materialCategories";
+import { categoryLabel, catalogMaterialCategories } from "../data/materialCategories";
+import { catalogClient } from "../api/catalogClient";
+import { MaterialCreatePage } from "./MaterialCreatePage";
 import { useCallback } from "react";
 import type { ApiClient } from "../api/client";
 import { materialLoadError } from "../api/materialClient";
@@ -12,18 +14,25 @@ import { MaterialFacts } from "./MaterialDetailPage";
 import { useSession } from "../auth/context";
 
 function editable(v: Values): Required<MaterialPatchDto> {
-  return { project_id: v.projectId, material_name: v.materialName.trim(),
+  return { project_id: v.projectId || null, material_name: v.materialName.trim(),
     main_category_code: v.mainCategoryCode.trim().toUpperCase(), assigned_processor_id: v.assignedProcessorId };
 }
 export function MaterialEditorPage({ id, client, navigate, onSaved }: {
   id?: string; client: ApiClient; navigate: (path: string) => void; onSaved: (path: string, message: string) => void;
 }) {
+  return id ? <ExistingMaterialEditorPage id={id} client={client} navigate={navigate} onSaved={onSaved} /> : <MaterialCreatePage client={client} navigate={navigate} />;
+}
+function ExistingMaterialEditorPage({ id, client, navigate, onSaved }: {
+  id: string; client: ApiClient; navigate: (path: string) => void; onSaved: (path: string, message: string) => void;
+}) {
   const user = useSession()?.session.user, canAssign = user?.role !== "PROCESSOR", actor = user?.id;
   const load = useCallback(async () => {
     void actor;
-    const [material, projects, brands, users] = await Promise.all([
+    const [material, projects, brands, users, categories] = await Promise.all([
       id ? client.getMaterial(id) : Promise.resolve(undefined), client.getProjects(), client.getBrands(), client.getInternalUsers(true),
+      catalogClient.categories(),
     ]);
+    const materialCategories = catalogMaterialCategories(categories);
     const active = users.filter((u) => u.isActive && u.role === "PROCESSOR");
     const initial: Values = {
       projectId: material?.projectId ?? "", publishedBrandId: material?.publishedBrandId ?? "",
@@ -34,12 +43,12 @@ export function MaterialEditorPage({ id, client, navigate, onSaved }: {
     const unavailableProcessor = material && !active.some((u) => u.id === material.assignedProcessorId);
     if (unavailableProcessor) processorOptions.push({ value: material.assignedProcessorId, label: "Current processor (inactive or unavailable): " + material.assignedProcessorId, disabled: true });
     const fields: Field[] = [
-      { name: "projectId", apiName: "project_id", label: "Order", type: "select", required: !id || Boolean(material?.projectId),
+      { name: "projectId", apiName: "project_id", label: "Order", type: "select", required: false,
         options: projects.map((p) => ({ value: p.id, label: p.name })) },
       ...(!id ? [{ name: "publishedBrandId", apiName: "published_brand_id", label: "Customer", type: "select" as const, required: true,
         options: brands.map((b) => ({ value: b.id, label: b.name })) }] : []),
       { name: "materialName", apiName: "material_name", label: "Material name", required: true, maxLength: 255 },
-      { name: "mainCategoryCode", apiName: "main_category_code", label: "Main category", type: "select", required: true, options: [...materialCategories.map(c => ({ value: c.code, label: categoryLabel(c.code) })), ...(material && !materialCategories.some(c => c.code === material.mainCategoryCode) ? [{ value: material.mainCategoryCode, label: categoryLabel(material.mainCategoryCode) }] : [])] },
+      { name: "mainCategoryCode", apiName: "main_category_code", label: "Main category", type: "select", required: true, options: [...materialCategories.map(c => ({ value: c.code, label: categoryLabel(c.code, materialCategories) })), ...(material && !materialCategories.some(c => c.code === material.mainCategoryCode) ? [{ value: material.mainCategoryCode, label: categoryLabel(material.mainCategoryCode) }] : [])] },
       { name: "assignedProcessorId", apiName: "assigned_processor_id", label: "Processor", type: "select", required: true, options: processorOptions },
     ];
     const definition: FormDefinition = {

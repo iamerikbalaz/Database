@@ -17,6 +17,8 @@ from app.resource_commands import CommandInput, CommandKey, ResourceWrite, autho
 from app.material_identity import identity_context, require_brand_idle, require_material_idle
 from app.material_naming import build_identity, material_name_from_identity, name_component
 from app.material_table import utc
+from app.material_assignment import require_order_customer
+from app.main_category import category_filter_codes, require_current_category_code
 
 from app.db.models import (
     Company,
@@ -582,7 +584,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             ):
                 value = getattr(filters, field_name)
                 if value is not None:
-                    statement = statement.where(getattr(PBRMaterial, field_name) == value)
+                    statement = statement.where(PBRMaterial.main_category_code.in_(category_filter_codes(session, value))) if field_name == "main_category_code" else statement.where(getattr(PBRMaterial, field_name) == value)
             if filters.search is not None:
                 statement = statement.where(
                     or_(
@@ -611,7 +613,8 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             actor = access.check(session, CATALOG_MANAGERS)
             command = ResourceWrite(access, "MATERIAL", "CREATED", payload, request_key, raw_payload=submitted)
             if (replayed := command.replay(session)) is not None: return replayed
-            _get_or_404(session, Project, payload.project_id, "Project")
+            require_order_customer(session, payload.project_id, payload.published_brand_id)
+            require_current_category_code(session, payload.main_category_code)
             _require_active_internal_user(session, payload.assigned_processor_id)
             brand = session.scalar(
                 select(PublishedBrand)
@@ -634,6 +637,8 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 )
 
             values = _values(payload)
+            values.pop("category_ids", None)
+            values.pop("collection_ids", None)
             technical_identity = _technical_identity(brand, sequence_number,
                 payload.main_category_code, payload.material_name)
             values["material_name"] = material_name_from_identity(technical_identity)
@@ -654,6 +659,11 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             session.flush()
             session.add(MaterialNumberReservation(brand_id=brand.id, sequence_number=sequence_number,
                 material_id=material.id, actor_id=access.user.id if session.get(InternalUser, access.user.id) else None))
+            if payload.category_ids or payload.collection_ids:
+                from app.catalog import ContentUpdate
+                from app.content_saves import apply_material_content
+                apply_material_content(session, material, ContentUpdate(idempotency_key=material.id, expected_revision=0,
+                    category_ids=payload.category_ids, collection_ids=payload.collection_ids), actor.id)
             return _commit_resource(session, material, actor.id, {}, action="CREATED", command=command)
 
     @router.get("/materials/{material_id}", response_model=PBRMaterialListingRead, response_model_exclude_unset=True, tags=["materials"])
@@ -740,11 +750,13 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                 except ValueError:
                     raise HTTPException(422, {"code": "MATERIAL_IDENTITY_INVALID",
                         "message": "The material name must contain a usable product name."}) from None
-            if "project_id" in values:
-                _get_or_404(session, Project, values["project_id"], "Project")
+            if "project_id" in values and values["project_id"] != material.project_id:
+                require_order_customer(session, values["project_id"], material.published_brand_id)
             if "assigned_processor_id" in values:
                 _require_active_internal_user(session, values["assigned_processor_id"])
             category_changed = "main_category_code" in values and values["main_category_code"] != material.main_category_code
+            if category_changed:
+                require_current_category_code(session, values["main_category_code"])
             name_changed = "material_name" in values and values["material_name"] != material.material_name
             if category_changed or name_changed:
                 if material.folder_path is not None:

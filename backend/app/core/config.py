@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     notion_orders_data_source_id: str = "dcfda230-c4f7-4207-817a-07643eaf4dbd"
     order_folders_enabled: bool = False
     order_folders_root: str = ""
+    sbs_templates_root: str = r"C:\Users\Admin\Desktop\Substance graphy vzory"
+    materials_root: str = r"C:\Users\Admin\Desktop\Test_data"
     source_mutations_enabled: bool = False
     worker_mutation_token: SecretStr | None = None
     auth_cookie_secure: bool = True

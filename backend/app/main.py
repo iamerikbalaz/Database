@@ -40,6 +40,9 @@ from app.publication_preflight import build_publication_preview_router
 from app.api.publication_batches import build_publication_batches_router
 from app.api.packaging_policy import build_packaging_policy_router
 from app.api.packaging_settings import build_packaging_settings_router
+from app.api.path_settings import build_path_settings_router
+from app.api.material_creation import build_material_creation_router
+from app.api.material_bulk_content import build_material_bulk_content_router
 from app.api.packaging_jobs import build_packaging_jobs_router
 from app.packaging_client import PackagingClient, WorkerPackagingClient
 from app.api.publication_staging import build_staging_preview_router
@@ -85,6 +88,8 @@ def create_app(
     local_publication=None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
+    if local_library is not None and getattr(local_library, "fs", None) is not None:
+        app_settings = app_settings.model_copy(update={"materials_root": str(local_library.fs.root)})
     app_database = database or Database(app_settings.resolved_database_url)
     app_worker_client = worker_client or WorkerClient(
         app_settings.worker_base_url,
@@ -133,6 +138,9 @@ def create_app(
     application.include_router(build_publication_preview_router(app_database, app_settings))
     application.include_router(build_publication_batches_router(app_database, app_settings))
     application.include_router(build_packaging_settings_router(app_database, app_settings))
+    application.include_router(build_path_settings_router(app_database, app_settings))
+    application.include_router(build_material_creation_router(app_database, app_settings, local_library))
+    application.include_router(build_material_bulk_content_router(app_database))
     application.include_router(build_staging_preview_router(app_database, app_settings))
     application.include_router(build_staging_jobs_router(app_database, app_settings))
     application.include_router(build_staging_history_router(app_database, app_settings),

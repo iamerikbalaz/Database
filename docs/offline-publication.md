@@ -25,6 +25,14 @@ connects to Google Storage, performs an upload, or marks Published implicitly.
 
 The CSV retains the existing UTF-8 BOM, semicolon delimiter and columns:
 `identity_name;name;description;credits;dimension;brand_identifier;categories;color;tags`.
+Brand collections are not included in this CSV.
+
+Customers has a separate **Export selected brands CSV** action. It uses the
+provided brand import template: `brand_identifier;name;description;website;country`,
+with UTF-8 BOM, semicolons and CSV quoting. A customer must have one valid, unique
+Brand identifier; historical comma-separated mappings must be resolved first.
+Missing description, website or country produces a warning. Exporting this file
+does not change Published. Country can be edited on the customer card or table.
 
 ## Existing ZIP methodology
 
@@ -36,6 +44,12 @@ introduce another ZIP format or image-resizing algorithm. This preserves master
 selection, generated resolutions, map precision, preview copying, the generated
 web manifest, and the separate production metadata inside each resolution.
 SOURCE files remain outside publication archives.
+
+ZIP resolution uses the original 1024 pixels per K contract, independently of
+the source check's thousands interval. For example, 8600 pixels belongs in an
+8K source folder and exports an 8192-pixel-long-side master; 8000 pixels belongs
+in an 8K source folder but exports a 7168-pixel-long-side master (7K), followed
+by the applicable standard lower resolutions. Aspect ratio is preserved.
 
 The source vocabulary and formats follow [the automatic check rules](automatic-file-check.md),
 including `ID` and grayscale or color `SHEEN`. Legacy packaging contracts retain

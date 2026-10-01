@@ -3,7 +3,7 @@ import { boolean, nullable, record, string, uuid } from "./dto";
 import { ApiError } from "./errors";
 import { apiUrl, sessionGeneration } from "../auth/sessionTransport";
 
-export const customerStatuses = ["In library", "test", "Active"] as const;
+export const customerStatuses = ["In library (not verified)", "Test sample", "Active cooperation"] as const;
 export const orderStatuses = ["Not started", "Price offer sent", "Waiting for samples", "Samples Obtained", "Scanned", "Post-production", "Visualize", "Test complete", "Ongoing", "To be invoiced", "invoiced", "Done", "Canceled"] as const;
 export const priorities = ["Low", "Medium", "High", "Urgent"] as const;
 export type DirectoryValues = Record<string, string | boolean | null>;
@@ -22,7 +22,7 @@ export function parseCustomer(input: unknown) {
   if (!Array.isArray(value.main_category_codes) || value.main_category_codes.some(code => typeof code !== "string")) throw new Error("Invalid customer categories");
   return { ...common(input), name: string(value.name), status: string(value.status), website: nullable(value.website), address: nullable(value.address),
     shippingAddress: nullable(value.shipping_address), legalName: nullable(value.legal_name), vatId: nullable(value.vat_id), description: nullable(value.description), notes: nullable(value.notes),
-    brandIdentifier: nullable(value.brand_identifier), folderPrefix: string(value.folder_prefix), isActive: boolean(value.is_active),
+    brandIdentifier: nullable(value.brand_identifier), folderPrefix: string(value.folder_prefix), isActive: boolean(value.is_active), isPublished: boolean(value.is_published ?? false), country: nullable(value.country ?? null),
     mainCategoryCodes: value.main_category_codes as string[], hasLogo: boolean(value.has_logo), legacyCompanyId: value.legacy_company_id == null ? null : uuid(value.legacy_company_id) };
 }
 export function parseOrder(input: unknown) {
@@ -45,6 +45,11 @@ function renameOperation(input: unknown): CustomerRenameOperation {
 }
 function list<T>(input: unknown, parse: (value: unknown) => T): T[] { if (!Array.isArray(input)) throw new Error("Invalid directory list"); return input.map(parse); }
 export const directoryClient = {
+  async exportCustomers(ids: string[]) {
+    const value = record(await request("/customer-exports/csv", "POST", { customer_ids: ids.map(uuid) }));
+    if (!Array.isArray(value.warnings)) throw new Error("Invalid brand CSV export");
+    return { filename: string(value.filename), csv: string(value.csv), warnings: value.warnings.map(string) };
+  },
   async customers() { return list(await request("/customers"), parseCustomer); },
   async customer(id: string) { return parseCustomer(await request(`/customers/${uuid(id)}`)); },
   async saveCustomer(id: string | undefined, payload: DirectoryValues, key: string) { return parseCustomer(await request(id ? `/customers/${uuid(id)}` : "/customers", id ? "PATCH" : "POST", payload, key)); },
@@ -56,6 +61,7 @@ export const directoryClient = {
   async customerRenameOperations(id: string) { const result = await request(`/customers/${uuid(id)}/rename-operations`); return list(Array.isArray(result) ? result : record(result).items, renameOperation); },
   async resumeCustomerRename(id: string, operationId: string) { return renameOperation(await request(`/customers/${uuid(id)}/rename-operations/${uuid(operationId)}/resume`, "POST")); },
   async orders() { return list(await request("/orders"), parseOrder); },
+  async orderDefaults() { const value = record(await request("/orders/defaults")); return { number: string(value.number), startingDate: string(value.starting_date) }; },
   async order(id: string) { return parseOrder(await request(`/orders/${uuid(id)}`)); },
   async saveOrder(id: string | undefined, payload: DirectoryValues, key: string) { return parseOrder(await request(id ? `/orders/${uuid(id)}` : "/orders", id ? "PATCH" : "POST", payload, key)); },
   async logo(customer: Customer, file: File, key: string) {

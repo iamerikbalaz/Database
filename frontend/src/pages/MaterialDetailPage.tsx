@@ -1,4 +1,5 @@
-import { categoryLabel } from "../data/materialCategories";
+import { catalogMaterialCategories, catalogMaterialCategoryLabels, categoryLabel } from "../data/materialCategories";
+import { catalogClient } from "../api/catalogClient";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApiClient } from "../api/client";
 import { materialLoadError } from "../api/materialClient";
@@ -45,6 +46,7 @@ function MaterialDetailContent({ initialMaterial, client, navigate, includeArchi
   useEffect(() => () => store.clear(), [store]);
   const loadOptions = useCallback(() => Promise.all([client.getProjects(), client.getBrands(), client.getInternalUsers()]), [client]);
   const options = useResource(loadOptions);
+  const catalog = useResource(catalogClient.categories);
   const [projects = [], brands = [], users = []] = options.data ?? [];
   const refresh = useCallback(async (fallback?: Material) => {
     if (fallback) setMaterial(fallback);
@@ -70,7 +72,9 @@ function MaterialDetailContent({ initialMaterial, client, navigate, includeArchi
     {role && <MaterialGallery key={`gallery-${material.id}-${material.folderPath}-${material.updatedAt}`} materialId={material.id} linked={Boolean(material.folderPath)} initiallyOpen />}
     <article className="panel" aria-label="Material properties">
       {options.error && <p role="alert">Related property choices could not be loaded. <button onClick={options.retry}>Retry related records</button></p>}
+      {catalog.error && <p role="alert">Category choices could not be loaded. The current category is retained. <button onClick={catalog.retry}>Retry categories</button></p>}
       <fieldset className="material-properties-fieldset" disabled={libraryBusy}><legend>Material properties</legend><MaterialsTable detail materials={[material]} store={store} client={client} projects={projects} brands={brands} users={users}
+        categories={catalogMaterialCategories(catalog.data ?? [])} categoryLabels={catalogMaterialCategoryLabels(catalog.data ?? [])}
         navigate={navigate} refresh={refreshFromProperties} onBusyChange={setPropertiesBusy} onMaterialChanged={setMaterial} />
       </fieldset>
     </article>

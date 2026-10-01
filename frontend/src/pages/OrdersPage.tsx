@@ -21,6 +21,7 @@ import { ErrorState, LoadingState } from "../components/PageState";
 import { Icon } from "../components/Icon";
 import { useDatabaseWorkspace } from "../components/useDatabaseWorkspace";
 import { ResponsiveFilters } from "../components/ResponsiveFilters";
+import { databaseSortOptions, sortDatabaseRecords, useDatabaseFilters } from "../components/useDatabaseFilters";
 
 
 
@@ -29,7 +30,11 @@ export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: 
 
   const resource = useResource(useCallback(() => Promise.all([directoryClient.orders(), directoryClient.customers(), client.getInternalUsers()]), [client]));
 
-  const [search, setSearch] = useState(""), [status, setStatus] = useState(""), [customer, setCustomer] = useState(""), [priority, setPriority] = useState(""), [responsible, setResponsible] = useState(""), [from, setFrom] = useState(""), [to, setTo] = useState(""), [busy, setBusy] = useState(false);
+  const { filters, setFilters, keepFilters, setKeepFilters, resetFilters } = useDatabaseFilters("orders", { search: "", status: "", customer: "", priority: "", responsible: "", from: "", to: "", sort: "created-desc" });
+  const { search, status, customer, priority, responsible, from, to, sort } = filters;
+  const [busy, setBusy] = useState(false);
+  const changeFilter = (key: keyof typeof filters, value: string) => setFilters(current => ({ ...current, [key]: value }));
+  const setSearch = (value: string) => changeFilter("search", value), setStatus = (value: string) => changeFilter("status", value), setCustomer = (value: string) => changeFilter("customer", value), setPriority = (value: string) => changeFilter("priority", value), setResponsible = (value: string) => changeFilter("responsible", value), setFrom = (value: string) => changeFilter("from", value), setTo = (value: string) => changeFilter("to", value);
 
   const role = useSession()?.session.user.role, canEdit = role === "ADMIN" || role === "PRODUCTION_LEAD";
 
@@ -37,15 +42,16 @@ export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: 
 
   const names = new Map(customers.map(item => [item.id, item.name]));
 
-  const filtered = all.filter(item => (!status || item.status === status) && (!customer || item.customerId === customer) && (!priority || item.priority === priority) && (!responsible || item.responsibleId === responsible) &&
+  const matching = all.filter(item => (!status || item.status === status) && (!customer || item.customerId === customer) && (!priority || item.priority === priority) && (!responsible || item.responsibleId === responsible) &&
 
     (!from || Boolean(item.startingDate && item.startingDate >= from)) && (!to || Boolean(item.dueDate && item.dueDate <= to)) &&
 
     [item.number, item.generatedName, item.projectType, item.notes, names.get(item.customerId ?? "")].some(value => value?.toLowerCase().includes(search.toLowerCase())));
+  const filtered = sort.startsWith("number-") ? [...matching].sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }) * (sort === "number-desc" ? -1 : 1) || a.id.localeCompare(b.id)) : sortDatabaseRecords(matching, sort, item => item.generatedName, item => item.createdAt);
 
   const columns: ResourceColumn<Order>[] = [
 
-    { key: "number", label: "Order", value: item => item.number, render: item => <NavigationLink className="table-link" href={`/orders/${item.id}`} navigate={navigate}>{item.number}</NavigationLink> },
+    { key: "number", label: "NUMBER", value: item => item.number, render: item => <NavigationLink className="table-link" href={`/orders/${item.id}`} navigate={navigate}>{item.number}</NavigationLink> },
 
     { key: "customer_id", label: "Customer", value: item => item.customerId, editable: true, bulk: true, options: [{ value: "", label: "Not assigned", disabled: true }, ...customers.map(item => ({ value: item.id, label: item.name }))] },
 
@@ -75,7 +81,7 @@ export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: 
 
   return <section className={`database-page orders-page${compact ? " database-page--workspace" : ""}`}><div className="page-heading"><div><p className="eyebrow">Production</p><h1>Orders</h1><p className="database-description">Customer work, delivery dates and project folders.</p></div>{canEdit && <NavigationLink className="button button--primary" href="/orders/new" navigate={navigate}><Icon name="plus" size={18} />Add order</NavigationLink>}</div>
 
-    <ResponsiveFilters compact={compact} disabled={busy} label="Filter orders" onClear={() => { setSearch(""); setStatus(""); setCustomer(""); setPriority(""); setResponsible(""); setFrom(""); setTo(""); }} filters={[
+    <ResponsiveFilters compact={compact} disabled={busy} label="Filter orders" keepFilters={keepFilters} onKeepFiltersChange={setKeepFilters} onClear={resetFilters} filters={[
       { key: "search", width: 190, active: Boolean(search), content: <label className="database-search">Search orders<span className="database-search-input"><Icon name="search" size={18} /><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Number, name or note" /></span></label> },
       { key: "customer", width: 135, active: Boolean(customer), content: <label>Customer<select value={customer} onChange={event => setCustomer(event.target.value)}><option value="">All</option>{customers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> },
       { key: "status", width: 115, active: Boolean(status), content: <label>Status<select value={status} onChange={event => setStatus(event.target.value)}><option value="">All</option>{orderStatuses.map(value => <option key={value}>{value}</option>)}</select></label> },
@@ -83,6 +89,7 @@ export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: 
       { key: "from", width: 142, active: Boolean(from), content: <label>Starting from<input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label> },
       { key: "due", width: 142, active: Boolean(to), content: <label>Due date<input type="date" value={to} onChange={event => setTo(event.target.value)} /></label> },
       { key: "priority", width: 115, active: Boolean(priority), content: <label>Priority<select value={priority} onChange={event => setPriority(event.target.value)}><option value="">All</option>{priorities.map(value => <option key={value}>{value}</option>)}</select></label> },
+      { key: "sort", width: 155, active: sort !== "created-desc", content: <label>Sort orders<select value={sort} onChange={event => changeFilter("sort", event.target.value)}>{[...databaseSortOptions, { value: "number-asc", label: "Number: ascending" }, { value: "number-desc", label: "Number: descending" }].map(value => <option key={value.value} value={value.value}>{value.label}</option>)}</select></label> },
     ]} /><p className="result-count">{filtered.length} orders</p>
 
     {resource.error ? <ErrorState message="Orders could not be loaded." retry={resource.retry} /> : !resource.data ? <LoadingState label="Loading orders…" /> : <>

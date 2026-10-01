@@ -59,6 +59,14 @@ class CatalogTableUpdate(ApiSchema):
         return self
 
 
+class CatalogIdentityUpdate(ApiSchema):
+    idempotency_key: UUID
+    expected_version: Annotated[int, Field(strict=True, ge=1)]
+    value: CatalogValue
+    abbreviation: Abbreviation | None
+    reason: Reason | None = None
+
+
 class ContentUpdate(ApiSchema):
     idempotency_key: UUID
     expected_revision: Annotated[int, Field(strict=True, ge=0)]

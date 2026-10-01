@@ -237,7 +237,7 @@ def test_project_and_brand_may_belong_to_different_companies(
 @pytest.mark.parametrize(
     ("missing_field", "expected_detail"),
     [
-        ("project_id", "Project not found."),
+        ("project_id", "Order not found."),
         ("published_brand_id", "Published brand not found."),
     ],
 )
@@ -934,7 +934,6 @@ def test_material_filters_reject_unknown_parameter(
 @pytest.mark.parametrize(
     "field_name",
     [
-        "project_id",
         "published_brand_id",
         "material_name",
         "main_category_code",
@@ -956,7 +955,6 @@ def test_create_rejects_explicit_null_for_required_fields(
 @pytest.mark.parametrize(
     "field_name",
     [
-        "project_id",
         "material_name",
         "main_category_code",
         "assigned_processor_id",
@@ -975,6 +973,28 @@ def test_patch_rejects_explicit_null_for_required_fields(
         json={field_name: None},
     )
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize("explicit_null", [False, True])
+def test_material_without_order_can_be_assigned_and_detached_without_identity_change(material_client, explicit_null):
+    client, _ = material_client
+    project, brand = setup_material_parents(client)
+    payload = material_payload(None, brand["id"])
+    if not explicit_null:
+        payload.pop("project_id")
+    response = client.post("/api/materials", json=payload)
+    assert response.status_code == 201, response.text
+    created = response.json()
+    assert created["project_id"] is None
+    path = f"/api/materials/{created['id']}"
+    attached = client.patch(path, json={"project_id": project["id"]})
+    assert attached.status_code == 200 and attached.json()["project_id"] == project["id"]
+    detached = client.patch(path, json={"project_id": None})
+    assert detached.status_code == 200 and detached.json()["project_id"] is None
+    saved = client.get(path).json()
+    assert saved["project_id"] is None
+    for field in ("technical_identity", "folder_path", "sequence_number", "published_brand_id"):
+        assert saved[field] == attached.json()[field] == created[field]
 
 
 @pytest.mark.parametrize("method", ["post", "patch"])

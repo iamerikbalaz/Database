@@ -34,7 +34,13 @@ def update_resource_command_guard(connection, *, upgrading=True):
     if len(present) != 1 or definition.count(present[0]) != 1:
         raise RuntimeError("Unexpected resource command guard definition; no changes were applied.")
     definition = definition.replace(present[0], _NEW_MATERIAL_KEYS if upgrading else _OLD_MATERIAL_KEYS, 1)
-    for before, after in ((_OLD_MATERIAL_RESPONSE, _NEW_MATERIAL_RESPONSE),
+    # Migration 0036 independently excludes the historical source manufacturer
+    # from public receipts. A forward repair of this guard at a later head must
+    # preserve that exact exclusion instead of restoring the older SELECT shape.
+    source_exclusion = " - 'source_brand_name'" if "SELECT to_jsonb(m) - 'source_brand_name'" in definition else ""
+    material_before = _OLD_MATERIAL_RESPONSE.replace("to_jsonb(m)", "to_jsonb(m)" + source_exclusion)
+    material_after = _NEW_MATERIAL_RESPONSE.replace("to_jsonb(m)", "to_jsonb(m)" + source_exclusion)
+    for before, after in ((material_before, material_after),
                           (_OLD_RESPONSE_COMPARISON, _NEW_RESPONSE_COMPARISON)):
         old, new = (before, after) if upgrading else (after, before)
         if definition.count(old) == 0 and definition.count(new) == 1:

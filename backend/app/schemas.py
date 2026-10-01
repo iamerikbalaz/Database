@@ -260,7 +260,7 @@ class InternalUserListFilters(ApiSchema):
 
 
 class PBRMaterialFields(ApiSchema):
-    project_id: UUID
+    project_id: UUID | None = None
     published_brand_id: UUID
     material_name: Name
     main_category_code: CategoryCode
@@ -268,7 +268,8 @@ class PBRMaterialFields(ApiSchema):
 
 
 class PBRMaterialCreate(PBRMaterialFields):
-    pass
+    category_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    collection_ids: list[UUID] = Field(default_factory=list, max_length=100)
 
 
 class PBRMaterialUpdate(ApiSchema):
@@ -280,7 +281,6 @@ class PBRMaterialUpdate(ApiSchema):
     @model_validator(mode="after")
     def required_fields_cannot_be_null(self) -> Self:
         for field_name in (
-            "project_id",
             "material_name",
             "main_category_code",
             "assigned_processor_id",

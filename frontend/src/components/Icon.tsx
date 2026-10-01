@@ -26,6 +26,7 @@ export function Icon({ name, size = 20 }: { name: string; size?: number }) {
       </>
     ),
     archive: <><path d="M4 8h16v13H4zM3 3h18v5H3zM9 12h6" /></>,
+    folder: <path d="M3 7V4h6l3 3h9v13H3z" />,
     catalog: <><path d="M4 3h7v7H4zM14 3h7v7h-7zM4 14h7v7H4z" /><circle cx="17.5" cy="17.5" r="3.5" /></>,
     imports: <><path d="M12 3v12M7 10l5 5 5-5M4 16v5h16v-5" /></>,
     users: <><circle cx="9" cy="7" r="3" /><path d="M3 21v-3a6 6 0 0 1 12 0v3M17 4a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 4v3" /></>,

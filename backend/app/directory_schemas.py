@@ -6,7 +6,7 @@ from pydantic import Field, StringConstraints, model_validator
 
 from app.schemas import ApiSchema, Name, SearchTerm, Website
 
-CustomerStatus = Literal["In library", "test", "Active"]
+CustomerStatus = Literal["In library (not verified)", "Test sample", "Active cooperation"]
 OrderStatus = Literal["Test complete", "To be invoiced", "Ongoing", "Canceled", "Done", "Samples Obtained", "Visualize", "Waiting for samples", "Post-production", "Scanned", "Price offer sent", "invoiced", "Not started"]
 Priority = Literal["Low", "Medium", "High", "Urgent"]
 Number = Annotated[str, StringConstraints(pattern=r"^[0-9]{4}$")]
@@ -17,7 +17,9 @@ class CustomerCreate(ApiSchema):
     name: Name
     brand_identifier: Name | None = None
     folder_prefix: Name | None = None
-    status: CustomerStatus = "Active"
+    status: CustomerStatus = "Active cooperation"
+    is_published: bool = False
+    country: Name | None = None
     website: Website | None = None
     address: ProfileText | None = None
     shipping_address: ProfileText | None = None
@@ -33,6 +35,8 @@ class CustomerUpdate(ApiSchema):
     name: Name | None = None
     brand_identifier: Name | None = None
     status: CustomerStatus | None = None
+    is_published: bool | None = None
+    country: Name | None = None
     website: Website | None = None
     address: ProfileText | None = None
     shipping_address: ProfileText | None = None
@@ -44,7 +48,7 @@ class CustomerUpdate(ApiSchema):
 
     @model_validator(mode="after")
     def nonnull(self) -> Self:
-        for key in ("name", "status", "is_active"):
+        for key in ("name", "status", "is_active", "is_published"):
             if key in self.model_fields_set and getattr(self, key) is None:
                 raise ValueError(f"{key} cannot be null")
         return self
@@ -55,6 +59,7 @@ class CustomerFilters(ApiSchema):
     status: CustomerStatus | None = None
     main_category_code: Name | None = None
     is_active: bool | None = None
+    is_published: bool | None = None
     created_from: date | None = None
     created_to: date | None = None
     updated_from: date | None = None

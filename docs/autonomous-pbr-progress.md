@@ -1,6 +1,34 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-09-30, Customer identity / shared database UI)
+## Latest checkpoint (2026-10-01, creation, categories and offline exports)
+
+The owned local test at `http://127.0.0.1:53033` runs schema 0041 on the existing
+`codex/customer-scroll-pilot` branch. No merge to main was performed.
+
+- Shared sorting/Keep filters; catalog edit dialogs and reserved historical codes;
+  Orders defaults, folder creation and material progress; optional Order with
+  enforced Customer consistency; batch material/SBS folder creation; additive
+  categories/collections; and Settings Paths are implemented.
+- Customer Published and the five-column brand CSV export are available. The new
+  app status labels are migrated. Published was added to Notion and set for 144
+  verified public-brand matches in both systems. Renaming the three existing
+  Notion Status options still requires Notion's UI, and ongoing outbound delivery
+  still requires the separate application integration token.
+- ZIP uses original 1024-per-K rules, independently of source-check thousands
+  intervals. Material CSV excludes brand collections. The rebuilt worker passed
+  1,056 tests; a real 4K source produced verified 4K/2K/1K archives and CSV from an
+  isolated clone without source changes. No upload or automatic Published change
+  was performed. Existing live materials still need their publication drafts and
+  credits before actual export.
+- Final frontend: 1,182 tests, lint and build passed. Broad backend/PG regressions
+  were repaired and rerun; final category/creation/head checks passed 68 tests.
+  Fresh clone/live migrations and live API acceptance passed. Backups are retained
+  in the ignored iteration runtime directory. Existing 51 material records and
+  source folders were preserved.
+
+See [iteration details, verification and limitations](iteration-2026-10-01.md).
+
+## Previous checkpoint (2026-09-30, Customer identity / shared database UI)
 
 The owned local test at `http://127.0.0.1:53033` now runs schema 0036.
 Remote main was verified unchanged at `88a1f99d748d2a0edbb1fce509e13d18bfc03908`.

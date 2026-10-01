@@ -32,9 +32,14 @@ connector. Disabled synchronization is explicitly shown in API/UI state.
 ## Field ownership
 
 Customer writes include Name, Status, Website, Address, Shipping address, Legal
-name, VAT ID, Company describtion, Notes, and Brand Identifier. Contact fields,
+name, VAT ID, Company describtion, Notes, Brand Identifier, and Published. Contact fields,
 Product type and RWT Categories are excluded. The nullable customer identifier is
 used; internal legacy brand placeholders are never exported.
+Country is a local field for the brand CSV template and is not added to the
+Notion schema by this integration. Customer Status uses Active cooperation,
+Test sample, and In library (not verified); configure those existing Notion
+options before enabling delivery. Older queued customer payloads without
+Published do not clear an already-set Notion checkbox.
 
 Order writes include Number, Customer, Project type, Starting date, Due date,
 Note, Responsible, Status and Priority. Generated Name and Cutomer rollup remain

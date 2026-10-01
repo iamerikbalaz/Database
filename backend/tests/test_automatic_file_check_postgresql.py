@@ -124,6 +124,8 @@ def test_0033_preserves_0032_receipts_and_accepts_exact_current_material_receipt
                     definition = connection.scalar(text("SELECT pg_get_functiondef('resource_command_guard()'::regprocedure)"))
                     assert definition.count(migration._NEW_MATERIAL_KEYS) == 1
                     assert migration._OLD_MATERIAL_KEYS not in definition
+                    assert "SELECT to_jsonb(m) - 'source_brand_name' - 'automatic_file_check_report'" in definition
+                    assert "SELECT (to_jsonb(b) - ARRAY['is_published','country'])" in definition
                 # Empty derived fields and old receipts allow a lossless rollback;
                 # the SQL exact-response guard must revert with the columns.
                 command.downgrade(config, "20260927_0032")
@@ -135,7 +137,10 @@ def test_0033_preserves_0032_receipts_and_accepts_exact_current_material_receipt
                 intermediate_key = uuid4()
                 with case.database.engine.begin() as connection:
                     definition = connection.scalar(text("SELECT pg_get_functiondef('resource_command_guard()'::regprocedure)"))
-                    definition = definition.replace(migration._NEW_MATERIAL_KEYS, migration._INTERMEDIATE_MATERIAL_KEYS).replace(migration._NEW_MATERIAL_RESPONSE, migration._OLD_MATERIAL_RESPONSE)
+                    current_response = migration._NEW_MATERIAL_RESPONSE.replace("to_jsonb(m)", "to_jsonb(m) - 'source_brand_name'")
+                    intermediate_select = migration._OLD_MATERIAL_RESPONSE.replace("to_jsonb(m)", "to_jsonb(m) - 'source_brand_name'")
+                    assert definition.count(current_response) == 1
+                    definition = definition.replace(migration._NEW_MATERIAL_KEYS, migration._INTERMEDIATE_MATERIAL_KEYS).replace(current_response, intermediate_select)
                     connection.execute(text(definition))
                 with case.database.session() as session:
                     material = session.get(PBRMaterial, case.material.id)

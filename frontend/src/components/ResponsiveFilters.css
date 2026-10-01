@@ -15,7 +15,18 @@
 .database-page .priority-filters.priority-filters .priority-filters-clear { min-height:34px; height:34px; padding:6px 10px; margin:0; font-size:12px; white-space:nowrap; }
 .database-page .priority-filters .priority-filters-more { flex:0 0 132px; justify-content:space-between; }
 .database-page .priority-filters .priority-filters-clear { flex:0 0 106px; }
+.database-page .priority-filters-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; margin-left:auto; gap:10px; }
+.database-page .priority-filters.priority-filters .priority-filters-keep { display:flex; flex:0 0 116px; align-items:center; gap:7px; margin:0; font-size:11px; white-space:nowrap; }
+.database-page .priority-filters.priority-filters .priority-filters-keep input { width:16px; height:16px; min-height:0; padding:0; margin:0; }
+.database-page .priority-filters.priority-filters .priority-filter select,
+.database-page .priority-filters.priority-filters .material-color-select {
+  appearance:none; padding-right:28px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%231f2444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position:right 9px center; background-repeat:no-repeat;
+}
+.database-page .priority-filters .material-color-chevron { display:none; }
 .database-page .priority-filters.priority-filters--expanded { z-index:24; }
+.database-page .priority-filters:has(.material-color-options) { z-index:30; }
 .database-page .priority-filters-backdrop {
   position:absolute; top:calc(100% + 6px); right:12px; max-width:calc(100% - 24px); z-index:1;
   border:1px solid var(--border); border-radius:12px; background:var(--surface); box-shadow:0 10px 30px #1f24441f;

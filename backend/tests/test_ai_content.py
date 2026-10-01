@@ -8,6 +8,8 @@ from app.ai_content import AiDraftCreate, source_url
 from app.db.models import MaterialAiDraft, MaterialSourceLink, MaterialContent, MaterialReviewState
 from test_application_access import access_case
 from test_catalog_content import content_payload, create_vocabulary
+from test_customer_orders import write
+from test_customer_rename import prepare as prepare_customer_rename
 
 
 def proposal(context, **updates):
@@ -94,7 +96,9 @@ def test_changed_context_rejects_new_proposal_but_identical_retry_preserves_orig
         source = approve_source(client, path); context = client.get(path + "/publishing-context").json(); data = proposal(context)
         saved = client.post(path + "/content-drafts", json=data).json()
         if change == "content": assert client.post(path + "/content", json=content_payload(description="Human edit")).status_code == 200
-        elif change == "brand": assert client.patch(f"/api/brands/{material.published_brand_id}", json={"name": "Updated brand"}).status_code == 200
+        elif change == "brand":
+            customer_path, rename = prepare_customer_rename(client, material.published_brand_id, name="Updated brand")
+            assert write(client, "post", customer_path + "/rename", rename).status_code == 200
         else: assert client.patch(path + "/content-sources/" + source["id"], json={"idempotency_key": str(uuid4()), "expected_version": 1, "is_active": False, "reason": "Retire source"}).status_code == 200
         assert client.post(path + "/content-drafts", json={**data, "idempotency_key": str(uuid4())}).status_code == 409
         assert client.post(path + "/content-drafts", json=data).json() == saved

@@ -11,36 +11,40 @@ import { CustomerRenamePanel } from "../components/CustomerRenamePanel";
 import { DirectorySync } from "../components/DirectorySync";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { NasFolderReference } from "../components/NasFolderReference";
-import { categoryLabel } from "../data/materialCategories";
+import { catalogMaterialCategoryLabels, categoryLabel } from "../data/materialCategories";
+import { catalogClient } from "../api/catalogClient";
 import { useNavigationGuard } from "../navigationGuard";
 import type { InternalUser } from "../api/materialDto";
+import { OrderMaterialsPanel } from "../components/OrderMaterialsPanel";
 
 type Kind = "customer" | "order";
 type Props = { kind: Kind; id?: string; client: ApiClient; navigate: (path: string) => void; onSaved: (path: string, message?: string) => void };
 export function DirectoryRecordPage(props: Props) {
   const { kind, id, client } = props;
   const resource = useResource(useCallback(async () => {
-    const [item, customers, users, orders, folder] = await Promise.all([
+    const [item, customers, users, orders, folder, defaults] = await Promise.all([
       id ? kind === "customer" ? directoryClient.customer(id) : directoryClient.order(id) : Promise.resolve(undefined),
       kind === "order" ? directoryClient.customers() : Promise.resolve([]),
       kind === "order" ? client.getInternalUsers() : Promise.resolve([]),
       kind === "customer" && id ? directoryClient.orders() : Promise.resolve([]),
       kind === "order" && id ? directoryClient.folderInfo(id) : Promise.resolve({ enabled: false }),
+      kind === "order" && !id ? directoryClient.orderDefaults() : Promise.resolve(undefined),
     ]);
-    return { item, customers, users, orders, folderEnabled: folder.enabled };
+    return { item, customers, users, orders, folderEnabled: folder.enabled, defaults };
   }, [kind, id, client]));
   if (resource.error) return <ErrorState message={`This ${kind} could not be loaded.`} retry={resource.retry} />;
   if (!resource.data) return <LoadingState label={`Loading ${kind}…`} />;
   return <DirectoryRecordEditor key={`${kind}:${id}:${resource.data.item?.updatedAt ?? "new"}`} {...props} {...resource.data} refresh={resource.retry} />;
 }
 
-type Field = { key: string; label: string; required?: boolean; type?: "date" | "textarea" | "url"; options?: { value: string; label: string; disabled?: boolean }[]; max?: number };
-function DirectoryRecordEditor({ kind, id, item, customers, users, orders, folderEnabled, navigate, onSaved, refresh }: Props & { item?: Customer | Order; customers: Customer[]; users: InternalUser[]; orders: Order[]; folderEnabled: boolean; refresh: () => void }) {
+type Field = { key: string; label: string; required?: boolean; type?: "date" | "textarea" | "url" | "checkbox"; options?: { value: string; label: string; disabled?: boolean }[]; max?: number };
+function DirectoryRecordEditor({ kind, id, item, customers, users, orders, folderEnabled, defaults, client, navigate, onSaved, refresh }: Props & { item?: Customer | Order; customers: Customer[]; users: InternalUser[]; orders: Order[]; folderEnabled: boolean; defaults?: { number: string; startingDate: string }; refresh: () => void }) {
+  const catalog = useResource(useCallback(() => kind === "customer" ? catalogClient.categories() : Promise.resolve([]), [kind]));
   const customer = kind === "customer" ? item as Customer | undefined : undefined, order = kind === "order" ? item as Order | undefined : undefined;
   const role = useSession()?.session.user.role, canEdit = role === "ADMIN" || role === "PRODUCTION_LEAD";
   const initial: DirectoryValues = kind === "customer" ? {
-    name: customer?.name ?? "", brand_identifier: customer?.brandIdentifier ?? "", status: customer?.status ?? "Active", website: customer?.website ?? "", address: customer?.address ?? "", shipping_address: customer?.shippingAddress ?? "", legal_name: customer?.legalName ?? "", vat_id: customer?.vatId ?? "", description: customer?.description ?? "", notes: customer?.notes ?? "",
-  } : { number: order?.number ?? "", customer_id: order?.customerId ?? "", project_type: order?.projectType ?? "", starting_date: order?.startingDate ?? "", due_date: order?.dueDate ?? "", notes: order?.notes ?? "", responsible_id: order?.responsibleId ?? "", status: order?.status ?? "Not started", priority: order?.priority ?? "" };
+    name: customer?.name ?? "", brand_identifier: customer?.brandIdentifier ?? "", status: customer?.status ?? "Active cooperation", is_published: customer?.isPublished ?? false, country: customer?.country ?? "", website: customer?.website ?? "", address: customer?.address ?? "", shipping_address: customer?.shippingAddress ?? "", legal_name: customer?.legalName ?? "", vat_id: customer?.vatId ?? "", description: customer?.description ?? "", notes: customer?.notes ?? "",
+  } : { number: order?.number ?? defaults?.number ?? "", customer_id: order?.customerId ?? "", project_type: order?.projectType ?? "", starting_date: order?.startingDate ?? defaults?.startingDate ?? "", due_date: order?.dueDate ?? "", notes: order?.notes ?? "", responsible_id: order?.responsibleId ?? "", status: order?.status ?? "Not started", priority: order?.priority ?? "" };
   const [values, setValues] = useState(initial), [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState(""), [requestGeneration, setRequestGeneration] = useState<number>(), [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const summary = useRef<HTMLParagraphElement>(null);
   useEffect(() => { if (error) summary.current?.focus(); }, [error]);
@@ -74,6 +78,7 @@ function DirectoryRecordEditor({ kind, id, item, customers, users, orders, folde
     ...(!id ? [{ key: "name", label: "Name", required: true }] : []), { key: "brand_identifier", label: "Brand identifier" },
     { key: "status", label: "Status", options: customerStatuses.map(value => ({ value, label: value })) },
     { key: "website", label: "Website", type: "url" }, { key: "legal_name", label: "Legal name" }, { key: "vat_id", label: "VAT ID" },
+    { key: "country", label: "Country" }, { key: "is_published", label: "Published", type: "checkbox" },
     { key: "address", label: "Address", type: "textarea" }, { key: "shipping_address", label: "Shipping address", type: "textarea" },
     { key: "description", label: "Company description", type: "textarea" }, { key: "notes", label: "Notes", type: "textarea" },
   ] : [
@@ -107,7 +112,7 @@ function DirectoryRecordEditor({ kind, id, item, customers, users, orders, folde
       if (Object.keys(errors).length) { setFieldErrors(errors); setError(Object.values(errors).join(" ")); return; }
       const payload: DirectoryValues = {};
       for (const field of fields) if (!id || values[field.key] !== initial[field.key]) payload[field.key] = typeof values[field.key] === "string" ? String(values[field.key]).trim() || null : values[field.key];
-      if (!id && kind === "order" && !payload.number) delete payload.number;
+      if (!id && kind === "order" && (!payload.number || payload.number === defaults?.number)) delete payload.number;
       if (id) payload.expected_updated_at = item!.updatedAt;
       if (!Object.keys(payload).some(key => key !== "expected_updated_at")) { setNotice("No changes to save."); return; }
       void submit({ run: key => kind === "customer" ? directoryClient.saveCustomer(id, payload, key) : directoryClient.saveOrder(id, payload, key), done: result => {
@@ -116,7 +121,7 @@ function DirectoryRecordEditor({ kind, id, item, customers, users, orders, folde
       } });
     }}><fieldset disabled={locked}><legend>{kind === "customer" ? "Customer properties" : "Order properties"}</legend><div className="directory-fields">
       {fields.map(field => <label key={field.key} className={field.type === "textarea" ? "directory-field--wide" : ""}>{field.label}{field.required ? " *" : ""}
-        {field.options ? <select aria-invalid={Boolean(fieldErrors[field.key])} required={field.required} value={String(values[field.key] ?? "")} onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.value }))}>{field.options.map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}</select>
+        {field.type === "checkbox" ? <input type="checkbox" checked={values[field.key] === true} onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.checked }))} /> : field.options ? <select aria-invalid={Boolean(fieldErrors[field.key])} required={field.required} value={String(values[field.key] ?? "")} onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.value }))}>{field.options.map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}</select>
           : field.type === "textarea" ? <textarea aria-invalid={Boolean(fieldErrors[field.key])} rows={3} maxLength={10000} value={String(values[field.key] ?? "")} onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.value }))} />
             : <input autoFocus={!id && field.key === fields[0]?.key} aria-invalid={Boolean(fieldErrors[field.key])} type={field.type ?? "text"} required={field.required} maxLength={field.max ?? 2048} pattern={field.key === "number" ? "[0-9]{4}" : undefined} value={String(values[field.key] ?? "")} onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.value }))} />}
       </label>)}
@@ -125,8 +130,9 @@ function DirectoryRecordEditor({ kind, id, item, customers, users, orders, folde
     </fieldset></form>
     {customer && <><article className="panel"><h2>Logo</h2>{customer.hasLogo && <img className="customer-logo" src={directoryClient.logoUrl(customer)} alt={`${customer.name} logo`} />}
       {canEdit && <form onSubmit={event => { event.preventDefault(); if (file) { const selectedFile = file; void submit({ run: key => directoryClient.logo(customer, selectedFile, key), done: () => refresh() }); } }}><fieldset disabled={locked}><label>Upload logo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => { const selected = event.target.files?.[0]; if (selected && (!selected.size || selected.size > 2 * 1024 * 1024 || !["image/png", "image/jpeg", "image/webp"].includes(selected.type))) { setFile(undefined); setError("Choose a PNG, JPEG or WebP image up to 2 MB."); } else { setError(""); setFile(selected); } }} /></label><p>PNG, JPEG or WebP, up to 2 MB.</p><button className="button" disabled={!file}>Save logo</button></fieldset></form>}
-    </article><article className="panel"><h2>Main categories</h2><p>{customer.mainCategoryCodes.map(categoryLabel).join(", ") || "No materials assigned yet."}</p><p className="muted">Categories follow the main category of this customer's materials.</p></article>
+    </article><article className="panel"><h2>Main categories</h2><p>{customer.mainCategoryCodes.map(code => categoryLabel(code, catalogMaterialCategoryLabels(catalog.data ?? []))).join(", ") || "No materials assigned yet."}</p><p className="muted">Categories follow the main category of this customer's materials.</p></article>
       <article className="panel"><h2>Orders</h2>{orders.filter(value => value.customerId === id).map(value => <NavigationLink key={value.id} className="directory-related-order" href={`/orders/${value.id}`} navigate={navigate}>{value.number} · {value.generatedName}</NavigationLink>)}{!orders.some(value => value.customerId === id) && <p>No orders assigned.</p>}</article></>}
+    {order && <OrderMaterialsPanel orderId={order.id} client={client} navigate={navigate} />}
     {order && <article className="panel"><h2>Order data folder</h2><NasFolderReference path={order.folderPath} />
       {order.folderStatus && <p>Folder: {order.folderStatus.state.toLowerCase()}{order.folderStatus.error ? ` · ${order.folderStatus.error}` : ""}</p>}
       {canEdit && folderEnabled && (!order.folderPath || !order.folderNameMatches) && <><p>{order.folderPath ? "The saved properties now generate a different folder name. The existing folder keeps its current name until you confirm the rename." : "The order folder is waiting to be created. You can retry if it is still missing."}</p><button className="button" disabled={locked || ["PENDING", "RUNNING"].includes(order.folderStatus?.state ?? "")} onClick={() => setFolderAction(order.folderPath ? "RENAME" : "CREATE")}>{order.folderPath ? "Rename order folder…" : "Create order folder…"}</button></>}

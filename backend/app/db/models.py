@@ -400,7 +400,7 @@ class Company(TimestampMixin, Base):
 class PublishedBrand(TimestampMixin, Base):
     __tablename__ = "published_brands"
     __table_args__ = (
-        CheckConstraint("customer_status IN ('In library','test','Active')", name="ck_customer_status"),
+        CheckConstraint("customer_status IN ('In library (not verified)','Test sample','Active cooperation')", name="ck_customer_status"),
         CheckConstraint(
             "next_sequence_number BETWEEN 1 AND 10000",
             name="ck_published_brands_next_sequence_number_range",
@@ -420,7 +420,9 @@ class PublishedBrand(TimestampMixin, Base):
     # Customer IDs deliberately reuse brand IDs: material identities and all
     # existing foreign keys remain unchanged during the directory transition.
     is_customer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
-    customer_status: Mapped[str] = mapped_column(String(32), nullable=False, default="Active", server_default=text("'Active'"))
+    customer_status: Mapped[str] = mapped_column(String(32), nullable=False, default="Active cooperation", server_default=text("'Active cooperation'"))
+    is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    country: Mapped[str | None] = mapped_column(String(255))
     customer_brand_identifier: Mapped[str | None] = mapped_column(String(255).evaluates_none(), unique=True,
         default=lambda context: context.get_current_parameters().get("brand_identifier"))
     website: Mapped[str | None] = mapped_column(String(2048))
@@ -901,6 +903,13 @@ class OnlineCategory(TimestampMixin, Base):
     abbreviation: Mapped[str | None] = mapped_column(String(32))
     version: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+
+
+class OnlineCategoryCode(Base):
+    """Permanent aliases keep historical material codes attached to their category."""
+    __tablename__ = "online_category_codes"
+    code: Mapped[str] = mapped_column(String(100), primary_key=True)
+    category_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("online_categories.id", ondelete="RESTRICT"), nullable=False, index=True)
 
 
 class BrandCollection(TimestampMixin, Base):
@@ -1840,9 +1849,14 @@ event.listen(MaterialSourceLink, "before_delete", _reject_review_history_mutatio
 
 
 def _protect_catalog_identity(_mapper, _connection, item):
-    fields = ("id", "value", "normalized_key", "created_at") + (("brand_id",) if isinstance(item, BrandCollection) else ())
+    fields = ("id", "created_at") + (("brand_id",) if isinstance(item, BrandCollection) else ())
     if any(sa_inspect(item).attrs[field].history.has_changes() for field in fields):
-        raise ImmutableAuditSnapshotError("Catalog identity is immutable; deactivate and create a new value.")
+        raise ImmutableAuditSnapshotError("Catalog ownership and record identity are immutable.")
+    attributes = sa_inspect(item).attrs
+    changed = any(attributes[field].history.has_changes() for field in ("value", "normalized_key", "abbreviation", "is_active"))
+    prior = attributes.version.history.deleted
+    if changed and (not prior or item.version != prior[0] + 1):
+        raise ImmutableAuditSnapshotError("Catalog property changes must advance its version.")
 
 
 for _catalog_type in (OnlineCategory, BrandCollection):
@@ -1856,6 +1870,8 @@ for _review_history_type in (PackagingSettingsRevision, CompanyChangeEvent, Mate
 
 event.listen(ResourceChangeEvent, "before_update", _reject_review_history_mutation)
 event.listen(ResourceChangeEvent, "before_delete", _reject_review_history_mutation)
+event.listen(OnlineCategoryCode, "before_update", _reject_review_history_mutation)
+event.listen(OnlineCategoryCode, "before_delete", _reject_review_history_mutation)
 event.listen(AccountSecurityEvent, "before_update", _reject_review_history_mutation)
 event.listen(AccountSecurityEvent, "before_delete", _reject_review_history_mutation)
 event.listen(ResourceCommand, "before_update", _reject_review_history_mutation)
@@ -1880,3 +1896,5 @@ event.listen(MaterialMetadataOperation, "before_delete", _reject_review_history_
 from app.db import directory_models as _directory_models  # noqa: E402,F401
 from app.db import notion_sync_models as _notion_sync_models  # noqa: E402,F401
 from app.db import customer_rename_models as _customer_rename_models  # noqa: E402,F401
+from app.db import material_creation_models as _material_creation_models  # noqa: E402,F401
+from app.db import path_settings_models as _path_settings_models  # noqa: E402,F401

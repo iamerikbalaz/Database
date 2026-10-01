@@ -7,6 +7,7 @@ import re
 from datetime import UTC, datetime, time
 from typing import Annotated
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
@@ -23,6 +24,9 @@ from app.material_review import canonical_hash
 from app.material_identity import require_brand_idle
 from app.material_table import utc
 from app.resource_commands import CommandInput, CommandKey
+from app.path_settings import current_paths, lock_paths
+from app.customer_csv import CustomerCsvRequest, export_customers
+from app.main_category import category_filter_codes
 
 
 def _get(session, model, identifier, *, lock=False):
@@ -126,11 +130,12 @@ def _folder_idle(session, order):
 
 
 def _next_number(session, settings):
+    lock_paths(session)
     existing = set(session.scalars(select(Project.project_number)))
     if settings.order_folders_enabled:
         from app.order_folders import OrderFolderError, known_folder_numbers
         try:
-            existing |= known_folder_numbers(settings.order_folders_root)
+            existing |= known_folder_numbers(current_paths(session, settings)["orders_root"])
         except OrderFolderError as error:
             raise HTTPException(503, {"code": error.code}) from None
     numbers = [int(value) for value in existing if re.fullmatch(r"\d{4}", value)]
@@ -164,8 +169,10 @@ def build_directory_router(database, settings):
                 query = query.where(PublishedBrand.customer_status == filters.status)
             if filters.is_active is not None:
                 query = query.where(PublishedBrand.is_active == filters.is_active)
+            if filters.is_published is not None:
+                query = query.where(PublishedBrand.is_published == filters.is_published)
             if filters.main_category_code:
-                query = query.where(PublishedBrand.id.in_(select(PBRMaterial.published_brand_id).where(PBRMaterial.main_category_code == filters.main_category_code)))
+                query = query.where(PublishedBrand.id.in_(select(PBRMaterial.published_brand_id).where(PBRMaterial.main_category_code.in_(category_filter_codes(session, filters.main_category_code)))))
             for prefix in ("created", "updated"):
                 lower, upper = getattr(filters, prefix + "_from"), getattr(filters, prefix + "_to")
                 column = getattr(PublishedBrand, prefix + "_at")
@@ -177,6 +184,16 @@ def build_directory_router(database, settings):
             categories = customer_categories(session, [row.id for row in rows])
             prefetch_directory_states(session, "CUSTOMER", [row.id for row in rows])
             return [customer_view(session, row, categories[row.id], sync_enabled=settings.notion_outbound_enabled) for row in rows]
+
+    @router.post("/customer-exports/csv")
+    def customer_csv(payload: CustomerCsvRequest, access: AccessDependency):
+        with database.session() as session:
+            access.check(session, CATALOG_MANAGERS)
+            rows = list(session.scalars(select(PublishedBrand).where(PublishedBrand.is_customer.is_(True), PublishedBrand.id.in_(payload.customer_ids))))
+            by_id = {row.id: row for row in rows}
+            if len(by_id) != len(payload.customer_ids):
+                raise HTTPException(404, "A selected customer no longer exists.")
+            return export_customers([by_id[identifier] for identifier in payload.customer_ids])
 
     @router.post("/customers", status_code=201)
     def create_customer(payload: CustomerCreate, access: AccessDependency, submitted: CommandInput, request_key: CommandKey = None):
@@ -315,6 +332,13 @@ def build_directory_router(database, settings):
             session.info["directory_customers"] = {customer.id: customer for customer in session.scalars(select(PublishedBrand).where(PublishedBrand.id.in_({row.customer_id for row in rows if row.customer_id})))}
             return [order_view(session, row, sync_enabled=settings.notion_outbound_enabled) for row in rows]
 
+    @router.get("/orders/defaults")
+    def order_defaults(access: AccessDependency):
+        with database.session() as session:
+            access.check(session, CATALOG_MANAGERS)
+            number, _ = _next_number(session, settings)
+            return {"number": number, "starting_date": datetime.now(ZoneInfo("Europe/Prague")).date().isoformat()}
+
     @router.post("/orders", status_code=201)
     def create_order(payload: OrderCreate, access: AccessDependency, submitted: CommandInput, request_key: CommandKey = None):
         with database.session() as session:
@@ -359,6 +383,13 @@ def build_directory_router(database, settings):
                 _folder_idle(session, item)
             if "customer_id" in changes:
                 customer = _get(session, PublishedBrand, changes["customer_id"])
+                if customer.id != item.customer_id:
+                    mismatch = session.scalar(select(PBRMaterial.id).where(
+                        PBRMaterial.project_id == item.id,
+                        PBRMaterial.published_brand_id != customer.id).limit(1))
+                    if mismatch is not None:
+                        raise HTTPException(409, {"code": "ORDER_CUSTOMER_MATERIAL_MISMATCH",
+                            "message": "Assigned materials must belong to the new Order Customer. Reassign or remove their Order first."})
                 item.company_id = customer.company_id
             if "responsible_id" in changes:
                 _assign_responsible(session, item, changes.pop("responsible_id"))

@@ -38,7 +38,7 @@ def test_formula_keeps_notion_join_semantics():
 def test_customer_create_is_one_level_keyed_and_preserves_nullable_public_identifier(access_case):
     with access_case.client("ADMIN") as client:
         key = str(uuid4())
-        payload = {"name": "No identifier yet", "website": "https://example.invalid", "status": "In library"}
+        payload = {"name": "No identifier yet", "website": "https://example.invalid", "status": "In library (not verified)"}
         first = write(client, "post", "/api/customers", payload, key)
         assert first.status_code == 201, first.text
         customer = first.json()
@@ -70,14 +70,14 @@ def test_customer_inline_edit_filters_and_material_categories_include_archived(a
         rows = client.get("/api/customers", params={"main_category_code": "ARCHIVE-CATEGORY"}).json()
         assert len(rows) == 1 and rows[0]["main_category_codes"] == ["ARCHIVE-CATEGORY", "G03"]
         row = rows[0]
-        payload = {"expected_updated_at": row["updated_at"], "notes": "#priority-client", "shipping_address": "Prague", "status": "test"}
+        payload = {"expected_updated_at": row["updated_at"], "notes": "#priority-client", "shipping_address": "Prague", "status": "Test sample"}
         key = str(uuid4())
         saved = write(client, "patch", "/api/customers/" + row["id"], payload, key)
         assert saved.status_code == 200, saved.text
         assert saved.json()["updated_at"] != row["updated_at"]
         assert write(client, "patch", "/api/customers/" + row["id"], payload).status_code == 409
         assert write(client, "patch", "/api/customers/" + row["id"], payload, key).json() == saved.json()
-        assert client.get("/api/customers", params={"search": "#priority-client", "status": "test"}).json()[0]["id"] == row["id"]
+        assert client.get("/api/customers", params={"search": "#priority-client", "status": "Test sample"}).json()[0]["id"] == row["id"]
         history = client.get("/api/customers/" + row["id"] + "/history").json()["items"]
         assert history[0]["actor_name"] == "ADMIN" and history[0]["after"]["notes"] == "#priority-client"
 
@@ -119,6 +119,49 @@ def test_unrelated_order_edit_preserves_multiple_notion_responsible_pages(access
         with access_case.database.session() as session:
             state = session.scalar(select(NotionSyncState).where(NotionSyncState.entity_id == UUID(order["id"])))
             assert state.payload["responsible_page_ids"] == people
+
+
+def test_order_customer_change_rejects_material_mismatch_but_allows_historical_edits_and_repair(access_case):
+    case = access_case
+    with case.database.session() as session:
+        material = session.get(PBRMaterial, case.materials[0].id)
+        order = session.get(Project, material.project_id)
+        order.customer_id = material.published_brand_id
+        order_id, original_customer = str(order.id), str(material.published_brand_id)
+        session.commit()
+    with case.client("ADMIN") as client:
+        other = create_customer(client)
+        path = "/api/orders/" + order_id
+        current = client.get(path).json()
+        rejected = write(client, "patch", path, {"expected_updated_at": current["updated_at"], "customer_id": other["id"]})
+        assert rejected.status_code == 409
+        assert rejected.json()["detail"]["code"] == "ORDER_CUSTOMER_MATERIAL_MISMATCH"
+        assert client.get(path).json() == current
+        # An imported pre-existing mismatch is not silently repaired or blocked
+        # by an unrelated note update (or by resubmitting its current Customer).
+        with case.database.session() as session:
+            session.get(Project, UUID(order_id)).customer_id = UUID(other["id"])
+            session.commit()
+        current = client.get(path).json()
+        note = write(client, "patch", path, {"expected_updated_at": current["updated_at"],
+            "customer_id": other["id"], "notes": "Historical assignment retained"})
+        assert note.status_code == 200, note.text
+        repair = write(client, "patch", path, {"expected_updated_at": note.json()["updated_at"], "customer_id": original_customer})
+        assert repair.status_code == 200, repair.text
+        assert repair.json()["customer_id"] == original_customer
+        assert all(client.get("/api/materials/" + str(item.id)).json()["published_brand_id"] == original_customer for item in case.materials)
+
+
+def test_customer_and_order_can_be_created_without_any_assigned_material(access_case):
+    with access_case.database.session() as session:
+        before = list(session.scalars(select(PBRMaterial.id).order_by(PBRMaterial.id)))
+    with access_case.client("ADMIN") as client:
+        customer = create_customer(client)
+        order = create_order(client, customer)
+        assert client.get("/api/materials", params={"project_id": order["id"]}).json() == []
+        assert client.get("/api/materials", params={"published_brand_id": customer["id"]}).json() == []
+    with access_case.database.session() as session:
+        assert list(session.scalars(select(PBRMaterial.id).order_by(PBRMaterial.id))) == before
 
 
 def test_logo_is_validated_authenticated_and_returns_image_bytes(access_case):

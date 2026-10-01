@@ -11,6 +11,7 @@ import { useSession } from "./auth/context";
 import { restrictedDestination } from "./auth/permissions";
 import { AccountsPage } from "./pages/AccountsPage";
 import { PackagingSettingsPage, SettingsPage } from "./pages/SettingsPage";
+import { PathsSettingsPage } from "./pages/PathsSettingsPage";
 import { CatalogPage } from "./pages/CatalogPage";
 import { PublicationPage } from "./pages/PublicationPage";
 import { MaterialArchivesPage } from "./pages/MaterialArchivesPage";
@@ -105,6 +106,8 @@ function App({ client = apiClient, initialPath }: AppProps) {
     page = <AccountsPage navigate={navigate} />;
   else if (path === "/settings/packaging")
     page = <PackagingSettingsPage navigate={navigate} />;
+  else if (path === "/settings/paths")
+    page = <PathsSettingsPage navigate={navigate} />;
   else if (path === "/catalog")
     page = <CatalogPage client={client} />;
   else if (path === "/compare")

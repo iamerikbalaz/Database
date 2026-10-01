@@ -13,6 +13,7 @@ from app.db.notion_sync_models import NotionSyncState, OrderFolderOperation
 from app.notion_outbound import enqueue_customer_sync, enqueue_order_sync, sync_status
 from app.order_folders import OrderFolderError, folder_preflight, folder_status
 from app.material_review import canonical_hash
+from app.path_settings import current_paths, lock_paths
 
 
 class FolderCommand(BaseModel):
@@ -65,6 +66,7 @@ def build_notion_outbound_router(database, settings):
             idempotency_key: UUID = Header(alias="Idempotency-Key")):
         with database.session() as session:
             access.check(session, CATALOG_MANAGERS)
+            lock_paths(session)
             order = target(session, "ORDER", order_id)
             if idempotency_key.int == 0: raise HTTPException(422, {"code": "ORDER_FOLDER_REQUEST_KEY_INVALID"})
             request_hash = canonical_hash({"order_id": str(order_id), "payload": payload.model_dump(mode="json")})
@@ -85,7 +87,7 @@ def build_notion_outbound_router(database, settings):
             if (payload.action == "CREATE" and order.folder_path) or (payload.action == "RENAME" and not order.folder_path):
                 raise HTTPException(409, {"code": "ORDER_FOLDER_ACTION_INVALID"})
             try:
-                _, identity = folder_preflight(settings.order_folders_root, order.name, order.folder_path)
+                _, identity = folder_preflight(current_paths(session, settings)["orders_root"], order.name, order.folder_path)
             except (OrderFolderError, OSError) as error:
                 raise HTTPException(409, {"code": getattr(error, "code", "ORDER_FOLDER_UNAVAILABLE")}) from None
             operation = OrderFolderOperation(order_id=order.id, actor_id=access.user.id, request_key=idempotency_key,

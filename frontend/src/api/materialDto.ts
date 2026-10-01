@@ -12,13 +12,15 @@ function choice<T extends string>(value: unknown, choices: readonly T[]): T {
   return match;
 }
 export interface MaterialCreateDto {
-  project_id: string;
+  project_id: string | null;
   published_brand_id: string;
   material_name: string;
   main_category_code: string;
   assigned_processor_id: string;
+  category_ids?: string[];
+  collection_ids?: string[];
 }
-export type MaterialPatchDto = Partial<Omit<MaterialCreateDto, "published_brand_id">>;
+export type MaterialPatchDto = Partial<Omit<MaterialCreateDto, "published_brand_id" | "category_ids" | "collection_ids">>;
 export interface MaterialDto extends Omit<MaterialCreateDto, "project_id"> {
   automatic_file_check_status?: typeof automaticFileCheckStatuses[number];
   automatic_file_checked_at?: string | null;

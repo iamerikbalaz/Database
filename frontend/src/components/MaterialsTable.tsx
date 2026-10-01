@@ -41,6 +41,8 @@ type EditField = "is_archived" | "workflow_status" | "checked_status" | "is_publ
 type Change = TableChange | { is_archived: boolean };
 type Job = { material: Material; change: Change; lifecycle?: { preview: ArchivePreview; body: LifecycleRequest }; key: string; status: "waiting" | "saved" | "failed" | "unknown" | "stopped"; message?: string };
 type Props = { materials: Material[]; store: GalleryStore; client: ApiClient; projects: Project[]; brands: PublishedBrand[]; users: InternalUser[];
+  categories?: { code: string; value: string }[];
+  categoryLabels?: { code: string; value: string; aliases?: string[] }[];
   navigate: (path: string) => void; refresh: () => void; onBusyChange: (busy: boolean) => void;
   onPreparePublication?: (materials: Material[]) => void; detail?: boolean; onMaterialChanged?: (material: Material) => void;
   selection?: { ids: Set<string>; change: (ids: Set<string>) => void };
@@ -53,7 +55,7 @@ function NoteCell({ material, disabled, save }: { material: Material; disabled: 
     {draft !== (material.note ?? "") && <button className="button" disabled={disabled} onClick={() => save({ note: draft || null })}>Save note</button>}</div>;
 }
 
-export function MaterialsTable({ materials, store, client, projects, brands, users, navigate, refresh, onBusyChange, onPreparePublication, detail = false, onMaterialChanged, selection, onCheckSelected, checkActionsRef, operationBusy = false, scrollMode = "page" }: Props) {
+export function MaterialsTable({ materials, store, client, projects, brands, users, categories = materialCategories, categoryLabels = categories, navigate, refresh, onBusyChange, onPreparePublication, detail = false, onMaterialChanged, selection, onCheckSelected, checkActionsRef, operationBusy = false, scrollMode = "page" }: Props) {
   const actor = useSession()?.session.user;
   const role = actor?.role;
   const manager = role === "ADMIN" || role === "PRODUCTION_LEAD";
@@ -187,7 +189,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     if ("project_id" in change) return ["Order", change.project_id === null ? "No order assigned" : projects.find(p => p.id === change.project_id)?.name ?? change.project_id];
     if ("assigned_processor_id" in change) return ["Processor", users.find(u => u.id === change.assigned_processor_id)?.displayName ?? change.assigned_processor_id];
     if ("published_brand_id" in change) return ["Customer", brands.find(b => b.id === change.published_brand_id)?.name ?? change.published_brand_id];
-    if ("main_category_code" in change) return ["Category", categoryLabel(change.main_category_code)];
+    if ("main_category_code" in change) return ["Category", categoryLabel(change.main_category_code, categoryLabels)];
     return ["Note", change.note ?? "Empty"];
   };
   const edit = (row: Material, change: TableChange) => prepare([row], change, true);
@@ -210,8 +212,8 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     if (key === "brand") return manager ? <select aria-label={`Customer for ${row.materialName}`} disabled={productionDisabled} value={row.publishedBrandId} onChange={e => openIdentity(row, { brand: e.target.value })}>
       {brands.filter(b => b.isActive || b.id === row.publishedBrandId).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select> : brands.find(b => b.id === row.publishedBrandId)?.name ?? row.publishedBrandId;
     if (key === "category") return manager ? <select aria-label={`Category for ${row.materialName}`} disabled={productionDisabled} value={row.mainCategoryCode} onChange={e => openIdentity(row, { category: e.target.value })}>
-      {!materialCategories.some(c => c.code === row.mainCategoryCode) && <option value={row.mainCategoryCode}>{categoryLabel(row.mainCategoryCode)}</option>}
-      {materialCategories.map(c => <option key={c.code} value={c.code}>{categoryLabel(c.code)}</option>)}</select> : categoryLabel(row.mainCategoryCode);
+      {!categories.some(c => c.code === row.mainCategoryCode) && <option value={row.mainCategoryCode}>{categoryLabel(row.mainCategoryCode, categoryLabels)}</option>}
+      {categories.map(c => <option key={c.code} value={c.code}>{categoryLabel(c.code, categoryLabels)}</option>)}</select> : categoryLabel(row.mainCategoryCode, categoryLabels);
     if (key === "status") return editor ? <select aria-label={`Status for ${row.materialName}`} disabled={productionDisabled} value={row.workflowStatus} onChange={e => save({ workflow_status: e.target.value as Material["workflowStatus"] })}>
       <option value="IN_PROGRESS">In progress</option><option value="DONE">Done</option></select> : row.workflowStatus === "DONE" ? "Done" : "In progress";
     if (key === "checked") return manager ? <select aria-label={`Checked for ${row.materialName}`} disabled={productionDisabled} value={row.checkedStatus} onChange={e => save({ checked_status: e.target.value as Material["checkedStatus"] })}>

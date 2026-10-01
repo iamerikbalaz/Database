@@ -13,6 +13,7 @@ from uuid import uuid4
 from sqlalchemy import select
 
 from app.db.notion_sync_models import OrderFolderOperation
+from app.path_settings import current_paths, lock_paths
 
 
 class OrderFolderError(RuntimeError):
@@ -133,6 +134,7 @@ def process_next_folder_operation(database, settings):
     if not settings.order_folders_enabled: return False
     from app.db.models import InternalUser, Project
     with database.session() as session:
+        lock_paths(session)
         operation = session.scalar(select(OrderFolderOperation).where(OrderFolderOperation.status == "PENDING")
             .order_by(OrderFolderOperation.created_at).with_for_update(skip_locked=True).limit(1))
         if operation is None: return False
@@ -145,7 +147,8 @@ def process_next_folder_operation(database, settings):
             operation.status, operation.error_code = "ERROR", "ORDER_FOLDER_RECORD_CHANGED"
             session.commit(); return True
         try:
-            result_path, identity = folder_preflight(settings.order_folders_root, operation.target_name, operation.source_path)
+            root_path = current_paths(session, settings)["orders_root"]
+            result_path, identity = folder_preflight(root_path, operation.target_name, operation.source_path)
         except (OrderFolderError, OSError) as error:
             operation.status, operation.error_code = "ERROR", getattr(error, "code", "ORDER_FOLDER_UNAVAILABLE")
             session.commit(); return True
@@ -157,7 +160,7 @@ def process_next_folder_operation(database, settings):
         identifier = operation.id
         session.commit()
     failure = None
-    try: result_path = apply_folder_operation(settings.order_folders_root, operation)
+    try: result_path = apply_folder_operation(root_path, operation)
     except (OrderFolderError, OSError) as error: failure = getattr(error, "code", "ORDER_FOLDER_UNAVAILABLE")
     with database.session() as session:
         operation = session.scalar(select(OrderFolderOperation).where(OrderFolderOperation.id == identifier).with_for_update())

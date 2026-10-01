@@ -28,7 +28,7 @@ def sync_db():
         company = Company(name="Customer")
         session.add_all([actor, company]); session.flush()
         customer = PublishedBrand(company_id=company.id, name="Acme brand", folder_prefix="ACME",
-            brand_identifier="internal-placeholder", customer_brand_identifier="acme", customer_status="Active")
+            brand_identifier="internal-placeholder", customer_brand_identifier="acme", customer_status="Active cooperation")
         session.add(customer); session.flush()
         order = Project(company_id=company.id, customer_id=customer.id, project_number="0253",
             name="0253_ACME BRAND_SCANNING_FABRICS_092026", project_type="SCANNING_FABRICS",
@@ -43,7 +43,7 @@ def settings():
 
 
 def customer_payload():
-    return dict(name="Acme", customer_status="Active", brand_identifier="acme", notes="X" * 2100)
+    return dict(name="Acme", is_published=False, customer_status="Active cooperation", brand_identifier="acme", notes="X" * 2100)
 
 
 def test_properties_preserve_notion_types_chunks_and_excluded_fields():
@@ -51,7 +51,7 @@ def test_properties_preserve_notion_types_chunks_and_excluded_fields():
     assert len(props["Notes"]["rich_text"]) == 2
     assert set(props) == {value[0] for value in CUSTOMER_FIELDS.values()}
     assert "Phone" not in props and "RWT Categories" not in props
-    assert props["Status"] == {"status": {"name": "Active"}}
+    assert props["Status"] == {"status": {"name": "Active cooperation"}}
     people = [str(uuid4()), str(uuid4())]
     props = notion_properties("ORDER", {"responsible_page_ids": people})
     assert props["Responsible"] == {"relation": [{"id": value} for value in people]}

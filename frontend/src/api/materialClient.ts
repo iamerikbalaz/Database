@@ -69,6 +69,8 @@ export function materialApi(request: Request): MaterialApi {
         project_id: p.project_id, published_brand_id: p.published_brand_id,
         material_name: p.material_name, main_category_code: p.main_category_code,
         assigned_processor_id: p.assigned_processor_id,
+        ...(p.category_ids ? { category_ids: p.category_ids } : {}),
+        ...(p.collection_ids ? { collection_ids: p.collection_ids } : {}),
       };
       return materialFromDto(parseMaterial(await request("/materials", "POST", payload, requestKey)));
     },

@@ -5,7 +5,8 @@ No reads mutate the catalog or existing immutable content history.
 """
 from uuid import UUID, uuid5
 from sqlalchemy import select
-from app.db.models import OnlineCategory
+from fastapi import HTTPException
+from app.db.models import OnlineCategory, OnlineCategoryCode
 from app.catalog import value_key
 
 # Canonical paths shared with frontend/src/data/materialCategories.json.
@@ -16,12 +17,45 @@ _NAMESPACE = UUID("ab6b96dc-52e5-4f72-a325-0f832dfaf180")
 def required_category(session, material):
     code = material.main_category_code
     path = CATEGORY_PATHS.get(code, code)
-    candidates = list(session.scalars(select(OnlineCategory).where(OnlineCategory.abbreviation == code)))
-    catalog = candidates[0] if len(candidates) == 1 else session.scalar(select(OnlineCategory).where(OnlineCategory.normalized_key == value_key(path)))
+    alias = session.get(OnlineCategoryCode, code)
+    catalog = session.get(OnlineCategory, alias.category_id) if alias else session.scalar(select(OnlineCategory).where(OnlineCategory.abbreviation == code))
+    if catalog is None:
+        catalog = session.scalar(select(OnlineCategory).where(OnlineCategory.normalized_key == value_key(path)))
     return {"id": str(catalog.id if catalog else uuid5(_NAMESPACE, code)),
         "value": catalog.value if catalog else path, "version": catalog.version if catalog else 1,
         "is_active": True, "is_required": True, "source": "MAIN_CATEGORY", "code": code,
         "catalog_id": str(catalog.id) if catalog else None}
+
+
+def require_current_category_code(session, code):
+    """Retired aliases remain readable but cannot name a newly created identity."""
+    alias = session.get(OnlineCategoryCode, code)
+    category = session.get(OnlineCategory, alias.category_id) if alias else session.scalar(select(OnlineCategory).where(OnlineCategory.abbreviation == code))
+    if category:
+        if not category.is_active:
+            raise HTTPException(422, {"code": "CATEGORY_INACTIVE", "message": "Choose an active category for a new material identity."})
+        if category.abbreviation != code:
+            raise HTTPException(422, {"code": "CATEGORY_CODE_RETIRED", "message": "Choose the current category abbreviation for a new material identity."})
+
+
+def category_filter_codes(session, code):
+    """A category filter includes material identities created under its older codes."""
+    alias = session.get(OnlineCategoryCode, code)
+    if alias is None:
+        return [code]
+    return list(session.scalars(select(OnlineCategoryCode.code).where(OnlineCategoryCode.category_id == alias.category_id)))
+
+
+def reserve_category_codes(session, category, codes):
+    for code in sorted({code for code in codes if code}):
+        alias = session.get(OnlineCategoryCode, code)
+        if alias is not None and alias.category_id != category.id:
+            raise HTTPException(409, {"code": "CATALOG_CODE_RESERVED", "message": "This abbreviation belongs to another category, including its historical materials."})
+        current_owner = session.scalar(select(OnlineCategory.id).where(OnlineCategory.abbreviation == code))
+        if current_owner is not None and current_owner != category.id:
+            raise HTTPException(409, {"code": "CATALOG_CODE_RESERVED"})
+        if alias is None:
+            session.add(OnlineCategoryCode(code=code, category_id=category.id))
 
 
 def normalize_category_ids(session, material, category_ids):

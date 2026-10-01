@@ -2346,7 +2346,12 @@ def _persist_user_at_schema(session, user):
 
 def _persist_brand_at_schema(session, brand):
     from sqlalchemy import Table, MetaData
-    if "is_customer" in {column["name"] for column in inspect(session.connection()).get_columns("published_brands")}:
+    columns = {column["name"] for column in inspect(session.connection()).get_columns("published_brands")}
+    # Migration fixtures can predate any additive column (including 0037's
+    # publication fields), even when the earlier customer profile already exists.
+    # Use the ORM only when its complete mapped shape is present; reflection keeps
+    # historical defaults and constraints authoritative for earlier schemas.
+    if {column.name for column in PublishedBrand.__table__.columns} <= columns:
         session.add(brand)
     else:
         legacy = Table("published_brands", MetaData(), autoload_with=session.connection())

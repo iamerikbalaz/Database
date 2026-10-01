@@ -9,6 +9,8 @@ from app.material_review import canonical_hash
 from test_application_access import access_case
 from test_catalog_content import create_vocabulary, content_payload
 from test_material_review import review_case, scan
+from test_customer_orders import write
+from test_customer_rename import prepare as prepare_customer_rename
 
 
 def prepare_content(client, path, brand_id, **changes):
@@ -110,8 +112,10 @@ def test_changes_reject_stale_review_invalidate_approval_and_preserve_history(ac
         elif change == "brand":
             brand_path = f"/api/brands/{material.published_brand_id}"
             old = client.get(brand_path).json()["name"]
-            assert client.patch(brand_path, json={"name": "Changed synthetic brand"}).status_code == 200
-            result = client.patch(brand_path, json={"name": old})
+            customer_path, rename = prepare_customer_rename(client, material.published_brand_id, name="Changed synthetic brand")
+            assert write(client, "post", customer_path + "/rename", rename).status_code == 200
+            customer_path, restore = prepare_customer_rename(client, material.published_brand_id, name=old)
+            result = write(client, "post", customer_path + "/rename", restore)
         else:
             item = category if change == "category" else collection
             route = "/api/online-categories/" if change == "category" else "/api/collections/"

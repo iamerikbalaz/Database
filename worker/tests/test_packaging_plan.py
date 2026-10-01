@@ -105,6 +105,49 @@ def test_matching_existing_nested_metadata_is_copied_once():
     assert result.resolutions[0].archive_entries.count("4K/metadata.txt") == 1
 
 
+@pytest.mark.parametrize("side,expected_name,expected_side", [
+    (8000, "7K", 7168), (8191, "7K", 7168), (8192, "8K", 8192),
+    (8600, "8K", 8192), (8999, "8K", 8192),
+])
+def test_source_thousands_bucket_does_not_change_historical_binary_zip_sizes(side, expected_name, expected_side):
+    # An 8K source folder accepts the 8000..8999 bucket. Publication retains
+    # the original script's floor-to-1024 rule and must never upscale maps.
+    from app.technical_validation import master_dimensions_match
+
+    assert master_dimensions_match("8K", side, side)
+    result = plan(report(side, side, "8K"))
+    assert result.effective_master == expected_name
+    assert (result.resolutions[0].width, result.resolutions[0].height) == (expected_side, expected_side)
+    assert all(item.width == item.height == int(item.name[:-1]) * 1024 for item in result.resolutions)
+    assert all(item.width <= side for item in result.resolutions)
+
+
+@pytest.mark.parametrize("extension,image_format", [("jpg", "JPEG"), ("jpeg", "JPEG"), ("png", "PNG"), ("tif", "TIFF"), ("tiff", "TIFF")])
+def test_archived_map_formats_are_preserved_in_every_generated_resolution(extension, image_format):
+    value = report()
+    color = next(item for item in value["images"] if item["map"] == "COL")
+    source = next(item for item in value["inventory"]["entries"] if item["path"] == color["path"])
+    source["path"] = color["path"] = color["path"].rsplit(".", 1)[0] + "." + extension
+    color["format"] = image_format
+    result = plan(rehash(value))
+    for resolution in result.resolutions:
+        output = next(item for item in resolution.maps if item.shortcut == "COL")
+        assert output.format == image_format and output.destination.endswith("." + extension)
+    assert "COL" in json.loads(result.web_manifest())["WEB_APP_PART"]["MAPS_SHORTCUTS"]
+
+
+def test_nested_previews_with_spaces_and_unicode_remain_opaque_named_files():
+    value = report()
+    value["inventory"]["entries"].extend([
+        {"path": "PREVIEW/detail views", "kind": "directory", "size": 0, "sha256": None},
+        {"path": "PREVIEW/detail views/Český náhled 2.png", "kind": "file", "size": 42, "sha256": "c" * 64},
+    ])
+    result = plan(rehash(value))
+    assert "PREVIEW/detail views/" in result.preview_directories
+    assert any(item.path == "PREVIEW/detail views/Český náhled 2.png" and item.sha256 == "c" * 64 for item in result.previews)
+    assert all("PREVIEW/detail views/Český náhled 2.png" in item.archive_entries for item in result.resolutions)
+
+
 @pytest.mark.parametrize("defect", ["digest", "blocked", "version", "identity", "zero", "traversal", "case-collision", "parent", "total", "file-kind",
     "map-digest", "map-path", "map-format", "map-bits", "duplicate-map", "dimensions", "small", "large", "metadata-collision", "unreviewed", "missing-color"])
 def test_refuses_untrusted_or_inconsistent_inputs_without_reflecting_them(defect):

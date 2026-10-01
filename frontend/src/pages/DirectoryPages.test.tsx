@@ -28,6 +28,7 @@ function backend(options: { folder?: boolean; order?: object; write?: (path: str
     if (path === `/api/customers/${customer.id}`) return json(customerRow);
     if (path.endsWith("/rename-operations")) return json([]);
     if (path === "/api/orders") return json([orderRow]);
+    if (path === "/api/orders/defaults") return json({ number: "0254", starting_date: "2026-10-01" });
     if (path === `/api/orders/${order.id}`) return json(orderRow);
     if (path.endsWith("/folder")) return json({ enabled: options.folder === true });
     if (path === "/api/internal-users") return json([processorDto]);
@@ -43,11 +44,11 @@ it("filters Customers using material main categories and sends versioned inline 
   expect(screen.queryByRole("textbox", { name: `Customer for ${customer.name}` })).not.toBeInTheDocument();
   fireEvent.change(screen.getByRole("combobox", { name: "Main category" }), { target: { value: "H01" } });
   expect(screen.queryByRole("link", { name: customerDtos[1].name })).not.toBeInTheDocument();
-  fireEvent.change(screen.getByRole("combobox", { name: `Status for ${customer.name}` }), { target: { value: "test" } });
+  fireEvent.change(screen.getByRole("combobox", { name: `Status for ${customer.name}` }), { target: { value: "Test sample" } });
   await screen.findByText("Saved. Refresh to reapply filters.");
   const call = fetch.mock.calls.find(([, init]) => init?.method === "PATCH")!;
   expect(call[0]).toBe(`/api/customers/${customer.id}`);
-  expect(JSON.parse(String(call[1]?.body))).toEqual({ status: "test", expected_updated_at: customer.updated_at });
+  expect(JSON.parse(String(call[1]?.body))).toEqual({ status: "Test sample", expected_updated_at: customer.updated_at });
   expect(call[1]?.headers).toMatchObject({ "Idempotency-Key": expect.any(String), "X-CSRF-Token": "t".repeat(43) });
 });
 it("filters Customer creation and update dates independently and clears the bounds", async () => {
@@ -179,7 +180,7 @@ it("creates a customer with only editable fields and without a separate Brand re
   await waitFor(() => expect(saved).toHaveBeenCalled());
   const writes = fetch.mock.calls.filter(([, init]) => init?.method === "POST"); expect(writes).toHaveLength(1);
   expect(writes[0][0]).toBe("/api/customers");
-  expect(JSON.parse(String(writes[0][1]?.body))).toMatchObject({ name: "New customer", notes: "#demo", brand_identifier: null, status: "Active" });
+  expect(JSON.parse(String(writes[0][1]?.body))).toMatchObject({ name: "New customer", notes: "#demo", brand_identifier: null, status: "Active cooperation" });
   expect(JSON.parse(String(writes[0][1]?.body))).not.toHaveProperty("company_id");
 });
 it("validates required customer fields and safe website URLs before sending", async () => {
@@ -209,11 +210,13 @@ it("prevents duplicate submits and ignores a result after unmount", async () => 
 it("generates the uppercase Notion name and creates an order without assigning a number client-side", async () => {
   const fetch = backend(), { saved } = editor("order");
   const customerInput = await screen.findByLabelText("Customer *");
+  expect(screen.getByLabelText("Number (automatic if empty)")).toHaveValue("0254");
+  expect(screen.getByLabelText("Starting date *")).toHaveValue("2026-10-01");
   expect(within(customerInput).getByRole("option", { name: "Choose a customer" })).toBeDisabled();
   fireEvent.change(customerInput, { target: { value: customer.id } });
   fireEvent.change(screen.getByLabelText("Project type *"), { target: { value: "scanning_fabrics" } });
   fireEvent.change(screen.getByLabelText("Starting date *"), { target: { value: "2026-03-14" } });
-  expect(screen.getByText(/0000_SWISSPEARL_SCANNING_FABRICS_032026/)).toBeVisible();
+  expect(screen.getByText(/0254_SWISSPEARL_SCANNING_FABRICS_032026/)).toBeVisible();
   fireEvent.submit(screen.getByRole("form", { name: "Add order" })); await waitFor(() => expect(saved).toHaveBeenCalled());
   const payload = JSON.parse(String(fetch.mock.calls.find(([, init]) => init?.method === "POST")![1]?.body));
   expect(payload).toMatchObject({ customer_id: customer.id, project_type: "scanning_fabrics", starting_date: "2026-03-14" }); expect(payload).not.toHaveProperty("number");
@@ -227,6 +230,34 @@ it("preserves a historical unlinked order while preventing Customer from being c
   fireEvent.submit(screen.getByRole("form", { name: "Edit order" }));
   await waitFor(() => expect(fetch.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true));
   expect(JSON.parse(String(fetch.mock.calls.find(([, init]) => init?.method === "PATCH")![1]?.body))).toEqual({ notes: "Historical note", expected_updated_at: order.updated_at });
+});
+it("sends an explicitly edited order number instead of the server suggestion", async () => {
+  const fetch = backend(), { saved } = editor("order");
+  fireEvent.change(await screen.findByLabelText("Customer *"), { target: { value: customer.id } });
+  fireEvent.change(screen.getByLabelText("Project type *"), { target: { value: "SCANNING" } });
+  fireEvent.change(screen.getByLabelText("Number (automatic if empty)"), { target: { value: "0280" } });
+  fireEvent.submit(screen.getByRole("form", { name: "Add order" }));
+  await waitFor(() => expect(saved).toHaveBeenCalled());
+  const call = fetch.mock.calls.find(([, init]) => init?.method === "POST")!;
+  expect(JSON.parse(String(call[1]?.body))).toMatchObject({ number: "0280", starting_date: "2026-10-01" });
+});
+it("sorts orders by created date, name and number without changing records", async () => {
+  backend();
+  vi.spyOn(directoryClient, "orders").mockResolvedValue([
+    parseOrder({ ...order, number: "0020", generated_name: "ZETA", created_at: "2026-09-01T00:00:00Z" }),
+    parseOrder({ ...order, id: "10000000-0000-4000-8000-000000000002", number: "0010", generated_name: "ALPHA", created_at: "2026-10-01T00:00:00Z" }),
+  ]);
+  render(manager(<OrdersPage client={httpApiClient} navigate={vi.fn()} />));
+  await screen.findByRole("link", { name: "0010" });
+  expect(screen.getByRole("columnheader", { name: "NUMBER" })).toBeVisible();
+  const rows = () => within(screen.getByRole("table")).getAllByRole("link").map(link => link.textContent);
+  expect(rows()).toEqual(["0010", "0020"]);
+  fireEvent.change(screen.getByRole("combobox", { name: "Sort orders" }), { target: { value: "created-asc" } });
+  expect(rows()).toEqual(["0020", "0010"]);
+  fireEvent.change(screen.getByRole("combobox", { name: "Sort orders" }), { target: { value: "name-asc" } });
+  expect(rows()).toEqual(["0010", "0020"]);
+  fireEvent.change(screen.getByRole("combobox", { name: "Sort orders" }), { target: { value: "number-desc" } });
+  expect(rows()).toEqual(["0020", "0010"]);
 });
 it("requires explicit folder confirmation and sends the exact record version", async () => {
   const fetch = backend({ folder: true, order: { folder_path: "R:/0. PROJECTS/OLD", folder_name_matches: false } }); editor("order", order.id);

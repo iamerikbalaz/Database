@@ -23,7 +23,7 @@ function setup(role: Role = "ADMIN", categories = [category]) {
     if (init?.method === "PATCH") {
       const payload = JSON.parse(String(init.body));
       const row = categories.find(item => path.includes(item.id)) ?? category;
-      return json({ ...row, version: row.version + 1, ...(payload.is_active !== undefined ? { is_active: payload.is_active } : { abbreviation: payload.abbreviation }) });
+      return json({ ...row, version: row.version + 1, ...(payload.is_active !== undefined ? { is_active: payload.is_active } : { abbreviation: payload.abbreviation }), ...(payload.value ? { value: payload.value } : {}) });
     }
     if (path.endsWith("/collections")) return json([]);
     return json(categories);
@@ -73,7 +73,7 @@ it("replays an unknown catalog mutation with its original key and frozen inputs"
 it.each(["PROCESSOR", "LEADERSHIP"] as const)("keeps %s catalog access read-only", async (role) => {
   setup(role); await screen.findByText("Stone"); expect(screen.queryByRole("button", { name: "Create catalog value" })).not.toBeInTheDocument();
   expect(screen.queryByRole("checkbox", { name: "Active for Stone" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Create replacement for Stone" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Edit category Stone" })).not.toBeInTheDocument();
 });
 
 it("filters by persisted abbreviation, active state and creation date inside fixed type tabs", async () => {
@@ -92,17 +92,40 @@ it("filters by persisted abbreviation, active state and creation date inside fix
   expect(screen.getByRole("combobox", { name: "Customer filter" })).toBeVisible();
 });
 
-it("edits abbreviations inline and keeps canonical names behind explicit replacement", async () => {
-  const fetch = setup(); await screen.findByRole("textbox", { name: "Abbreviation for Stone" });
-  fireEvent.change(screen.getByRole("textbox", { name: "Abbreviation for Stone" }), { target: { value: "STONE" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save abbreviation" }));
-  await screen.findByText("Saved. Refresh to reapply filters.");
-  expect(JSON.parse(String(fetch.mock.calls.find(([, init]) => init?.method === "PATCH")![1]?.body))).toMatchObject({ expected_version: 1, abbreviation: "STONE" });
-  await waitFor(() => expect(screen.getByRole("button", { name: "Create replacement for Stone" })).toBeEnabled());
-  fireEvent.click(screen.getByRole("button", { name: "Create replacement for Stone" }));
-  expect(screen.getByRole("heading", { name: "Create replacement for Stone" })).toBeVisible();
+it("edits name and abbreviation only in the explicit dialog with a folder warning", async () => {
+  const fetch = setup(); await screen.findByRole("button", { name: "Edit category Stone" });
+  expect(screen.queryByRole("textbox", { name: "Abbreviation for Stone" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Edit category Stone" }));
+  expect(screen.getByRole("dialog", { name: "Edit category" })).toBeVisible();
+  expect(screen.getByText(/This change will not rename existing material folders/)).toBeVisible();
   expect(screen.getByLabelText("Catalog value")).toHaveValue("Stone");
   expect(screen.getByLabelText("Catalog value")).toHaveFocus();
+  fireEvent.change(screen.getByLabelText("Catalog value"), { target: { value: "Natural stone" } });
+  fireEvent.change(screen.getByLabelText("New abbreviation"), { target: { value: "STONE" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save catalog changes" }));
+  await screen.findByText("Catalog change saved. Existing material folders and file names were not changed.");
+  const call = fetch.mock.calls.find(([, init]) => init?.method === "PATCH")!;
+  expect(call[0]).toBe(`/api/online-categories/${category.id}/identity`);
+  expect(JSON.parse(String(call[1]?.body))).toEqual({ idempotency_key: expect.any(String), expected_version: 1, value: "Natural stone", abbreviation: "STONE" });
+});
+
+it("freezes an uncertain identity correction and retries its exact id, version and payload", async () => {
+  const fetch = setup();
+  fireEvent.click(await screen.findByRole("button", { name: "Edit category Stone" }));
+  const dialog = screen.getByRole("dialog", { name: "Edit category" });
+  fireEvent.change(screen.getByLabelText("Catalog value"), { target: { value: "Updated stone" } });
+  fetch.mockRejectedValueOnce(new TypeError("Lost edit response"));
+  fireEvent.click(screen.getByRole("button", { name: "Save catalog changes" }));
+  await screen.findByRole("alert");
+  expect(screen.getByLabelText("Catalog value")).toBeDisabled();
+  fireEvent(dialog, new Event("cancel", { cancelable: true }));
+  expect(dialog).toHaveAttribute("open");
+  expect(requestNavigation("/materials")).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Retry same catalog request" }));
+  await screen.findByText("Catalog change saved. Existing material folders and file names were not changed.");
+  const calls = fetch.mock.calls.filter(([, init]) => init?.method === "PATCH");
+  expect(calls).toHaveLength(2); expect(calls[0]).toEqual(calls[1]);
+  expect(requestNavigation("/materials")).toBe(true);
 });
 
 it("filters creation dates using the same local calendar day as the displayed date", async () => {
@@ -121,31 +144,25 @@ it("filters creation dates using the same local calendar day as the displayed da
   expect(screen.getByText("Stone")).toBeVisible();
 });
 
-it("confirms bulk activity only for the current filtered catalog values", async () => {
+it("does not offer bulk catalog edits even when rows are selected", async () => {
   const fetch = setup("ADMIN", [category, { ...category, id: "10000000-0000-4000-8000-000000000002", value: "Wood", abbreviation: "A" }]);
   await screen.findByText("Stone");
   fireEvent.change(screen.getByRole("searchbox", { name: "Search catalog" }), { target: { value: "Stone" } });
   fireEvent.click(screen.getByRole("checkbox", { name: "Select all filtered rows" }));
-  fireEvent.change(screen.getByRole("combobox", { name: "Bulk property" }), { target: { value: "is_active" } });
-  fireEvent.click(screen.getByRole("checkbox", { name: "Bulk value" }));
-  fireEvent.click(screen.getByRole("button", { name: "Review bulk change" }));
+  expect(screen.queryByRole("combobox", { name: "Bulk property" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Review bulk change" })).not.toBeInTheDocument();
   expect(fetch.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
-  expect(screen.getByRole("searchbox", { name: "Search catalog" })).toBeDisabled();
-  fireEvent.click(screen.getByRole("button", { name: "Confirm changes" }));
-  await waitFor(() => expect(screen.getByRole("button", { name: "Close" })).toBeEnabled());
-  const calls = fetch.mock.calls.filter(([, init]) => init?.method === "PATCH");
-  expect(calls).toHaveLength(1); expect(calls[0][0]).toContain(category.id);
 });
 
-it("preserves catalog filters, selection and an inline draft when the window changes size", async () => {
+it("preserves catalog filters, selection and the table when the window changes size", async () => {
   let resized: (() => void) | undefined;
   const media = { matches: true, addEventListener: vi.fn((_event: string, listener: () => void) => { resized = listener; }), removeEventListener: vi.fn() };
   vi.stubGlobal("matchMedia", vi.fn(() => media));
   const fetch = setup();
-  const input = await screen.findByRole("textbox", { name: "Abbreviation for Stone" });
+  await screen.findByText("Stone");
+  const input = screen.getByRole("searchbox", { name: "Search catalog" });
   fireEvent.change(screen.getByRole("searchbox", { name: "Search catalog" }), { target: { value: "Stone" } });
   fireEvent.click(screen.getByRole("checkbox", { name: "Select all filtered rows" }));
-  fireEvent.change(input, { target: { value: "STONE-DRAFT" } });
   const results = screen.getByRole("region", { name: "Database results" });
   expect(results.parentElement).toHaveClass("database-table-viewport--contained");
   const requests = fetch.mock.calls.length;
@@ -154,8 +171,7 @@ it("preserves catalog filters, selection and an inline draft when the window cha
   expect(screen.getByLabelText("Created from")).toBeVisible();
   act(() => { media.matches = true; resized?.(); });
   expect(results.parentElement).toHaveClass("database-table-viewport--contained");
-  expect(screen.getByRole("textbox", { name: "Abbreviation for Stone" })).toBe(input);
-  expect(input).toHaveValue("STONE-DRAFT");
+  expect(screen.getByRole("searchbox", { name: "Search catalog" })).toBe(input);
   expect(screen.getByRole("searchbox", { name: "Search catalog" })).toHaveValue("Stone");
   expect(screen.getByRole("checkbox", { name: "Select all filtered rows" })).toBeChecked();
   expect(fetch.mock.calls).toHaveLength(requests);

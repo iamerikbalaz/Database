@@ -99,11 +99,16 @@ def _snapshot_values(*, color: str, width: Decimal) -> dict[str, object]:
 def test_material_metadata_migration_follows_material_core_in_single_head_chain() -> None:
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
 
-    assert scripts.get_heads() == ["20260930_0036"]
+    assert scripts.get_heads() == ["20261001_0041"]
     revision = scripts.get_revision("20260909_0005")
     assert revision is not None
     assert revision.down_revision == "20260908_0004"
     assert [item.revision for item in scripts.walk_revisions(base="base", head="heads")] == [
+        "20261001_0041",
+        "20261001_0040",
+        "20261001_0039",
+        "20261001_0038",
+        "20261001_0037",
         "20260930_0036",
         "20260930_0035",
         "20260930_0034",

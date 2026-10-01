@@ -4,6 +4,10 @@ import App from "./App";
 import { record } from "./api/dto";
 import { parseMaterial, type MaterialDto } from "./api/materialDto";
 import { inactiveDto, materialBrand, materialDto, materialProject, metadataDto, processorDto } from "./test/materialFixtures";
+import { materialCategories } from "./data/materialCategories";
+
+const createdBatch = { id: "60000000-0000-4000-8000-000000000001", status: "COMPLETED", completed_count: 1, total_count: 1,
+  items: [{ material_id: materialDto.id, name: "NEW-SURFACE", technical_identity: "LASVIT_0001_NEW-SURFACE_G02", folder_path: "LASVIT/LASVIT_0001_NEW-SURFACE_G02", status: "COMPLETED", error_code: null }] };
 
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 type Write = { path: string; method: string; body: Record<string, unknown> };
@@ -30,6 +34,7 @@ function backend(options: {
       const write = { path, method, body };
       writes.push(write);
       if (options.write) return options.write(write);
+      if (url.pathname === "/api/material-create-batches") return response(createdBatch);
       current = parseMaterial({ ...current, ...body });
       return response(current, method === "POST" ? 201 : 200);
     }
@@ -42,6 +47,15 @@ function backend(options: {
       })));
     }
     const records: Record<string, unknown> = {
+      "/api/online-categories": materialCategories.map((item, index) => ({ id: `70000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, value: item.value, abbreviation: item.code, version: 1, is_active: true })),
+      "/api/collections": [],
+      "/api/material-create-options": { paths_version: 0, templates: [{ name: "base.sbs", size_bytes: 123 }] },
+      "/api/customers": options.emptyChoices ? [] : [{ id: materialBrand.id, name: materialBrand.name, status: "Active cooperation", is_active: true,
+        folder_prefix: materialBrand.folder_prefix, brand_identifier: materialBrand.brand_identifier, main_category_codes: [], has_logo: false, notion_page_id: null,
+        website: null, address: null, shipping_address: null, legal_name: null, vat_id: null, description: null, notes: null, created_at: materialDto.created_at, updated_at: materialDto.updated_at }],
+      "/api/orders": options.emptyChoices ? [] : [{ id: materialProject.id, number: "0001", customer_id: materialBrand.id, project_type: "SCANNING", starting_date: null,
+        due_date: null, notes: null, responsible_id: null, status: "Not started", priority: null, generated_name: materialProject.name, folder_path: null, notion_page_id: null,
+        created_at: materialDto.created_at, updated_at: materialDto.updated_at }],
       ["/api/materials/" + current.id]: current,
       "/api/projects": options.emptyChoices ? [] : [materialProject],
       "/api/brands": options.emptyChoices ? [] : [materialBrand],
@@ -58,17 +72,17 @@ function backend(options: {
   vi.stubGlobal("fetch", fetchMock);
   return { writes, queries, fetchMock };
 }
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { sessionStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const change = (label: string, value: string) => fireEvent.change((screen.queryByRole("search", { name: "Material filters" }) ? within(screen.getByRole("search", { name: "Material filters" })) : screen).getByLabelText(label, { exact: true }), { target: { value } });
 async function fillCreate() {
   await screen.findByRole("form", { name: "Add material" });
-  change("Order *", materialProject.id);
-  change("Customer *", materialBrand.id);
-  change("Material name *", "  New surface  ");
-  change("Main category *", "G02");
-  change("Processor *", processorDto.id);
+  change("Order", materialProject.id);
+  change("Material name", "  New surface  ");
+  change("Main category", "G02");
+  change("Processor", processorDto.id);
+  change("SBS template", "base.sbs");
 }
-const submit = () => fireEvent.click(screen.getByRole("button", { name: "Save" }));
+const submit = () => fireEvent.click(screen.queryByRole("button", { name: "Create material" }) ?? screen.getByRole("button", { name: "Save" }));
 
 it("loads the material list, resolves names and opens detail via a native link", async () => {
   backend();
@@ -159,18 +173,19 @@ it.each(["/materials/not-a-uuid", "/materials/not-a-uuid/edit"])("rejects invali
   expect(screen.getByRole("alert")).toHaveTextContent("valid UUID");
   expect(fetchMock).not.toHaveBeenCalled();
 });
-it("creates with independent owners, active processors, first-field focus and exact POST", async () => {
+it("creates with the Order Customer, active processors and one recoverable batch POST", async () => {
   const { writes, fetchMock } = backend(); render(<App initialPath="/materials/new" />);
-  expect(await screen.findByLabelText("Order *")).toHaveFocus();
+  expect(await screen.findByLabelText("Order")).toHaveFocus();
   expect(screen.queryByRole("option", { name: inactiveDto.display_name })).not.toBeInTheDocument();
   await fillCreate(); submit();
-  expect(await screen.findByRole("heading", { name: "New surface" })).toBeInTheDocument();
-  expect(screen.getByText("Material created successfully.")).toHaveFocus();
-  expect(materialBrand.company_id).not.toBe(materialProject.company_id);
+  expect(await screen.findByRole("heading", { name: "1 of 1 folders created" })).toBeInTheDocument();
+  expect(screen.getByLabelText("Customer")).toHaveValue(materialBrand.id);
+  expect(screen.getByLabelText("Customer")).toBeDisabled();
   expect(fetchMock).toHaveBeenCalledWith("/api/internal-users?is_active=true", expect.any(Object));
-  expect(writes).toEqual([{ path: "/api/materials", method: "POST", body: {
-    project_id: materialProject.id, published_brand_id: materialBrand.id, material_name: "New surface",
-    main_category_code: "G02", assigned_processor_id: processorDto.id,
+  expect(writes).toEqual([{ path: "/api/material-create-batches", method: "POST", body: {
+    idempotency_key: expect.any(String), expected_paths_version: 0,
+    project_id: materialProject.id, published_brand_id: materialBrand.id, names: ["New surface"],
+    main_category_code: "G02", assigned_processor_id: processorDto.id, resolution: 8, template_name: "base.sbs", category_ids: [], collection_ids: [],
   } }]);
 });
 it("edits with a minimal PATCH and shows managed fields read-only", async () => {
@@ -191,7 +206,7 @@ it("explains category conflict as a future rename and preserves input", async ()
   expect(screen.getByLabelText("Main category *")).toHaveValue("G02");
   expect(screen.getByLabelText("Main category *")).toHaveAttribute("aria-describedby", "field-mainCategoryCode-error");
 });
-it("maps 422 to labelled fields and focuses summary", async () => {
+it("explains rejected create values, focuses the summary and preserves input", async () => {
   let finish: (result: Response) => void = () => {};
   const { writes } = backend({ write: () => new Promise((resolve) => { finish = resolve; }) });
   render(<App initialPath="/materials/new" />); await fillCreate(); submit();
@@ -199,14 +214,12 @@ it("maps 422 to labelled fields and focuses summary", async () => {
   await act(async () => finish(response({ detail: [{ loc: ["body", "material_name"], msg: "Invalid material name" }] }, 422)));
   const summary = await screen.findByRole("alert");
   expect(summary).toHaveFocus();
-  expect(screen.getByLabelText("Material name *")).toHaveAttribute("aria-invalid", "true");
-  expect(screen.getByLabelText("Material name *")).toHaveAttribute("aria-describedby", "field-materialName-error");
-  expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  expect(summary).toHaveTextContent("Invalid material name");
+  expect(screen.getByLabelText("Material name")).toHaveValue("  New surface  ");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Create material" })).toBeEnabled());
   await act(async () => { await Promise.resolve(); });
   expect(summary).toHaveFocus();
-  expect(screen.getByLabelText("Order *")).not.toHaveFocus();
-  fireEvent.click(screen.getByRole("link", { name: "Invalid material name" }));
-  expect(screen.getByLabelText("Material name *")).toHaveFocus();
+  expect(screen.getByLabelText("Order")).not.toHaveFocus();
 });
 it("blocks double submit while a write is pending", async () => {
   let finish: (r: Response) => void = () => {};
@@ -215,19 +228,19 @@ it("blocks double submit while a write is pending", async () => {
   const form = screen.getByRole("form", { name: "Add material" });
   fireEvent.submit(form); fireEvent.submit(form);
   await waitFor(() => expect(writes).toHaveLength(1));
-  expect(screen.getByLabelText("Material name *")).toBeDisabled();
-  await act(async () => finish(response(materialDto, 201)));
-  await screen.findByText("Material created successfully.");
+  expect(screen.getByLabelText("Material name")).toBeDisabled();
+  await act(async () => finish(response(createdBatch)));
+  await screen.findByText("1 of 1 folders created");
 });
 it("handles empty option lists without sending invalid create", async () => {
   const { writes } = backend({ emptyChoices: true }); render(<App initialPath="/materials/new" />);
   await screen.findByRole("form", { name: "Add material" }); submit();
-  expect(screen.getAllByRole("alert")).toHaveLength(2);
+  expect(screen.getByRole("alert")).toHaveTextContent("Enter 1–100 names");
   expect(writes).toHaveLength(0);
 });
 it("rejects malformed category locally", async () => {
   const { writes } = backend(); render(<App initialPath="/materials/new" />);
-  await fillCreate(); change("Main category *", "../G03"); submit();
+  await fillCreate(); change("Main category", "../G03"); submit();
   expect(screen.getByRole("alert")).toHaveFocus();
   expect(writes).toHaveLength(0);
 });

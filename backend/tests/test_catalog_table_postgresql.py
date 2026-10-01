@@ -3,6 +3,9 @@ from contextlib import contextmanager
 
 from alembic import command
 from alembic.config import Config
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from alembic.script import ScriptDirectory
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
@@ -48,7 +51,16 @@ def test_catalog_code_upgrade_preserves_values_versions_and_guards_history():
                     assert saved.status_code == 200, saved.text
                     assert saved.json()["abbreviation"] == "NEW_CODE"
                     assert client.patch(path, json=payload).json() == saved.json()
-                with pytest.raises(RuntimeError, match="Catalog abbreviation"):
+                # The latest alias guard blocks the full downgrade first. The
+                # original abbreviation guard must independently remain intact.
+                with pytest.raises(DBAPIError, match="historical category code aliases"):
                     command.downgrade(config, "20260926_0028")
+                with case.database.engine.begin() as connection:
+                    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == ScriptDirectory.from_config(config).get_current_head()
+                    migration = ScriptDirectory.from_config(config).get_revision("20260926_0029").module
+                    patch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))
+                    with pytest.raises(RuntimeError, match="Catalog abbreviation"):
+                        migration.downgrade()
+                    assert connection.scalar(text("SELECT abbreviation FROM online_categories WHERE id=:id"), {"id": category_id}) == "NEW_CODE"
         finally:
             get_settings.cache_clear()

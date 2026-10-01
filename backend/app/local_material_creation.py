@@ -68,7 +68,11 @@ class LocalMaterialCreator:
                 stage = library.journal.path(stage_relative)
                 with library.journal.directory(key):
                     stage.mkdir(exist_ok=True)
-                expected_dirs = {str(context["resolution"]) + "K", "PREVIEW", "SOURCE"}
+                expected_dirs = {"PREVIEW", "SOURCE"}
+                # Only batches already frozen by an older version contain this.
+                # Preserve their staged tree and journal request during recovery.
+                if context.get("resolution") is not None:
+                    expected_dirs.add(str(context["resolution"]) + "K")
                 with library.journal.directory(stage_relative):
                     for name in expected_dirs:
                         (stage / name).mkdir(exist_ok=True)

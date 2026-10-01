@@ -24,7 +24,14 @@ def lock_folder_catalog(session):
         session.execute(text("SELECT pg_advisory_xact_lock(737824903)"))
 
 
-def require_folder_idle(session, folder, *, packaging_execution_id=None, staging_job_id=None):
+def require_folder_idle(session, folder, *, packaging_execution_id=None, staging_job_id=None, preview_operation_id=None):
+    from app.db.preview_edit_models import PreviewEditOwner
+    owners = select(PreviewEditOwner)
+    if preview_operation_id is not None: owners = owners.where(PreviewEditOwner.operation_id != preview_operation_id)
+    for owner in session.scalars(owners):
+        a, b = folder.casefold(), owner.folder_path.casefold()
+        if a == b or a.startswith(b + "/") or b.startswith(a + "/"):
+            raise HTTPException(409, {"code": "MATERIAL_OPERATION_ACTIVE", "message": "Finish the active preview file edit first."})
     for path in session.scalars(select(MaterialMetadataOperation.folder_path).where(MaterialMetadataOperation.status == "RUNNING")):
         a, b = folder.casefold(), path.casefold()
         if a == b or a.startswith(b + "/") or b.startswith(a + "/"):
@@ -58,8 +65,12 @@ def identity_context(material):
     return {**material_context(material), "sequence_number": material.sequence_number}
 
 
-def require_material_idle(session, material_id, *, packaging_execution_id=None, staging_job_id=None):
+def require_material_idle(session, material_id, *, packaging_execution_id=None, staging_job_id=None, preview_operation_id=None):
     from app.db.models import PBRMaterial
+    from app.db.preview_edit_models import PreviewEditOwner
+    preview_owner = session.get(PreviewEditOwner, material_id)
+    if preview_owner is not None and preview_owner.operation_id != preview_operation_id:
+        raise HTTPException(409, {"code": "MATERIAL_OPERATION_ACTIVE", "message": "Finish the active preview file edit first."})
     brand_id = session.scalar(select(PBRMaterial.published_brand_id).where(PBRMaterial.id == material_id))
     if brand_id is not None:
         require_customer_rename_idle(session, brand_id)
@@ -87,6 +98,9 @@ def require_material_idle(session, material_id, *, packaging_execution_id=None, 
 
 
 def require_brand_idle(session, brand_id):
+    from app.db.preview_edit_models import PreviewEditOwner
+    if session.scalar(select(PreviewEditOwner.material_id).where(PreviewEditOwner.brand_id == brand_id).limit(1)):
+        raise HTTPException(409, {"code": "BRAND_OPERATION_ACTIVE", "message": "Finish active preview file edits first."})
     require_customer_rename_idle(session, brand_id)
     if session.scalar(select(MaterialMetadataOperation.id).where(MaterialMetadataOperation.brand_id == brand_id,
             MaterialMetadataOperation.status == "RUNNING").limit(1)):

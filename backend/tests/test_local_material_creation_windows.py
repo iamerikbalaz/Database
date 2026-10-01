@@ -11,22 +11,26 @@ from app.local_materials import LocalMaterialLibrary
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows desktop creation adapter")
 
 
-def setup(tmp_path):
+def setup(tmp_path, legacy_resolution=None):
     root = tmp_path / "materials"; root.mkdir()
     library = LocalMaterialLibrary(root, tmp_path / "journal")
     creator = LocalMaterialCreator(library)
     batch = uuid4(); raw = b"<synthetic-sbs />"
-    context = {"materials_root": str(root), "customer_folder": "CUSTOMER", "template_name":"base.sbs", "template_sha256":hashlib.sha256(raw).hexdigest(),"resolution":7}
+    context = {"materials_root": str(root), "customer_folder": "CUSTOMER", "template_name":"base.sbs", "template_sha256":hashlib.sha256(raw).hexdigest()}
+    if legacy_resolution is not None:
+        context["resolution"] = legacy_resolution
     item = {"material_id":str(uuid4()),"folder_path":"CUSTOMER/CUSTOMER_0001_NEW-MATERIAL_F01"}
     creator.capture_template(batch, context, raw)
     return library,creator,batch,context,item,raw
 
 
-def test_folder_layout_template_bytes_and_replay_never_overwrites_user_edits(tmp_path):
-    library,creator,batch,context,item,raw = setup(tmp_path)
+@pytest.mark.parametrize("legacy_resolution", [None, 7])
+def test_folder_layout_template_bytes_and_replay_never_overwrites_user_edits(tmp_path, legacy_resolution):
+    library,creator,batch,context,item,raw = setup(tmp_path, legacy_resolution)
     creator.create_folder(batch,item,context)
     folder = library.fs.path(item["folder_path"])
-    assert {str(path.relative_to(folder)).replace("\\","/") for path in folder.rglob("*")} == {"7K","PREVIEW","SOURCE","SOURCE/base.sbs"}
+    expected = {"PREVIEW", "SOURCE", "SOURCE/base.sbs"} | ({"7K"} if legacy_resolution else set())
+    assert {str(path.relative_to(folder)).replace("\\","/") for path in folder.rglob("*")} == expected
     assert (folder/"SOURCE/base.sbs").read_bytes() == raw
     (folder/"SOURCE/base.sbs").write_bytes(b"user edit")
     assert creator.create_folder(batch,item,context) == item["folder_path"]
@@ -54,8 +58,9 @@ def test_configured_nested_root_creates_new_folders_without_moving_existing_mate
     assert not (library.fs.root/"CUSTOMER").exists()
 
 
-def test_crash_after_atomic_move_recovers_original_folder_identity(tmp_path,monkeypatch):
-    library,creator,batch,context,item,raw = setup(tmp_path)
+@pytest.mark.parametrize("legacy_resolution", [None, 7])
+def test_crash_after_atomic_move_recovers_original_folder_identity(tmp_path,monkeypatch,legacy_resolution):
+    library,creator,batch,context,item,raw = setup(tmp_path, legacy_resolution)
     write = library.write_state
     def interrupted(key,state):
         if state.get("complete"): raise OSError("synthetic crash after rename")

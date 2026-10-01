@@ -38,7 +38,8 @@ class MaterialBatchCreate(ApiSchema):
     names: list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]] = Field(min_length=1, max_length=100)
     category_ids: list[UUID] = Field(default_factory=list, max_length=100)
     collection_ids: list[UUID] = Field(default_factory=list, max_length=100)
-    resolution: Annotated[int, Field(strict=True, ge=1, le=32)]
+    # Old recovery requests retain their exact hash and frozen folder layout.
+    resolution: Annotated[int, Field(strict=True, ge=1, le=32)] | None = None
     template_name: Annotated[str, StringConstraints(min_length=1, max_length=255)]
 
     @field_validator("names")
@@ -145,7 +146,7 @@ def build_material_creation_router(database, runtime, library=None):
                     raise HTTPException(409, {"code": "SBS_TEMPLATE_UNAVAILABLE"}) from None
                 context = {"materials_root": paths["materials_root"], "paths_version": paths["version"],
                     "template_name": payload.template_name, "template_sha256": hashlib.sha256(raw).hexdigest(),
-                    "resolution": payload.resolution, "customer_folder": brand.folder_prefix}
+                    "customer_folder": brand.folder_prefix}
                 prefix = Path(paths["materials_root"]).relative_to(library.fs.root)
                 batch_id = uuid4()
                 items = []

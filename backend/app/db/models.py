@@ -1898,3 +1898,4 @@ from app.db import notion_sync_models as _notion_sync_models  # noqa: E402,F401
 from app.db import customer_rename_models as _customer_rename_models  # noqa: E402,F401
 from app.db import material_creation_models as _material_creation_models  # noqa: E402,F401
 from app.db import path_settings_models as _path_settings_models  # noqa: E402,F401
+from app.db import preview_edit_models as _preview_edit_models  # noqa: E402,F401

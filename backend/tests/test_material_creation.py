@@ -6,15 +6,18 @@ import pytest
 from sqlalchemy import select, func
 
 from app.db.models import PBRMaterial, Project, PublishedBrand, MaterialNumberReservation
+from app.db.material_creation_models import MaterialCreationBatch
+from app.api.material_creation import MaterialBatchCreate
 from app.local_filesystem import LocalFilesError
 from app.main import create_app
+from app.material_review import canonical_hash
 from test_application_access import access_case
 from test_catalog_content import create_vocabulary
 
 
 class CreatorStub:
     def __init__(self):
-        self.created = []; self.captured = []; self.fail = set()
+        self.created = []; self.captured = []; self.contexts = []; self.fail = set()
     def read_template(self, root, name):
         if name != "base.sbs": raise LocalFilesError("SBS_TEMPLATE_UNAVAILABLE")
         return b"synthetic graph"
@@ -22,6 +25,7 @@ class CreatorStub:
     def create_folder(self, identifier, item, context):
         if item["name"] in self.fail: raise LocalFilesError("MATERIAL_FOLDER_EXISTS")
         self.created.append(item["material_id"])
+        self.contexts.append(context)
         return item["folder_path"]
 
 
@@ -37,7 +41,7 @@ def creation_case(access_case, tmp_path, monkeypatch):
 def payload(case, **changes):
     return {"idempotency_key": str(uuid4()), "expected_paths_version": 0,
         "published_brand_id": str(case.materials[0].published_brand_id), "assigned_processor_id": str(case.users["PROCESSOR"].id),
-        "main_category_code": "G03", "names": ["New Orange", "New Yellow"], "resolution": 7, "template_name": "base.sbs", **changes}
+        "main_category_code": "G03", "names": ["New Orange", "New Yellow"], "template_name": "base.sbs", **changes}
 
 
 def test_batch_reserves_unique_numbers_creates_optional_order_content_and_replays(creation_case):
@@ -79,6 +83,57 @@ def test_partial_folder_failure_resumes_same_records_without_duplicate_number_or
         assert creator.created == [item["material_id"] for item in first["items"]]
     with case.database.session() as session:
         assert session.scalar(select(func.count()).select_from(PBRMaterial)) == 4
+
+
+@pytest.mark.parametrize("legacy_client", [False, True])
+def test_new_batches_do_not_freeze_a_resolution_even_for_older_clients(creation_case, legacy_client):
+    case, creator = creation_case
+    request = payload(case, **({"resolution": 7} if legacy_client else {}))
+    with case.client("ADMIN") as client:
+        response = client.post("/api/material-create-batches", json=request)
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "COMPLETED"
+        assert client.post("/api/material-create-batches", json=request).json() == response.json()
+    assert len(creator.captured) == 1 and len(creator.contexts) == 2
+    assert all("resolution" not in context for context in creator.contexts)
+    assert "resolution" not in creator.captured[0][1]
+    with case.database.session() as session:
+        batch = session.get(MaterialCreationBatch, UUID(response.json()["id"]))
+        assert "resolution" not in batch.source_context
+
+
+def test_resumes_a_legacy_batch_using_its_original_resolution_and_request_hash(creation_case):
+    case, creator = creation_case
+    material = case.materials[0]
+    request = payload(case, names=[material.material_name], resolution=7)
+    # This is the normalized request shape persisted by the prior version.
+    old_payload = {**request, "project_id": None, "category_ids": [], "collection_ids": []}
+    assert MaterialBatchCreate.model_validate(request).model_dump(mode="json") == old_payload
+    context = {"materials_root": case.app.state.settings.materials_root, "paths_version": 0,
+        "template_name": "base.sbs", "template_sha256": "a" * 64, "customer_folder": "SAFE", "resolution": 7}
+    folder_path = "SAFE/" + material.technical_identity
+    batch_id = uuid4()
+    with case.database.session() as session:
+        session.add(MaterialCreationBatch(id=batch_id, actor_id=case.users["ADMIN"].id,
+            customer_id=material.published_brand_id, request_key=UUID(request["idempotency_key"]),
+            request_hash=canonical_hash(old_payload), request_payload=old_payload, source_context=context,
+            items=[{"material_id": str(material.id), "name": material.material_name,
+                "technical_identity": material.technical_identity, "folder_path": folder_path,
+                "status": "FAILED", "error_code": "MATERIAL_FOLDER_CREATE_FAILED"}], status="PARTIAL"))
+        session.commit()
+    with case.client("ADMIN") as client:
+        changed = client.post("/api/material-create-batches", json={**request, "resolution": 8})
+        assert changed.status_code == 409 and changed.json()["detail"]["code"] == "MATERIAL_CREATION_KEY_REUSED"
+        recovered = client.post("/api/material-create-batches", json=request)
+        assert recovered.status_code == 200, recovered.text
+        assert recovered.json()["status"] == "COMPLETED"
+        assert recovered.json()["id"] == str(batch_id)
+        assert client.post("/api/material-create-batches", json=request).json() == recovered.json()
+    assert creator.contexts == [context] and creator.created == [str(material.id)]
+    assert not creator.captured
+    with case.database.session() as session:
+        assert session.scalar(select(func.count()).select_from(PBRMaterial)) == 2
+        assert session.get(MaterialCreationBatch, batch_id).source_context == context
 
 
 @pytest.mark.parametrize("role,expected", [(None,401),("LEADERSHIP",403),("PROCESSOR",403),("PRODUCTION_LEAD",200)])

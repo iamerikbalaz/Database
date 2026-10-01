@@ -1,6 +1,23 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-10-01, compact materials and preview file editing)
+## Latest checkpoint (2026-10-01, material card controls and bulk names)
+
+The local test at `http://127.0.0.1:53033` serves the refreshed material card and
+Edit names action in the selected-material toolbar for list and gallery views.
+Schema remains 0042; source files were not changed during verification.
+
+- Keep filters text/checkbox placement and collapsed Preview width corrected.
+- Bulk literal name replacement reviews source plans and confirms existing durable
+  identity operations; stale records, unknown outcomes and recovery are covered.
+- Card refresh icons, compact preview navigation, aligned panel headings and
+  side-by-side folder/library layout; Check material data is in the page heading
+  and its report appears after execution and survives the subsequent refresh.
+- Full frontend 1,230 tests, lint and build passed. Live API/asset acceptance
+  passed. Remote main remains unchanged at `88a1f99`.
+
+See [behavior and verification](material-card-and-bulk-names-2026-10-01.md).
+
+## Previous checkpoint (2026-10-01, compact materials and preview file editing)
 
 The owned local test at `http://127.0.0.1:53033` runs schema 0042. Its fresh
 database backup and read-only live API acceptance passed; all 51 material records

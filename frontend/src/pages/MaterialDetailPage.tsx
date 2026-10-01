@@ -42,6 +42,8 @@ function MaterialDetailContent({ initialMaterial, client, navigate, includeArchi
   const [refreshError, setRefreshError] = useState("");
   const [propertiesBusy, setPropertiesBusy] = useState(false);
   const [libraryBusy, setLibraryBusy] = useState(false);
+  const [folderBusy, setFolderBusy] = useState(false), [checkBusy, setCheckBusy] = useState(false);
+  const [checkActionTarget, setCheckActionTarget] = useState<HTMLDivElement | null>(null);
   const [historyRefresh, setHistoryRefresh] = useState(0);
   const store = useMemo(() => new GalleryStore(), []);
   useEffect(() => () => store.clear(), [store]);
@@ -67,25 +69,29 @@ function MaterialDetailContent({ initialMaterial, client, navigate, includeArchi
   const [editName, setEditName] = useState(false);
   return <section className="material-detail-page">
     <NavigationLink className="back-link" href={material.isArchived ? "/material-archives" : "/materials"} navigate={navigate}>{material.isArchived ? "Back to archived materials" : "Back to materials"}</NavigationLink>
-    <div className="page-heading"><div><p className="eyebrow">{material.technicalIdentity}</p><h1>{material.materialName}</h1></div>
-      {canEdit && <button className="button" disabled={refreshing || propertiesBusy || libraryBusy} onClick={() => setEditName(true)}>Edit Name</button>}
+    <div className="page-heading"><div className="material-page-identity"><p className="eyebrow">{material.technicalIdentity}</p><div className="material-name-heading"><h1>{material.materialName}</h1>
+      {canEdit && <button className="button" disabled={refreshing || propertiesBusy || libraryBusy || folderBusy || checkBusy} onClick={() => setEditName(true)}>Edit Name</button>}</div></div>
+      <div className="material-check-action" ref={setCheckActionTarget} />
     </div>
+    <MaterialDataCheck key={material.id} materialId={material.id} updatedAt={material.updatedAt} actionTarget={checkActionTarget} dockOnly
+      disabled={propertiesBusy || libraryBusy || folderBusy || refreshing || editName || !role || !["ADMIN", "PRODUCTION_LEAD", "PROCESSOR"].includes(role)} onChanged={refresh} onBusyChange={setCheckBusy} />
     <div className="material-detail-summary">
-    {role && <MaterialGallery key={`gallery-${material.id}-${material.folderPath}-${material.updatedAt}`} materialId={material.id} linked={Boolean(material.folderPath)} initiallyOpen />}
+    {role && <MaterialGallery key={`gallery-${material.id}-${material.folderPath}-${material.updatedAt}`} materialId={material.id} linked={Boolean(material.folderPath)} />}
     <article className="panel material-basic-panel" aria-label="Material properties">
       {options.error && <p role="alert">Related property choices could not be loaded. <button onClick={options.retry}>Retry related records</button></p>}
       {catalog.error && <p role="alert">Category choices could not be loaded. The current category is retained. <button onClick={catalog.retry}>Retry categories</button></p>}
-      <fieldset className="material-properties-fieldset" disabled={libraryBusy}><legend>Material properties</legend><MaterialsTable detail materials={[material]} store={store} client={client} projects={projects} brands={brands} users={users}
+      <fieldset className="material-properties-fieldset" disabled={libraryBusy || folderBusy || checkBusy || editName}><legend>Material properties</legend><MaterialsTable detail materials={[material]} store={store} client={client} projects={projects} brands={brands} users={users}
         categories={catalogMaterialCategories(catalog.data ?? [])} categoryLabels={catalogMaterialCategoryLabels(catalog.data ?? [])}
         navigate={navigate} refresh={refreshFromProperties} onBusyChange={setPropertiesBusy} onMaterialChanged={setMaterial} />
       </fieldset>
     </article>
     </div>
     {refreshError && <div role="alert">{refreshError}<button className="button" disabled={libraryBusy} onClick={() => void refresh()}>Reload material data</button></div>}
-    {role && <MaterialDataFolder key={`folder-${material.id}-${material.folderPath}`} material={material} onChanged={refresh} disabled={propertiesBusy || libraryBusy || refreshing} />}
-    {role && !material.isArchived && <MaterialContentPanel key={`content-${material.id}-${material.publishedBrandId}`} material={material} onChanged={refresh} onBusyChange={setLibraryBusy} disabled={propertiesBusy} />}
+    {role && <div className="material-detail-data">
+      <MaterialDataFolder key={`folder-${material.id}-${material.folderPath}`} material={material} onChanged={refresh} onBusyChange={setFolderBusy} disabled={propertiesBusy || libraryBusy || refreshing || checkBusy || editName} />
+      {!material.isArchived && <MaterialContentPanel key={`content-${material.id}-${material.publishedBrandId}`} material={material} onChanged={refresh} onBusyChange={setLibraryBusy} disabled={propertiesBusy || folderBusy || checkBusy || editName} />}
+    </div>}
     <MaterialHistoryPanel id={material.id} updatedAt={material.updatedAt} refreshRevision={historyRefresh} />
-    <MaterialDataCheck key={material.id} materialId={material.id} updatedAt={material.updatedAt} disabled={propertiesBusy || libraryBusy || refreshing || !role || !["ADMIN", "PRODUCTION_LEAD", "PROCESSOR"].includes(role)} onChanged={refresh} />
     {editName && <MaterialNameDialog material={material} onClose={() => setEditName(false)} onChanged={refresh} />}
   </section>;
 }

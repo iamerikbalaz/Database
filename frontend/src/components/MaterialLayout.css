@@ -1,24 +1,38 @@
-.material-detail-page { display: grid; gap: 16px; min-width: 0; }
-.material-detail-page > .page-heading { margin-bottom: 0; }
-.material-detail-summary { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.material-detail-page { --material-select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23394173' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); display: grid; gap: 16px; min-width: 0; }
+.material-detail-page > .page-heading { margin-bottom: 0; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.material-detail-page .material-page-identity { min-width: 0; }
+.material-name-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.material-detail-page .material-name-heading h1 { margin: 0; overflow-wrap: anywhere; }
+.material-name-heading > .button, .material-check-action > .button { margin: 0; white-space: nowrap; }
+.material-check-action { margin-inline-start: auto; flex-shrink: 0; }
+.material-detail-summary { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 16px; align-items: stretch; }
 .material-detail-summary > .material-basic-panel:only-child { grid-column: 1 / -1; }
-.material-detail-summary > .panel, .material-detail-page > .panel { margin-top: 0; padding: 18px; min-width: 0; }
-.material-detail-summary .preview-gallery h2 { font-size: 17px; margin: 0 0 12px; }
-.material-detail-summary .material-preview { margin: 10px 0; }
+.material-detail-data { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 16px; align-items: start; }
+.material-detail-data > .panel:only-child { grid-column: 1 / -1; }
+.material-detail-summary > .panel, .material-detail-page > .panel, .material-detail-data > .panel { margin-top: 0; padding: 18px; min-width: 0; }
+.material-detail-page .panel h2, .material-detail-page .material-properties-fieldset > legend, .material-detail-page > details.panel > summary { font-size: 17px; font-weight: 600; }
+.material-detail-summary .preview-gallery { display: flex; flex-direction: column; }
+.material-detail-summary .material-preview { display: flex; flex-direction: column; justify-content: center; flex: 1; gap: 12px; margin: 14px 0 0; }
 .material-detail-summary .material-preview img { width: 100%; aspect-ratio: 1; max-height: 280px; object-fit: contain; }
 .material-detail-summary .material-preview figcaption { margin-top: 8px; font-size: 11px; }
-.material-detail-summary .preview-navigation { gap: 12px; margin-bottom: 8px; }
-.material-detail-summary .preview-navigation .button { padding: 6px 10px; margin: 0; }
-.material-detail-summary .preview-gallery > .button { font-size: 11px; padding: 7px 10px; margin: 4px 4px 0 0; }
+.material-preview-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.material-detail-summary .preview-navigation { gap: 5px; margin: 0; font-size: 11px; color: var(--muted); }
+.material-detail-page .button.material-icon-button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 32px; width: 32px; min-width: 32px; height: 32px; min-height: 32px; padding: 0; margin: 0; border-radius: 8px; }
+.material-detail-page .material-icon-button > .icon { flex: none; display: block; }
+.material-detail-page .preview-navigation .material-icon-button { width: 26px; min-width: 26px; height: 28px; min-height: 28px; flex-basis: 26px; border-color: transparent; background: transparent; }
+.material-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.material-detail-page .material-section-heading h2 { margin: 0; }
+.material-section-heading > div { flex-shrink: 0; }
 .material-detail-summary .material-property-editor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; }
 .material-detail-summary .material-property-editor > div { grid-template-columns: minmax(85px, .55fr) minmax(0, 1fr); align-items: center; gap: 8px; padding: 6px 0; min-width: 0; }
 .material-detail-summary .material-property-editor dt { font-size: 11px; }
 .material-detail-summary .material-property-editor dd { margin: 0; overflow-wrap: anywhere; font-size: 12px; }
-.material-detail-summary .material-property-editor select { min-height: 34px; padding: 5px 24px 5px 8px; font-size: 12px; }
+.material-detail-summary .material-property-editor select { appearance: none; height: 34px; min-height: 34px; padding: 5px 30px 5px 10px; font: inherit; font-size: 12px; font-weight: 400; color: var(--text, #1f2444); background-color: var(--surface, #fff); background-image: var(--material-select-arrow); background-repeat: no-repeat; background-position: right 10px center; background-size: 12px; border: 1px solid var(--border); border-radius: 8px; }
+.material-detail-page select:focus-visible, .material-detail-page .material-color-select:focus-visible { outline: 2px solid var(--primary, #394173); outline-offset: 2px; }
 .material-detail-summary .material-property-editor .table-note textarea { min-height: 34px; height: 34px; padding: 6px 8px; font-size: 12px; resize: vertical; }
 .material-detail-page .material-properties-fieldset > legend { margin-bottom: 8px; }
 
-.material-library-panel > h2 { margin: 0 0 8px; font-size: 19px; }
+.material-library-panel > h2 { margin: 0 0 8px; font-size: 17px; }
 .material-library-panel > p { margin: 6px 0 12px; font-size: 12px; }
 .material-library-panel form, .material-library-panel .material-library-fields { gap: 12px; }
 .material-library-panel .material-library-fields { border: 0; padding: 0; }
@@ -26,13 +40,20 @@
 .material-library-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(155px, 100%), 1fr)); gap: 12px; align-items: end; }
 .material-library-panel .material-library-text > label, .material-library-panel .material-library-metrics > label { display: grid; gap: 5px; min-width: 0; font-size: 12px; }
 .material-library-panel .material-library-text textarea { min-height: 76px; padding: 8px 10px; font-size: 12px; }
-.material-library-panel .material-library-metrics input { min-height: 36px; padding: 6px 10px; font-size: 12px; }
+.material-library-panel .material-library-fields .material-library-metrics input { height: 34px; min-height: 34px; padding: 5px 10px; font-size: 12px; border-radius: 8px; }
 .material-library-panel .material-color-field { min-width: 0; }
 .material-library-panel .material-color-field > label { margin: 0 0 5px; font-size: 12px; }
-.material-library-panel .material-color-select { min-height: 36px; margin: 0; padding: 6px 10px; font-size: 12px; }
+.material-library-panel .material-color-select { height: 34px; min-height: 34px; margin: 0; padding: 6px 10px; font-size: 12px; font-weight: 400; border-radius: 8px; border: 1px solid var(--border); background: var(--surface, #fff); }
+.material-detail-page .material-color-select .material-color-swatch { width: 20px; height: 20px; flex-basis: 20px; border-radius: 4px; }
+.material-detail-page .material-color-select .material-color-chevron { flex: 0 0 12px; width: 12px; height: 12px; font-size: 0; background-image: var(--material-select-arrow); background-repeat: no-repeat; background-size: 12px; }
 .material-library-panel .form-actions { margin-top: 0; gap: 8px; }
 .material-library-panel .form-actions .button { margin: 0; }
 .material-library-panel .material-library-fields > p { margin: 0; font-size: 12px; }
+.material-detail-data .material-file-tree { max-height: 320px; overflow: auto; margin: 0 0 12px; }
+.material-detail-data .material-data-folder > label { font-size: 12px; }
+.material-detail-data .material-data-folder .folder-absolute-path { min-height: 36px; font-size: 12px; padding: 6px 8px; }
+.material-detail-data .material-data-folder .form-actions { margin-top: 12px; gap: 8px; }
+.material-detail-data .material-data-folder .form-actions > .button { margin: 0; }
 
 .material-choice-group { min-width: 0; border: 1px solid var(--border); border-radius: 10px; padding: 0 12px; }
 .material-choice-group > summary { padding: 10px 0; cursor: pointer; font-size: 12px; font-weight: 600; }
@@ -73,6 +94,7 @@
 @media (max-width: 1100px) {
   .material-detail-summary { grid-template-columns: minmax(190px, 250px) minmax(0, 1fr); }
   .material-detail-summary .material-property-editor { grid-template-columns: minmax(0, 1fr); }
+  .material-detail-data { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 760px) {
   .material-detail-summary, .material-create-layout, .material-library-text, .material-library-choices, .material-bulk-content-columns { grid-template-columns: minmax(0, 1fr); }

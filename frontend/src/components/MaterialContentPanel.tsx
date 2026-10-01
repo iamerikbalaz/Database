@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { catalogClient, type CatalogValue, type ContentPayload, type MaterialContent } from "../api/catalogClient";
 import { ApiError } from "../api/errors";
 import type { Material } from "../api/materialDto";
@@ -9,13 +10,15 @@ import { useSession } from "../auth/context";
 import { MaterialColorSelect } from "./MaterialColorSelect";
 import { useNavigationGuard } from "../navigationGuard";
 import { ErrorState, LoadingState } from "./PageState";
+import { Icon } from "./Icon";
 import "./MaterialLayout.css";
 
 const vocabularyLabel = (item: CatalogValue) => item.abbreviation ? `${item.abbreviation} · ${item.value}` : item.value;
 
-function ContentEditor({ material, content, categories, collections, source, onSaved, reload, onBusyChange, disabled }: {
+function ContentEditor({ material, content, categories, collections, source, onSaved, reload, onBusyChange, disabled, headingActions }: {
   material: Material; content: MaterialContent; categories: CatalogValue[]; collections: CatalogValue[]; source: MetadataObservation;
   onSaved: () => void | Promise<unknown>; reload: () => void; onBusyChange?: (busy: boolean) => void; disabled?: boolean;
+  headingActions: HTMLElement | null;
 }) {
   const role = useSession()?.session.user.role;
   const allowed = role === "ADMIN" || role === "PRODUCTION_LEAD" || role === "PROCESSOR";
@@ -99,6 +102,7 @@ function ContentEditor({ material, content, categories, collections, source, onS
       {vocabularyLabel(item)}{item.id === required ? " (Main category)" : !item.active ? " (inactive; remove before saving)" : ""}</label>)}
   </div></details>;
   return <>
+    {headingActions && createPortal(<button className="button material-icon-button" type="button" aria-label="Reload source" title="Reload source" disabled={busy || disabled || dirty} onClick={reload}><Icon name="refresh" size={18} /></button>, headingActions)}
     <p>Revision {content.revision} · {content.status === "EMPTY" ? "Empty" : "Saved content"}</p>
     {error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status">{notice}</p>}
     {dirty && !busy && <p role="status">Unsaved library changes. Save or discard these changes before editing the material properties or leaving this card.</p>}
@@ -129,7 +133,6 @@ function ContentEditor({ material, content, categories, collections, source, onS
       <div className="form-actions">
         {allowed && <button className="button button--primary" disabled={pending || disabled} type="submit">{uncertain || active ? "Recover library data save" : pending ? "Saving…" : "Save library data"}</button>}
         <button className="button" type="button" disabled={busy || disabled} onClick={() => void openMetadata()}>Open metadata.json</button>
-        <button className="button" type="button" disabled={busy || disabled || dirty} onClick={reload}>Reload source</button>
         {dirty && <button className="button" type="button" disabled={busy || disabled} onClick={reload}>Discard changes</button>}
       </div>
     </form>
@@ -138,15 +141,18 @@ function ContentEditor({ material, content, categories, collections, source, onS
 
 export function MaterialContentPanel({ material, onChanged, onBusyChange, disabled }: { material: Material; onChanged: () => void | Promise<unknown>; onBusyChange?: (busy: boolean) => void; disabled?: boolean }) {
   const actor = useSession()?.session.user.id;
+  const [headingActions, setHeadingActions] = useState<HTMLDivElement | null>(null);
   const load = useCallback(async () => {
     void actor; void material.mainCategoryCode; void material.updatedAt;
     const [content, categories, collections, source] = await Promise.all([catalogClient.content(material.id), catalogClient.categories(), catalogClient.collections(material.publishedBrandId), metadataClient.inspect(material.id)]);
     return { content, categories, collections, source };
   }, [material.id, material.publishedBrandId, material.mainCategoryCode, material.updatedAt, actor]);
   const resource = useResource(load);
-  return <article className="panel catalog-content material-library-panel" aria-label="Publication content"><h2>Material data for library</h2>
+  return <article className="panel catalog-content material-library-panel" aria-label="Publication content"><div className="material-section-heading"><h2>Material data for library</h2><div ref={setHeadingActions}>
+    {!resource.data && <button className="button material-icon-button" type="button" aria-label="Reload source" title="Reload source" disabled={!resource.error || disabled} onClick={resource.retry}><Icon name="refresh" size={18} /></button>}
+  </div></div>
     {resource.error ? <ErrorState message="Library data could not be loaded." retry={resource.retry} /> : !resource.data ? <LoadingState label="Loading library data…" /> :
       <ContentEditor key={`${material.mainCategoryCode}:${resource.data.content.revision}:${resource.data.source.expectedUpdatedAt}:${resource.data.source.sha256}`} material={material}
-        {...resource.data} onSaved={onChanged} onBusyChange={onBusyChange} disabled={disabled} reload={resource.retry} />}
+        {...resource.data} onSaved={onChanged} onBusyChange={onBusyChange} disabled={disabled} reload={resource.retry} headingActions={headingActions} />}
   </article>;
 }

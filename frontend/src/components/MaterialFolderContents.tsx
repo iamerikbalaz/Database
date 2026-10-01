@@ -21,11 +21,11 @@ function parse(value: unknown, id: string, path: string) {
   return { entries, omitted: data.omitted_entries };
 }
 
-export function MaterialFolderContents({ materialId, folderPath }: { materialId: string; folderPath: string | null }) {
+export function MaterialFolderContents({ materialId, folderPath, showRefresh = true }: { materialId: string; folderPath: string | null; showRefresh?: boolean }) {
   const [revision, setRevision] = useState(0);
   return <div className="material-file-tree" aria-label="Material folder contents">
     {!folderPath ? <p>No source folder linked.</p> : <><FolderBranch key={revision} materialId={materialId} path="" />
-      <button type="button" className="button" onClick={() => setRevision(value => value + 1)}>Refresh contents</button></>}
+      {showRefresh && <button type="button" className="button" onClick={() => setRevision(value => value + 1)}>Refresh contents</button>}</>}
   </div>;
 }
 

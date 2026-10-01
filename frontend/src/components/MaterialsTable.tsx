@@ -22,6 +22,7 @@ import { MaterialNameDialog } from "./MaterialNameDialog";
 import { MaterialPreviewStrip } from "./MaterialPreviewStrip";
 import { PreviewEditDialog, type PreviewEditSelection } from "./PreviewEditDialog";
 import { identityClient, type IdentityConfirmation } from "../api/identityClient";
+import { MaterialBulkNamesDialog } from "./MaterialBulkNamesDialog";
 
 const columns = [
   ["project", "Order", 180], ["brand", "Customer", 180], ["category", "Category", 225],
@@ -96,10 +97,11 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
   const [identityBusy, setIdentityBusy] = useState(false);
   const [identity, setIdentity] = useState<{ material: Material; brand?: string; category?: string }>();
   const [rename, setRename] = useState<Material | null>(null), [previewEdit, setPreviewEdit] = useState<PreviewEditSelection | null>(null);
+  const [bulkNames, setBulkNames] = useState<Material[] | null>(null), namesChanged = useRef(false);
   const previewsChanged = useRef(false);
   const [expanded, setExpanded] = useState(false), [previewCounts, setPreviewCounts] = useState<Record<string, number>>({}), [previewEpoch, setPreviewEpoch] = useState(0);
   const countPreviews = useCallback((id: string, count: number) => setPreviewCounts(current => current[id] === count ? current : { ...current, [id]: count }), []);
-  const editDialogOpen = Boolean(rename || previewEdit);
+  const editDialogOpen = Boolean(rename || previewEdit || bulkNames);
   const dialog = useRef<HTMLDialogElement>(null), identityDialog = useRef<HTMLDialogElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const alive = useRef(true), sending = useRef(false), stop = useRef(false);
@@ -269,7 +271,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
   };
   const numberColumn = layout.find(c => c.key === "number" && c.visible);
   const visible = layout.filter(c => c.key !== "number" && (c.visible || archivedView && c.key === "archivedAt"));
-  const previewWidth = expanded ? Math.max(160, ...rows.map(row => (previewCounts[row.id] ?? 1) * 122 + 6)) : 76;
+  const previewWidth = expanded ? Math.max(160, ...rows.map(row => (previewCounts[row.id] ?? 1) * 122 + 6)) : 96;
   const review = jobs[0] ? describeChange(jobs[0].change) : null;
   const waiting = jobs.some(j => j.status === "waiting"), unknown = jobs.some(j => j.status === "unknown");
   return <div className={detail ? "material-detail-properties" : `resource-database materials-database${scrollMode === "contained" ? " resource-database--contained" : ""}`}>
@@ -290,6 +292,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
       <label>New value{bulkField === "note" ? <textarea disabled={active || editDialogOpen} value={bulkValue} maxLength={10000} onChange={e => setBulkValue(e.target.value)} /> : <select disabled={active || editDialogOpen} value={bulkValue} onChange={e => setBulkValue(e.target.value)}>{bulkChoices(bulkField).map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select>}</label>
       <button className="button button--primary" disabled={active || editDialogOpen || (bulkField === "assigned_processor_id" || bulkField === "main_category_code") && !bulkValue} onClick={() => prepare(selectedRows, bulkChange())}>Review bulk change</button>
       <div className="material-bulk-actions">
+        {manager && !archivedView && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || editDialogOpen || selectedRows.length > 100} onClick={() => setBulkNames(selectedRows.map(row => ({ ...row })))}>Edit names</button>}
         {!archivedView && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || editDialogOpen || selectedRows.length > 100} onClick={() => setPreviewEdit({ materials: selectedRows.map(row => ({ ...row })), action: "BULK" })}>Edit previews</button>}
         {checkActionsRef && <div className="material-check-actions-slot" ref={checkActionsRef} />}
         {onCheckSelected && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || selectedRows.length > 100} onClick={() => onCheckSelected(selectedRows.map(row => ({ ...row })))}>Auto-check selected materials ({selectedRows.length})</button>}
@@ -302,7 +305,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
       {jobs[0].message}{unknown && <button className="button" disabled={pending} onClick={() => void run()}>Retry same request</button>}
     </div>}
     {detail ? <dl className="info-list material-property-editor">{columns.filter(([key]) => key !== "archivedAt" || rows[0].isArchived).map(([key, name]) => <div key={key}><dt>{name}</dt><dd>{renderCell(key, rows[0])}</dd></div>)}</dl> : <DatabaseTableViewport scrollMode={scrollMode} className={`table-card material-table material-table--editable${expanded ? " material-table--previews-expanded" : ""}`} label="Material results">
-      <table style={{ width: 280 + previewWidth + (numberColumn?.width ?? 0) + visible.reduce((n, c) => n + c.width, 0), "--material-name-left": `${40 + previewWidth + (numberColumn?.width ?? 0)}px` } as CSSProperties}><caption className="sr-only">Materials and production status</caption>
+      <table style={{ width: 280 + previewWidth + (numberColumn?.width ?? 0) + visible.reduce((n, c) => n + c.width, 0), "--material-preview-width": `${previewWidth}px`, "--material-name-left": `${40 + previewWidth + (numberColumn?.width ?? 0)}px` } as CSSProperties}><caption className="sr-only">Materials and production status</caption>
         <colgroup><col style={{ width: 40 }} /><col style={{ width: previewWidth }} />{numberColumn && <col style={{ width: numberColumn.width }} />}<col style={{ width: 240 }} />{visible.map(c => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
         <thead><tr><th scope="col">{selectable && <input type="checkbox" aria-label="Select all visible materials" disabled={active || lifecycleBusy} checked={rows.length > 0 && selectedRows.length === rows.length} onChange={e => setSelected(new Set(e.target.checked ? rows.map(r => r.id) : []))} />}</th><th scope="col"><button className="preview-column-toggle" aria-label={expanded ? "Collapse previews" : "Expand previews"} aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>Preview<Icon name="arrow" size={12} /></button></th>{numberColumn && <th scope="col">Number</th>}<th scope="col" className="material-name-column">Material</th>{visible.map(c => <th key={c.key} scope="col">{title(c.key)}</th>)}</tr></thead>
         <tbody>{rows.map(row => <tr key={row.id} className={`${selected.has(row.id) ? "is-selected " : ""}${highlight.ids.has(row.id) ? "is-highlighted" : ""}`} aria-selected={highlight.ids.has(row.id)}
@@ -340,5 +343,6 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     </dialog>
     {rename && <MaterialNameDialog material={rename} onClose={() => setRename(null)} onChanged={async () => { store.forget(rename.id, rename.folderPath ?? ""); setPreviewEpoch(value => value + 1); refresh(); return true; }} />}
     {previewEdit && <PreviewEditDialog selection={previewEdit} onClose={() => { setPreviewEdit(null); if (previewsChanged.current) { previewsChanged.current = false; refresh(); } }} onChanged={() => { previewEdit.materials.forEach(row => store.forget(row.id, row.folderPath ?? "")); setPreviewEpoch(value => value + 1); previewsChanged.current = true; }} />}
+    {bulkNames && <MaterialBulkNamesDialog materials={bulkNames} client={client} onChanged={() => { bulkNames.forEach(row => store.forget(row.id, row.folderPath ?? "")); namesChanged.current = true; }} onClose={() => { setBulkNames(null); if (namesChanged.current) { namesChanged.current = false; setPreviewEpoch(value => value + 1); refresh(); } }} />}
   </div>;
 }

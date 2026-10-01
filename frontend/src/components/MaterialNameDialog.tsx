@@ -49,7 +49,8 @@ export function MaterialNameDialog({ material, destination, onClose, onChanged }
       if (result.status === "COMPLETED") { await onChanged(); onClose(); }
       else { setPlan(null); setError("The change was rejected or rolled back. Check the material and source folder before confirming again."); }
     } catch (cause) {
-      if (!activeOperation && cause instanceof ApiError && cause.status >= 400 && cause.status < 500) {
+      // A rejected retry cannot disprove that the earlier unknown request committed.
+      if (!uncertain && !activeOperation && cause instanceof ApiError && cause.status >= 400 && cause.status < 500) {
         exact.current = null; setUncertain(false); setPlan(null);
         const messages: Record<string, string> = {
           PUBLISHED_IDENTITY_BLOCKED: "A published material cannot be renamed or moved. Clear Published first.",

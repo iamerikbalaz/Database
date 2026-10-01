@@ -5,6 +5,7 @@ import { mockApiClient } from "../api/client";
 import { materialFromDto } from "../api/materialDto";
 import { materialTableClient } from "../api/materialTableClient";
 import { materialLocalClient } from "../api/materialLocalClient";
+import { identityClient } from "../api/identityClient";
 import { catalogClient } from "../api/catalogClient";
 import { SessionContext } from "../auth/context";
 import { requestNavigation } from "../navigationGuard";
@@ -115,6 +116,32 @@ it.each(["list", "gallery"] as const)("groups selected actions in the bulk panel
   fireEvent.click(await screen.findByRole("button", { name: "View check report" }));
   expect(screen.getByRole("textbox", { name: "Automatic file check report" })).toHaveValue(report);
   expect(check).toHaveBeenCalledOnce();
+});
+
+it.each(["list", "gallery"] as const)("opens bulk name editing for the explicit %s selection and protects that selection", async view => {
+  viewport();
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
+  const material = materialFromDto(materialDto);
+  const history = vi.spyOn(identityClient, "operations").mockResolvedValue({ enabled: true, items: [] });
+  const confirm = vi.spyOn(identityClient, "confirm");
+  render(<SessionContext.Provider value={{ session: { user: { ...processorDto, role: "ADMIN" }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}>
+    <MaterialsPage client={{ ...mockApiClient, getMaterials: vi.fn().mockResolvedValue([material]) }} navigate={vi.fn()} initialView={view === "gallery" ? "gallery" : undefined} />
+  </SessionContext.Provider>);
+  const selected = await screen.findByRole("checkbox", { name: `Select ${material.materialName}` });
+  expect(screen.queryByRole("button", { name: "Edit names" })).not.toBeInTheDocument();
+  fireEvent.click(selected);
+  const button = screen.getByRole("button", { name: "Edit names" });
+  expect(screen.getByRole("group", { name: "Apply to 1 selected materials" })).toContainElement(button);
+  fireEvent.click(button);
+  expect(await screen.findByRole("dialog", { name: "Edit material names" })).toBeVisible();
+  await waitFor(() => expect(history).toHaveBeenCalledWith(material.id));
+  expect(screen.getByRole("searchbox")).toBeDisabled();
+  expect(confirm).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("dialog", { name: "Edit material names" })).not.toBeInTheDocument();
+  expect(screen.getByRole("searchbox")).toBeEnabled();
+  expect(screen.getByRole("checkbox", { name: `Select ${material.materialName}` })).toBeChecked();
 });
 
 it("sorts without reloading or losing note drafts and keeps selected filters for this user", async () => {

@@ -104,6 +104,18 @@ it("retains the exact unknown-outcome request and freezes inputs until retry", a
   const calls = fetch.mock.calls.filter(([, init]) => init?.method === "POST");
   expect(calls).toHaveLength(2); expect(calls[0][1]?.body).toBe(calls[1][1]?.body);
 });
+it("keeps the heading reload action usable after a source refresh fails", async () => {
+  setup(); await screen.findByLabelText("Description");
+  vi.mocked(metadataClient.inspect).mockRejectedValueOnce(new Error("Unavailable source"));
+  fireEvent.click(screen.getByRole("button", { name: "Reload source" }));
+  await screen.findByText("Library data could not be loaded.");
+  const reload = screen.getByRole("button", { name: "Reload source" });
+  expect(reload).toBeEnabled();
+  expect(screen.getByRole("heading", { name: "Material data for library" }).closest(".material-section-heading")).toContainElement(reload);
+  fireEvent.click(reload);
+  await screen.findByLabelText("Description");
+  expect(metadataClient.inspect).toHaveBeenCalledTimes(3);
+});
 it("keeps a rejected draft visible for correction and explicit reload", async () => {
   const { fetch, changed } = setup(); await fill(); fetch.mockResolvedValueOnce(json({ detail: { code: "CONTENT_REVISION_CHANGED" } }, 409));
   fireEvent.click(screen.getByRole("button", { name: "Save library data" }));

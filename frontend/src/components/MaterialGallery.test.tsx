@@ -16,40 +16,43 @@ beforeEach(() => {
   vi.spyOn(previewClient, "image").mockImplementation(async () => image());
 });
 afterEach(() => vi.restoreAllMocks());
-const mount = (linked = true, initiallyOpen = false) => render(<MaterialGallery materialId={materialDto.id} linked={linked} initiallyOpen={initiallyOpen} />);
+const mount = (linked = true) => render(<MaterialGallery materialId={materialDto.id} linked={linked} />);
 
 it("labels the actual original resolution instead of the thumbnail resolution", async () => {
   vi.mocked(previewClient.image).mockResolvedValue({ ...image(), originalWidth: 1200, originalHeight: 1200 });
-  mount(true, true);
+  mount();
   expect(await screen.findByText("Front.png · 1200 × 1200 px (original)")).toBeVisible();
   expect(screen.getByRole("img")).toHaveAttribute("width", "512");
 });
 
 it("does not duplicate source reads or consume extra decoder slots in StrictMode", async () => {
-  render(<StrictMode><MaterialGallery materialId={materialDto.id} linked initiallyOpen /></StrictMode>);
+  render(<StrictMode><MaterialGallery materialId={materialDto.id} linked /></StrictMode>);
   await screen.findByRole("img");
   expect(previewClient.listing).toHaveBeenCalledOnce(); expect(previewClient.image).toHaveBeenCalledOnce();
 });
 
-it("reads sources only when opened and revokes the image when closed", async () => {
-  mount(); expect(previewClient.listing).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Open preview gallery" }));
+it("opens the linked gallery directly, keeps an icon toolbar and revokes the image on unmount", async () => {
+  const view = mount();
   expect(await screen.findByRole("img")).toHaveAttribute("alt", "Preview: Front.png");
   expect(previewClient.image).toHaveBeenCalledWith(materialDto.id, entries[0], expect.any(AbortSignal));
   const completedSignal = vi.mocked(previewClient.image).mock.calls[0][2];
-  fireEvent.click(screen.getByRole("button", { name: "Close preview gallery" }));
+  expect(screen.queryByRole("heading", { name: "Preview gallery" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Close preview gallery" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Reload preview gallery" })).toHaveTextContent("");
+  expect(screen.getByRole("button", { name: "Reload preview gallery" }).querySelector("svg")).not.toBeNull();
+  view.unmount();
   expect(revokeUrl).toHaveBeenCalledWith("blob:synthetic-1");
   expect(completedSignal.aborted).toBe(false);
   expect(screen.queryByRole("img")).not.toBeInTheDocument();
 });
 it("does not request an unlinked source", async () => {
-  mount(false, true); expect(screen.getByText(/Link a material folder/)).toBeVisible();
+  mount(false); expect(screen.getByText(/Link a material folder/)).toBeVisible();
   expect(previewClient.listing).not.toHaveBeenCalled(); expect(previewClient.image).not.toHaveBeenCalled();
 });
 it("opens the primary material preview before other alphabetically listed images", async () => {
   const sphere = { ...entries[1], name: "SPHERE_1.png" }, fabric = { ...entries[0], name: "FABRIC_1.png" };
   vi.mocked(previewClient.listing).mockResolvedValue({ items: [...entries, sphere, fabric], missing: false, ignoredEntries: 0 });
-  mount(true, true);
+  mount();
   await screen.findByRole("img", { name: "Preview: FABRIC_1.png" });
   expect(previewClient.image).toHaveBeenCalledWith(materialDto.id, fabric, expect.any(AbortSignal));
   fireEvent.click(screen.getByRole("button", { name: "Next preview" }));
@@ -58,7 +61,7 @@ it("opens the primary material preview before other alphabetically listed images
 it("cycles by numeric suffix and reloads at the primary preview", async () => {
   const names = ["BATHROOM_10.png", "FLOOR_3.png", "WALL_2.png", "SPHERE_1.png", "Extra.png"];
   vi.mocked(previewClient.listing).mockResolvedValue({ items: names.map(name => ({ ...entries[0], name })), missing: false, ignoredEntries: 0 });
-  mount(true, true);
+  mount();
   await screen.findByRole("img", { name: "Preview: SPHERE_1.png" });
   expect(screen.getByText("1 / 5")).toBeVisible();
   for (const name of ["WALL_2.png", "FLOOR_3.png", "BATHROOM_10.png", "Extra.png", "SPHERE_1.png"]) {
@@ -71,7 +74,7 @@ it("cycles by numeric suffix and reloads at the primary preview", async () => {
   await screen.findByRole("img", { name: "Preview: SPHERE_1.png" });
 });
 it("changes selection without keeping the previous image alive", async () => {
-  mount(true, true); await screen.findByRole("img");
+  mount(); await screen.findByRole("img");
   fireEvent.click(screen.getByRole("button", { name: "Next preview" }));
   expect(await screen.findByRole("img", { name: "Preview: Side.png" })).toHaveAttribute("width", "512");
   expect(revokeUrl).toHaveBeenCalledWith("blob:synthetic-1");
@@ -79,7 +82,7 @@ it("changes selection without keeping the previous image alive", async () => {
 it("ignores an old image response after a newer selection and aborts its request", async () => {
   let resolve!: (value: ReturnType<typeof image>) => void;
   vi.mocked(previewClient.image).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
-  mount(true, true); await screen.findByLabelText("Preview image");
+  mount(); await screen.findByLabelText("Preview image");
   await waitFor(() => expect(previewClient.image).toHaveBeenCalledOnce());
   const oldSignal = vi.mocked(previewClient.image).mock.calls[0][2];
   fireEvent.click(screen.getByRole("button", { name: "Next preview" }));
@@ -88,7 +91,7 @@ it("ignores an old image response after a newer selection and aborts its request
   expect(screen.getByRole("img")).toHaveAttribute("alt", "Preview: Side.png");
 });
 it("reloads the source hash before showing a changed preview", async () => {
-  mount(true, true); await screen.findByRole("img");
+  mount(); await screen.findByRole("img");
   const next = { ...entries[0], sha256: "c".repeat(64) };
   vi.mocked(previewClient.listing).mockResolvedValue({ items: [next], missing: false, ignoredEntries: 2 });
   fireEvent.click(screen.getByRole("button", { name: "Reload preview gallery" }));
@@ -97,17 +100,17 @@ it("reloads the source hash before showing a changed preview", async () => {
 });
 it.each([true, false])("shows a missing or empty gallery without decoding (missing=%s)", async (missing) => {
   vi.mocked(previewClient.listing).mockResolvedValue({ items: [], missing, ignoredEntries: 0 });
-  mount(true, true); await screen.findByText(missing ? /no PREVIEW folder/ : /No supported preview images/);
+  mount(); await screen.findByText(missing ? /no PREVIEW folder/ : /No supported preview images/);
   expect(previewClient.image).not.toHaveBeenCalled();
 });
 it("handles listing errors without reflecting private diagnostics and can retry", async () => {
   vi.mocked(previewClient.listing).mockRejectedValueOnce(new Error("PRIVATE_SYNTHETIC_MARKER"));
-  mount(true, true); expect(await screen.findByRole("alert")).not.toHaveTextContent("PRIVATE_SYNTHETIC_MARKER");
+  mount(); expect(await screen.findByRole("alert")).not.toHaveTextContent("PRIVATE_SYNTHETIC_MARKER");
   fireEvent.click(screen.getByRole("button", { name: "Try again" })); await screen.findByRole("img");
 });
 it("handles transport and browser image decoding errors with retry", async () => {
   vi.mocked(previewClient.image).mockRejectedValueOnce(new Error("PRIVATE_SYNTHETIC_MARKER"));
-  mount(true, true); expect(await screen.findByRole("alert")).not.toHaveTextContent("PRIVATE_SYNTHETIC_MARKER");
+  mount(); expect(await screen.findByRole("alert")).not.toHaveTextContent("PRIVATE_SYNTHETIC_MARKER");
   fireEvent.click(screen.getByRole("button", { name: "Try again" })); fireEvent.error(await screen.findByRole("img"));
   await screen.findByRole("alert"); fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   await screen.findByRole("img"); expect(revokeUrl).toHaveBeenCalledWith("blob:synthetic-1");

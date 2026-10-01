@@ -77,7 +77,7 @@ export function ResponsiveFilters({ filters, compact, disabled, label, onClear, 
         More filters{activeCount ? ` (${activeCount})` : ""}<span aria-hidden="true">{expanded ? "▴" : "▾"}</span>
       </button>}
       <div className="priority-filters-clear-group">
-        {onKeepFiltersChange && <label className="priority-filters-keep"><input type="checkbox" checked={keepFilters ?? false} onChange={event => onKeepFiltersChange(event.target.checked)} />Keep filters</label>}
+        {onKeepFiltersChange && <label className="priority-filters-keep"><span>Keep filters</span><input type="checkbox" checked={keepFilters ?? false} onChange={event => onKeepFiltersChange(event.target.checked)} /></label>}
         <button type="button" className="button priority-filters-clear" onClick={onClear}>Clear filters</button>
       </div>
       </div>

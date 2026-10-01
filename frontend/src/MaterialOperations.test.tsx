@@ -3,6 +3,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { materialFromDto, type Material } from "./api/materialDto";
 import { materialLocalClient } from "./api/materialLocalClient";
 import { identityClient, type IdentityPlan } from "./api/identityClient";
+import { ApiError } from "./api/errors";
+import { requestNavigation } from "./navigationGuard";
 import { MaterialDataFolder, MaterialDataCheck } from "./components/MaterialDataFolder";
 import { MaterialNameDialog } from "./components/MaterialNameDialog";
 import { SessionContext } from "./auth/context";
@@ -85,6 +87,51 @@ it("retains the exact rename request after an unknown outcome", async () => {
   expect(vi.mocked(identityClient.confirm).mock.calls[1][1]).toBe(first);
   expect(identityClient.plan).toHaveBeenCalledOnce();
 });
+it.each([401, 403, 409, 422])("keeps unknown rename authorization frozen after a later HTTP %s and reconciles the same operation", async (status) => {
+  const completed = { id: processorDto.id, status: "COMPLETED", source, target: plan.target, reason: "Rename material", createdAt: material.createdAt, actorId: processorDto.id, failure: null };
+  vi.mocked(identityClient.confirm).mockRejectedValueOnce(new TypeError("response lost after possible commit"))
+    .mockRejectedValueOnce(new ApiError(status, "Subsequent request rejected"))
+    .mockResolvedValueOnce({ ...completed, status: "RUNNING" });
+  vi.spyOn(identityClient, "resume").mockResolvedValue(completed);
+  const { close, changed } = rename(); enterName();
+  fireEvent.click(screen.getByRole("button", { name: "Confirm rename" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Retry the same operation");
+  const first = vi.mocked(identityClient.confirm).mock.calls[0][1];
+  const frozen = JSON.stringify(first);
+  fireEvent.click(screen.getByRole("button", { name: "Recover recorded change" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Retry the same operation");
+  expect(screen.getByLabelText("Material name")).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+  expect(requestNavigation("/materials")).toBe(false);
+  fireEvent(screen.getByRole("dialog"), new Event("cancel", { cancelable: true }));
+  expect(close).not.toHaveBeenCalled(); expect(changed).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Recover recorded change" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Recover the same operation");
+  expect(identityClient.confirm).toHaveBeenCalledTimes(3);
+  for (const [, payload] of vi.mocked(identityClient.confirm).mock.calls) {
+    expect(payload).toBe(first); expect(JSON.stringify(payload)).toBe(frozen);
+  }
+  expect(identityClient.plan).toHaveBeenCalledOnce(); expect(identityClient.operations).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: "Recover recorded change" }));
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  expect(identityClient.resume).toHaveBeenCalledExactlyOnceWith(material.id, completed.id);
+  expect(identityClient.confirm).toHaveBeenCalledTimes(3); expect(changed).toHaveBeenCalledOnce();
+  expect(requestNavigation("/materials")).toBe(true);
+});
+it("allows a fresh plan after an initial definitive rename rejection", async () => {
+  vi.mocked(identityClient.confirm).mockRejectedValueOnce(new ApiError(409, "Plan changed"));
+  const { changed } = rename(); enterName();
+  fireEvent.click(screen.getByRole("button", { name: "Confirm rename" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("repeat the source checks");
+  expect(screen.getByLabelText("Material name")).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
+  expect(requestNavigation("/materials")).toBe(true);
+  const first = vi.mocked(identityClient.confirm).mock.calls[0][1];
+  fireEvent.click(screen.getByRole("button", { name: "Confirm rename" }));
+  await waitFor(() => expect(changed).toHaveBeenCalledOnce());
+  expect(identityClient.plan).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(identityClient.confirm).mock.calls[1][1].idempotency_key).not.toBe(first.idempotency_key);
+});
 it("does not permit writes when the source capability is disabled", async () => {
   vi.mocked(identityClient.operations).mockResolvedValue({ enabled: false, items: [] });
   rename(); fireEvent.change(screen.getByLabelText("Material name"), { target: { value: "New name" } });
@@ -127,7 +174,7 @@ it("shows OK only as the returned completed result, with human review kept separ
   vi.spyOn(materialLocalClient, "check").mockResolvedValue({ materialId: material.id, status: "OK", checkedAt: material.updatedAt, updatedAt: material.updatedAt, profile: "PBR_FILES_V1", complete: true, issues: [], report: "Full source checks complete." });
   const changed = vi.fn(async () => true);
   render(<MaterialDataCheck materialId={material.id} onChanged={changed} />);
-  expect(screen.getByText(/Human Checked remains a separate review/)).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "Automatic file check" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Check material data" }));
   expect(await screen.findByRole("textbox", { name: "Issues and report" })).toHaveValue("Issues\nNo issues found by the current checks.\n\nFull source checks complete.");
   expect(screen.getByRole("status")).toHaveTextContent("OK · Full file check completed.");

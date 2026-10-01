@@ -1,0 +1,22 @@
+.material-bulk-names-dialog { width: min(960px, calc(100vw - 40px)); max-height: calc(100dvh - 48px); overflow: auto; }
+.material-bulk-names-dialog { border: 1px solid #dde0ed; border-radius: 18px; padding: 24px; color: #1f2444; background: #fff; font-family: inherit; }
+.material-bulk-names-dialog::backdrop { background: rgb(10 13 39 / 42%); }
+.material-bulk-names-dialog h2 { margin: 0 0 12px; font-size: 1.25rem; letter-spacing: -.025em; }
+.material-bulk-names-dialog > p { font-size: .85rem; line-height: 1.6; }
+.material-bulk-names-dialog fieldset { margin: 16px 0; padding: 14px; border: 1px solid #dde0ed; border-radius: 10px; }
+.material-bulk-names-dialog label { display: flex; flex-direction: column; gap: 5px; font-size: .8rem; font-weight: 500; }
+.material-bulk-names-dialog input:not([type="checkbox"]) { box-sizing: border-box; width: 100%; min-height: 36px; padding: 7px 10px; border: 1px solid #9093b9; border-radius: 7px; color: #1f2444; background: #fff; font: inherit; }
+.material-bulk-names-dialog input:focus-visible { outline: 2px solid #394173; outline-offset: 2px; }
+.material-bulk-names-dialog fieldset small { display: block; margin-top: 9px; line-height: 1.5; font-size: .75rem; color: #626781; }
+.material-bulk-names-dialog .checkbox-label { flex-direction: row; align-items: flex-start; gap: 8px; line-height: 1.5; font-weight: 400; }
+.material-bulk-names-dialog .checkbox-label input { width: 16px; height: 16px; flex: 0 0 auto; margin: 2px 0 0; accent-color: #394173; }
+.material-bulk-names-dialog .form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.material-bulk-names-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.material-bulk-names-report { max-height: 42vh; overflow: auto; margin-block: 12px; }
+.material-bulk-names-report table { width: 100%; text-align: left; }
+.material-bulk-names-report th { position: sticky; top: 0; background: #f2f3f9; font-size: .75rem; font-weight: 600; }
+.material-bulk-names-report th, .material-bulk-names-report td { padding: 9px 10px; border-bottom: 1px solid #dde0ed; }
+.material-bulk-names-report td { vertical-align: top; overflow-wrap: anywhere; font-size: .8rem; }
+.material-bulk-names-report td small { display: block; font-size: .7rem; color: var(--text-muted, #626781); }
+.material-bulk-names-report td p { margin: 4px 0; font-size: .8rem; }
+@media (max-width: 600px) { .material-bulk-names-inputs { grid-template-columns: 1fr; } }

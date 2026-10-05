@@ -23,6 +23,9 @@ import { useDatabaseWorkspace } from "../components/useDatabaseWorkspace";
 import { KeepFiltersControl, ResponsiveFilters } from "../components/ResponsiveFilters";
 import { numberedDatabaseSortOptions, sortDatabaseRecords, useDatabaseFilters } from "../components/useDatabaseFilters";
 import { DatabaseResultsToolbar } from "../components/DatabaseResultsToolbar";
+import { OpenRecordFolderButton } from "../components/OpenRecordFolderButton";
+import { ColoredSelect, ColoredValue } from "../components/ColoredSelect";
+import { orderStatusColors, orderPriorityColors } from "../data/choiceColors";
 
 
 
@@ -62,9 +65,11 @@ export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: 
 
     { key: "due_date", label: "Due date", value: item => item.dueDate, type: "date", editable: true, bulk: true },
 
-    { key: "status", label: "Status", value: item => item.status, editable: true, bulk: true, options: orderStatuses.map(value => ({ value, label: value })) },
+    { key: "status", label: "Status", value: item => item.status, editable: true, bulk: true, options: orderStatuses.map(value => ({ value, label: value })), colors: orderStatusColors,
+      render: canEdit ? undefined : item => <ColoredValue value={item.status} colors={orderStatusColors} /> },
 
-    { key: "priority", label: "Priority", value: item => item.priority, editable: true, bulk: true, options: [{ value: "", label: "Not set" }, ...priorities.map(value => ({ value, label: value }))] },
+    { key: "priority", label: "Priority", value: item => item.priority, editable: true, bulk: true, options: [{ value: "", label: "Not set" }, ...priorities.map(value => ({ value, label: value }))], colors: orderPriorityColors,
+      render: canEdit ? undefined : item => <ColoredValue value={item.priority ?? ""} label={item.priority ?? "Not set"} colors={orderPriorityColors} /> },
 
     { key: "responsible_id", label: "Responsible", value: item => item.responsibleId, editable: true, bulk: true, options: [{ value: "", label: "Not assigned" }, ...users.filter(item => item.role === "PROCESSOR" && item.isActive || all.some(order => order.responsibleId === item.id)).map(item => ({ value: item.id, label: item.displayName + (item.isActive ? "" : " (inactive)"), disabled: !item.isActive || item.role !== "PROCESSOR", currentOnly: !item.isActive || item.role !== "PROCESSOR" }))] },
 
@@ -85,11 +90,11 @@ export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: 
     <ResponsiveFilters compact={compact} disabled={busy} label="Filter orders" onClear={resetFilters} filters={[
       { key: "search", width: 190, active: Boolean(search), content: <label className="database-search">Search orders<span className="database-search-input"><Icon name="search" size={18} /><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Number, name or note" /></span></label> },
       { key: "customer", width: 135, active: Boolean(customer), content: <label>Customer<select value={customer} onChange={event => setCustomer(event.target.value)}><option value="">All</option>{customers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> },
-      { key: "status", width: 115, active: Boolean(status), content: <label>Status<select value={status} onChange={event => setStatus(event.target.value)}><option value="">All</option>{orderStatuses.map(value => <option key={value}>{value}</option>)}</select></label> },
+      { key: "status", width: 115, active: Boolean(status), content: <label>Status<ColoredSelect value={status} colors={orderStatusColors} onChange={event => setStatus(event.target.value)} options={[{ value: "", label: "All" }, ...orderStatuses.map(value => ({ value, label: value }))]} /></label> },
       { key: "responsible", width: 145, active: Boolean(responsible), content: <label>Responsible<select value={responsible} onChange={event => setResponsible(event.target.value)}><option value="">All</option>{users.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label> },
       { key: "from", width: 142, active: Boolean(from), content: <label>Starting from<input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label> },
       { key: "due", width: 142, active: Boolean(to), content: <label>Due date<input type="date" value={to} onChange={event => setTo(event.target.value)} /></label> },
-      { key: "priority", width: 115, active: Boolean(priority), content: <label>Priority<select value={priority} onChange={event => setPriority(event.target.value)}><option value="">All</option>{priorities.map(value => <option key={value}>{value}</option>)}</select></label> },
+      { key: "priority", width: 115, active: Boolean(priority), content: <label>Priority<ColoredSelect value={priority} colors={orderPriorityColors} onChange={event => setPriority(event.target.value)} options={[{ value: "", label: "All" }, ...priorities.map(value => ({ value, label: value }))]} /></label> },
     ]} />
     <DatabaseResultsToolbar count={`${filtered.length} orders`} sort={sort} sortLabel="Sort orders" options={numberedDatabaseSortOptions}
       disabled={busy} onSortChange={value => changeFilter("sort", value)} />
@@ -100,6 +105,7 @@ export function OrdersPage({ client, navigate }: { client: ApiClient; navigate: 
 
       <EditableResourceTable rows={filtered} columns={columns} label={item => `${item.number} · ${item.generatedName}`} canEdit={canEdit} storageKey="orders.columns.v1" refresh={resource.retry} onBusyChange={setBusy} scrollMode={compact ? "contained" : "page"}
 
+        leadingAction={(item, locked) => <OpenRecordFolderButton kind="order" id={item.id} name={item.number} folderPath={item.folderPath} disabled={locked} />}
         save={(item, field, value, key) => directoryClient.saveOrder(item.id, { [field]: value, expected_updated_at: item.updatedAt }, key)} />
 
     </>}

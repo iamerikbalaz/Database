@@ -40,8 +40,8 @@ function Dashboard({ client, navigate }: Props) {
   const query = search.trim().toLocaleLowerCase();
   const materials = result.data ?? [];
   const filtered = materials.filter((m) => selectedView.includes(m) &&
-    (!query || m.materialName.toLocaleLowerCase().includes(query) || m.technicalIdentity.toLocaleLowerCase().includes(query)))
-    .sort((a, b) => a.technicalIdentity.localeCompare(b.technicalIdentity, "en") || a.id.localeCompare(b.id));
+    (!query || m.materialName.toLocaleLowerCase().includes(query) || m.technicalIdentity?.toLocaleLowerCase().includes(query)))
+    .sort((a, b) => (a.technicalIdentity ?? a.materialName).localeCompare(b.technicalIdentity ?? b.materialName, "en") || a.id.localeCompare(b.id));
   const lastPage = Math.max(0, Math.ceil(filtered.length / pageSize) - 1);
   const currentPage = Math.min(page, lastPage);
   const start = currentPage * pageSize;
@@ -78,7 +78,7 @@ function Dashboard({ client, navigate }: Props) {
               <ul className="dashboard-materials" aria-label="Overview materials">
                 {filtered.slice(start, start + pageSize).map((m) => <li key={m.id}>
                   <div className="dashboard-material-summary"><MaterialThumbnail material={m} store={store} />
-                    <div><NavigationLink className="table-link" href={`/materials/${m.id}`} navigate={navigate}>{m.technicalIdentity}</NavigationLink>
+                    <div><NavigationLink className="table-link" href={`/materials/${m.id}`} navigate={navigate}>{m.technicalIdentity ?? m.materialName}</NavigationLink>
                       <p>{m.materialName}</p></div></div>
                   <dl><div><dt>Status</dt><dd>{statusLabel(m.workflowStatus)}</dd></div>
                     <div><dt>Checked</dt><dd>{m.checkedStatus}</dd></div>

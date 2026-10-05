@@ -17,6 +17,8 @@ import { useNavigationGuard } from "../navigationGuard";
 import type { InternalUser } from "../api/materialDto";
 import { OrderMaterialsPanel } from "../components/OrderMaterialsPanel";
 import "./DirectoryRecordPage.css";
+import { ColoredSelect } from "../components/ColoredSelect";
+import { orderStatusColors, orderPriorityColors } from "../data/choiceColors";
 
 type Kind = "customer" | "order";
 type Props = { kind: Kind; id?: string; client: ApiClient; navigate: (path: string) => void; onSaved: (path: string, message?: string) => void };
@@ -123,7 +125,7 @@ function DirectoryRecordEditor({ kind, id, item, customers, users, orders, folde
       } });
     }}><fieldset disabled={locked}><legend>{kind === "customer" ? "Customer properties" : "Order properties"}</legend><div className="directory-fields">
       {fields.map(field => <label key={field.key} className={`directory-field${field.type === "checkbox" ? " directory-field--checkbox" : ""}`}><span>{field.label}{field.required ? " *" : ""}</span>
-        {field.type === "checkbox" ? <input type="checkbox" checked={values[field.key] === true} onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.checked }))} /> : field.options ? <select aria-invalid={Boolean(fieldErrors[field.key])} required={field.required} value={String(values[field.key] ?? "")} onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.value }))}>{field.options.map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}</select>
+        {field.type === "checkbox" ? <input type="checkbox" checked={values[field.key] === true} onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.checked }))} /> : field.options ? <ColoredSelect aria-invalid={Boolean(fieldErrors[field.key])} required={field.required} value={String(values[field.key] ?? "")} colors={kind === "order" ? field.key === "status" ? orderStatusColors : field.key === "priority" ? orderPriorityColors : undefined : undefined} options={field.options} onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.value }))} />
           : field.type === "textarea" ? <textarea aria-invalid={Boolean(fieldErrors[field.key])} rows={2} maxLength={10000} value={String(values[field.key] ?? "")} onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.value }))} />
             : <input autoFocus={!id && field.key === fields[0]?.key} aria-invalid={Boolean(fieldErrors[field.key])} type={field.type ?? "text"} required={field.required} maxLength={field.max ?? 2048} pattern={field.key === "number" ? "[0-9]{4}" : undefined} value={String(values[field.key] ?? "")} onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.value }))} />}
       </label>)}

@@ -14,12 +14,14 @@ const second = { ...first, id: "50000000-0000-4000-8000-000000000002", sequenceN
 const third = { ...first, id: "50000000-0000-4000-8000-000000000003", sequenceNumber: 3, technicalIdentity: "CUSTOMER_0003_OLD-OLD_G03", folderPath: "CUSTOMER/CUSTOMER_0003_OLD-OLD_G03" };
 const fixtures = [first, second, third];
 function context(material: Material) {
+  if (!material.technicalIdentity || !material.publishedBrandId || !material.mainCategoryCode || material.sequenceNumber === null) throw new Error("Identity fixture must be complete");
   return { materialId: material.id, identity: material.technicalIdentity, folder: material.folderPath, brandId: material.publishedBrandId,
     category: material.mainCategoryCode, number: material.sequenceNumber, name: material.materialName };
 }
 function proposal(material: Material, requested = "NEW-NEW"): IdentityPlan {
   const name = requested.replaceAll(" ", "-");
-  return { source: context(material), target: { ...context(material), name, identity: material.technicalIdentity.replace("OLD-OLD", name), folder: material.folderPath!.replace("OLD-OLD", name) },
+  const source = context(material);
+  return { source, target: { ...source, name, identity: source.identity.replace("OLD-OLD", name), folder: material.folderPath!.replace("OLD-OLD", name) },
     generation: 3, hash: "a".repeat(64), reservesNumber: false, workerHash: "b".repeat(64), sourceHash: "c".repeat(64), ready: true,
     errors: [], warnings: [], metadata: { beforeHash: null, afterHash: "d".repeat(64), fields: ["material_name"] }, changes: [] };
 }

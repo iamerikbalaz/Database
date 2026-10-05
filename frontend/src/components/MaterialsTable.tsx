@@ -23,6 +23,9 @@ import { MaterialPreviewStrip } from "./MaterialPreviewStrip";
 import { PreviewEditDialog, type PreviewEditSelection } from "./PreviewEditDialog";
 import { identityClient, type IdentityConfirmation } from "../api/identityClient";
 import { MaterialBulkNamesDialog } from "./MaterialBulkNamesDialog";
+import { OpenRecordFolderButton } from "./OpenRecordFolderButton";
+import { ColoredSelect, ColoredValue } from "./ColoredSelect";
+import { materialStatusColors, materialCheckedColors } from "../data/choiceColors";
 
 const columns = [
   ["project", "Order", 180], ["brand", "Customer", 180], ["category", "Category", 225],
@@ -33,7 +36,10 @@ const columns = [
   ["uuid", "Internal UUID", 310], ["technical", "Automatic file check", 180],
 ] as const;
 type Column = typeof columns[number][0];
-const detailColumns: Column[] = ["project", "brand", "category", "processor", "status", "checked", "published", "archived", "number", "technical", "created", "updated", "note", "folder", "uuid", "archivedAt"];
+const detailColumns: { label: string; columns: Column[] }[] = [
+  { label: "Editable material properties", columns: ["project", "brand", "category", "processor", "status", "checked", "note"] },
+  { label: "Material state and information", columns: ["published", "archived", "technical", "number", "created", "updated", "folder", "uuid", "archivedAt"] },
+];
 type Layout = { key: Column; visible: boolean; width: number }[];
 const defaultLayout = (): Layout => columns.map(([key, , width]) => ({ key, width, visible: ["project", "brand", "category", "status", "checked", "technical", "published", "archived", "processor", "note"].includes(key) }));
 function readLayout(): Layout {
@@ -50,7 +56,7 @@ type Props = { materials: Material[]; store: GalleryStore; client: ApiClient; pr
   categories?: { code: string; value: string }[];
   categoryLabels?: { code: string; value: string; aliases?: string[] }[];
   navigate: (path: string) => void; refresh: () => void; onBusyChange: (busy: boolean) => void;
-  onPreparePublication?: (materials: Material[]) => void; detail?: boolean; onMaterialChanged?: (material: Material) => void;
+  onPreparePublication?: (materials: Material[]) => void; onDeleteSelected?: (materials: Material[]) => void; detail?: boolean; onMaterialChanged?: (material: Material) => void;
   selection?: { ids: Set<string>; change: (ids: Set<string>) => void };
   onCheckSelected?: ((materials: Material[]) => void) | undefined; checkActionsRef?: (node: HTMLDivElement | null) => void; operationBusy?: boolean; scrollMode?: "page" | "contained" };
 
@@ -61,7 +67,7 @@ function NoteCell({ material, disabled, save }: { material: Material; disabled: 
     {draft !== (material.note ?? "") && <button className="button" disabled={disabled} onClick={() => save({ note: draft || null })}>Save note</button>}</div>;
 }
 
-export function MaterialsTable({ materials, store, client, projects, brands, users, categories = materialCategories, categoryLabels = categories, navigate, refresh, onBusyChange, onPreparePublication, detail = false, onMaterialChanged, selection, onCheckSelected, checkActionsRef, operationBusy = false, scrollMode = "page" }: Props) {
+export function MaterialsTable({ materials, store, client, projects, brands, users, categories = materialCategories, categoryLabels = categories, navigate, refresh, onBusyChange, onPreparePublication, onDeleteSelected, detail = false, onMaterialChanged, selection, onCheckSelected, checkActionsRef, operationBusy = false, scrollMode = "page" }: Props) {
   const actor = useSession()?.session.user;
   const role = actor?.role;
   const manager = role === "ADMIN" || role === "PRODUCTION_LEAD";
@@ -155,6 +161,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
             if (job.material.isPublished || job.material.isArchived || job.material.workflowStatus !== "IN_PROGRESS") throw new ApiError(409, "Clear Published and set Status to In progress before changing Main category and its source folder.");
             const current = await client.getMaterial(job.material.id);
             if (current.updatedAt !== job.material.updatedAt) throw new ApiError(409, "Material changed. Refresh before changing Main category.");
+            if (!job.material.publishedBrandId || !job.change.main_category_code || job.material.isDraft) throw new ApiError(409, "Complete the material identity before changing a source folder.");
             const target = { target_brand_id: job.material.publishedBrandId, main_category_code: job.change.main_category_code, target_parent: job.material.folderPath.split("/").slice(0, -1).join("/") };
             const plan = await identityClient.plan(job.material.id, target);
             if (!alive.current || generation !== sessionGeneration()) break;
@@ -225,9 +232,9 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     if ("is_archived" in change) return ["Archived", change.is_archived ? "Yes" : "No"];
     if ("is_published" in change) return ["Published", change.is_published ? "Yes" : "No"];
     if ("project_id" in change) return ["Order", change.project_id === null ? "No order assigned" : projects.find(p => p.id === change.project_id)?.name ?? change.project_id];
-    if ("assigned_processor_id" in change) return ["Processor", users.find(u => u.id === change.assigned_processor_id)?.displayName ?? change.assigned_processor_id];
-    if ("published_brand_id" in change) return ["Customer", brands.find(b => b.id === change.published_brand_id)?.name ?? change.published_brand_id];
-    if ("main_category_code" in change) return ["Category", categoryLabel(change.main_category_code, categoryLabels)];
+    if ("assigned_processor_id" in change) return ["Processor", users.find(u => u.id === change.assigned_processor_id)?.displayName ?? change.assigned_processor_id ?? "Not assigned"];
+    if ("published_brand_id" in change) return ["Customer", brands.find(b => b.id === change.published_brand_id)?.name ?? change.published_brand_id ?? "Not assigned"];
+    if ("main_category_code" in change) return ["Category", change.main_category_code ? categoryLabel(change.main_category_code, categoryLabels) : "Not assigned"];
     return ["Note", change.note ?? "Empty"];
   };
   const edit = (row: Material, change: TableChange) => prepare([row], change, true);
@@ -247,23 +254,27 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     const productionDisabled = disable || row.isArchived;
     if (key === "project") return manager ? <select aria-label={`Order for ${row.materialName}`} disabled={disable} value={row.projectId ?? ""} onChange={e => save({ project_id: e.target.value || null })}>
       <option value="">No order assigned</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select> : projects.find(p => p.id === row.projectId)?.name ?? row.projectId ?? "No order assigned";
-    if (key === "brand") return manager ? <select aria-label={`Customer for ${row.materialName}`} disabled={productionDisabled} value={row.publishedBrandId} onChange={e => openIdentity(row, { brand: e.target.value })}>
-      {brands.filter(b => b.isActive || b.id === row.publishedBrandId).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select> : brands.find(b => b.id === row.publishedBrandId)?.name ?? row.publishedBrandId;
-    if (key === "category") return manager ? <select aria-label={`Category for ${row.materialName}`} disabled={productionDisabled} value={row.mainCategoryCode} onChange={e => openIdentity(row, { category: e.target.value })}>
-      {!categories.some(c => c.code === row.mainCategoryCode) && <option value={row.mainCategoryCode}>{categoryLabel(row.mainCategoryCode, categoryLabels)}</option>}
-      {categories.map(c => <option key={c.code} value={c.code}>{categoryLabel(c.code, categoryLabels)}</option>)}</select> : categoryLabel(row.mainCategoryCode, categoryLabels);
-    if (key === "status") return editor ? <select aria-label={`Status for ${row.materialName}`} disabled={productionDisabled} value={row.workflowStatus} onChange={e => save({ workflow_status: e.target.value as Material["workflowStatus"] })}>
-      <option value="IN_PROGRESS">In progress</option><option value="DONE">Done</option></select> : row.workflowStatus === "DONE" ? "Done" : "In progress";
-    if (key === "checked") return manager ? <select aria-label={`Checked for ${row.materialName}`} disabled={productionDisabled} value={row.checkedStatus} onChange={e => save({ checked_status: e.target.value as Material["checkedStatus"] })}>
-      {checkedStatuses.map(value => <option key={value} value={value}>{value}</option>)}</select> : row.checkedStatus;
+    if (key === "brand") return manager ? <select aria-label={`Customer for ${row.materialName}`} disabled={productionDisabled} value={row.publishedBrandId ?? ""} onChange={e => row.isDraft ? save({ published_brand_id: e.target.value || null }) : openIdentity(row, { brand: e.target.value })}>
+      {(row.isDraft || !row.publishedBrandId) && <option value="">Choose a customer</option>}
+      {brands.filter(b => b.isActive || b.id === row.publishedBrandId).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select> : brands.find(b => b.id === row.publishedBrandId)?.name ?? row.publishedBrandId ?? "Not assigned";
+    if (key === "category") return manager ? <select aria-label={`Category for ${row.materialName}`} disabled={productionDisabled} value={row.mainCategoryCode ?? ""} onChange={e => row.isDraft ? save({ main_category_code: e.target.value || null }) : openIdentity(row, { category: e.target.value })}>
+      {(row.isDraft || !row.mainCategoryCode) && <option value="">Choose a category</option>}
+      {row.mainCategoryCode && !categories.some(c => c.code === row.mainCategoryCode) && <option value={row.mainCategoryCode}>{categoryLabel(row.mainCategoryCode, categoryLabels)}</option>}
+      {categories.map(c => <option key={c.code} value={c.code}>{categoryLabel(c.code, categoryLabels)}</option>)}</select> : row.mainCategoryCode ? categoryLabel(row.mainCategoryCode, categoryLabels) : "Not assigned";
+    if (key === "status") return editor ? <ColoredSelect aria-label={`Status for ${row.materialName}`} disabled={productionDisabled} value={row.workflowStatus} colors={materialStatusColors}
+      options={[{ value: "IN_PROGRESS", label: "In progress" }, { value: "DONE", label: "Done" }]} onChange={e => save({ workflow_status: e.target.value as Material["workflowStatus"] })} />
+      : <ColoredValue value={row.workflowStatus} label={row.workflowStatus === "DONE" ? "Done" : "In progress"} colors={materialStatusColors} />;
+    if (key === "checked") return manager ? <ColoredSelect aria-label={`Checked for ${row.materialName}`} disabled={productionDisabled} value={row.checkedStatus} colors={materialCheckedColors}
+      options={checkedStatuses.map(value => ({ value, label: value }))} onChange={e => save({ checked_status: e.target.value as Material["checkedStatus"] })} />
+      : <ColoredValue value={row.checkedStatus} colors={materialCheckedColors} />;
     if (key === "published") return <input type="checkbox" aria-label={`Published for ${row.materialName}`} disabled={!manager || disable} checked={row.isPublished} onChange={e => save({ is_published: e.target.checked })} />;
     if (key === "archived") return <MaterialLifecyclePanel materialId={row.id} archived={row.isArchived} label={`Archived for ${row.materialName}`} navigate={navigate} disabled={active || lifecycleBusy || Boolean(identity)} onBusyChange={setLifecycleBusy} onApplied={() => { refresh(); }} />;
     if (key === "archivedAt") return row.archivedAt ? new Date(row.archivedAt).toLocaleString() : "—";
-    if (key === "processor") return manager ? <select aria-label={`Processor for ${row.materialName}`} disabled={disable} value={row.assignedProcessorId} onChange={e => save({ assigned_processor_id: e.target.value })}>
-      {users.filter(u => u.id === row.assignedProcessorId || u.isActive && u.role === "PROCESSOR").map(u => <option key={u.id} value={u.id} disabled={!u.isActive || u.role !== "PROCESSOR"}>{u.displayName}{!u.isActive ? " (inactive)" : ""}</option>)}</select> : users.find(u => u.id === row.assignedProcessorId)?.displayName ?? row.assignedProcessorId;
+    if (key === "processor") return manager ? <select aria-label={`Processor for ${row.materialName}`} disabled={disable} value={row.assignedProcessorId ?? ""} onChange={e => save({ assigned_processor_id: e.target.value || null })}>
+      <option value="">Not assigned</option>{users.filter(u => u.id === row.assignedProcessorId || u.isActive && u.role === "PROCESSOR").map(u => <option key={u.id} value={u.id} disabled={!u.isActive || u.role !== "PROCESSOR"}>{u.displayName}{!u.isActive ? " (inactive)" : ""}</option>)}</select> : users.find(u => u.id === row.assignedProcessorId)?.displayName ?? row.assignedProcessorId ?? "Not assigned";
     if (key === "note") return editor ? <NoteCell key={`${row.id}:${row.note ?? ""}`} material={row} disabled={disable} save={save} /> : <span className="note-text">{row.note ?? "—"}</span>;
     if (key === "folder") return <span className="material-folder-path">{row.folderPath ? validateFolderPath(row.folderPath).error ? "Unavailable (unsafe path hidden)" : row.folderPath : "No folder linked"}</span>;
-    if (key === "number") return String(row.sequenceNumber).padStart(4, "0");
+    if (key === "number") return row.sequenceNumber === null ? "—" : String(row.sequenceNumber).padStart(4, "0");
     if (key === "created") return new Date(row.createdAt).toLocaleString();
     if (key === "updated") return new Date(row.updatedAt).toLocaleString();
     if (key === "uuid") return row.id;
@@ -290,7 +301,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     {!detail && editor && selectedRows.length > 0 && <fieldset className="material-bulk-bar" disabled={internallyActive || lifecycleBusy}><legend>Apply to {selectedRows.length} selected materials</legend>
       <label>Property<select disabled={active || editDialogOpen} value={bulkField} onChange={e => { const field = e.target.value as EditField; setBulkField(field); setBulkValue(bulkChoices(field)[0]?.value ?? ""); }}>
         {!archivedView && <option value="workflow_status">Status</option>}{manager && <>{!archivedView && <><option value="checked_status">Checked</option><option value="main_category_code">Main category</option></>}<option value="is_published">Published</option>{role === "ADMIN" && <option value="is_archived">Archived</option>}<option value="project_id">Order</option><option value="assigned_processor_id">Processor</option></>}<option value="note">Note</option></select></label>
-      <label>New value{bulkField === "note" ? <textarea disabled={active || editDialogOpen} value={bulkValue} maxLength={10000} onChange={e => setBulkValue(e.target.value)} /> : <select disabled={active || editDialogOpen} value={bulkValue} onChange={e => setBulkValue(e.target.value)}>{bulkChoices(bulkField).map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select>}</label>
+      <label>New value{bulkField === "note" ? <textarea disabled={active || editDialogOpen} value={bulkValue} maxLength={10000} onChange={e => setBulkValue(e.target.value)} /> : <ColoredSelect disabled={active || editDialogOpen} value={bulkValue} colors={bulkField === "workflow_status" ? materialStatusColors : bulkField === "checked_status" ? materialCheckedColors : undefined} onChange={e => setBulkValue(e.target.value)} options={bulkChoices(bulkField)} />}</label>
       <button className="button button--primary" disabled={active || editDialogOpen || (bulkField === "assigned_processor_id" || bulkField === "main_category_code") && !bulkValue} onClick={() => prepare(selectedRows, bulkChange())}>Review bulk change</button>
       <div className="material-bulk-actions">
         {manager && !archivedView && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || editDialogOpen || selectedRows.length > 100} onClick={() => setBulkNames(selectedRows.map(row => ({ ...row })))}>Edit names</button>}
@@ -298,6 +309,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
         {checkActionsRef && <div className="material-check-actions-slot" ref={checkActionsRef} />}
         {onCheckSelected && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || selectedRows.length > 100} onClick={() => onCheckSelected(selectedRows.map(row => ({ ...row })))}>Auto-check selected materials ({selectedRows.length})</button>}
         {publisher && onPreparePublication && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || selectedRows.length > 100} onClick={() => onPreparePublication(selectedRows.map(row => ({ ...row })))}>Prepare selected for publication ({selectedRows.length})</button>}
+        {role === "ADMIN" && onDeleteSelected && <button className="button button--icon material-delete-trigger" aria-label="Delete selected materials" title="Delete selected materials" disabled={active || lifecycleBusy || Boolean(identity) || editDialogOpen || selectedRows.length > 100} onClick={() => onDeleteSelected(selectedRows.map(row => ({ ...row })))}><Icon name="trash" size={18} /></button>}
       </div>
     </fieldset>}
     {notice && <p role="status">{notice}</p>}
@@ -305,16 +317,16 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     {inline && jobs.some(j => j.status === "failed" || j.status === "unknown") && <div role="alert" className="form-error">
       {jobs[0].message}{unknown && <button className="button" disabled={pending} onClick={() => void run()}>Retry same request</button>}
     </div>}
-    {detail ? <dl className="info-list material-property-editor">{detailColumns.filter(key => key !== "archivedAt" || rows[0].isArchived).map(key => <div key={key}><dt>{title(key)}</dt><dd>{renderCell(key, rows[0])}</dd></div>)}</dl> : <DatabaseTableViewport scrollMode={scrollMode} className={`table-card material-table material-table--editable${expanded ? " material-table--previews-expanded" : ""}`} label="Material results">
-      <table style={{ width: 280 + previewWidth + (numberColumn?.width ?? 0) + visible.reduce((n, c) => n + c.width, 0), "--material-preview-width": `${previewWidth}px`, "--material-name-left": `${40 + previewWidth + (numberColumn?.width ?? 0)}px` } as CSSProperties}><caption className="sr-only">Materials and production status</caption>
-        <colgroup><col style={{ width: 40 }} /><col style={{ width: previewWidth }} />{numberColumn && <col style={{ width: numberColumn.width }} />}<col style={{ width: 240 }} />{visible.map(c => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
+    {detail ? <div className="material-property-columns">{detailColumns.map(group => <dl className="info-list material-property-editor" aria-label={group.label} key={group.label}>{group.columns.filter(key => key !== "archivedAt" || rows[0].isArchived).map(key => <div key={key}><dt>{title(key)}</dt><dd>{renderCell(key, rows[0])}</dd></div>)}</dl>)}</div> : <DatabaseTableViewport scrollMode={scrollMode} className={`table-card material-table material-table--editable${expanded ? " material-table--previews-expanded" : ""}`} label="Material results">
+      <table style={{ width: 316 + previewWidth + (numberColumn?.width ?? 0) + visible.reduce((n, c) => n + c.width, 0), "--material-selection-width": "76px", "--material-preview-width": `${previewWidth}px`, "--material-name-left": `${76 + previewWidth + (numberColumn?.width ?? 0)}px` } as CSSProperties}><caption className="sr-only">Materials and production status</caption>
+        <colgroup><col style={{ width: 76 }} /><col style={{ width: previewWidth }} />{numberColumn && <col style={{ width: numberColumn.width }} />}<col style={{ width: 240 }} />{visible.map(c => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
         <thead><tr><th scope="col">{selectable && <input type="checkbox" aria-label="Select all visible materials" disabled={active || lifecycleBusy} checked={rows.length > 0 && selectedRows.length === rows.length} onChange={e => setSelected(new Set(e.target.checked ? rows.map(r => r.id) : []))} />}</th><th scope="col"><button className="preview-column-toggle" aria-label={expanded ? "Collapse previews" : "Expand previews"} aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>Preview<Icon name="arrow" size={12} /></button></th>{numberColumn && <th scope="col">Number</th>}<th scope="col" className="material-name-column">Material</th>{visible.map(c => <th key={c.key} scope="col">{title(c.key)}</th>)}</tr></thead>
         <tbody>{rows.map(row => <tr key={row.id} className={`${selected.has(row.id) ? "is-selected " : ""}${highlight.ids.has(row.id) ? "is-highlighted" : ""}`} aria-selected={highlight.ids.has(row.id)}
           tabIndex={selectable ? 0 : undefined} aria-label={`Material row ${row.materialName}`}
           onMouseDown={event => { if ((event.shiftKey || event.ctrlKey || event.metaKey) && !isInteractiveTarget(event.target)) event.preventDefault(); }}
           onClick={event => { if (selectable && !active && !lifecycleBusy && !identity && !isInteractiveTarget(event.target)) setHighlight(current => highlightMaterial(current, row.id, rows.map(item => item.id), event)); }}
           onKeyDown={event => { if (selectable && !active && !lifecycleBusy && !identity && event.target === event.currentTarget && event.key === " ") { event.preventDefault(); setHighlight(current => highlightMaterial(current, row.id, rows.map(item => item.id), event)); } }}>
-          <td>{selectable && <input type="checkbox" aria-label={`Select ${row.materialName}`} disabled={active || lifecycleBusy} checked={selected.has(row.id)} onChange={e => { const next = new Set(selected); if (e.target.checked) next.add(row.id); else next.delete(row.id); setSelected(next); }} />}</td>
+          <td><span className="record-leading-actions"><OpenRecordFolderButton kind="material" id={row.id} name={row.materialName} folderPath={row.folderPath} disabled={active || lifecycleBusy || Boolean(identity) || editDialogOpen} />{selectable && <input type="checkbox" aria-label={`Select ${row.materialName}`} disabled={active || lifecycleBusy} checked={selected.has(row.id)} onChange={e => { const next = new Set(selected); if (e.target.checked) next.add(row.id); else next.delete(row.id); setSelected(next); }} />}</span></td>
           <td>{expanded ? <MaterialPreviewStrip key={`${row.id}:${previewEpoch}`} material={row} store={store} editable={manager && !row.isArchived && !active && !lifecycleBusy && !identity && !editDialogOpen} onCount={countPreviews} onEdit={(action, filename) => setPreviewEdit({ materials: [{ ...row }], action, filename })} /> : <MaterialThumbnail key={`${row.id}:${previewEpoch}`} material={row} store={store} />}</td>
           {numberColumn && <td>{renderCell("number", row)}</td>}<td className="material-name-column"><div className="material-table-name"><NavigationLink className="table-link" href={row.isArchived ? `/material-archives/${row.id}` : `/materials/${row.id}`} navigate={navigate}>{row.materialName}</NavigationLink>{manager && !row.isArchived && <button className="material-name-edit" aria-label={`Edit name of ${row.materialName}`} title="Edit name" disabled={active || lifecycleBusy || Boolean(identity) || editDialogOpen} onClick={() => setRename({ ...row })}><Icon name="pencil" size={14} /></button>}</div><NavigationLink className="table-identity" href={row.isArchived ? `/material-archives/${row.id}` : `/materials/${row.id}`} navigate={navigate}>{row.technicalIdentity}</NavigationLink></td>
           {visible.map(c => <td key={c.key}>{renderCell(c.key, row)}</td>)}</tr>)}</tbody>

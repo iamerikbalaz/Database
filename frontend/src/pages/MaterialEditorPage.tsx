@@ -15,7 +15,7 @@ import { useSession } from "../auth/context";
 
 function editable(v: Values): Required<MaterialPatchDto> {
   return { project_id: v.projectId || null, material_name: v.materialName.trim(),
-    main_category_code: v.mainCategoryCode.trim().toUpperCase(), assigned_processor_id: v.assignedProcessorId };
+    main_category_code: v.mainCategoryCode.trim().toUpperCase() || null, assigned_processor_id: v.assignedProcessorId || null };
 }
 export function MaterialEditorPage({ id, client, navigate, onSaved }: {
   id?: string; client: ApiClient; navigate: (path: string) => void; onSaved: (path: string, message: string) => void;
@@ -40,16 +40,16 @@ function ExistingMaterialEditorPage({ id, client, navigate, onSaved }: {
       assignedProcessorId: material?.assignedProcessorId ?? "",
     };
     const processorOptions: NonNullable<Field["options"]> = active.map((u) => ({ value: u.id, label: u.displayName }));
-    const unavailableProcessor = material && !active.some((u) => u.id === material.assignedProcessorId);
-    if (unavailableProcessor) processorOptions.push({ value: material.assignedProcessorId, label: "Current processor (inactive or unavailable): " + material.assignedProcessorId, disabled: true });
+    const unavailableProcessor = material?.assignedProcessorId && !active.some((u) => u.id === material.assignedProcessorId);
+    if (unavailableProcessor && material.assignedProcessorId) processorOptions.push({ value: material.assignedProcessorId, label: "Current processor (inactive or unavailable): " + material.assignedProcessorId, disabled: true });
     const fields: Field[] = [
       { name: "projectId", apiName: "project_id", label: "Order", type: "select", required: false,
         options: projects.map((p) => ({ value: p.id, label: p.name })) },
       ...(!id ? [{ name: "publishedBrandId", apiName: "published_brand_id", label: "Customer", type: "select" as const, required: true,
         options: brands.map((b) => ({ value: b.id, label: b.name })) }] : []),
       { name: "materialName", apiName: "material_name", label: "Material name", required: true, maxLength: 255 },
-      { name: "mainCategoryCode", apiName: "main_category_code", label: "Main category", type: "select", required: true, options: [...materialCategories.map(c => ({ value: c.code, label: categoryLabel(c.code, materialCategories) })), ...(material && !materialCategories.some(c => c.code === material.mainCategoryCode) ? [{ value: material.mainCategoryCode, label: categoryLabel(material.mainCategoryCode) }] : [])] },
-      { name: "assignedProcessorId", apiName: "assigned_processor_id", label: "Processor", type: "select", required: true, options: processorOptions },
+      { name: "mainCategoryCode", apiName: "main_category_code", label: "Main category", type: "select", required: !material?.isDraft, options: [...materialCategories.map(c => ({ value: c.code, label: categoryLabel(c.code, materialCategories) })), ...(material?.mainCategoryCode && !materialCategories.some(c => c.code === material.mainCategoryCode) ? [{ value: material.mainCategoryCode, label: categoryLabel(material.mainCategoryCode) }] : [])] },
+      { name: "assignedProcessorId", apiName: "assigned_processor_id", label: "Processor", type: "select", required: false, options: processorOptions },
     ];
     const definition: FormDefinition = {
       title: id ? "Edit material" : "Add material", fields: canAssign ? fields : fields.filter((field) => field.name === "materialName"), initial, cancel: id ? "/materials/" + id : "/materials",
@@ -57,10 +57,8 @@ function ExistingMaterialEditorPage({ id, client, navigate, onSaved }: {
         payload: (v) => id ? changedFields(editable(v), editable(initial)) : { ...editable(v), published_brand_id: v.publishedBrandId } },
       save: async (v, key) => {
         const input = editable(v);
-        const saved = id
-          ? await client.updateMaterial(id, changedFields(input, editable(initial)), key)
-          : await client.createMaterial({ ...input, published_brand_id: v.publishedBrandId }, key);
-        return { path: "/materials/" + saved.id, message: id ? "Material updated successfully." : "Material created successfully." };
+        const saved = await client.updateMaterial(id, changedFields(input, editable(initial)), key);
+        return { path: "/materials/" + saved.id, message: "Material updated successfully." };
       },
     };
     return { definition, material, brands, unavailableProcessor,

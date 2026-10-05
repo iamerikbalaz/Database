@@ -41,7 +41,7 @@ it("creates without Order, includes additional categories and Customer collectio
   fireEvent.click(screen.getByRole("checkbox", { name: "Collection" }));
   expect(screen.getByRole("checkbox", { name: "F · Fabrics (Main category)" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Create material" }));
-  await screen.findByRole("heading", { name: "1 of 1 folders created" });
+  await screen.findByRole("heading", { name: "1 of 1 materials created" });
   expect(materialCreationClient.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ project_id: null, published_brand_id: customer.id,
     names: ["New material"], template_name: "base.sbs", expected_paths_version: 2, category_ids: [extra.id], collection_ids: [collection.id] }));
   expect(vi.mocked(materialCreationClient.create).mock.calls[0][0]).not.toHaveProperty("resolution");
@@ -74,7 +74,7 @@ it("recovers an older frozen resolution request without showing or changing its 
   const recover = await screen.findByRole("button", { name: "Recover / finish this batch" });
   expect(screen.queryByLabelText("Resolution (K)")).not.toBeInTheDocument();
   fireEvent.click(recover);
-  await screen.findByRole("heading", { name: "1 of 1 folders created" });
+  await screen.findByRole("heading", { name: "1 of 1 materials created" });
   expect(materialCreationClient.create).toHaveBeenCalledExactlyOnceWith(original);
 });
 
@@ -97,7 +97,7 @@ it("recovers a lost response with the identical persisted request and blocks dup
   view.unmount(); setup();
   const recover = await screen.findByRole("button", { name: "Recover / finish this batch" });
   fireEvent.click(recover); fireEvent.click(recover);
-  await screen.findByRole("heading", { name: "1 of 1 folders created" });
+  await screen.findByRole("heading", { name: "1 of 1 materials created" });
   expect(materialCreationClient.create).toHaveBeenCalledTimes(2);
   expect(vi.mocked(materialCreationClient.create).mock.calls[1][0]).toEqual(first);
 });
@@ -107,7 +107,7 @@ it("shows per-item partial outcome and resumes the same batch without editing co
   await screen.findByText(/FAILED: MATERIAL_FOLDER_EXISTS/);
   expect(screen.getByLabelText("Material name")).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Recover / finish this batch" }));
-  await screen.findByRole("heading", { name: "1 of 1 folders created" });
+  await screen.findByRole("heading", { name: "1 of 1 materials created" });
   expect(vi.mocked(materialCreationClient.create).mock.calls[0][0]).toEqual(vi.mocked(materialCreationClient.create).mock.calls[1][0]);
 });
 it.each(["empty", "unavailable"])("recovers the frozen request when templates are %s after reload", async availability => {
@@ -122,11 +122,26 @@ it.each(["empty", "unavailable"])("recovers the frozen request when templates ar
   const recover = await screen.findByRole("button", { name: "Recover / finish this batch" });
   expect(recover).toBeEnabled(); expect(requestNavigation("/materials")).toBe(false);
   fireEvent.click(recover);
-  await screen.findByRole("heading", { name: "1 of 1 folders created" });
+  await screen.findByRole("heading", { name: "1 of 1 materials created" });
   expect(vi.mocked(materialCreationClient.create).mock.calls[1][0]).toEqual(original);
   expect(sessionStorage.getItem("reawote.material-create.current")).toBeNull();
 });
 it("rejects duplicate canonical names and an oversized batch", () => {
   expect(() => pastedMaterialNames("Orange tiles\nORANGE-TILES")).toThrow(/duplicate names/);
   expect(() => pastedMaterialNames(Array.from({ length: 101 }, (_, i) => `Name ${i}`).join("\n"))).toThrow(/1–100/);
+});
+
+it.each([false, true])("creates from names alone with missing templates (multiple=%s)", async multiple => {
+  vi.mocked(materialCreationClient.options).mockResolvedValue({ pathsVersion: 0, templates: [], templatesAvailable: false, canCreateFolders: false });
+  vi.mocked(materialCreationClient.create).mockResolvedValue({ ...result, items: [{ ...result.items[0], identity: null, folderPath: null }] });
+  setup(); await screen.findByRole("form", { name: "Add material" });
+  if (multiple) fireEvent.click(screen.getByRole("checkbox", { name: "Create multiple materials" }));
+  fireEvent.change(screen.getByRole("textbox", { name: multiple ? /one Excel column/ : "Material name" }), { target: { value: multiple ? "First\nSecond" : "Only name" } });
+  fireEvent.click(screen.getByRole("button", { name: multiple ? "Create materials" : "Create material" }));
+  await screen.findByRole("heading", { name: "1 of 1 materials created" });
+  expect(materialCreationClient.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ published_brand_id: null,
+    main_category_code: null, assigned_processor_id: null, project_id: null, template_name: null,
+    names: multiple ? ["First", "Second"] : ["Only name"], category_ids: [], collection_ids: [] }));
+  expect(screen.getByRole("link", { name: "NEW-MATERIAL" })).toHaveAttribute("href", "/materials/" + materialDto.id);
+  expect(screen.getByText(/No data folder/)).toBeVisible();
 });

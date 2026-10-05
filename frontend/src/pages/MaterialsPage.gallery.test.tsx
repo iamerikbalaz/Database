@@ -12,6 +12,22 @@ import type { MaterialFilters } from "../api/materialClient";
 beforeEach(() => localStorage.clear());
 afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
 
+it("uses the same status and checked colors in the filters as material cells", async () => {
+  const getMaterials = vi.fn().mockResolvedValue([materialFromDto(materialDto)]);
+  render(<MaterialsPage client={{ ...mockApiClient, getMaterials }} navigate={vi.fn()} />);
+  await screen.findByRole("table");
+  const status = screen.getByRole("combobox", { name: "Status" });
+  const checked = screen.getByRole("combobox", { name: "Checked" });
+  expect(within(status).getByRole("option", { name: "done" })).toHaveAttribute("data-choice-color", "green");
+  expect(within(checked).getByRole("option", { name: "Correction" })).toHaveAttribute("data-choice-color", "red");
+  fireEvent.change(status, { target: { value: "DONE" } });
+  await waitFor(() => expect(getMaterials).toHaveBeenLastCalledWith({ workflow_status: "DONE" }));
+  expect(status).toHaveAttribute("data-choice-color", "green");
+  fireEvent.change(checked, { target: { value: "Correction" } });
+  await waitFor(() => expect(getMaterials).toHaveBeenLastCalledWith({ workflow_status: "DONE", checked_status: "Correction" }));
+  expect(checked).toHaveAttribute("data-choice-color", "red");
+});
+
 it.each([false, true])("offers active processors and assigned or selected historical people without duplicate aliases (archived=%s)", async archived => {
   const material = { ...materialFromDto(materialDto), assignedProcessorId: inactiveDto.id, isArchived: archived };
   const users = [processorDto, inactiveDto,

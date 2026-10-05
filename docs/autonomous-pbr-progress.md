@@ -1,6 +1,35 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-10-01, compact cards and full-quality previews)
+## Latest checkpoint (2026-10-05, material drafts and administrator deletion)
+
+The owned test at `http://127.0.0.1:53033` serves schema 0044 and the new UI.
+Its fresh pre-upgrade database dump is retained privately. The 0042→0044 upgrade
+passed schema comparison and preserved every existing material field and all
+existing table counts: 51 materials, 303 customers and 283 orders.
+
+- Material property columns, colored Status/Checked and Notion-derived Order
+  Status/Priority colors; direct folder icons in Material and Order rows.
+- Names-only single/bulk creation keeps missing facts NULL. Customer/category
+  completion reserves real identities; recoverable folder creation is separate.
+  Draft Edit Name works directly on the card with durable request recovery.
+- ADMIN-only reviewed bulk deletion removes records from active/archive views,
+  with either unchanged sources or whole source folders moved into a protected
+  recovery journal. Files are retained, not permanently purged. Immutable audit,
+  historical identity reservations and interrupted-operation recovery remain.
+- Full frontend: 1,305 tests, lint/build passed; final draft-name addition: 34
+  focused tests, lint/build passed. Affected backend API/native and PostgreSQL
+  checks passed, including real concurrent allocation and deletion. Receipt
+  trigger contracts were updated for the two new material fields; older receipt
+  JSON remains readable. No worker code changed.
+- Live acceptance: 31 existing endpoint/page checks plus 10 new API/asset checks
+  passed, without material or source mutations. Native Explorer launch was
+  adapter-tested; browser rendering and physical interaction remain unverified.
+- Broader unrelated full-backend runs were stopped before completion and are
+  not counted as passed; see the feature note for the targeted test coverage.
+
+See [behavior, safety and verification](material-drafts-deletion-2026-10-05.md).
+
+## Previous checkpoint (2026-10-01, compact cards and full-quality previews)
 
 The owned test at `http://127.0.0.1:53033` now serves compact material,
 Order and Customer cards, full-quality preview browsing and native Paths pickers.

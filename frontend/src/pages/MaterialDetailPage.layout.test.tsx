@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MaterialDetailPage } from "./MaterialDetailPage";
 import { SessionContext } from "../auth/context";
 import { mockApiClient } from "../api/client";
-import { materialFromDto, internalUserFromDto } from "../api/materialDto";
+import { materialFromDto, internalUserFromDto, type Material } from "../api/materialDto";
 import { projectFromDto, publishedBrandFromDto } from "../api/dto";
 import { catalogClient, contentFromDto } from "../api/catalogClient";
 import { metadataClient } from "../api/metadataClient";
@@ -26,8 +26,8 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ material_id: material.id, path: "", entries: [], omitted_entries: 0 }))));
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
-function mount() {
-  const client = { ...mockApiClient, getMaterial: vi.fn().mockResolvedValue(material),
+function mount(row: Material = material) {
+  const client = { ...mockApiClient, getMaterial: vi.fn().mockResolvedValue(row),
     getProjects: vi.fn().mockResolvedValue([projectFromDto(materialProject)]),
     getBrands: vi.fn().mockResolvedValue([publishedBrandFromDto(materialBrand)]),
     getInternalUsers: vi.fn().mockResolvedValue([internalUserFromDto(processorDto)]) };
@@ -36,6 +36,35 @@ function mount() {
   </SessionContext.Provider>);
   return client;
 }
+
+it("opens a draft card without inventing identity or fetching collections for every customer", async () => {
+  const draft: Material = { ...material, isDraft: true, folderPath: null, technicalIdentity: null, sequenceNumber: null,
+    publishedBrandId: null, mainCategoryCode: null, assignedProcessorId: null };
+  vi.mocked(materialLocalClient.info).mockResolvedValue({ absolutePath: null, canOpen: false, canMove: false });
+  mount(draft);
+  await screen.findByLabelText("Description");
+  expect(screen.getByText("Identity not assigned")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Check material data" })).toBeDisabled();
+  expect(catalogClient.collections).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Edit Name" })).toBeEnabled();
+});
+
+it("renames a name-only draft directly from its material card", async () => {
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.setAttribute("open", ""); } });
+  const draft: Material = { ...material, isDraft: true, folderPath: null, technicalIdentity: null, sequenceNumber: null,
+    publishedBrandId: null, mainCategoryCode: null, assignedProcessorId: null };
+  const client = mount(draft);
+  const updated = { ...draft, materialName: "RENAMED-DRAFT" };
+  const update = vi.spyOn(client, "updateMaterial").mockResolvedValue(updated);
+  await screen.findByLabelText("Description");
+  client.getMaterial.mockResolvedValue(updated);
+  fireEvent.click(screen.getByRole("button", { name: "Edit Name" }));
+  fireEvent.change(screen.getByLabelText("Material name"), { target: { value: "renamed draft" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+  expect(await screen.findByRole("heading", { name: "RENAMED-DRAFT" })).toBeVisible();
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(update).toHaveBeenCalledExactlyOnceWith(draft.id, { material_name: "RENAMED DRAFT" }, expect.any(String));
+});
 
 it("keeps the header check action mounted, blocks edits while checking and retains its report after material refresh", async () => {
   let complete!: (value: AutomaticFileCheckResult) => void;

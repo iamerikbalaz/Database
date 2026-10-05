@@ -145,7 +145,7 @@ export function MaterialContentPanel({ material, onChanged, onBusyChange, disabl
   const [headingActions, setHeadingActions] = useState<HTMLDivElement | null>(null);
   const load = useCallback(async () => {
     void actor; void material.mainCategoryCode; void material.updatedAt;
-    const [content, categories, collections, source] = await Promise.all([catalogClient.content(material.id), catalogClient.categories(), catalogClient.collections(material.publishedBrandId), metadataClient.inspect(material.id)]);
+    const [content, categories, collections, source] = await Promise.all([catalogClient.content(material.id), catalogClient.categories(), material.publishedBrandId ? catalogClient.collections(material.publishedBrandId) : Promise.resolve([]), metadataClient.inspect(material.id)]);
     return { content, categories, collections, source };
   }, [material.id, material.publishedBrandId, material.mainCategoryCode, material.updatedAt, actor]);
   const resource = useResource(load);

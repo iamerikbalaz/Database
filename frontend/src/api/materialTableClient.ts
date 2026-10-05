@@ -2,8 +2,8 @@ import { request } from "./client";
 import { uuid } from "./dto";
 import { materialFromDto, parseMaterial, type Material } from "./materialDto";
 
-export type TableChange = { project_id: string | null } | { assigned_processor_id: string }
-  | { published_brand_id: string } | { main_category_code: string }
+export type TableChange = { project_id: string | null } | { assigned_processor_id: string | null }
+  | { published_brand_id: string | null } | { main_category_code: string | null }
   | { workflow_status: Material["workflowStatus"] } | { checked_status: Material["checkedStatus"] }
   | { is_published: boolean } | { note: string | null };
 export const materialTableClient = {

@@ -31,6 +31,14 @@ it.each(cases)("accepts only a complete actor/key/target-bound $kind receipt", (
   ]) expect(() => resourceReceipt(changed, scope(kind, response.id), actor, key, "a".repeat(64))).toThrow();
 });
 
+it("accepts new and historical material receipts without inventing fields in the saved response", () => {
+  const draft = { ...materialDto, is_draft: true, published_brand_id: null, assigned_processor_id: null,
+    main_category_code: null, sequence_number: null, technical_identity: null, folder_path: null };
+  for (const material of [materialDto, { ...materialDto, is_draft: false }, draft]) {
+    expect(resourceReceipt(receipt("MATERIAL", { ...material }), scope("MATERIAL", material.id), actor, key, "a".repeat(64)).resourceId).toBe(material.id);
+  }
+});
+
 it("matches the server's raw JSON digest before trimming, defaults and URL normalization", async () => {
   const scope: CommandScope = { kind: "COMPANY", action: "CREATED", targetId: null, editorPath: "/companies/new" };
   const payload = { name: "  Český kámen 🪨  ", website: "https://example.invalid", is_active: true, country: null };

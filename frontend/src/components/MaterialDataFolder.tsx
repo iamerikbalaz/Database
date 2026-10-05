@@ -12,6 +12,7 @@ import { sessionGeneration } from "../auth/sessionTransport";
 import { useNavigationGuard } from "../navigationGuard";
 import { FileCheckJobUnavailableError } from "../api/materialCheckJobs";
 import { Icon } from "./Icon";
+import { MaterialFolderCreate } from "./MaterialFolderCreate";
 
 export function MaterialDataFolder({ material, onChanged, disabled, onBusyChange }: { material: Material; onChanged: () => Promise<boolean>; disabled?: boolean; onBusyChange?: (busy: boolean) => void }) {
   const role = useSession()?.session.user.role;
@@ -44,6 +45,7 @@ export function MaterialDataFolder({ material, onChanged, disabled, onBusyChange
     <div className="form-actions"><button type="button" className="button" disabled={disabled || pending || !result.data?.canOpen} onClick={() => void run("open")}>Open folder</button>
       {canMove && <button type="button" className="button" disabled={disabled || pending} onClick={() => void run("choose")}>Choose destination folder…</button>}</div>
     {destination && <MaterialNameDialog material={material} destination={destination} onClose={() => setDestination(null)} onChanged={onChanged} />}
+    {!material.folderPath && !material.isArchived && (role === "ADMIN" || role === "PRODUCTION_LEAD") && <MaterialFolderCreate material={material} disabled={disabled || pending || destination !== null} onChanged={onChanged} onBusyChange={onBusyChange} />}
   </article>;
 }
 

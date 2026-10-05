@@ -3,10 +3,79 @@ import { ApiError } from "../api/errors";
 import { identityClient, type IdentityConfirmation, type IdentityPlan } from "../api/identityClient";
 import type { Material } from "../api/materialDto";
 import { useNavigationGuard } from "../navigationGuard";
+import { httpApiClient, type ApiClient } from "../api/client";
+import { useSession } from "../auth/context";
+import { sessionGeneration } from "../auth/sessionTransport";
+import { useRecordCommand } from "../forms/useRecordCommand";
+import { PendingRecordSave } from "../forms/PendingRecordSave";
 
-export function MaterialNameDialog({ material, destination, onClose, onChanged }: {
+type MaterialNameDialogProps = {
   material: Material; destination?: { parent: string; absolutePath: string }; onClose: () => void; onChanged: () => Promise<boolean>;
-}) {
+  client?: Pick<ApiClient, "updateMaterial">;
+};
+
+export function MaterialNameDialog(props: MaterialNameDialogProps) {
+  const actor = useSession()?.session.user.id;
+  return props.material.isDraft && !props.destination
+    ? <DraftMaterialNameDialog key={`${actor ?? "anonymous"}:${props.material.id}:${sessionGeneration()}`} {...props} />
+    : <LinkedMaterialNameDialog {...props} />;
+}
+
+function DraftMaterialNameDialog({ material, onClose, onChanged, client = httpApiClient }: MaterialNameDialogProps) {
+  const actorId = useSession()?.session.user.id;
+  const dialog = useRef<HTMLDialogElement>(null), active = useRef(false), generation = useRef(sessionGeneration());
+  const [error, setError] = useState(""), [completing, setCompleting] = useState(false);
+  const controller = useRecordCommand({ actorId,
+    command: { kind: "MATERIAL", action: "UPDATED", targetId: material.id, editorPath: `/materials/${material.id}/edit-name`,
+      payload: values => ({ material_name: values.name.trim() }) },
+    save: async (values, key) => {
+      const sentGeneration = sessionGeneration();
+      await client.updateMaterial(material.id, { material_name: values.name.trim() }, key);
+      if (sentGeneration !== sessionGeneration()) throw new Error("The account session changed while saving.");
+      return { path: `/materials/${material.id}`, message: "Material name saved." };
+    },
+    onStart: () => setError(""), onFailure: failure => setError(failure.message),
+    onSaved: () => {
+      if (!active.current || generation.current !== sessionGeneration()) return;
+      setCompleting(true);
+      void onChanged().catch(() => false).finally(() => {
+        if (active.current && generation.current === sessionGeneration()) { setCompleting(false); onClose(); }
+      });
+    },
+  });
+  const [name, setName] = useState(controller.ownPacket?.values.name ?? material.materialName.toUpperCase());
+  const busy = controller.busy || completing, frozen = busy || controller.packet !== null;
+  const ownPending = busy || controller.ownPacket !== null;
+  const changed = Boolean(name.trim()) && name.trim() !== material.materialName.trim().toUpperCase();
+  useEffect(() => {
+    active.current = true;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialog.current?.showModal();
+    return () => { active.current = false; trigger?.focus(); };
+  }, []);
+  useNavigationGuard(() => ownPending);
+  return <dialog ref={dialog} className="confirm-dialog material-name-dialog" aria-labelledby="draft-material-name-title"
+    onCancel={event => { event.preventDefault(); if (!ownPending) onClose(); }}>
+    <form className="confirm-dialog__body" onSubmit={event => {
+      event.preventDefault();
+      if (!frozen && changed) void controller.submit({ name });
+    }}>
+      <h2 id="draft-material-name-title">Edit Name</h2>
+      <p>Update the name of this draft material. Its Customer and Main category can be assigned later.</p>
+      {error && <p role="alert" className="field-error">{error}</p>}
+      {controller.packet && !controller.ownPacket && <p role="alert">Close this dialog and recover the other pending record save before changing this name.</p>}
+      <label>Material name<input value={name} maxLength={255} required disabled={frozen}
+        onChange={event => { setName(event.target.value.toUpperCase()); setError(""); }} /></label>
+      <PendingRecordSave controller={controller} />
+      <div className="form-actions">
+        <button type="button" className="button" disabled={ownPending} onClick={onClose}>Cancel</button>
+        <button type="submit" className="button button--primary" disabled={frozen || !changed}>{busy ? "Saving…" : "Save name"}</button>
+      </div>
+    </form>
+  </dialog>;
+}
+
+function LinkedMaterialNameDialog({ material, destination, onClose, onChanged }: MaterialNameDialogProps) {
   const dialog = useRef<HTMLDialogElement>(null), sending = useRef(false), exact = useRef<IdentityConfirmation | null>(null);
   const [name, setName] = useState(material.materialName.toUpperCase()), [plan, setPlan] = useState<IdentityPlan | null>(null);
   const [pending, setPending] = useState(false), [uncertain, setUncertain] = useState(false);
@@ -19,9 +88,12 @@ export function MaterialNameDialog({ material, destination, onClose, onChanged }
   }, []);
   useNavigationGuard(() => sending.current || exact.current !== null || activeOperation !== null);
   const busy = pending || uncertain || activeOperation !== null;
-  const target = () => ({ target_brand_id: material.publishedBrandId, main_category_code: material.mainCategoryCode,
-    target_parent: destination?.parent ?? material.folderPath?.split("/").slice(0, -1).join("/") ?? "", material_name: destination ? material.materialName : name.trim() });
-  const eligible = !material.isPublished && Boolean(material.folderPath) &&
+  const target = () => {
+    if (!material.publishedBrandId || !material.mainCategoryCode || material.isDraft) throw new Error("Complete the material identity first.");
+    return { target_brand_id: material.publishedBrandId, main_category_code: material.mainCategoryCode,
+      target_parent: destination?.parent ?? material.folderPath?.split("/").slice(0, -1).join("/") ?? "", material_name: destination ? material.materialName : name.trim() };
+  };
+  const eligible = !material.isDraft && !material.isPublished && Boolean(material.folderPath) &&
     (material.workflowStatus === "IN_PROGRESS" || (!destination && material.workflowStatus === "DONE"));
   const changed = Boolean(name.trim()) && (Boolean(destination) || name.trim() !== material.materialName.trim().toUpperCase());
   const confirm = async () => {

@@ -1,0 +1,5 @@
+.colored-select { font-weight: 500; }
+.colored-value { display: inline-block; padding: 4px 9px; border-radius: 7px; font-size: 12px; font-weight: 500; line-height: 1.5; }
+@media (forced-colors: active) {
+  select.colored-select, select.colored-select option, .colored-value { forced-color-adjust: auto; background-color: Canvas; color: CanvasText; }
+}

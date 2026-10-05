@@ -1315,8 +1315,8 @@ a.button {
 .material-table--editable tr.is-selected td { background:#f2f3f9; }
 .material-table--editable th:nth-child(-n+3), .material-table--editable td:nth-child(-n+3) { position:sticky; z-index:2; }
 .material-table--editable th:first-child, .material-table--editable td:first-child { left:0; }
-.material-table--editable th:nth-child(2), .material-table--editable td:nth-child(2) { left:40px; }
-.material-table--editable th:nth-child(3), .material-table--editable td:nth-child(3) { left:calc(40px + var(--material-preview-width, 96px)); box-shadow:1px 0 #dde0ed; }
+.material-table--editable th:nth-child(2), .material-table--editable td:nth-child(2) { left:var(--material-selection-width, 40px); }
+.material-table--editable th:nth-child(3), .material-table--editable td:nth-child(3) { left:calc(var(--material-selection-width, 40px) + var(--material-preview-width, 96px)); box-shadow:1px 0 #dde0ed; }
 .material-table--editable thead th:nth-child(-n+3) { z-index:5; }
 .material-table--editable select, .material-table--editable textarea { width:100%; min-width:0; padding:7px 8px; font:inherit; font-size:12px; color:inherit; background:transparent; border:1px solid transparent; border-radius:6px; }
 .material-table--editable select:hover, .material-table--editable textarea:hover { border-color:#dde0ed; }

@@ -25,8 +25,8 @@ export function MaterialIdentityPanel({ material, client, onChanged, initialBran
     return { operations, brands };
   }, [material.id, client, allowed, actor]);
   const resource = useResource(load);
-  const [targetBrand, setTargetBrand] = useState(initialBrand ?? material.publishedBrandId);
-  const [category, setCategory] = useState(initialCategory ?? material.mainCategoryCode);
+  const [targetBrand, setTargetBrand] = useState(initialBrand ?? material.publishedBrandId ?? "");
+  const [category, setCategory] = useState(initialCategory ?? material.mainCategoryCode ?? "");
   const [parent, setParent] = useState(material.folderPath?.split("/").slice(0, -1).join("/") ?? "");
   const [proposal, setProposal] = useState<IdentityPlan | null>(null);
   const [reason, setReason] = useState(""); const [acknowledged, setAcknowledged] = useState(false);
@@ -37,7 +37,7 @@ export function MaterialIdentityPanel({ material, client, onChanged, initialBran
   const confirmation = useRef<IdentityConfirmation | null>(null);
   useNavigationGuard(() => sending.current || confirmation.current !== null);
   const active = resource.data?.operations.items.find((item) => item.status === "RUNNING" || item.status === "RECOVERY_REQUIRED");
-  const eligible = allowed && material.workflowStatus === "IN_PROGRESS" && !material.isPublished && Boolean(material.folderPath) && !active;
+  const eligible = allowed && !material.isDraft && material.workflowStatus === "IN_PROGRESS" && !material.isPublished && Boolean(material.folderPath) && !active;
   const target = () => ({ target_brand_id: targetBrand, main_category_code: category.trim().toUpperCase(), target_parent: parent.trim() });
   const invalidate = () => { setProposal(null); setAcknowledged(false); setNotice(""); };
   const complete = async (result: IdentityOperation) => {

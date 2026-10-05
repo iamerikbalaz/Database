@@ -61,6 +61,7 @@ export const directoryClient = {
   async customerRenameOperations(id: string) { const result = await request(`/customers/${uuid(id)}/rename-operations`); return list(Array.isArray(result) ? result : record(result).items, renameOperation); },
   async resumeCustomerRename(id: string, operationId: string) { return renameOperation(await request(`/customers/${uuid(id)}/rename-operations/${uuid(operationId)}/resume`, "POST")); },
   async orders() { return list(await request("/orders"), parseOrder); },
+  async openFolder(id: string) { await request(`/orders/${uuid(id)}/open-folder`, "POST"); },
   async orderDefaults() { const value = record(await request("/orders/defaults")); return { number: string(value.number), startingDate: string(value.starting_date) }; },
   async order(id: string) { return parseOrder(await request(`/orders/${uuid(id)}`)); },
   async saveOrder(id: string | undefined, payload: DirectoryValues, key: string) { return parseOrder(await request(id ? `/orders/${uuid(id)}` : "/orders", id ? "PATCH" : "POST", payload, key)); },

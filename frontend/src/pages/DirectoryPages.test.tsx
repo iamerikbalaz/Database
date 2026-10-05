@@ -142,6 +142,12 @@ it("shows all Notion order statuses and keeps folder renames separate from inlin
   const fetch = backend(); render(manager(<OrdersPage client={httpApiClient} navigate={vi.fn()} />));
   await screen.findByRole("link", { name: order.number });
   expect(within(screen.getByRole("combobox", { name: "Status" })).getAllByRole("option")).toHaveLength(14);
+  const statusSelect = screen.getByRole("combobox", { name: `Status for ${order.number} · ${order.generated_name}` });
+  expect(within(statusSelect).getByRole("option", { name: "Scanned" })).toHaveAttribute("data-choice-color", "pink");
+  expect(within(statusSelect).getByRole("option", { name: "invoiced" })).toHaveAttribute("data-choice-color", "red");
+  const prioritySelect = screen.getByRole("combobox", { name: `Priority for ${order.number} · ${order.generated_name}` });
+  expect(within(prioritySelect).getByRole("option", { name: "Urgent" })).toHaveAttribute("data-choice-color", "red");
+  expect(within(prioritySelect).getByRole("option", { name: "Low" })).toHaveAttribute("data-choice-color", "green");
   const customerCell = screen.getByRole("combobox", { name: `Customer for ${order.number} · ${order.generated_name}` });
   expect(within(customerCell).getByRole("option", { name: "Not assigned" })).toBeDisabled();
   fireEvent.click(screen.getByRole("checkbox", { name: "Select all filtered rows" }));
@@ -149,6 +155,7 @@ it("shows all Notion order statuses and keeps folder renames separate from inlin
   expect(screen.getByRole("combobox", { name: "Bulk value" })).toHaveValue(customer.id);
   fireEvent.change(screen.getByRole("combobox", { name: `Status for ${order.number} · ${order.generated_name}` }), { target: { value: "Visualize" } });
   await screen.findByText("Saved. Refresh to reapply filters.");
+  expect(screen.getByRole("combobox", { name: `Status for ${order.number} · ${order.generated_name}` })).toHaveAttribute("data-choice-color", "blue");
   expect(fetch.mock.calls.filter(([path, init]) => path.endsWith("/folder") && init?.method === "POST")).toHaveLength(0);
 });
 it("filters Orders by the actual due date independently from the starting-date lower bound", async () => {

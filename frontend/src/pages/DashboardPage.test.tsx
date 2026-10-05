@@ -11,10 +11,10 @@ import { materialDto, processorDto } from "../test/materialFixtures";
 import { DashboardPage } from "./DashboardPage";
 
 const first = materialFromDto(materialDto);
-const done: Material = { ...first, id: "50000000-0000-4000-8000-000000000002", technicalIdentity: "STONE_0002_A01",
-  materialName: "Done sample", workflowStatus: "DONE", validationStatus: "VALID" };
-const warning: Material = { ...done, id: "50000000-0000-4000-8000-000000000003", technicalIdentity: "STONE_0003_A01",
-  materialName: "Correction sample", checkedStatus: "Correction", validationStatus: "WARNING" };
+const done = { ...first, id: "50000000-0000-4000-8000-000000000002", technicalIdentity: "STONE_0002_A01",
+  materialName: "Done sample", workflowStatus: "DONE", validationStatus: "VALID" } satisfies Material;
+const warning = { ...done, id: "50000000-0000-4000-8000-000000000003", technicalIdentity: "STONE_0003_A01",
+  materialName: "Correction sample", checkedStatus: "Correction", validationStatus: "WARNING" } satisfies Material;
 beforeEach(() => { vi.spyOn(previewClient, "listing").mockResolvedValue({ items: [], missing: true, ignoredEntries: 0 }); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 function tree(client: ApiClient, role: Role = "ADMIN", actor = processorDto.id, navigate = vi.fn()) {
@@ -26,6 +26,18 @@ function tree(client: ApiClient, role: Role = "ADMIN", actor = processorDto.id, 
 function api(rows: Material[] = [first, done, warning]) {
   return { ...mockApiClient, getMaterials: vi.fn().mockResolvedValue(rows) };
 }
+
+it("searches and opens a name-only draft without a generated identity", async () => {
+  const draft: Material = { ...first, isDraft: true, materialName: "UNASSIGNED SURFACE", technicalIdentity: null,
+    sequenceNumber: null, publishedBrandId: null, mainCategoryCode: null, assignedProcessorId: null, folderPath: null };
+  render(tree(api([draft, done])));
+  await screen.findByRole("button", { name: "All materials 2" });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "unassigned" } });
+  expect(screen.getByRole("link", { name: "UNASSIGNED SURFACE" })).toHaveAttribute("href", `/materials/${draft.id}`);
+  expect(screen.getAllByRole("listitem")).toHaveLength(1);
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "no matching identity" } });
+  expect(screen.getByText("No matching materials")).toBeInTheDocument();
+});
 
 it("loads one server-scoped snapshot under StrictMode and keeps Done separate from publication", async () => {
   const client = api(); render(<StrictMode>{tree(client)}</StrictMode>);

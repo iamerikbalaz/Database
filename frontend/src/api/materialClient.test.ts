@@ -7,7 +7,7 @@ import { materialBrand } from "../test/materialFixtures";
 afterEach(() => vi.unstubAllGlobals());
 it("validates and explicitly maps all material and user fields", () => {
   expect(materialFromDto(parseMaterial(materialDto))).toEqual({
-    checkedStatus: "no", note: null, isArchived: false, archivedAt: null,
+    checkedStatus: "no", note: null, isArchived: false, archivedAt: null, isDraft: false,
     automaticFileCheckStatus: "NOT_CHECKED", automaticFileCheckedAt: null,
     automaticFileCheckProfile: null, automaticFileCheckComplete: false,
     id: materialDto.id, projectId: materialDto.project_id, publishedBrandId: materialDto.published_brand_id,

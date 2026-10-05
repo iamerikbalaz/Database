@@ -21,9 +21,9 @@ import "../components/MaterialLayout.css";
 export function MaterialFacts({ material: m }: { material: Material }) {
   const visibleFolderPath = m.folderPath && validateFolderPath(m.folderPath).error === null ? m.folderPath : null;
   const fields = [
-    ["Internal UUID", m.id], ["Technical identity", m.technicalIdentity],
-    ["Sequence number", String(m.sequenceNumber).padStart(4, "0")],
-    ["Material name", m.materialName], ["Main category", categoryLabel(m.mainCategoryCode)],
+    ["Internal UUID", m.id], ["Technical identity", m.technicalIdentity ?? "Not assigned"],
+    ["Sequence number", m.sequenceNumber === null ? "Not assigned" : String(m.sequenceNumber).padStart(4, "0")],
+    ["Material name", m.materialName], ["Main category", m.mainCategoryCode ? categoryLabel(m.mainCategoryCode) : "Not assigned"],
     ["Folder status", m.folderPath ? "Linked" : "Not linked"],
     ["Folder path", visibleFolderPath ?? (m.folderPath ? "Unavailable (unsafe path hidden)" : "Not linked")],
     ["Status", statusLabel(m.workflowStatus)],
@@ -69,12 +69,12 @@ function MaterialDetailContent({ initialMaterial, client, navigate, includeArchi
   const [editName, setEditName] = useState(false);
   return <section className="material-detail-page">
     <NavigationLink className="back-link" href={material.isArchived ? "/material-archives" : "/materials"} navigate={navigate}>{material.isArchived ? "Back to archived materials" : "Back to materials"}</NavigationLink>
-    <div className="page-heading"><div className="material-page-identity"><p className="eyebrow">{material.technicalIdentity}</p><div className="material-name-heading"><h1>{material.materialName}</h1>
+    <div className="page-heading"><div className="material-page-identity"><p className="eyebrow">{material.technicalIdentity ?? "Identity not assigned"}</p><div className="material-name-heading"><h1>{material.materialName}</h1>
       {canEdit && <button className="button" disabled={refreshing || propertiesBusy || libraryBusy || folderBusy || checkBusy} onClick={() => setEditName(true)}>Edit Name</button>}</div></div>
       <div className="material-check-action" ref={setCheckActionTarget} />
     </div>
     <MaterialDataCheck key={material.id} materialId={material.id} updatedAt={material.updatedAt} actionTarget={checkActionTarget} dockOnly
-      disabled={propertiesBusy || libraryBusy || folderBusy || refreshing || editName || !role || !["ADMIN", "PRODUCTION_LEAD", "PROCESSOR"].includes(role)} onChanged={refresh} onBusyChange={setCheckBusy} />
+      disabled={propertiesBusy || libraryBusy || folderBusy || refreshing || editName || !material.folderPath || !role || !["ADMIN", "PRODUCTION_LEAD", "PROCESSOR"].includes(role)} onChanged={refresh} onBusyChange={setCheckBusy} />
     <div className="material-detail-summary">
     {role && <MaterialGallery key={`gallery-${material.id}-${material.folderPath}-${material.updatedAt}`} materialId={material.id} linked={Boolean(material.folderPath)} />}
     <article className="panel material-basic-panel" aria-label="Material properties">
@@ -92,7 +92,7 @@ function MaterialDetailContent({ initialMaterial, client, navigate, includeArchi
       {!material.isArchived && <MaterialContentPanel key={`content-${material.id}-${material.publishedBrandId}`} material={material} onChanged={refresh} onBusyChange={setLibraryBusy} disabled={propertiesBusy || folderBusy || checkBusy || editName} />}
     </div>}
     <MaterialHistoryPanel id={material.id} updatedAt={material.updatedAt} refreshRevision={historyRefresh} />
-    {editName && <MaterialNameDialog material={material} onClose={() => setEditName(false)} onChanged={refresh} />}
+    {editName && <MaterialNameDialog material={material} client={client} onClose={() => setEditName(false)} onChanged={refresh} />}
   </section>;
 }
 

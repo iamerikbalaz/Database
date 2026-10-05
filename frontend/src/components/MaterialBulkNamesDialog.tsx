@@ -14,6 +14,7 @@ type Row = {
 };
 const active = (operation: IdentityOperation) => ["RUNNING", "RECOVERY_REQUIRED"].includes(operation.status);
 function eligible(material: Material) {
+  if (material.isDraft || !material.publishedBrandId || !material.mainCategoryCode) return "Assign Customer and Main category before bulk renaming.";
   if (material.isArchived) return "Archived materials cannot be renamed.";
   if (material.isPublished) return "Clear Published before renaming.";
   if (!material.folderPath) return "Link the material data folder before renaming.";
@@ -106,7 +107,7 @@ export function MaterialBulkNamesDialog({ materials, client, onClose, onChanged 
         let next: Row = { ...row, after, plan: undefined, message: undefined };
         if (after === material.materialName) next = { ...next, status: "Unchanged" };
         else if (!after) next = { ...next, status: "Blocked", message: "The replacement would produce an empty material name." };
-        else if (eligible(material) || !row.enabled) next = { ...next, status: "Blocked", message: eligible(material) ?? "Source changes are disabled." };
+        else if (eligible(material) || !material.publishedBrandId || !material.mainCategoryCode || !row.enabled) next = { ...next, status: "Blocked", message: eligible(material) ?? "Source changes are disabled." };
         else {
           put(index, { ...next, status: "Reviewing" });
           try {
@@ -147,6 +148,7 @@ export function MaterialBulkNamesDialog({ materials, client, onClose, onChanged 
             const current = await client.getMaterial(row.material.id);
             if (!mounted.current || !sameSession() || !unchanged(current, row.material)) throw new Error("The material changed after review. Reload and review a new selection.");
             if (!row.plan?.ready || !matchingPlan(row.plan, current)) throw new Error("The reviewed source plan no longer matches this material.");
+            if (!row.material.publishedBrandId || !row.material.mainCategoryCode) throw new Error("Assign Customer and Main category before bulk renaming.");
             row = { ...row, exact: { target_brand_id: row.material.publishedBrandId, main_category_code: row.material.mainCategoryCode,
               target_parent: row.material.folderPath!.split("/").slice(0, -1).join("/"), material_name: row.requestedName!,
               expected_generation: row.plan.generation, expected_proposal_hash: row.plan.hash, idempotency_key: crypto.randomUUID(),

@@ -178,7 +178,7 @@ it("creates with the Order Customer, active processors and one recoverable batch
   expect(await screen.findByLabelText("Order")).toHaveFocus();
   expect(screen.queryByRole("option", { name: inactiveDto.display_name })).not.toBeInTheDocument();
   await fillCreate(); submit();
-  expect(await screen.findByRole("heading", { name: "1 of 1 folders created" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "1 of 1 materials created" })).toBeInTheDocument();
   expect(screen.getByLabelText("Customer")).toHaveValue(materialBrand.id);
   expect(screen.getByLabelText("Customer")).toBeDisabled();
   expect(fetchMock).toHaveBeenCalledWith("/api/internal-users?is_active=true", expect.any(Object));
@@ -230,7 +230,7 @@ it("blocks double submit while a write is pending", async () => {
   await waitFor(() => expect(writes).toHaveLength(1));
   expect(screen.getByLabelText("Material name")).toBeDisabled();
   await act(async () => finish(response(createdBatch)));
-  await screen.findByText("1 of 1 folders created");
+  await screen.findByText("1 of 1 materials created");
 });
 it("handles empty option lists without sending invalid create", async () => {
   const { writes } = backend({ emptyChoices: true }); render(<App initialPath="/materials/new" />);
@@ -238,9 +238,10 @@ it("handles empty option lists without sending invalid create", async () => {
   expect(screen.getByRole("alert")).toHaveTextContent("Enter 1–100 names");
   expect(writes).toHaveLength(0);
 });
-it("rejects malformed category locally", async () => {
+it("sends no category for an incomplete draft when no valid category is selected", async () => {
   const { writes } = backend(); render(<App initialPath="/materials/new" />);
   await fillCreate(); change("Main category", "../G03"); submit();
-  expect(screen.getByRole("alert")).toHaveFocus();
-  expect(writes).toHaveLength(0);
+  await screen.findByText("1 of 1 materials created");
+  expect(writes).toHaveLength(1);
+  expect(writes[0].body).toMatchObject({ main_category_code: null, names: ["New surface"] });
 });

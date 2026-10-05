@@ -151,6 +151,14 @@ it("shows identical editable properties in detail and allows archived database f
   expect(screen.getByRole("combobox", { name: `Order for ${first.materialName}` })).toBeEnabled();
   expect(screen.getByRole("checkbox", { name: `Published for ${first.materialName}` })).toBeEnabled();
   expect(screen.getByRole("checkbox", { name: `Archived for ${first.materialName}` })).toBeChecked();
+  const editable = screen.getByLabelText("Editable material properties"), state = screen.getByLabelText("Material state and information");
+  expect(within(editable).getAllByRole("combobox")).toHaveLength(6);
+  expect(within(editable).getByRole("textbox", { name: `Note for ${first.materialName}` })).toBeVisible();
+  expect(within(editable).queryByRole("checkbox")).not.toBeInTheDocument();
+  expect(within(state).getAllByRole("checkbox")).toHaveLength(2);
+  expect(within(state).queryByRole("combobox")).not.toBeInTheDocument();
+  expect(within(editable).getByRole("option", { name: "Correction" })).toHaveAttribute("data-choice-color", "red");
+  expect(within(editable).getByRole("option", { name: "Done" })).toHaveAttribute("data-choice-color", "green");
   fireEvent.change(screen.getByRole("textbox", { name: `Note for ${first.materialName}` }), { target: { value: "Archive note" } });
   fireEvent.click(screen.getByRole("button", { name: "Save note" }));
   await waitFor(() => expect(update).toHaveBeenCalledWith(archived, { note: "Archive note" }, expect.any(String)));

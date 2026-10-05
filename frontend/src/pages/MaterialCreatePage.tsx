@@ -48,10 +48,9 @@ export function MaterialCreatePage({ client, navigate }: { client: ApiClient; na
       try {
         const values = pastedMaterialNames(names);
         if (!multiple && values.length !== 1) throw new Error("Enable Create multiple materials to use more than one name.");
-        if (!customerId || !processorId || !category || !template) throw new Error("Choose Customer, Processor, Main category and SBS template.");
         payload = { idempotency_key: crypto.randomUUID(), expected_paths_version: loaded.data.options.pathsVersion, project_id: orderId || null,
-          published_brand_id: customerId, assigned_processor_id: processorId, main_category_code: category,
-          names: values, category_ids: categoryIds, collection_ids: collectionIds, template_name: template };
+          published_brand_id: customerId || null, assigned_processor_id: processorId || null, main_category_code: category || null,
+          names: values, category_ids: categoryIds, collection_ids: collectionIds, template_name: template || null };
         remember(payload);
       } catch (cause) { setError(cause instanceof Error ? cause.message : "Review the material names."); return; }
     }
@@ -69,14 +68,14 @@ export function MaterialCreatePage({ client, navigate }: { client: ApiClient; na
       }
     } finally { sending.current = false; setBusy(false); }
   };
-  const results = receipt && <section aria-label="Material creation results"><h2>{receipt.completedCount} of {receipt.totalCount} folders created</h2><p>Existing records and folders are never overwritten. Retries reuse these material numbers.</p><ul>{receipt.items.map(item => <li key={item.materialId}><a href={"/materials/" + item.materialId}>{item.identity}</a> — {item.status}{item.errorCode ? ": " + item.errorCode : ""}</li>)}</ul></section>;
+  const results = receipt && <section aria-label="Material creation results"><h2>{receipt.completedCount} of {receipt.totalCount} materials created</h2><p>Materials without a Customer or Main category are saved as drafts. Complete their properties and create their data folder on the material card.</p><ul>{receipt.items.map(item => <li key={item.materialId}><a href={"/materials/" + item.materialId}>{item.identity ?? item.name}</a> — {item.status}{!item.folderPath ? " · No data folder" : ""}{item.errorCode ? ": " + item.errorCode : ""}</li>)}</ul></section>;
   if (loaded.error && (pending || receipt)) return <section className="panel"><h1>Recover material creation</h1>
     <p>Current creation options are unavailable. Recovery uses the stored request and its original template copy.</p>
     {error && <p role="alert" className="form-error">{error}</p>}{results}
     <div className="form-actions">{pending && <button className="button button--primary" disabled={busy} onClick={() => void save()}>{busy ? "Recovering…" : "Recover / finish this batch"}</button>}
       <button className="button" disabled={busy || receipt === null} onClick={() => navigate("/materials")}>Back to materials</button></div>
   </section>;
-  if (loaded.error) return <ErrorState message="Material creation options could not be loaded. Check desktop connection and the SBS template folder in Settings." retry={loaded.retry} />;
+  if (loaded.error) return <ErrorState message="Material creation options could not be loaded." retry={loaded.retry} />;
   if (!loaded.data) return <LoadingState label="Loading material creation…" />;
   const data = loaded.data;
   const mainCategories = catalogMaterialCategories(data.categories).filter(item => /^[A-Z0-9-]+$/.test(item.code));
@@ -84,15 +83,15 @@ export function MaterialCreatePage({ client, navigate }: { client: ApiClient; na
   const frozen = busy || pending !== null || receipt?.status === "COMPLETED";
   const toggle = (items: string[], id: string, selected: boolean) => selected ? [...items, id] : items.filter(value => value !== id);
   return <section className="panel panel--wide material-create-page"><h1>Add material</h1>
-    <p>New materials use uppercase names and unique Customer numbers. Each folder starts with PREVIEW and SOURCE, including a copy of the selected SBS template.</p>
+    <p>Only a material name is required. Customer and Main category enable a unique number and data folder; other properties can be completed later. New folders contain PREVIEW and SOURCE, plus an SBS template if selected.</p>
     {error && <p role="alert" tabIndex={-1} ref={errorRef} className="form-error">{error}</p>}
     <form aria-label="Add material" noValidate onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset className="material-create-fields" disabled={frozen}><legend>Shared material properties</legend><div className="material-create-layout"><div className="material-create-properties">
         <label>Order<select autoFocus value={orderId} onChange={event => { const id = event.target.value; setOrder(id); const order = data.orders.find(item => item.id === id); if (order?.customerId) { setCustomer(order.customerId); setCollectionIds([]); } }}><option value="">No order</option>{data.orders.map(item => <option key={item.id} value={item.id}>{item.generatedName}</option>)}</select></label>
-        <label>Customer<select required value={customerId} disabled={Boolean(selectedOrder?.customerId)} onChange={event => { setCustomer(event.target.value); setCollectionIds([]); }}><option value="">Choose Customer</option>{data.customers.filter(item => item.isActive).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-        <label>Main category<select required value={category} onChange={event => setCategory(event.target.value)}><option value="">Choose category</option>{mainCategories.map(item => <option key={item.code} value={item.code}>{categoryLabel(item.code, mainCategories)}</option>)}</select></label>
-        <label>Processor<select required value={processorId} onChange={event => setProcessor(event.target.value)}><option value="">Choose Processor</option>{data.processors.filter(item => item.isActive && item.role === "PROCESSOR").map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
-        <label>SBS template<select required value={template} onChange={event => setTemplate(event.target.value)}><option value="">Choose template</option>{data.options.templates.map(item => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
+        <label>Customer<select value={customerId} disabled={Boolean(selectedOrder?.customerId)} onChange={event => { setCustomer(event.target.value); setCollectionIds([]); }}><option value="">No Customer</option>{data.customers.filter(item => item.isActive).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <label>Main category<select value={category} onChange={event => setCategory(event.target.value)}><option value="">No Main category</option>{mainCategories.map(item => <option key={item.code} value={item.code}>{categoryLabel(item.code, mainCategories)}</option>)}</select></label>
+        <label>Processor<select value={processorId} onChange={event => setProcessor(event.target.value)}><option value="">No Processor</option>{data.processors.filter(item => item.isActive && item.role === "PROCESSOR").map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
+        <label>SBS template<select value={template} onChange={event => setTemplate(event.target.value)}><option value="">No template</option>{data.options.templates.map(item => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
       </div>
       <div className="material-create-names">
       <label className="checkbox-label"><input type="checkbox" checked={multiple} onChange={event => setMultiple(event.target.checked)} />Create multiple materials</label>
@@ -104,7 +103,7 @@ export function MaterialCreatePage({ client, navigate }: { client: ApiClient; na
       <details className="material-choice-group"><summary>Brand collections <span>{collectionIds.length} selected</span></summary><div className="material-choice-grid">{data.collections.filter(item => item.active && item.brandId === customerId).map(item => <label className="checkbox-label" key={item.id}><input type="checkbox" checked={collectionIds.includes(item.id)}
         onChange={event => setCollectionIds(toggle(collectionIds, item.id, event.target.checked))} />{item.value}</label>)}{!customerId && <p>Choose a Customer first.</p>}</div></details>
       </fieldset>
-      <div className="form-actions">{receipt?.status !== "COMPLETED" && <button type="submit" className="button button--primary" disabled={busy || (!pending && !data.options.templates.length)}>{busy ? "Creating…" : pending ? "Recover / finish this batch" : multiple ? "Create materials" : "Create material"}</button>}
+      <div className="form-actions">{receipt?.status !== "COMPLETED" && <button type="submit" className="button button--primary" disabled={busy}>{busy ? "Creating…" : pending ? "Recover / finish this batch" : multiple ? "Create materials" : "Create material"}</button>}
       <button className="button" type="button" disabled={busy || (pending !== null && receipt === null)} onClick={() => navigate("/materials")}>Back to materials</button></div>
     </form>
     {results}

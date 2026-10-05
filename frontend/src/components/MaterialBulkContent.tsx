@@ -17,11 +17,12 @@ function BulkContentDialog({ materials, onClose, onSaved, onBusyChange }: {
   const pending = useRef<BulkContentAdd | null>(null), sending = useRef(false);
   useNavigationGuard(() => sending.current || pending.current !== null);
   useEffect(() => { dialog.current?.showModal(); }, []);
-  const sameCustomer = new Set(materials.map(item => item.publishedBrandId)).size === 1;
+  const sharedCustomer = materials[0]?.publishedBrandId;
+  const sameCustomer = Boolean(sharedCustomer) && new Set(materials.map(item => item.publishedBrandId)).size === 1;
   const load = useCallback(async () => {
-    const [categories, collections, contents] = await Promise.all([catalogClient.categories(), sameCustomer ? catalogClient.collections(materials[0].publishedBrandId) : Promise.resolve([]), Promise.all(materials.map(item => catalogClient.content(item.id)))]);
+    const [categories, collections, contents] = await Promise.all([catalogClient.categories(), sameCustomer && sharedCustomer ? catalogClient.collections(sharedCustomer) : Promise.resolve([]), Promise.all(materials.map(item => catalogClient.content(item.id)))]);
     return { categories, collections, contents };
-  }, [materials, sameCustomer]);
+  }, [materials, sameCustomer, sharedCustomer]);
   const loaded = useResource(load);
   const toggle = (items: string[], id: string, selected: boolean) => selected ? [...items, id] : items.filter(item => item !== id);
   const save = async () => {

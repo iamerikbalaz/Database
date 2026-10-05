@@ -69,7 +69,7 @@ function MaterialTile({ material, store, size, navigate, selection, disabled }: 
       <NavigationLink className="gallery-open" href={material.isArchived ? `/material-archives/${material.id}` : `/materials/${material.id}`} navigate={navigate} aria-label={`Open ${material.materialName}`} />
     </div>
     <div className="gallery-caption"><NavigationLink href={material.isArchived ? `/material-archives/${material.id}` : `/materials/${material.id}`} navigate={navigate} title={material.materialName}>{material.materialName}</NavigationLink>
-      <span title={material.technicalIdentity}>{material.technicalIdentity}</span></div>
+      <span title={material.technicalIdentity ?? undefined}>{material.technicalIdentity ?? "Identity not assigned"}</span></div>
   </li>;
 }
 

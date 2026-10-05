@@ -1,0 +1,20 @@
+.material-delete-dialog { width: min(880px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto; border: 1px solid #dde0ed; border-radius: 14px; padding: 22px; color: #1f2444; background: #fff; font-family: inherit; }
+.material-delete-dialog::backdrop { background: rgb(10 13 39 / 42%); }
+.material-delete-dialog h2 { margin-top: 0; font-size: 20px; }
+.material-delete-dialog h3, .material-delete-dialog h4 { font-size: 15px; margin-block: 12px 8px; }
+.material-delete-dialog p, .material-delete-dialog label, .material-delete-dialog li { font-size: 13px; line-height: 1.55; }
+.material-delete-dialog fieldset { border: 1px solid #dde0ed; border-radius: 8px; padding: 14px; margin-block: 16px; }
+.material-delete-dialog fieldset label { display: grid; grid-template-columns: 18px 1fr; gap: 3px 8px; margin-block: 8px; }
+.material-delete-dialog fieldset small { grid-column: 2; }
+.material-delete-dialog input { accent-color: #394173; width: 16px; height: 16px; margin: 2px 0; flex: 0 0 auto; }
+.material-delete-dialog small { display: block; color: #626781; font-size: 11px; overflow-wrap: anywhere; }
+.material-delete-dialog .material-delete-ack { display: flex; align-items: flex-start; gap: 8px; margin-top: 14px; }
+.material-delete-dialog .form-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.material-delete-report, .material-delete-selection { max-height: 35vh; overflow: auto; }
+.material-delete-report table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
+.material-delete-report td, .material-delete-report th { padding: 8px; border-bottom: 1px solid #dde0ed; vertical-align: top; overflow-wrap: anywhere; }
+.material-delete-report th { position: sticky; top: 0; background: #f2f3f9; }
+.material-delete-report p { margin: 0; }
+.material-delete-operation { padding: 10px 14px; border: 1px solid #dde0ed; margin-block: 10px; border-radius: 8px; }
+.material-delete-dialog .material-delete-confirm { color: #7f2929; background: #fff0f0; border-color: #e4b1b1; }
+.material-delete-trigger { color: #7f2929; }

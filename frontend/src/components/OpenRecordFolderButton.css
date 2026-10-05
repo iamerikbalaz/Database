@@ -1,7 +1,10 @@
-.record-leading-actions { display:flex; align-items:center; justify-content:flex-start; gap:8px; }
+.record-leading-actions,
+.material-table--editable td:first-child > .record-leading-actions,
+.resource-table-scroll td:first-child > .record-leading-actions { display:flex; flex-wrap:nowrap; align-items:center; justify-content:flex-start; gap:8px; margin:0; }
+.record-leading-actions > input[type="checkbox"] { flex:none; margin:0; }
 .record-folder-action { display:inline-flex; position:relative; flex:none; }
 .button.open-record-folder { display:inline-flex; align-items:center; justify-content:center; width:28px; min-width:28px; height:28px; min-height:28px; padding:0; margin:0; border-radius:6px; }
 .open-record-folder .icon { flex:none; }
 .open-record-folder:disabled { opacity:.35; cursor:default; }
 .record-folder-error { position:absolute; z-index:10; left:0; top:100%; min-width:200px; padding:8px; border:1px solid var(--border); background:var(--surface,#fff); color:#a32828; font-size:11px; white-space:normal; }
-.resource-table-scroll td:has(> .record-leading-actions) { width:76px; min-width:76px; }
+.resource-table-scroll.table-card :is(th, td):first-child:has(> .record-leading-actions) { width:76px; min-width:76px; }

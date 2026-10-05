@@ -15,6 +15,16 @@ const renderTable = (materials = rows) => <SessionContext.Provider value={{ sess
 const row = (name: string) => screen.getByRole("row", { name: `Material row ${name}` });
 beforeEach(() => localStorage.clear());
 afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
+it("places each folder action immediately after its selection checkbox", () => {
+  render(renderTable());
+  for (const material of rows) {
+    const checkbox = screen.getByRole("checkbox", { name: `Select ${material.materialName}` });
+    const folder = screen.getByRole("button", { name: `Open folder for ${material.materialName}` });
+    expect(checkbox.parentElement).toHaveClass("record-leading-actions");
+    expect(checkbox.parentElement?.firstElementChild).toBe(checkbox);
+    expect(checkbox.nextElementSibling).toContainElement(folder);
+  }
+});
 it("highlights with click/Shift/Ctrl independently from checked selection and adds highlighted rows explicitly", () => {
   render(renderTable());
   fireEvent.click(row("FIRST"));

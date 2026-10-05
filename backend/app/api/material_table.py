@@ -87,7 +87,8 @@ def build_material_table_router(database, worker_client):
             if field == "assigned_processor_id" and value is not None:
                 _require_active_internal_user(session, value)
             if field == "checked_status" and value == "OK" and material.workflow_status != "DONE":
-                raise HTTPException(409, "Mark the material Done before checking it OK.")
+                raise HTTPException(409, {"code": "CHECKED_REQUIRES_DONE", "message":
+                    "Set Status to Done before setting Checked to OK. Correction returns Status to In progress."})
             changed = getattr(material, field) != value
             if changed and field in {"main_category_code", "published_brand_id"} and value is None and not material.is_draft:
                 raise HTTPException(422, "A completed identity must retain its Customer and Main category.")

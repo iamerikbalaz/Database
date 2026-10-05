@@ -23,10 +23,10 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear(); });
-function setup(materials = [first, second]) {
+function setup(materials = [first, second], detail = false) {
   return render(<SessionContext.Provider value={{ session: { user: { ...processorDto, role: "ADMIN" }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}>
     <MaterialsTable materials={materials} store={new GalleryStore()} client={mockApiClient} projects={[projectFromDto(materialProject)]}
-      brands={[publishedBrandFromDto(materialBrand)]} users={[internalUserFromDto(processorDto)]} navigate={vi.fn()} refresh={vi.fn()} onBusyChange={vi.fn()} />
+      brands={[publishedBrandFromDto(materialBrand)]} users={[internalUserFromDto(processorDto)]} navigate={vi.fn()} refresh={vi.fn()} onBusyChange={vi.fn()} detail={detail} />
   </SessionContext.Provider>);
 }
 function bulk() {
@@ -41,6 +41,21 @@ it("edits a cell without opening the detail and uses the row's precise revision"
   expect(update).toHaveBeenCalledWith(first, { is_published: true }, expect.any(String));
   expect(screen.getByRole("checkbox", { name: `Published for ${first.materialName}` })).toBeChecked();
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+it.each([false, true])("explains why Checked cannot go from correction to OK before Done (detail=%s)", async detail => {
+  const corrected = { ...first, checkedStatus: "Correction" as const, updatedAt: "2026-09-25T12:00:00.123456Z" };
+  const error = Object.assign(new ApiError(409, "This value is already used by another record. Check the unique fields."), { code: "CHECKED_REQUIRES_DONE" });
+  const update = vi.spyOn(materialTableClient, "update").mockResolvedValueOnce(corrected).mockRejectedValueOnce(error);
+  setup([first], detail);
+  const checked = screen.getByRole("combobox", { name: `Checked for ${first.materialName}` });
+  fireEvent.change(checked, { target: { value: "Correction" } });
+  await waitFor(() => expect(checked).toHaveValue("Correction"));
+  fireEvent.change(checked, { target: { value: "OK" } });
+  expect(await screen.findByRole("alert")).toHaveTextContent("Set Status to Done before setting Checked to OK. Correction returns Status to In progress.");
+  expect(update).toHaveBeenNthCalledWith(2, corrected, { checked_status: "OK" }, expect.any(String));
+  expect(checked).toHaveValue("Correction");
+  expect(screen.getByRole("combobox", { name: `Status for ${first.materialName}` })).toHaveValue("IN_PROGRESS");
+  expect(screen.queryByText(/already used by another record/)).not.toBeInTheDocument();
 });
 it("freezes all filtered IDs, shows individual failures, and never retries successful rows", async () => {
   const update = vi.spyOn(materialTableClient, "update").mockResolvedValueOnce({ ...first, workflowStatus: "DONE" }).mockRejectedValueOnce(new ApiError(409, "Changed"));

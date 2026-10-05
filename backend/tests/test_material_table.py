@@ -36,7 +36,9 @@ def test_checked_is_human_and_correction_reopens_without_publishing(access_case)
         path = f"/api/materials/{case.materials[0].id}"
         material = client.get(path).json()
         assert material["checked_status"] == "no"
-        assert write(client, material, {"checked_status": "OK"}).status_code == 409
+        rejected = write(client, material, {"checked_status": "OK"})
+        assert rejected.status_code == 409
+        assert rejected.json()["detail"]["code"] == "CHECKED_REQUIRES_DONE"
         with case.database.session() as session:
             row = session.get(PBRMaterial, case.materials[0].id)
             row.folder_path = "library/" + row.technical_identity
@@ -52,9 +54,18 @@ def test_checked_is_human_and_correction_reopens_without_publishing(access_case)
         assert note["checked_status"] == "OK" and note["note"] == "Line 1\nLine 2"
         correction = write(client, note, {"checked_status": "Correction"}).json()
         assert correction["workflow_status"] == "IN_PROGRESS" and correction["checked_status"] == "Correction"
+        before_rejection = client.get(path).json()
+        rejected = write(client, correction, {"checked_status": "OK"})
+        assert rejected.status_code == 409
+        assert rejected.json()["detail"]["code"] == "CHECKED_REQUIRES_DONE"
+        assert client.get(path).json() == before_rejection
         case.worker.queue(_preflight(material["technical_identity"]))
         again = write(client, correction, {"workflow_status": "DONE"}).json()
         assert again["checked_status"] == "no" and again["is_published"] is False
+        # No source-file edit or changed file digest is needed to finish review.
+        checked_again = write(client, again, {"checked_status": "OK"})
+        assert checked_again.status_code == 200
+        assert checked_again.json()["checked_status"] == "OK"
 
 
 def test_optimistic_conflict_and_idempotency_preserve_history(access_case):

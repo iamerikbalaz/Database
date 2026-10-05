@@ -79,6 +79,10 @@ class LocalMaterialLibrary:
     def file_check_profile(self):
         return self.file_checker.profile if self.file_checker is not None else "BASIC_V1"
 
+    def preflight(self, folder):
+        from app.local_preflight import LocalMaterialPreflight
+        return LocalMaterialPreflight(self).preflight(folder)
+
     def check_many(self, folders, *, progress=None):
         if self.file_checker is not None:
             return self.file_checker.check_many(folders, **({"progress": progress} if progress is not None else {}))

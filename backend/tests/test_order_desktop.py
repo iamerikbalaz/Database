@@ -79,7 +79,102 @@ def test_native_open_order_validates_root_and_child_before_launch(tmp_path, monk
     monkeypatch.setattr('app.api.order_desktop.subprocess.Popen', lambda args, **kwargs: calls.append(args))
     open_order_folder(str(root), str(child))
     assert len(calls) == 1 and calls[0][1] == str(child)
-    for candidate in [str(root), str(tmp_path / child.name), 'https://example.invalid', str(root / '..' / child.name)]:
+    regular_file = root / '0002_NOT_A_DIRECTORY'; regular_file.write_text('synthetic')
+    for candidate in [str(root), str(tmp_path / child.name), 'https://example.invalid', str(root / '..' / child.name),
+                      str(root / '0003_MISSING'), str(regular_file)]:
         with pytest.raises((OrderFolderError, LocalFilesError, ValueError, OSError)):
             open_order_folder(str(root), candidate)
     assert len(calls) == 1
+
+
+@pytest.fixture
+def mapped_order_handles(monkeypatch):
+    """Model Windows resolving a mapped drive to the same UNC tree as Explorer."""
+    import ctypes
+    import os
+    from pathlib import Path
+    from types import SimpleNamespace
+    from app.api import order_desktop
+    if os.name != 'nt': pytest.skip('Native Windows capability')
+
+    def install(root, *, reparse=None, redirected=None, unavailable=None):
+        root = Path(root)
+        canonical_anchor = Path(r'\\nas.example.invalid\projects')
+        opened = []; closed = []; paths = {}
+
+        def create_file(path, access, sharing, security, disposition, flags, template):
+            assert access == 0x80 and sharing == 3 and disposition == 3 and flags == 0x02200000
+            path = Path(path)
+            if path == unavailable: return ctypes.c_void_p(-1).value
+            handle = len(opened) + 1
+            paths[handle] = path; opened.append(handle)
+            return handle
+
+        def information(handle, pointer):
+            info = ctypes.cast(pointer, ctypes.POINTER(order_desktop.FileInfo)).contents
+            info.attrs = 0x10 | (0x400 if paths[handle] == reparse else 0)
+            return 1
+
+        def final_name(handle, buffer, size, flags):
+            path = paths[handle]
+            canonical = canonical_anchor.joinpath(*path.parts[1:])
+            if path == redirected: canonical = Path(r'\\other.example.invalid\outside') / path.name
+            buffer.value = '\\\\?\\UNC\\' + str(canonical)[2:]
+            return len(buffer.value)
+
+        kernel = SimpleNamespace(CreateFileW=create_file, GetFileInformationByHandle=information,
+            GetFinalPathNameByHandleW=final_name, CloseHandle=lambda handle: closed.append(handle))
+        monkeypatch.setattr(order_desktop.ctypes, 'WinDLL', lambda *args, **kwargs: kernel)
+        monkeypatch.setattr(order_desktop, 'checked_root', lambda value: Path(value))
+        monkeypatch.setenv('WINDIR', r'C:\Windows')
+        return canonical_anchor.joinpath(*root.parts[1:]), opened, closed
+    return install
+
+
+@pytest.mark.parametrize('root', [r'R:\0. PROJECTS', r'\\nas.example.invalid\projects\0. PROJECTS'])
+def test_open_mapped_or_unc_order_uses_verified_destination_with_handles_held(mapped_order_handles, monkeypatch, root):
+    from pathlib import Path
+    from app.api.order_desktop import open_order_folder
+    canonical_root, opened, closed = mapped_order_handles(root)
+    name = '0143_SYNTHETIC_SCANNING_FABRICS_112024'
+    calls = []
+
+    def launch(args, **kwargs):
+        assert opened and not closed
+        assert kwargs == {'close_fds': True}
+        calls.append(args)
+
+    monkeypatch.setattr('app.api.order_desktop.subprocess.Popen', launch)
+    open_order_folder(root, str(Path(root) / name))
+    assert calls == [[r'C:\Windows\explorer.exe', str(canonical_root / name)]]
+    assert closed == list(reversed(opened))
+
+
+@pytest.mark.parametrize('failure', ['reparse', 'redirected', 'unavailable'])
+@pytest.mark.parametrize('level', ['root', 'child'])
+def test_open_mapped_order_rejects_unsafe_or_missing_directory(mapped_order_handles, monkeypatch, failure, level):
+    from pathlib import Path
+    from app.api.order_desktop import open_order_folder
+    root = Path(r'R:\0. PROJECTS')
+    child = root / '0143_SYNTHETIC_SCANNING_FABRICS_112024'
+    _, opened, closed = mapped_order_handles(str(root), **{failure: root if level == 'root' else child})
+    calls = []
+    monkeypatch.setattr('app.api.order_desktop.subprocess.Popen', lambda *args, **kwargs: calls.append(args))
+    with pytest.raises(LocalFilesError):
+        open_order_folder(str(root), str(child))
+    assert not calls
+    assert closed == list(reversed(opened))
+
+
+def test_open_mapped_order_closes_handles_when_launch_fails(mapped_order_handles, monkeypatch):
+    from pathlib import Path
+    from app.api.order_desktop import open_order_folder
+    root = r'R:\0. PROJECTS'
+    _, opened, closed = mapped_order_handles(root)
+
+    def fail(*args, **kwargs): raise OSError('Synthetic launch failure')
+
+    monkeypatch.setattr('app.api.order_desktop.subprocess.Popen', fail)
+    with pytest.raises(OSError):
+        open_order_folder(root, str(Path(root) / '0143_SYNTHETIC_SCANNING_FABRICS_112024'))
+    assert closed == list(reversed(opened))

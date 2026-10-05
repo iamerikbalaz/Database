@@ -5,6 +5,28 @@ const rows = ["First", "Second", "Third", "Fourth"].map((name, index) => ({ id: 
 function table(items = rows) { return <EditableResourceTable rows={items} columns={[{ key: "name", label: "Name", value: item => item.name, editable: true, bulk: true }]} label={item => item.name} save={vi.fn()} canEdit refresh={vi.fn()} storageKey="test-selection" />; }
 const row = (name: string) => screen.getByRole("row", { name: `Record row ${name}` });
 afterEach(() => localStorage.clear());
+it("places row folder actions immediately after selection and keeps the action independent", () => {
+  const openFolder = vi.fn();
+  render(<EditableResourceTable rows={rows} columns={[{ key: "name", label: "Name", value: item => item.name }]}
+    label={item => item.name} save={vi.fn()} canEdit refresh={vi.fn()} storageKey="test-selection"
+    leadingAction={item => <button onClick={() => openFolder(item.id)}>Open folder for {item.name}</button>} />);
+  const checkbox = screen.getByRole("checkbox", { name: "Select First" });
+  const folder = screen.getByRole("button", { name: "Open folder for First" });
+  expect(checkbox.parentElement).toHaveClass("record-leading-actions");
+  expect(checkbox.parentElement?.firstElementChild).toBe(checkbox);
+  expect(checkbox.nextElementSibling).toBe(folder);
+  fireEvent.click(folder);
+  expect(openFolder).toHaveBeenCalledWith(rows[0].id);
+  expect(checkbox).not.toBeChecked();
+  expect(row("First")).toHaveAttribute("aria-selected", "false");
+});
+it("keeps folder actions available to readers without adding selection controls", () => {
+  render(<EditableResourceTable rows={rows} columns={[{ key: "name", label: "Name", value: item => item.name }]}
+    label={item => item.name} save={vi.fn()} canEdit={false} refresh={vi.fn()} storageKey="test-selection"
+    leadingAction={item => <button>Open folder for {item.name}</button>} />);
+  expect(screen.getByRole("button", { name: "Open folder for First" })).toBeVisible();
+  expect(screen.queryByRole("checkbox", { name: /Select / })).not.toBeInTheDocument();
+});
 it("shares Materials click, Shift, Ctrl and explicit selection behavior", () => {
   render(table());
   expect(screen.queryByRole("combobox", { name: "Bulk property" })).not.toBeInTheDocument();

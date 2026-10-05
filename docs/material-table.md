@@ -103,6 +103,18 @@ Correction reopens the material as In progress. Ordinary changes that invalidate
 a source/content review also reset Checked; automatic technical validation never
 grants human OK. Note and Published edits do not invalidate approvals.
 
+Returning from Correction to OK is **Status: Done**, then **Checked: OK**. A file
+edit is not required between these steps. The list, card and bulk report explain
+this requirement for the `CHECKED_REQUIRES_DONE` rejection instead of showing a
+generic conflict/reload message.
+
+In the explicitly enabled local desktop, the Done preflight uses the same local
+library capability as source access. It inspects immediate resolution folders
+and bounded `metadata.json` (legacy `metadata.txt` only if JSON is absent), without
+reading texture payloads or running Auto-check. Missing resolution directories
+and unsafe folder paths still block Done. An explicitly supplied worker client
+retains precedence for deployments and tests that use the remote worker.
+
 The old validation/publication state columns remain internal pipeline data and
 historical evidence. **Automatic file check** replaces the old File check label
 and uses its own derived result, independent of manual Checked. Detail uses the same editable

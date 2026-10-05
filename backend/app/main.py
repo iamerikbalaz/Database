@@ -95,7 +95,7 @@ def create_app(
     if local_library is not None and getattr(local_library, "fs", None) is not None:
         app_settings = app_settings.model_copy(update={"materials_root": str(local_library.fs.root)})
     app_database = database or Database(app_settings.resolved_database_url)
-    app_worker_client = worker_client or WorkerClient(
+    app_worker_client = worker_client or (local_library if callable(getattr(local_library, "preflight", None)) else None) or WorkerClient(
         app_settings.worker_base_url,
         app_settings.worker_timeout_seconds,
     )

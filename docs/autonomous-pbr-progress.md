@@ -1,6 +1,36 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-10-05, material drafts and administrator deletion)
+## Latest checkpoint (2026-10-05, Checked recovery and Order folders)
+
+The owned test at `http://127.0.0.1:53033` has been restarted with these fixes;
+schema remains 0044 and no data migration was needed.
+
+- Checked Correction still returns Status to In progress. Returning to OK needs
+  Done first; list/card failures now explain this requirement. No source edit is
+  required to complete the review again.
+- Local Done/preflight now uses the explicitly injected desktop library instead
+  of the disconnected remote worker. It reads immediate resolution directories
+  and bounded metadata without reading texture payloads or granting Auto-check
+  OK. JSON takes precedence over legacy TXT; missing/invalid metadata remains
+  advisory, while unsafe folders or missing resolution directories block Done.
+- Order folder opening now handles Windows resolving mapped R: paths to UNC.
+  Its separate read-only verifier pins the ancestor chain and refuses reparse
+  points/redirection. Shared filesystem mutation restrictions are unchanged.
+- Materials and Orders render selection checkbox followed by the folder icon,
+  with corrected CSS specificity and horizontal alignment.
+- Verification: 71 local preflight/material workflow tests, 17 Order desktop
+  tests and 44 focused frontend tests passed; frontend lint/build passed.
+  Live preflight changed from HTTP 503 to HTTP 200 with matching identity and
+  valid metadata. Fresh assets and all 31 live endpoint/page checks passed;
+  all 51 material records were unchanged. One real R: Order folder passed the
+  verifier with Explorer mocked. Actual Explorer rendering/browser interaction
+  was not automated. No NAS/source writes were performed.
+
+AI batch prompt export and reviewed JSON import were recommended as the next
+description-enrichment workflow. Existing per-material context/proposal/adoption
+APIs are a foundation; the batch workflow and source research remain unimplemented.
+
+## Previous checkpoint (2026-10-05, material drafts and administrator deletion)
 
 The owned test at `http://127.0.0.1:53033` serves schema 0044 and the new UI.
 Its fresh pre-upgrade database dump is retained privately. The 0042→0044 upgrade

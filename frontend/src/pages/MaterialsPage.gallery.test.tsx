@@ -128,7 +128,7 @@ it("keeps multi-color filtering and checked selection when switching list/galler
   fireEvent.click(screen.getByRole("checkbox", { name: `Select ${material.materialName}` }));
   fireEvent.click(screen.getByRole("button", { name: "Gallery" }));
   expect(screen.getByRole("checkbox", { name: `Select ${material.materialName}` })).toBeChecked();
-  expect(screen.getByRole("button", { name: "Prepare selected for publication (1)" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Prepare for publication (1)" })).toBeEnabled();
   expect(screen.queryByRole("button", { name: /Prepare filtered|Publication batches/ })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "List" }));
   expect(screen.getByRole("checkbox", { name: `Select ${material.materialName}` })).toBeChecked();

@@ -30,11 +30,11 @@ it("prepares only checked materials and preserves filters on return", async () =
   expect(screen.getByRole("heading", { name: "Materials" }).closest("section")).toHaveClass("database-page--workspace");
   expect(screen.queryByRole("button", { name: /Prepare filtered/ })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Publication batches" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Prepare selected for publication (0)" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Prepare for publication (0)" })).not.toBeInTheDocument();
   fireEvent.change(screen.getByRole("searchbox", { name: "Search materials" }), { target: { value: "#Autumn" } });
   await waitFor(() => expect(getMaterials).toHaveBeenLastCalledWith({ search: "#Autumn" }));
   fireEvent.click(await screen.findByRole("checkbox", { name: `Select ${first.materialName}` }));
-  fireEvent.click(screen.getByRole("button", { name: "Prepare selected for publication (1)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Prepare for publication (1)" }));
   expect(screen.getByRole("heading", { name: "Materials" }).closest("section")).not.toHaveClass("database-page--workspace");
   expect(screen.getByRole("searchbox")).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Review materials" }));
@@ -49,14 +49,14 @@ it("lets Production Lead prepare a selected subset", async () => {
   const { preview } = setup("PRODUCTION_LEAD");
   const table = await screen.findByRole("table");
   fireEvent.click(within(table).getByRole("checkbox", { name: `Select ${first.materialName}` }));
-  fireEvent.click(screen.getByRole("button", { name: "Prepare selected for publication (1)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Prepare for publication (1)" }));
   fireEvent.click(screen.getByRole("button", { name: "Review materials" }));
   await waitFor(() => expect(preview).toHaveBeenCalledWith([first.id]));
 });
 it("does not silently truncate a selection larger than 100 materials", async () => {
   setup("ADMIN", Array.from({ length: 101 }, (_, i) => ({ ...first, id: `00000000-0000-4000-8000-${String(i).padStart(12,"0")}` })));
   fireEvent.click(await screen.findByRole("checkbox", { name: "Select all visible materials" }));
-  expect(screen.getByRole("button", { name: "Prepare selected for publication (101)" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Prepare for publication (101)" })).toBeDisabled();
   expect(screen.getByText(/Select up to 100 rows/)).toBeVisible();
 }, 15000);
 it.each<Role>(["PROCESSOR", "LEADERSHIP"])("does not expose desktop publication to %s", async role => {

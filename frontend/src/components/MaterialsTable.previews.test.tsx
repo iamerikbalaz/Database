@@ -39,13 +39,13 @@ it("puts the optional Number directly between Preview and Material", () => {
 });
 it("keeps source actions inside the selected-only bulk group", () => {
   const { prepare } = mount();
-  expect(screen.queryByRole("button", { name: /Prepare selected for publication/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Prepare for publication/ })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Edit previews" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("checkbox", { name: "Select all visible materials" }));
   const group = screen.getByRole("group", { name: "Apply to 1 selected materials" });
   expect(within(group).getByRole("button", { name: "Edit previews" })).toBeVisible();
   expect(within(group).getByRole("button", { name: /Auto-check/ })).toBeVisible();
-  fireEvent.click(within(group).getByRole("button", { name: /Prepare selected for publication/ })); expect(prepare).toHaveBeenCalledWith([material]);
+  fireEvent.click(within(group).getByRole("button", { name: /Prepare for publication/ })); expect(prepare).toHaveBeenCalledWith([material]);
 });
 it("expands all previews and opens rename only on filename double-click", async () => {
   mount(); fireEvent.click(screen.getByRole("button", { name: "Expand previews" }));

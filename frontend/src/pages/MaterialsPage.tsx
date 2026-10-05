@@ -141,7 +141,7 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
       <div className="material-bulk-actions">{canPublish && <button className="button" disabled={busy || selectedMaterials.length > 100} onClick={() => setNameSelection(selectedMaterials.map(item => ({ ...item })))}>Edit names</button>}{canCheck && <button className="button" disabled={busy || selectedMaterials.length > 100} onClick={() => setPreviewSelection({ materials: selectedMaterials.map(item => ({ ...item })), action: "BULK" })}>Edit previews</button>}
         {canCheck && <div className="material-check-actions-slot" ref={setCheckActionTarget} />}
         {canPublish && <button className="button" disabled={busy || selectedMaterials.length > 100} onClick={() => prepareAiBrief(selectedMaterials)}>AI descriptions</button>}
-        {canPublish && <button className="button" disabled={busy || selectedMaterials.length > 100} onClick={() => preparePublication(selectedMaterials)}>Prepare selected for publication ({selectedMaterials.length})</button>}
+        {canPublish && <button className="button" disabled={busy || selectedMaterials.length > 100} onClick={() => preparePublication(selectedMaterials)}>Prepare for publication ({selectedMaterials.length})</button>}
         {role === "ADMIN" && <button className="button button--icon material-delete-trigger" aria-label="Delete selected materials" title="Delete selected materials" disabled={busy || selectedMaterials.length > 100} onClick={() => prepareDeletion(selectedMaterials)}><Icon name="trash" size={18} /></button>}
       </div>
     </fieldset>}

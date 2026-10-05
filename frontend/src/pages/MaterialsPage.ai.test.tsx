@@ -33,7 +33,7 @@ it.each([false, true])("passes only selected materials to the AI dialog and lock
   expect(screen.getByRole("dialog", { name: "AI descriptions" })).not.toHaveTextContent(first.id);
   expect(screen.getByRole("button", { name: "Delete selected materials" })).toBeDisabled();
   expect(screen.getByRole("checkbox", { name: `Select ${first.materialName}` })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Prepare selected for publication (1)" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Prepare for publication (1)" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Saved AI descriptions" }));
   await waitFor(() => expect(getMaterials).toHaveBeenCalledTimes(2));
   fireEvent.click(screen.getByRole("button", { name: "Close AI descriptions" }));

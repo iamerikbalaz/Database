@@ -103,8 +103,8 @@ it.each(["list", "gallery"] as const)("groups selected actions in the bulk panel
     <MaterialsPage client={{ ...mockApiClient, getMaterials }} navigate={vi.fn()} initialView={view === "gallery" ? "gallery" : undefined} />
   </SessionContext.Provider>);
   fireEvent.click(await screen.findByRole("checkbox", { name: `Select ${material.materialName}` }));
-  const start = screen.getByRole("button", { name: "Auto-check selected materials (1)" });
-  const publish = screen.getByRole("button", { name: "Prepare selected for publication (1)" });
+  const start = screen.getByRole("button", { name: "Auto-check materials (1)" });
+  const publish = screen.getByRole("button", { name: "Prepare for publication (1)" });
   const refresh = screen.getByRole("button", { name: view === "gallery" ? "Refresh previews" : "Refresh materials" });
   const bulk = screen.getByRole("group", { name: "Apply to 1 selected materials" });
   expect(bulk).toContainElement(start); expect(bulk).toContainElement(publish);

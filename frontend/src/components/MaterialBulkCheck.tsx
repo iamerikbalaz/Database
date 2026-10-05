@@ -50,7 +50,7 @@ export function MaterialBulkCheck({ materials, disabled = false, onBusyChange, o
   // Only the controls move into the table toolbar; the running job and report stay mounted here.
   const controls = <>
     <button type="button" className="button" disabled={disabled || pending || !materials.length || materials.length > 100} onClick={() => void check()}>
-      {pending ? "Auto-checking selected materials…" : `Auto-check selected materials (${materials.length})`}
+      {pending ? "Auto-checking materials…" : `Auto-check materials (${materials.length})`}
     </button>
     {compact && (pending || report) && <button type="button" className="button" onClick={() => detailsDialog.current?.showModal()}>{pending ? "View check progress" : "View check report"}</button>}
     {compact && pending && <span role="status">{checkProgress.progress ? `${checkProgress.progress.completed} / ${checkProgress.progress.total} materials inspected` : "Starting file check…"}{checkProgress.resume ? " · Resume is available in check progress." : ""}</span>}

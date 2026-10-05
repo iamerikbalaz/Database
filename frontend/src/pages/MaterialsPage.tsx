@@ -25,6 +25,7 @@ import { DatabaseResultsToolbar } from "../components/DatabaseResultsToolbar";
 import { PreviewEditDialog, type PreviewEditSelection } from "../components/PreviewEditDialog";
 import { MaterialBulkNamesDialog } from "../components/MaterialBulkNamesDialog";
 import { MaterialDeleteDialog } from "../components/MaterialDeleteDialog";
+import { MaterialAiBriefDialog } from "../components/MaterialAiBriefDialog";
 import { ColoredSelect } from "../components/ColoredSelect";
 import { materialCheckedColors, materialStatusColors } from "../data/choiceColors";
 
@@ -43,12 +44,13 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
   const [previewSelection, setPreviewSelection] = useState<PreviewEditSelection | null>(null);
   const [nameSelection, setNameSelection] = useState<Material[] | null>(null);
   const [deleteSelection, setDeleteSelection] = useState<Material[] | null>(null);
+  const [aiSelection, setAiSelection] = useState<Material[] | null>(null);
   const [checkActionTarget, setCheckActionTarget] = useState<HTMLDivElement | null>(null);
   const role = useSession()?.session.user.role;
   const canPublish = !archived && (role === "ADMIN" || role === "PRODUCTION_LEAD");
   const canCheck = !archived && (role === "ADMIN" || role === "PRODUCTION_LEAD" || role === "PROCESSOR");
   const canSelect = role === "ADMIN" || role === "PRODUCTION_LEAD" || role === "PROCESSOR";
-  const busy = tableBusy || checkBusy || contentBusy || publicationSelection !== null || previewSelection !== null || nameSelection !== null || deleteSelection !== null;
+  const busy = tableBusy || checkBusy || contentBusy || publicationSelection !== null || previewSelection !== null || nameSelection !== null || deleteSelection !== null || aiSelection !== null;
   const { filters: savedFilters, setFilters: setSavedFilters, keepFilters, setKeepFilters } = useDatabaseFilters(archived ? "material-archives" : "materials", filterDefaults);
   const queryKey = JSON.stringify(Object.fromEntries(Object.entries(savedFilters).filter(([key, value]) => key !== "sort" && (Array.isArray(value) ? value.length > 0 : Boolean(value)))));
   const filters = useMemo<MaterialFilters>(() => JSON.parse(queryKey), [queryKey]);
@@ -87,6 +89,10 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
   const prepareDeletion = (materials: Material[]) => {
     if (busy || role !== "ADMIN" || !materials.length || materials.length > 100) return;
     setDeleteSelection(materials.map(material => ({ ...material })));
+  };
+  const prepareAiBrief = (materials: Material[]) => {
+    if (busy || !canPublish || !materials.length || materials.length > 100) return;
+    setAiSelection(materials.map(material => ({ ...material })));
   };
   const selectors: { key: Exclude<keyof MaterialFilters, "color_hex">; label: string; options: { value: string; label: string }[] }[] = [
     { key: "published_brand_id", label: "Customer", options: brands.map((b) => ({ value: b.id, label: b.name })) },
@@ -134,15 +140,16 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
     {view === "gallery" && (canCheck || role === "ADMIN") && publicationSelection === null && selectedMaterials.length > 0 && <fieldset className="material-bulk-bar"><legend>Apply to {selectedMaterials.length} selected materials</legend>
       <div className="material-bulk-actions">{canPublish && <button className="button" disabled={busy || selectedMaterials.length > 100} onClick={() => setNameSelection(selectedMaterials.map(item => ({ ...item })))}>Edit names</button>}{canCheck && <button className="button" disabled={busy || selectedMaterials.length > 100} onClick={() => setPreviewSelection({ materials: selectedMaterials.map(item => ({ ...item })), action: "BULK" })}>Edit previews</button>}
         {canCheck && <div className="material-check-actions-slot" ref={setCheckActionTarget} />}
+        {canPublish && <button className="button" disabled={busy || selectedMaterials.length > 100} onClick={() => prepareAiBrief(selectedMaterials)}>AI descriptions</button>}
         {canPublish && <button className="button" disabled={busy || selectedMaterials.length > 100} onClick={() => preparePublication(selectedMaterials)}>Prepare selected for publication ({selectedMaterials.length})</button>}
         {role === "ADMIN" && <button className="button button--icon material-delete-trigger" aria-label="Delete selected materials" title="Delete selected materials" disabled={busy || selectedMaterials.length > 100} onClick={() => prepareDeletion(selectedMaterials)}><Icon name="trash" size={18} /></button>}
       </div>
     </fieldset>}
     {canPublish && publicationSelection === null && selectedMaterials.length > 100 && <p>Each publication batch supports up to 100 materials. Select up to 100 rows.</p>}
     {canCheck && publicationSelection === null && <MaterialBulkContent materials={selectedMaterials} actionTarget={checkActionTarget} dockOnly
-      disabled={tableBusy || checkBusy || contentBusy || previewSelection !== null || nameSelection !== null || deleteSelection !== null || Boolean(result.error) || !result.data} onBusyChange={setContentBusy} onChanged={result.retry} />}
+      disabled={tableBusy || checkBusy || contentBusy || previewSelection !== null || nameSelection !== null || deleteSelection !== null || aiSelection !== null || Boolean(result.error) || !result.data} onBusyChange={setContentBusy} onChanged={result.retry} />}
     {canCheck && publicationSelection === null && <div className="material-table-toolbar materials-check-controls"><MaterialBulkCheck materials={selectedMaterials}
-      actionTarget={checkActionTarget} dockOnly compact={compact} disabled={tableBusy || contentBusy || previewSelection !== null || nameSelection !== null || deleteSelection !== null || Boolean(result.error) || !result.data} onBusyChange={setCheckBusy} onChecked={result.retry} /></div>}
+      actionTarget={checkActionTarget} dockOnly compact={compact} disabled={tableBusy || contentBusy || previewSelection !== null || nameSelection !== null || deleteSelection !== null || aiSelection !== null || Boolean(result.error) || !result.data} onBusyChange={setCheckBusy} onChecked={result.retry} /></div>}
     {publicationSelection !== null ? <section aria-label="Material publication preparation">
       <div className="page-heading"><div><h2>Prepare publication</h2><p>Review materials, prepare ZIP files and export CSV for the library.</p></div>
         <button className="button" disabled={publicationBusy} onClick={() => { if (requestNavigation("/materials")) setPublicationSelection(null); }}>Back to material list</button>
@@ -159,9 +166,11 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
           checkActionsRef={canCheck ? setCheckActionTarget : undefined}
           navigate={navigate} refresh={result.retry} onBusyChange={setTableBusy} onPreparePublication={canPublish ? preparePublication : undefined}
           onDeleteSelected={role === "ADMIN" ? prepareDeletion : undefined}
-          selection={{ ids: selectedIds, change: setSelectedIds }} operationBusy={checkBusy || contentBusy || deleteSelection !== null} onMaterialChanged={row => setOverrides(current => ({ ...current, [row.id]: row }))} />}
+          onAiBriefSelected={canPublish ? prepareAiBrief : undefined}
+          selection={{ ids: selectedIds, change: setSelectedIds }} operationBusy={checkBusy || contentBusy || deleteSelection !== null || aiSelection !== null} onMaterialChanged={row => setOverrides(current => ({ ...current, [row.id]: row }))} />}
     {previewSelection && <PreviewEditDialog selection={previewSelection} onClose={() => setPreviewSelection(null)} onChanged={() => { previewSelection.materials.forEach(item => store.forget(item.id, item.folderPath ?? "")); setPreviewEpoch(value => value + 1); result.retry(); }} />}
     {nameSelection && <MaterialBulkNamesDialog materials={nameSelection} client={client} onClose={() => setNameSelection(null)} onChanged={() => { nameSelection.forEach(item => store.forget(item.id, item.folderPath ?? "")); setPreviewEpoch(value => value + 1); result.retry(); }} />}
     {deleteSelection && <MaterialDeleteDialog materials={deleteSelection} onClose={() => setDeleteSelection(null)} onFinished={() => { store.clear(); setOverrides({}); setSelectedIds(new Set()); setPreviewEpoch(value => value + 1); result.retry(); }} />}
+    {aiSelection && <MaterialAiBriefDialog materials={aiSelection} onClose={() => setAiSelection(null)} onChanged={() => { setOverrides({}); result.retry(); }} />}
   </section>;
 }

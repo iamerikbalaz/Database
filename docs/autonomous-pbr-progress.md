@@ -1,6 +1,35 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-10-05, Checked recovery and Order folders)
+## Latest checkpoint (2026-10-05, batch AI JSON and deletion confirmation)
+
+The owned test at `http://127.0.0.1:53033` serves the new version. Schema remains
+0044; no migration, source-file change or external AI request was required.
+
+- Materials list/gallery now offers **AI descriptions** for 1–100 selected
+  records. A self-contained JSON brief carries research instructions, public
+  context, exact result template and schema. The reviewed JSON import adopts
+  only explicitly selected descriptions, with separate overwrite consent.
+- Stale/uncertain/missing results are blocked. Credits, tags and memberships are
+  preserved. Unverified citations and human authorship are retained in immutable
+  content history. Exact request receipts survive later edits/archive/deletion;
+  a lost response stops the remaining saves until the same request is recovered.
+- Deletion automatically checks selected records/options and offers one
+  **Delete materials** confirmation. Independent padded responsive dialog styles
+  and record cards fix the crowded review table. Recovery checks are retained.
+- Verification: all **1,360 frontend tests**, lint and production build passed;
+  **16 new backend tests**, **73 adjacent tests**, and the real migrated
+  **PostgreSQL round-trip test** passed. The dashboard lazy-preview test now
+  waits for observer initialization instead of racing the effect.
+- Live acceptance exported/reviewed all **51 materials** successfully and
+  confirmed every material/content response unchanged. All 31 existing
+  authenticated page/API smoke checks passed. No live description was applied
+  and no material was deleted. Visual browser interaction was not automated.
+
+See [the Materials workflow](material-table.md#ai-description-handoff-2026-10-05).
+External AI research remains user-driven: download the brief, run it in an AI
+tool, then import its results. The application does not call a provider itself.
+
+## Previous checkpoint (2026-10-05, Checked recovery and Order folders)
 
 The owned test at `http://127.0.0.1:53033` has been restarted with these fixes;
 schema remains 0044 and no data migration was needed.
@@ -26,9 +55,8 @@ schema remains 0044 and no data migration was needed.
   verifier with Explorer mocked. Actual Explorer rendering/browser interaction
   was not automated. No NAS/source writes were performed.
 
-AI batch prompt export and reviewed JSON import were recommended as the next
-description-enrichment workflow. Existing per-material context/proposal/adoption
-APIs are a foundation; the batch workflow and source research remain unimplemented.
+AI batch prompt export and reviewed JSON import were recommended here and are
+implemented in the latest checkpoint above. Source research remains external.
 
 ## Previous checkpoint (2026-10-05, material drafts and administrator deletion)
 

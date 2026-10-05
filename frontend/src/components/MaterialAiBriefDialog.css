@@ -1,0 +1,20 @@
+.material-ai-brief-dialog { box-sizing: border-box; width: min(1100px, calc(100vw - 40px)); max-width: calc(100vw - 40px); max-height: calc(100dvh - 48px); overflow: auto; border: 1px solid #dde0ed; border-radius: 18px; padding: 24px; color: #1f2444; background: #fff; font-family: inherit; }
+.material-ai-brief-dialog::backdrop { background: rgb(10 13 39 / 42%); }
+.material-ai-brief-dialog h2 { margin: 0 0 12px; font-size: 1.25rem; letter-spacing: -.025em; }
+.material-ai-brief-dialog p { line-height: 1.6; font-size: .85rem; }
+.material-ai-brief-dialog .form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.material-ai-brief-tools { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px; margin-block: 20px; }
+.material-ai-brief-tools label { display: flex; flex-direction: column; gap: 7px; font-size: .8rem; }
+.material-ai-brief-tools input { max-width: 100%; font: inherit; }
+.material-ai-brief-row { padding: 18px; margin-block: 12px; border: 1px solid #dde0ed; border-radius: 10px; overflow-wrap: anywhere; }
+.material-ai-brief-row h3 { margin: 0 0 5px; font-size: .95rem; }
+.material-ai-brief-row > small { display: block; color: #626781; font-size: .75rem; }
+.material-ai-brief-descriptions { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-block: 16px; }
+.material-ai-brief-descriptions h4, .material-ai-brief-sources h4 { margin: 0 0 6px; font-size: .8rem; }
+.material-ai-brief-descriptions p { margin: 0; white-space: pre-wrap; }
+.material-ai-brief-sources ul { padding-left: 20px; }
+.material-ai-brief-sources li { margin-block: 5px; font-size: .8rem; }
+.material-ai-brief-row .checkbox-label { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; font-size: .8rem; line-height: 1.5; }
+.material-ai-brief-row .checkbox-label input { flex: 0 0 auto; width: 16px; height: 16px; margin: 2px 0 0; accent-color: #394173; }
+.material-ai-brief-dialog :focus-visible { outline: 2px solid #394173; outline-offset: 3px; }
+@media (max-width: 650px) { .material-ai-brief-dialog { width: calc(100vw - 24px); max-width: calc(100vw - 24px); padding: 18px; max-height: calc(100dvh - 24px); } .material-ai-brief-descriptions { grid-template-columns: 1fr; gap: 16px; } .material-ai-brief-row { padding: 14px; } }

@@ -96,7 +96,7 @@ def material_activity(session, material_id, *, after=None, limit=30):
         if source == "record": query = query.where(model.kind == "MATERIAL")
         if source == "workflow":
             # Detailed immutable records above carry these successful changes.
-            query = query.where(model.event_type.not_in(("CONTENT_SAVED", "AI_DRAFT_ADOPTED", "IDENTITY_COMPLETED")),
+            query = query.where(model.event_type.not_in(("CONTENT_SAVED", "AI_DRAFT_ADOPTED", "AI_BRIEF_RESULT_APPLIED", "IDENTITY_COMPLETED")),
                 or_(model.event_type != "SOURCE_METADATA_COMPLETED", model.result["audit"]["metadata_snapshot_id"].as_string().is_(None)))
         branches.append(query)
     history = union_all(*branches).subquery()

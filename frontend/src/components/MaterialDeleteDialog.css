@@ -1,20 +1,45 @@
-.material-delete-dialog { width: min(880px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto; border: 1px solid #dde0ed; border-radius: 14px; padding: 22px; color: #1f2444; background: #fff; font-family: inherit; }
-.material-delete-dialog::backdrop { background: rgb(10 13 39 / 42%); }
-.material-delete-dialog h2 { margin-top: 0; font-size: 20px; }
-.material-delete-dialog h3, .material-delete-dialog h4 { font-size: 15px; margin-block: 12px 8px; }
-.material-delete-dialog p, .material-delete-dialog label, .material-delete-dialog li { font-size: 13px; line-height: 1.55; }
-.material-delete-dialog fieldset { border: 1px solid #dde0ed; border-radius: 8px; padding: 14px; margin-block: 16px; }
-.material-delete-dialog fieldset label { display: grid; grid-template-columns: 18px 1fr; gap: 3px 8px; margin-block: 8px; }
-.material-delete-dialog fieldset small { grid-column: 2; }
-.material-delete-dialog input { accent-color: #394173; width: 16px; height: 16px; margin: 2px 0; flex: 0 0 auto; }
-.material-delete-dialog small { display: block; color: #626781; font-size: 11px; overflow-wrap: anywhere; }
-.material-delete-dialog .material-delete-ack { display: flex; align-items: flex-start; gap: 8px; margin-top: 14px; }
-.material-delete-dialog .form-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
-.material-delete-report, .material-delete-selection { max-height: 35vh; overflow: auto; }
-.material-delete-report table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
-.material-delete-report td, .material-delete-report th { padding: 8px; border-bottom: 1px solid #dde0ed; vertical-align: top; overflow-wrap: anywhere; }
-.material-delete-report th { position: sticky; top: 0; background: #f2f3f9; }
-.material-delete-report p { margin: 0; }
-.material-delete-operation { padding: 10px 14px; border: 1px solid #dde0ed; margin-block: 10px; border-radius: 8px; }
-.material-delete-dialog .material-delete-confirm { color: #7f2929; background: #fff0f0; border-color: #e4b1b1; }
-.material-delete-trigger { color: #7f2929; }
+.material-delete-dialog:not([open]) { display:none; }
+.material-delete-dialog { display:flex; flex-direction:column; width:min(820px, calc(100vw - 32px)); max-width:calc(100vw - 32px); max-height:calc(100dvh - 32px); padding:0; overflow:hidden; border:1px solid #dde0ed; border-radius:14px; color:#1f2444; background:#fff; box-shadow:0 24px 70px rgb(10 13 39 / 30%); font-family:inherit; }
+.material-delete-dialog::backdrop { background:rgb(10 13 39 / 42%); }
+.material-delete-header { flex:none; padding:24px 24px 12px; }
+.material-delete-body { min-height:0; padding:0 24px 20px; overflow-y:auto; overscroll-behavior:contain; }
+.material-delete-dialog h2 { margin:0 0 6px; font-size:21px; font-family:inherit; }
+.material-delete-dialog h3, .material-delete-dialog h4 { margin:16px 0 10px; font-size:15px; }
+.material-delete-dialog p, .material-delete-dialog label, .material-delete-dialog li { font-size:13px; line-height:1.55; }
+.material-delete-header p, .material-delete-intro { margin:0; color:#626781; }
+.material-delete-dialog fieldset { min-width:0; margin:16px 0; padding:12px 14px; border:1px solid #dde0ed; border-radius:10px; }
+.material-delete-dialog legend { padding:0 6px; font-size:13px; font-weight:600; }
+.material-delete-dialog fieldset label { display:grid; grid-template-columns:16px minmax(0, 1fr); align-items:start; gap:10px; margin:8px 0; cursor:pointer; }
+.material-delete-dialog fieldset label + label { margin-top:16px; }
+.material-delete-dialog fieldset label > span { font-weight:600; }
+.material-delete-dialog input { flex:none; width:16px; min-width:16px; height:16px; margin:2px 0; accent-color:#394173; }
+.material-delete-dialog small { display:block; color:#626781; font-size:12px; line-height:1.5; font-weight:400; overflow-wrap:anywhere; }
+.material-delete-notes { margin:12px 0; padding-left:20px; color:#626781; }
+.material-delete-notes li + li { margin-top:4px; }
+.material-delete-report, .material-delete-selection { display:grid; gap:10px; margin:12px 0; padding:0; list-style:none; }
+.material-delete-selection > li, .material-delete-record { min-width:0; padding:12px 14px; border:1px solid #dde0ed; border-radius:10px; background:#fafbfe; }
+.material-delete-record-name { overflow-wrap:anywhere; }
+.material-delete-record dl { display:grid; grid-template-columns:minmax(0, 1.25fr) minmax(0, 1fr); gap:16px; margin:12px 0 0; }
+.material-delete-record dl > div { min-width:0; }
+.material-delete-record dt { margin:0 0 4px; color:#626781; font-size:11px; font-weight:600; }
+.material-delete-record dd { margin:0; font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.material-delete-record dd p { margin:0; }
+.material-delete-record dd p + p { margin-top:6px; }
+.material-delete-ready { color:#285d39; }
+.material-delete-issues, .material-delete-dialog .field-error { color:#8e3030; }
+.material-delete-confirmation { margin:14px 0 0; font-weight:600; }
+.material-delete-dialog .material-delete-ack { display:flex; align-items:flex-start; gap:8px; margin-top:14px; }
+.material-delete-operation { padding:12px 14px; border:1px solid #dde0ed; margin:12px 0; border-radius:10px; }
+.material-delete-operation h4 { margin-top:0; }
+.material-delete-operation ul { padding-left:20px; }
+.material-delete-operation li { margin:8px 0; overflow-wrap:anywhere; }
+.material-delete-actions { display:flex; flex:none; justify-content:flex-end; flex-wrap:wrap; gap:8px; padding:16px 24px; border-top:1px solid #dde0ed; background:#fff; }
+.material-delete-dialog .material-delete-confirm { color:#fff; background:#973c3c; border-color:#973c3c; }
+.material-delete-dialog .material-delete-confirm:disabled { opacity:.45; cursor:not-allowed; }
+.material-delete-trigger { color:#7f2929; }
+@media (max-width:560px) {
+  .material-delete-header { padding:20px 16px 12px; }
+  .material-delete-body { padding:0 16px 16px; }
+  .material-delete-actions { padding:14px 16px; }
+  .material-delete-record dl { grid-template-columns:minmax(0, 1fr); gap:12px; }
+}

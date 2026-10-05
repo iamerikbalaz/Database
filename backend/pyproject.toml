@@ -40,6 +40,7 @@ include = ["app*"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+markers = ["postgres: requires an isolated migrated PostgreSQL database"]
 
 [tool.ruff]
 target-version = "py313"

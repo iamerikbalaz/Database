@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MaterialDeleteDialog } from "./MaterialDeleteDialog";
 import { materialDeletionClient, type MaterialDeletionMode, type MaterialDeletionPlan, type MaterialDeletionResult } from "../api/materialDeletionClient";
@@ -37,23 +37,24 @@ function mount(materials: Material[] = [first], role: "ADMIN" | "PROCESSOR" = "A
   return { ...view, close, finished };
 }
 async function review() {
-  const button = screen.getByRole("button", { name: "Review deletion" });
-  await waitFor(() => expect(button).toBeEnabled()); fireEvent.click(button);
   await screen.findByRole("region", { name: "Reviewed deletion plan" });
 }
 async function confirm() {
-  fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed these materials/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Delete materials" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "Delete materials" }));
 }
 
-it("defaults to records only, freezes IDs/revisions, requires reviewed acknowledgement, and refreshes on Close", async () => {
+it("loads the review automatically, freezes IDs/revisions, confirms once, and refreshes on Close", async () => {
   const selection = [{ ...first }]; const view = mount(selection);
+  expect(screen.getByRole("button", { name: "Delete materials" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Review deletion" })).not.toBeInTheDocument();
   selection[0].updatedAt = "changed outside dialog"; selection.push(second);
   await review();
   expect(materialDeletionClient.plan).toHaveBeenCalledWith({ mode: "RECORD_ONLY", materials: [{ id: first.id, expected_updated_at: first.updatedAt }] });
-  expect(screen.getByRole("button", { name: "Confirm delete" })).toBeDisabled();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Delete materials" })).toBeEnabled());
+  expect(screen.queryByRole("checkbox", { name: /I reviewed these materials/ })).not.toBeInTheDocument();
   expect(materialDeletionClient.apply).not.toHaveBeenCalled();
-  await confirm(); await screen.findByText("1 deleted · COMPLETED");
+  await confirm(); await screen.findByText("1 deleted · Completed");
   expect(materialDeletionClient.apply).toHaveBeenCalledWith({ mode: "RECORD_ONLY", materials: [{ id: first.id, expected_updated_at: first.updatedAt }], expected_proposal_hash: "a".repeat(64), confirmed: true, idempotency_key: expect.any(String) });
   expect(view.finished).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
@@ -62,21 +63,90 @@ it("defaults to records only, freezes IDs/revisions, requires reviewed acknowled
 
 it("explains recoverable quarantine and invalidates review when the deletion mode changes", async () => {
   mount(); await review();
-  fireEvent.click(screen.getByRole("radio", { name: /Records and source folders/ }));
-  expect(screen.queryByRole("button", { name: "Confirm delete" })).not.toBeInTheDocument();
-  expect(screen.getByText(/protected recovery quarantine/)).toBeInTheDocument();
-  expect(screen.getByText(/Google Cloud Storage stay unchanged/)).toBeInTheDocument();
   vi.mocked(materialDeletionClient.plan).mockResolvedValue(plan([first], "RECORD_AND_FILES"));
   vi.mocked(materialDeletionClient.apply).mockResolvedValue(receipt([first], "COMPLETED", "RECORD_AND_FILES"));
-  await review(); await confirm(); await screen.findByText("1 deleted · COMPLETED");
+  fireEvent.click(screen.getByRole("radio", { name: /Records and source folders/ }));
+  expect(screen.getByRole("button", { name: "Delete materials" })).toBeDisabled();
+  expect(screen.getByText(/protected recovery quarantine/)).toBeInTheDocument();
+  expect(screen.getByText(/Google Cloud Storage stay unchanged/)).toBeInTheDocument();
+  await review(); await confirm(); await screen.findByText("1 deleted · Completed");
   expect(materialDeletionClient.apply).toHaveBeenCalledWith(expect.objectContaining({ mode: "RECORD_AND_FILES" }));
+});
+
+it("ignores an older plan after switching modes twice and confirms only the latest proposal", async () => {
+  let finishOld!: (value: MaterialDeletionPlan) => void;
+  vi.mocked(materialDeletionClient.plan)
+    .mockReturnValueOnce(new Promise(resolve => { finishOld = resolve; }))
+    .mockResolvedValueOnce(plan([first], "RECORD_AND_FILES"))
+    .mockResolvedValueOnce({ ...plan(), proposal_hash: "b".repeat(64) });
+  mount();
+  await waitFor(() => expect(materialDeletionClient.plan).toHaveBeenCalledOnce());
+  expect(screen.getByRole("button", { name: "Delete materials" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("radio", { name: /Records and source folders/ }));
+  await review();
+  fireEvent.click(screen.getByRole("radio", { name: /Records only/ }));
+  await waitFor(() => expect(materialDeletionClient.plan).toHaveBeenCalledTimes(3));
+  await review();
+  await act(async () => finishOld(plan()));
+  await confirm();
+  await screen.findByText("1 deleted · Completed");
+  expect(materialDeletionClient.apply).toHaveBeenCalledWith(expect.objectContaining({ mode: "RECORD_ONLY", expected_proposal_hash: "b".repeat(64) }));
+});
+
+it("ignores a previous mode's failed check after the current plan is ready", async () => {
+  let rejectOld!: (reason: Error) => void;
+  vi.mocked(materialDeletionClient.plan)
+    .mockReturnValueOnce(new Promise((_, reject) => { rejectOld = reject; }))
+    .mockResolvedValueOnce(plan([first], "RECORD_AND_FILES"));
+  mount();
+  await waitFor(() => expect(materialDeletionClient.plan).toHaveBeenCalledOnce());
+  fireEvent.click(screen.getByRole("radio", { name: /Records and source folders/ }));
+  await review();
+  await act(async () => rejectOld(new Error("Old mode failed")));
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Delete materials" })).toBeEnabled();
+});
+
+it("allows closing while a read-only plan is loading and discards its response", async () => {
+  let finishPlan!: (value: MaterialDeletionPlan) => void;
+  vi.mocked(materialDeletionClient.plan).mockReturnValue(new Promise(resolve => { finishPlan = resolve; }));
+  const view = mount();
+  await waitFor(() => expect(materialDeletionClient.plan).toHaveBeenCalledOnce());
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(view.close).toHaveBeenCalledOnce();
+  view.unmount();
+  await act(async () => finishPlan(plan()));
+  expect(materialDeletionClient.apply).not.toHaveBeenCalled();
+  expect(requestNavigation("/orders")).toBe(true);
+});
+
+it("keeps deletion disabled until a failed preview has been checked successfully", async () => {
+  vi.mocked(materialDeletionClient.plan).mockRejectedValueOnce(new Error("Source unavailable")).mockResolvedValueOnce(plan());
+  mount();
+  await screen.findByText("Source unavailable");
+  expect(screen.getByRole("button", { name: "Delete materials" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Retry checks" }));
+  await review();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Delete materials" })).toBeEnabled());
+  expect(materialDeletionClient.apply).not.toHaveBeenCalled();
+});
+
+it("shows readable material cards and plain descriptions for warning codes", async () => {
+  const value = plan();
+  value.warnings = ["RECORDS_REMOVED_FROM_ALL_VIEWS", "AUDIT_RETAINED", "PUBLISHED_EXTERNAL_FILES_UNCHANGED", "SOURCE_FILES_UNCHANGED"];
+  vi.mocked(materialDeletionClient.plan).mockResolvedValue(value);
+  mount(); await review();
+  expect(screen.getByRole("list", { name: "Selected materials" })).toBeInTheDocument();
+  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  expect(screen.getByText("Deletion history is retained.")).toBeInTheDocument();
+  expect(screen.getByText("Source folders and files stay in their current location.")).toBeInTheDocument();
+  for (const code of value.warnings) expect(screen.queryByText(code)).not.toBeInTheDocument();
+  expect(screen.getByRole("dialog")).not.toHaveClass("confirm-dialog");
 });
 
 it("shows blocked plans without submission and permits closing after preflight failures", async () => {
   vi.mocked(materialDeletionClient.plan).mockRejectedValue(new Error("Material changed. Refresh selection."));
   const view = mount();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Review deletion" })).toBeEnabled());
-  fireEvent.click(screen.getByRole("button", { name: "Review deletion" }));
   await screen.findByText("Material changed. Refresh selection.");
   expect(materialDeletionClient.apply).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Cancel" })); expect(view.close).toHaveBeenCalledOnce();
@@ -84,8 +154,6 @@ it("shows blocked plans without submission and permits closing after preflight f
 
 it("blocks a stale server plan with a different material selection", async () => {
   vi.mocked(materialDeletionClient.plan).mockResolvedValue(plan([second])); mount();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Review deletion" })).toBeEnabled());
-  fireEvent.click(screen.getByRole("button", { name: "Review deletion" }));
   await screen.findByText(/returned plan does not match/);
   expect(materialDeletionClient.apply).not.toHaveBeenCalled();
   expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
@@ -111,7 +179,7 @@ it("retains the exact packet across unknown response and 403, locks mode/close a
   expect(requestNavigation("/orders")).toBe(false);
   fireEvent.click(retry); await waitFor(() => expect(materialDeletionClient.apply).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(retry).toBeEnabled()); fireEvent.click(retry);
-  await screen.findByText("1 deleted · COMPLETED");
+  await screen.findByText("1 deleted · Completed");
   const calls = vi.mocked(materialDeletionClient.apply).mock.calls;
   expect(calls[1]).toEqual(calls[0]); expect(calls[2]).toEqual(calls[0]);
   expect(materialDeletionClient.plan).toHaveBeenCalledOnce(); expect(requestNavigation("/orders")).toBe(true);
@@ -131,18 +199,18 @@ it("retains the initial packet on MATERIAL_DELETE_CHANGED because earlier items 
   const button = await screen.findByRole("button", { name: "Recover same deletion" });
   await waitFor(() => expect(button).toBeEnabled());
   expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
-  fireEvent.click(button); await screen.findByText("1 deleted · COMPLETED");
+  fireEvent.click(button); await screen.findByText("1 deleted · Completed");
   const calls = vi.mocked(materialDeletionClient.apply).mock.calls;
   expect(calls[1]).toEqual(calls[0]);
 });
 
-it("shows issues in a blocked plan and never exposes confirmation", async () => {
+it("shows issues in a blocked plan and disables deletion", async () => {
   const blocked = plan(); blocked.can_apply = false;
   blocked.items[0].issues = [{ code: "FOLDER_MISSING", message: "Source folder is unavailable." }];
   vi.mocked(materialDeletionClient.plan).mockResolvedValue(blocked);
   mount(); await review();
   expect(screen.getByText("Source folder is unavailable.")).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Confirm delete" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Delete materials" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
 });
 
@@ -150,8 +218,8 @@ it("reports terminal partial failure without repeating completed materials", asy
   vi.mocked(materialDeletionClient.plan).mockResolvedValue(plan([first, second]));
   vi.mocked(materialDeletionClient.apply).mockResolvedValue(receipt([first, second], "PARTIAL"));
   const view = mount([first, second]); await review(); await confirm();
-  await screen.findByText("1 deleted · PARTIAL");
-  expect(screen.getByText(/REJECTED · MATERIAL DELETE CHANGED/)).toBeInTheDocument();
+  await screen.findByText("1 deleted · Partly completed");
+  expect(screen.getByText(/Not deleted · This material changed/)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /Recover/ })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
   expect(view.finished).toHaveBeenCalledOnce(); expect(materialDeletionClient.apply).toHaveBeenCalledOnce();
@@ -165,7 +233,7 @@ it("discovers and explicitly reviews the full stored operation, including materi
   expect(button).toBeDisabled(); expect(screen.getByText("SECOND")).toBeInTheDocument();
   expect(screen.getByText(/including any materials outside/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed all recorded/ })); fireEvent.click(button);
-  await screen.findByText("2 deleted · COMPLETED");
+  await screen.findByText("2 deleted · Completed");
   expect(materialDeletionClient.resume).toHaveBeenCalledWith(operationId);
   expect(materialDeletionClient.plan).not.toHaveBeenCalled(); expect(materialDeletionClient.apply).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Close" })); expect(view.finished).toHaveBeenCalledOnce();
@@ -179,14 +247,14 @@ it("resumes a known recovery operation after a failed response without construct
   fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed all recorded/ })); fireEvent.click(button);
   const retry = await screen.findByRole("button", { name: "Recover same deletion" });
   await waitFor(() => expect(retry).toBeEnabled()); fireEvent.click(retry);
-  await screen.findByText("1 deleted · COMPLETED");
+  await screen.findByText("1 deleted · Completed");
   expect(materialDeletionClient.apply).toHaveBeenCalledOnce();
   expect(vi.mocked(materialDeletionClient.resume).mock.calls).toEqual([[operationId], [operationId]]);
 });
 
 it("does not query or mutate as a non-admin", () => {
   mount([first], "PROCESSOR"); expect(screen.getByRole("alert")).toHaveTextContent("Only administrators");
-  expect(screen.getByRole("button", { name: "Review deletion" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Delete materials" })).toBeDisabled();
   expect(materialDeletionClient.pending).not.toHaveBeenCalled(); expect(materialDeletionClient.plan).not.toHaveBeenCalled();
 });
 

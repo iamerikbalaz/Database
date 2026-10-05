@@ -56,7 +56,7 @@ type Props = { materials: Material[]; store: GalleryStore; client: ApiClient; pr
   categories?: { code: string; value: string }[];
   categoryLabels?: { code: string; value: string; aliases?: string[] }[];
   navigate: (path: string) => void; refresh: () => void; onBusyChange: (busy: boolean) => void;
-  onPreparePublication?: (materials: Material[]) => void; onDeleteSelected?: (materials: Material[]) => void; detail?: boolean; onMaterialChanged?: (material: Material) => void;
+  onPreparePublication?: (materials: Material[]) => void; onDeleteSelected?: (materials: Material[]) => void; onAiBriefSelected?: (materials: Material[]) => void; detail?: boolean; onMaterialChanged?: (material: Material) => void;
   selection?: { ids: Set<string>; change: (ids: Set<string>) => void };
   onCheckSelected?: ((materials: Material[]) => void) | undefined; checkActionsRef?: (node: HTMLDivElement | null) => void; operationBusy?: boolean; scrollMode?: "page" | "contained" };
 
@@ -67,7 +67,7 @@ function NoteCell({ material, disabled, save }: { material: Material; disabled: 
     {draft !== (material.note ?? "") && <button className="button" disabled={disabled} onClick={() => save({ note: draft || null })}>Save note</button>}</div>;
 }
 
-export function MaterialsTable({ materials, store, client, projects, brands, users, categories = materialCategories, categoryLabels = categories, navigate, refresh, onBusyChange, onPreparePublication, onDeleteSelected, detail = false, onMaterialChanged, selection, onCheckSelected, checkActionsRef, operationBusy = false, scrollMode = "page" }: Props) {
+export function MaterialsTable({ materials, store, client, projects, brands, users, categories = materialCategories, categoryLabels = categories, navigate, refresh, onBusyChange, onPreparePublication, onDeleteSelected, onAiBriefSelected, detail = false, onMaterialChanged, selection, onCheckSelected, checkActionsRef, operationBusy = false, scrollMode = "page" }: Props) {
   const actor = useSession()?.session.user;
   const role = actor?.role;
   const manager = role === "ADMIN" || role === "PRODUCTION_LEAD";
@@ -307,6 +307,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
         {manager && !archivedView && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || editDialogOpen || selectedRows.length > 100} onClick={() => setBulkNames(selectedRows.map(row => ({ ...row })))}>Edit names</button>}
         {!archivedView && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || editDialogOpen || selectedRows.length > 100} onClick={() => setPreviewEdit({ materials: selectedRows.map(row => ({ ...row })), action: "BULK" })}>Edit previews</button>}
         {checkActionsRef && <div className="material-check-actions-slot" ref={checkActionsRef} />}
+        {manager && onAiBriefSelected && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || editDialogOpen || selectedRows.length > 100} onClick={() => onAiBriefSelected(selectedRows.map(row => ({ ...row })))}>AI descriptions</button>}
         {onCheckSelected && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || selectedRows.length > 100} onClick={() => onCheckSelected(selectedRows.map(row => ({ ...row })))}>Auto-check selected materials ({selectedRows.length})</button>}
         {publisher && onPreparePublication && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || selectedRows.length > 100} onClick={() => onPreparePublication(selectedRows.map(row => ({ ...row })))}>Prepare selected for publication ({selectedRows.length})</button>}
         {role === "ADMIN" && onDeleteSelected && <button className="button button--icon material-delete-trigger" aria-label="Delete selected materials" title="Delete selected materials" disabled={active || lifecycleBusy || Boolean(identity) || editDialogOpen || selectedRows.length > 100} onClick={() => onDeleteSelected(selectedRows.map(row => ({ ...row })))}><Icon name="trash" size={18} /></button>}

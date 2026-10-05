@@ -52,11 +52,9 @@ it("refreshes rows and clears selection only after the completed report is close
   fireEvent.click(await screen.findByRole("checkbox", { name: `Select ${first.materialName}` }));
   fireEvent.click(screen.getByRole("button", { name: "Delete selected materials" }));
   const dialog = screen.getByRole("dialog", { name: "Delete selected materials" });
-  await waitFor(() => expect(within(dialog).getByRole("button", { name: "Review deletion" })).toBeEnabled());
-  fireEvent.click(within(dialog).getByRole("button", { name: "Review deletion" }));
-  fireEvent.click(await within(dialog).findByRole("checkbox", { name: /I reviewed these materials/ }));
-  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm delete" }));
-  await within(dialog).findByText("1 deleted · COMPLETED");
+  await waitFor(() => expect(within(dialog).getByRole("button", { name: "Delete materials" })).toBeEnabled());
+  fireEvent.click(within(dialog).getByRole("button", { name: "Delete materials" }));
+  await within(dialog).findByText("1 deleted · Completed");
   expect(getMaterials).toHaveBeenCalledOnce();
   getMaterials.mockResolvedValue([second]);
   fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));

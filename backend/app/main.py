@@ -36,6 +36,7 @@ from app.api.folder_contents import build_folder_contents_router
 from app.folder_contents import WorkerFolderContentsClient
 from app.discovery_client import DiscoveryClient, WorkerDiscoveryClient
 from app.api.ai_content import build_ai_content_router
+from app.api.ai_brief import build_ai_brief_router
 from app.api.ai_service import build_ai_service_router
 from app.publication_preflight import build_publication_preview_router
 from app.api.publication_batches import build_publication_batches_router
@@ -142,6 +143,7 @@ def create_app(
     application.include_router(build_catalog_router(app_database))
     application.include_router(build_material_imports_router(app_database))
     application.include_router(build_ai_content_router(app_database))
+    application.include_router(build_ai_brief_router(app_database))
     application.include_router(build_ai_service_router(app_database))
     application.include_router(build_publication_preview_router(app_database, app_settings))
     application.include_router(build_publication_batches_router(app_database, app_settings))

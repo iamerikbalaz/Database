@@ -1,5 +1,5 @@
 import { StrictMode } from "react";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import App from "../App";
 import { mockApiClient, type ApiClient } from "../api/client";
@@ -161,6 +161,7 @@ it("loads small dashboard previews lazily and releases their image URLs when lea
   const page = render(tree(api([row])));
   await screen.findByRole("link", { name: row.technicalIdentity });
   expect(previewClient.listing).not.toHaveBeenCalled();
+  await waitFor(() => expect(visible).toBeTypeOf("function"));
   act(() => visible());
   expect(await screen.findByRole("img", { name: `${row.materialName} — SPHERE_1.png` })).toHaveAttribute("src", "blob:dashboard");
   expect(image).toHaveBeenCalledWith(row.id, entry, expect.any(AbortSignal), 256);

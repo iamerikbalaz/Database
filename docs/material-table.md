@@ -231,3 +231,48 @@ Published is preserved. ADMIN can change Note, Project, Processor and Published;
 workflow, Checked and identity need restore. The migration preserves old lifecycle
 history, active-job fences and recorded external-dispatch blocks. See the
 [archive contract](material-archive-contract.md) for state/recovery details.
+
+## AI description handoff (2026-10-05)
+
+In Materials list or gallery, select 1–100 materials and choose **AI descriptions**
+in the bulk-actions bar. ADMIN and PRODUCTION_LEAD can use this workflow.
+
+1. **Download JSON brief** exports the selected material names, Customer and
+   public website, categories/collections, known public source URLs and existing
+   descriptions. The file includes the English research prompt, JSON schema and
+   an exact response template. Private folder paths, internal notes and contacts
+   are omitted. Incomplete identities/inactive Customers are listed as skipped.
+2. Give that JSON to an AI tool with web research. The prompt requires supported
+   facts and citations and asks for `needs_review: true` when evidence is missing.
+   The application itself makes no AI-provider calls or external source requests.
+3. Select the same materials (a superset is also accepted, up to 100) and open
+   **AI descriptions → Import AI results**. Import the returned results JSON,
+   not the original brief. Maximum file/request size is 5 MiB.
+4. Compare current/proposed descriptions and sources. Explicitly approve any
+   overwrite and select the reviewed descriptions to apply. Changed materials,
+   uncertain or missing results cannot be applied. Close the completed dialog to
+   refresh the list; the descriptions are editable in Material data for library.
+
+Only descriptions are adopted. Credits, tags and catalog memberships are
+preserved. Imported citations are retained as unverified claims in immutable
+provenance; they do not become approved source records. Saving records the human
+author in the consolidated material history and uses the normal content-change
+review invalidation. It does not mark a material Published or modify source files.
+Uncertain network outcomes stop the remaining saves and offer an exact retry
+with the same request key to avoid duplicate revisions.
+
+The versioned JSON API is `POST /api/material-ai/brief`,
+`POST /api/material-ai/review` and
+`POST /api/materials/{id}/ai-brief-result`. Authorization and CSRF protection
+apply to all three. Review/export do not persist material changes.
+
+## Deletion confirmation (2026-10-05)
+
+The administrator deletion dialog automatically checks the selected records and
+source-folder option, then offers one **Delete materials** confirmation. There
+is no separate Review deletion button. Checks still enforce current versions,
+safe folders, operation ownership and exact request recovery. Readable record
+cards replace the narrow review table. Interrupted older operations retain a
+separate recovery acknowledgement because their full material set can extend
+beyond the current selection. Records-only deletion keeps source files; the
+source-folder option retains the existing recoverable quarantine behavior.

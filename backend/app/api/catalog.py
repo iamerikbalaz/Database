@@ -17,6 +17,7 @@ from app.publication_content import catalog_view, content_view
 from app.content_saves import save_material_content
 from app.history_pagination import HistoryLimit, history_window
 from app.main_category import CATEGORY_PATHS, required_category, reserve_category_codes
+from app.library_fields import LibraryFieldChange, save_library_field
 
 
 def _conflict(code):
@@ -26,6 +27,10 @@ def _conflict(code):
 
 def build_catalog_router(database):
     router = APIRouter(prefix="/api", tags=["catalog content"])
+
+    @router.post("/materials/{material_id}/library-field")
+    def library_field(material_id: UUID, payload: LibraryFieldChange, access: AccessDependency):
+        return save_library_field(database, material_id, payload, access)
 
     @router.get("/online-categories")
     def categories(access: AccessDependency):

@@ -24,6 +24,15 @@ it("does not accept a green review with errors or missing export data", () => {
   expect(() => localPublicationPreview({ ...publicationPreviewDto(), items: [{ ...publicationPreviewDto().items[0], row:null }] }, selected)).toThrow();
   expect(() => localPublicationPreview({ ...publicationPreviewDto(), preview_hash:"bad" }, selected)).toThrow();
 });
+it("accepts draft missing-identity diagnostics while rejecting null identities in publishable rows", () => {
+  const source = publicationPreviewDto();
+  const draft = { ...source, can_prepare: false, items: [{ ...source.items[0], identity_name: null, row: null, errors: ["MATERIAL_IDENTITY_INCOMPLETE", "FOLDER_REQUIRED"] }] };
+  const parsed = localPublicationPreview(draft, selected);
+  expect(parsed.canPrepare).toBe(false); expect(parsed.items[0].identity).toBeNull();
+  expect(parsed.items[0].errors).toContain("MATERIAL_IDENTITY_INCOMPLETE");
+  expect(() => localPublicationPreview({ ...draft, items: [{ ...draft.items[0], errors: [] }] }, selected)).toThrow();
+  expect(() => localPublicationPreview({ ...draft, items: [{ ...draft.items[0], row: { ...source.items[0].row, identity_name: null } }] }, selected)).toThrow();
+});
 it.each([
   { output_path:null }, { csv_name:null }, { archives:[] }, { error_code:"FAILED" },
   { archives:[{ name:"../file.zip", sha256:"a".repeat(64), size_bytes:42 }] },

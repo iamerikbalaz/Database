@@ -26,6 +26,8 @@ import { MaterialBulkNamesDialog } from "./MaterialBulkNamesDialog";
 import { OpenRecordFolderButton } from "./OpenRecordFolderButton";
 import { ColoredSelect, ColoredValue } from "./ColoredSelect";
 import { materialStatusColors, materialCheckedColors } from "../data/choiceColors";
+import { MaterialLibraryBulkEditor } from "./MaterialLibraryBulkEditor";
+import { libraryFieldLabels, type LibraryField } from "../api/materialLibraryClient";
 
 const columns = [
   ["project", "Order", 180], ["brand", "Customer", 180], ["category", "Category", 225],
@@ -49,7 +51,7 @@ function readLayout(): Layout {
   } catch { /* Invalid/disabled storage falls back to defaults. */ }
   return defaultLayout();
 }
-type EditField = "is_archived" | "workflow_status" | "checked_status" | "is_published" | "project_id" | "assigned_processor_id" | "note" | "main_category_code";
+type EditField = "is_archived" | "workflow_status" | "checked_status" | "is_published" | "project_id" | "assigned_processor_id" | "note" | "main_category_code" | LibraryField;
 type Change = TableChange | { is_archived: boolean };
 type Job = { material: Material; change: Change; lifecycle?: { preview: ArchivePreview; body: LifecycleRequest }; identity?: IdentityConfirmation; identityOperation?: string; key: string; status: "waiting" | "saved" | "failed" | "unknown" | "stopped"; message?: string };
 type Props = { materials: Material[]; store: GalleryStore; client: ApiClient; projects: Project[]; brands: PublishedBrand[]; users: InternalUser[];
@@ -97,7 +99,8 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
   const jobsRef = useRef<Job[]>([]);
   const [pending, setPending] = useState(false);
   const [internallyActive, setActive] = useState(false);
-  const active = internallyActive || operationBusy;
+  const [libraryBusy, setLibraryBusy] = useState(false);
+  const active = internallyActive || operationBusy || libraryBusy;
   const [inline, setInline] = useState(false);
   const inlineRef = useRef(false);
   const [notice, setNotice] = useState("");
@@ -116,9 +119,9 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
   useNavigationGuard(() => sending.current || jobsRef.current.some(job => job.status === "unknown") || identityBusy);
   useEffect(() => { alive.current = true; return () => { alive.current = false; stop.current = true; }; }, []);
   useEffect(() => {
-    onBusyChange(internallyActive || lifecycleBusy || Boolean(identity) || editDialogOpen);
+    onBusyChange(internallyActive || lifecycleBusy || Boolean(identity) || editDialogOpen || libraryBusy);
     return () => onBusyChange(false);
-  }, [internallyActive, lifecycleBusy, identity, editDialogOpen, onBusyChange]);
+  }, [internallyActive, lifecycleBusy, identity, editDialogOpen, libraryBusy, onBusyChange]);
   useEffect(() => {
     if (!active) return;
     const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
@@ -286,6 +289,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
   const previewWidth = expanded ? Math.max(160, ...rows.map(row => (previewCounts[row.id] ?? 1) * 122 + 6)) : 96;
   const review = jobs[0] ? describeChange(jobs[0].change) : null;
   const waiting = jobs.some(j => j.status === "waiting"), unknown = jobs.some(j => j.status === "unknown");
+  const libraryField = bulkField in libraryFieldLabels ? bulkField as LibraryField : null;
   return <div className={detail ? "material-detail-properties" : `resource-database materials-database${scrollMode === "contained" ? " resource-database--contained" : ""}`}>
     {!detail && <div className="material-table-toolbar resource-table-toolbar">
       {selectable && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || !rows.some(row => highlight.ids.has(row.id))}
@@ -300,9 +304,11 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     </div>}
     {!detail && editor && selectedRows.length > 0 && <fieldset className="material-bulk-bar" disabled={internallyActive || lifecycleBusy}><legend>Apply to {selectedRows.length} selected materials</legend>
       <label>Property<select disabled={active || editDialogOpen} value={bulkField} onChange={e => { const field = e.target.value as EditField; setBulkField(field); setBulkValue(bulkChoices(field)[0]?.value ?? ""); }}>
-        {!archivedView && <option value="workflow_status">Status</option>}{manager && <>{!archivedView && <><option value="checked_status">Checked</option><option value="main_category_code">Main category</option></>}<option value="is_published">Published</option>{role === "ADMIN" && <option value="is_archived">Archived</option>}<option value="project_id">Order</option><option value="assigned_processor_id">Processor</option></>}<option value="note">Note</option></select></label>
-      <label>New value{bulkField === "note" ? <textarea disabled={active || editDialogOpen} value={bulkValue} maxLength={10000} onChange={e => setBulkValue(e.target.value)} /> : <ColoredSelect disabled={active || editDialogOpen} value={bulkValue} colors={bulkField === "workflow_status" ? materialStatusColors : bulkField === "checked_status" ? materialCheckedColors : undefined} onChange={e => setBulkValue(e.target.value)} options={bulkChoices(bulkField)} />}</label>
-      <button className="button button--primary" disabled={active || editDialogOpen || (bulkField === "assigned_processor_id" || bulkField === "main_category_code") && !bulkValue} onClick={() => prepare(selectedRows, bulkChange())}>Review bulk change</button>
+        {!archivedView && <option value="workflow_status">Status</option>}{manager && <>{!archivedView && <><option value="checked_status">Checked</option><option value="main_category_code">Main category</option></>}<option value="is_published">Published</option>{role === "ADMIN" && <option value="is_archived">Archived</option>}<option value="project_id">Order</option><option value="assigned_processor_id">Processor</option></>}<option value="note">Note</option>{!archivedView && Object.entries(libraryFieldLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+      {libraryField ? <MaterialLibraryBulkEditor key={libraryField} materials={selectedRows} client={client} field={libraryField} disabled={active || editDialogOpen} onBusyChange={setLibraryBusy} onChanged={refresh} /> : <>
+        <label>New value{bulkField === "note" ? <textarea disabled={active || editDialogOpen} value={bulkValue} maxLength={10000} onChange={e => setBulkValue(e.target.value)} /> : <ColoredSelect disabled={active || editDialogOpen} value={bulkValue} colors={bulkField === "workflow_status" ? materialStatusColors : bulkField === "checked_status" ? materialCheckedColors : undefined} onChange={e => setBulkValue(e.target.value)} options={bulkChoices(bulkField)} />}</label>
+        <button className="button button--primary" disabled={active || editDialogOpen || (bulkField === "assigned_processor_id" || bulkField === "main_category_code") && !bulkValue} onClick={() => prepare(selectedRows, bulkChange())}>Review bulk change</button>
+      </>}
       <div className="material-bulk-actions">
         {manager && !archivedView && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || editDialogOpen || selectedRows.length > 100} onClick={() => setBulkNames(selectedRows.map(row => ({ ...row })))}>Edit names</button>}
         {!archivedView && <button className="button" disabled={active || lifecycleBusy || Boolean(identity) || editDialogOpen || selectedRows.length > 100} onClick={() => setPreviewEdit({ materials: selectedRows.map(row => ({ ...row })), action: "BULK" })}>Edit previews</button>}

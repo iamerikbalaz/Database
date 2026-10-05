@@ -60,7 +60,7 @@ def exercise_content_round_trip(case, client):
         tags=['retained tag'], category_ids=[category['id']], collection_ids=[collection['id']]))
     assert initial.status_code == 200, initial.text
     before = initial.json(); baseline = counts(case.database)
-    brief = export(client, [material]); results = results_for(brief)
+    brief = export(client, [material]); results = results_for(brief, tags=['retained tag', 'fine grain', 'FINE GRAIN'])
     row = review(client, brief, results)['items'][0]
     assert row['status'] == 'OVERWRITE_REQUIRED' and row['applicable'] and row['requires_overwrite']
     assert row['current_description'] == before['description'] and row['result'] == results['items'][0]
@@ -74,8 +74,9 @@ def exercise_content_round_trip(case, client):
     receipt = applied.json()
     assert receipt['status'] == 'APPLIED' and receipt['content_revision'] == before['revision'] + 1
     saved = client.get(path + '/content').json()
-    for key in ('tags', 'credits', 'categories', 'collections'):
+    for key in ('credits', 'categories', 'collections'):
         assert saved[key] == before[key]
+    assert saved['tags'] == ['fine grain', 'retained tag']
     assert saved['description'] == results['items'][0]['description']
     assert saved['content_status'] == 'AI_DRAFT'
     assert saved['ai_provenance']['sources_verified'] is False
@@ -105,7 +106,13 @@ def exercise_content_round_trip(case, client):
     changed = deepcopy(payload); changed['result']['description'] = 'Changed proposal with reused key.'
     assert client.post(path + '/ai-brief-result', json=changed).status_code == 409
     assert counts(case.database) == current_counts
-    assert review(client, brief, results)['items'][0]['status'] == 'STALE_CONTEXT'
+    assert review(client, brief, results)['items'][0]['status'] == 'ALREADY_APPLIED'
+    # Fresh command key, as if the browser restarted, returns the original receipt
+    # without reapplying the old description over a later human edit.
+    resumed = {**payload, 'idempotency_key': str(uuid4())}
+    assert client.post(path + '/ai-brief-result', json=resumed).json() == receipt
+    assert counts(case.database) == current_counts
+    assert client.get(path + '/content').json()['description'] == 'A later human edit.'
     return receipt
 
 
@@ -151,7 +158,7 @@ def test_export_is_minimal_public_context_with_explicit_draft_skips_and_no_write
     baseline = counts(case.database)
     with case.client('PRODUCTION_LEAD') as client:
         brief = export(client, [first, second])
-        assert brief['schema_version'] == 'reawote-ai-brief-v1'
+        assert brief['schema_version'] == 'reawote-ai-brief-v2'
         assert len(brief['items']) == 1 and brief['skipped'][0]['material_id'] == str(second.id)
         assert brief['skipped'][0]['code'] == 'MATERIAL_IDENTITY_INCOMPLETE'
         item = brief['items'][0]
@@ -278,3 +285,63 @@ def test_chunked_reader_caps_bytes_and_releases_capacity_without_content_length(
     asyncio.run(run())
     assert reader.slots.acquire(False) and reader.slots.acquire(False)
     reader.slots.release(); reader.slots.release()
+
+
+def test_results_file_can_resume_after_application_restart_and_apply_remaining_materials(access_case):
+    from app.main import create_app
+    case = access_case; first, second = case.materials
+    with case.client('ADMIN') as client:
+        brief = export(client, [first, second]); results = results_for(brief, tags=['matte', 'Matte'])
+        first_receipt = client.post(f'/api/materials/{first.id}/ai-brief-result', json=application_payload(results))
+        assert first_receipt.status_code == 200, first_receipt.text
+    baseline = counts(case.database)
+    case.app = create_app(case.app.state.settings, case.database, case.worker)
+    with case.client('PRODUCTION_LEAD') as client:
+        resumed = review(client, brief, results)['items']
+        assert [item['status'] for item in resumed] == ['ALREADY_APPLIED', 'READY']
+        assert [item['applicable'] for item in resumed] == [False, True]
+        assert counts(case.database) == baseline
+        second_results = {**results, 'items': [results['items'][1]]}
+        response = client.post(f'/api/materials/{second.id}/ai-brief-result', json=application_payload(second_results))
+        assert response.status_code == 200, response.text
+        assert response.json()['tags'] == ['matte']
+        assert client.post(f'/api/materials/{first.id}/ai-brief-result', json=application_payload(results)).json() == first_receipt.json()
+    assert counts(case.database) == [baseline[0] + 1, baseline[1] + 1, baseline[2] + 1, baseline[3]]
+
+
+def test_legacy_v1_descriptions_preserve_tags_and_version_fields_are_strict(access_case):
+    case = access_case; material = case.materials[0]; path = f'/api/materials/{material.id}'
+    with case.client('ADMIN') as client:
+        response = client.post(path + '/content', json=content_payload(tags=['keep me']))
+        assert response.status_code == 200, response.text
+        brief = export(client, [material]); results = results_for(brief)
+        v1 = {**deepcopy(results), 'schema_version': 'reawote-ai-results-v1'}
+        request = lambda data: client.post('/api/material-ai/review', json={'results': data, 'selected_ids': [str(material.id)]})
+        assert request(v1).status_code == 422  # tags cannot sneak into v1
+        del v1['items'][0]['tags']
+        assert request(v1).status_code == 200
+        assert client.post(path + '/ai-brief-result', json=application_payload(v1)).json()['tags'] == ['keep me']
+        assert request(v1).json()['items'][0]['status'] == 'ALREADY_APPLIED'
+        malformed = deepcopy(results); del malformed['items'][0]['tags']
+        assert request(malformed).status_code == 422  # v2 must include tags
+        for tags in (None, ['invalid:tag'], ['hidden\u200btext'], ['x' * 101], ['']):
+            malformed = deepcopy(results); malformed['items'][0]['tags'] = tags
+            assert request(malformed).status_code == 422
+
+
+def test_missing_deleted_materials_are_blocked_per_row_and_tag_union_is_bounded(access_case):
+    case = access_case; first, second = case.materials
+    with case.client('ADMIN') as client:
+        response = client.post(f'/api/materials/{first.id}/content', json=content_payload(tags=[f'tag {index}' for index in range(100)]))
+        assert response.status_code == 200, response.text
+        brief = export(client, [first, second]); results = results_for(brief, tags=['new tag'])
+        with case.database.session() as session:
+            session.get(PBRMaterial, second.id).deleted_at = datetime.now(UTC); session.commit()
+        response = review(client, brief, results)
+        assert [row['status'] for row in response['items']] == ['TAG_LIMIT_EXCEEDED', 'MATERIAL_UNAVAILABLE']
+        assert not any(row['applicable'] for row in response['items'])
+        saved = client.post(f'/api/materials/{first.id}/ai-brief-result', json=application_payload(results))
+        assert saved.status_code == 422 and saved.json()['detail']['code'] == 'AI_TAG_LIMIT_EXCEEDED'
+        results['items'][1]['material_id'] = str(uuid4())
+        response = client.post('/api/material-ai/review', json={'results': results, 'selected_ids': [row['material_id'] for row in results['items']]})
+        assert response.status_code == 200 and response.json()['items'][1]['status'] == 'MATERIAL_UNAVAILABLE'

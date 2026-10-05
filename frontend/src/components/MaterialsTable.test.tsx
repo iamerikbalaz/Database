@@ -34,6 +34,19 @@ function bulk() {
   fireEvent.click(screen.getByRole("button", { name: "Review bulk change" }));
   return screen.getByRole("dialog", { name: "Change 2 materials" });
 }
+it("offers library properties in the existing bulk selector only after selection", () => {
+  setup();
+  expect(screen.queryByRole("combobox", { name: "Property" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select all visible materials" }));
+  const property = screen.getByRole("combobox", { name: "Property" });
+  for (const label of ["Color", "Append tags", "Credits", "Sample size (W × H)"]) expect(within(property).getByRole("option", { name: label })).toBeInTheDocument();
+  fireEvent.change(property, { target: { value: "sample_size" } });
+  expect(screen.getByLabelText("Sample width (cm)")).toHaveAttribute("step", "0.1");
+  expect(screen.getByLabelText("Sample height (cm)")).toHaveAttribute("step", "0.1");
+  expect(screen.getAllByRole("button", { name: "Review bulk change" })).toHaveLength(1);
+  fireEvent.change(property, { target: { value: "workflow_status" } });
+  expect(screen.getByRole("combobox", { name: "New value" })).toHaveValue("DONE");
+});
 it("edits a cell without opening the detail and uses the row's precise revision", async () => {
   const update = vi.spyOn(materialTableClient, "update").mockResolvedValue({ ...first, isPublished: true, updatedAt: "2026-09-25T12:00:00.123456Z" });
   setup(); fireEvent.click(screen.getByRole("checkbox", { name: `Published for ${first.materialName}` }));

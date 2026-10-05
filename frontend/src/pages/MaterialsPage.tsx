@@ -26,6 +26,7 @@ import { PreviewEditDialog, type PreviewEditSelection } from "../components/Prev
 import { MaterialBulkNamesDialog } from "../components/MaterialBulkNamesDialog";
 import { MaterialDeleteDialog } from "../components/MaterialDeleteDialog";
 import { MaterialAiBriefDialog } from "../components/MaterialAiBriefDialog";
+import { MaterialLibraryBulkEditor } from "../components/MaterialLibraryBulkEditor";
 import { ColoredSelect } from "../components/ColoredSelect";
 import { materialCheckedColors, materialStatusColors } from "../data/choiceColors";
 
@@ -41,6 +42,7 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
   const [publicationBusy, setPublicationBusy] = useState(false);
   const [checkBusy, setCheckBusy] = useState(false);
   const [contentBusy, setContentBusy] = useState(false);
+  const [libraryBusy, setLibraryBusy] = useState(false);
   const [previewSelection, setPreviewSelection] = useState<PreviewEditSelection | null>(null);
   const [nameSelection, setNameSelection] = useState<Material[] | null>(null);
   const [deleteSelection, setDeleteSelection] = useState<Material[] | null>(null);
@@ -50,7 +52,7 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
   const canPublish = !archived && (role === "ADMIN" || role === "PRODUCTION_LEAD");
   const canCheck = !archived && (role === "ADMIN" || role === "PRODUCTION_LEAD" || role === "PROCESSOR");
   const canSelect = role === "ADMIN" || role === "PRODUCTION_LEAD" || role === "PROCESSOR";
-  const busy = tableBusy || checkBusy || contentBusy || publicationSelection !== null || previewSelection !== null || nameSelection !== null || deleteSelection !== null || aiSelection !== null;
+  const busy = tableBusy || checkBusy || contentBusy || libraryBusy || publicationSelection !== null || previewSelection !== null || nameSelection !== null || deleteSelection !== null || aiSelection !== null;
   const { filters: savedFilters, setFilters: setSavedFilters, keepFilters, setKeepFilters } = useDatabaseFilters(archived ? "material-archives" : "materials", filterDefaults);
   const queryKey = JSON.stringify(Object.fromEntries(Object.entries(savedFilters).filter(([key, value]) => key !== "sort" && (Array.isArray(value) ? value.length > 0 : Boolean(value)))));
   const filters = useMemo<MaterialFilters>(() => JSON.parse(queryKey), [queryKey]);
@@ -138,6 +140,7 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
       </div>
     </div>}
     {view === "gallery" && (canCheck || role === "ADMIN") && publicationSelection === null && selectedMaterials.length > 0 && <fieldset className="material-bulk-bar"><legend>Apply to {selectedMaterials.length} selected materials</legend>
+      {canCheck && <MaterialLibraryBulkEditor materials={selectedMaterials} client={client} disabled={tableBusy || checkBusy || contentBusy || previewSelection !== null || nameSelection !== null || deleteSelection !== null || aiSelection !== null} onBusyChange={setLibraryBusy} onChanged={result.retry} />}
       <div className="material-bulk-actions">{canPublish && <button className="button" disabled={busy || selectedMaterials.length > 100} onClick={() => setNameSelection(selectedMaterials.map(item => ({ ...item })))}>Edit names</button>}{canCheck && <button className="button" disabled={busy || selectedMaterials.length > 100} onClick={() => setPreviewSelection({ materials: selectedMaterials.map(item => ({ ...item })), action: "BULK" })}>Edit previews</button>}
         {canCheck && <div className="material-check-actions-slot" ref={setCheckActionTarget} />}
         {canPublish && <button className="button" disabled={busy || selectedMaterials.length > 100} onClick={() => prepareAiBrief(selectedMaterials)}>AI descriptions</button>}
@@ -147,9 +150,9 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
     </fieldset>}
     {canPublish && publicationSelection === null && selectedMaterials.length > 100 && <p>Each publication batch supports up to 100 materials. Select up to 100 rows.</p>}
     {canCheck && publicationSelection === null && <MaterialBulkContent materials={selectedMaterials} actionTarget={checkActionTarget} dockOnly
-      disabled={tableBusy || checkBusy || contentBusy || previewSelection !== null || nameSelection !== null || deleteSelection !== null || aiSelection !== null || Boolean(result.error) || !result.data} onBusyChange={setContentBusy} onChanged={result.retry} />}
+      disabled={tableBusy || checkBusy || contentBusy || libraryBusy || previewSelection !== null || nameSelection !== null || deleteSelection !== null || aiSelection !== null || Boolean(result.error) || !result.data} onBusyChange={setContentBusy} onChanged={result.retry} />}
     {canCheck && publicationSelection === null && <div className="material-table-toolbar materials-check-controls"><MaterialBulkCheck materials={selectedMaterials}
-      actionTarget={checkActionTarget} dockOnly compact={compact} disabled={tableBusy || contentBusy || previewSelection !== null || nameSelection !== null || deleteSelection !== null || aiSelection !== null || Boolean(result.error) || !result.data} onBusyChange={setCheckBusy} onChecked={result.retry} /></div>}
+      actionTarget={checkActionTarget} dockOnly compact={compact} disabled={tableBusy || contentBusy || libraryBusy || previewSelection !== null || nameSelection !== null || deleteSelection !== null || aiSelection !== null || Boolean(result.error) || !result.data} onBusyChange={setCheckBusy} onChecked={result.retry} /></div>}
     {publicationSelection !== null ? <section aria-label="Material publication preparation">
       <div className="page-heading"><div><h2>Prepare publication</h2><p>Review materials, prepare ZIP files and export CSV for the library.</p></div>
         <button className="button" disabled={publicationBusy} onClick={() => { if (requestNavigation("/materials")) setPublicationSelection(null); }}>Back to material list</button>

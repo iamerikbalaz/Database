@@ -25,6 +25,15 @@
 .material-bulk-bar .material-bulk-actions { margin-inline-start:auto; display:flex; justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:8px; }
 .material-bulk-actions .material-check-actions-slot { display:contents; }
 .material-bulk-actions .button { min-height:40px; }
+/* Keep the full action set on one row at desktop widths; wrap on smaller workspaces. */
+@media (min-width:1600px) {
+  .materials-page .material-bulk-bar { gap:8px; padding:8px 10px; }
+  .materials-page .material-bulk-bar.material-bulk-bar > label { flex:0 1 130px; min-width:110px; max-width:150px; }
+  .materials-page .material-bulk-bar.material-bulk-bar > .button { padding-inline:11px; font-size:11px; }
+  .materials-page .material-bulk-bar .material-bulk-actions { gap:6px; }
+  .materials-page .material-bulk-bar .material-bulk-actions .button { padding-inline:10px; font-size:11px; white-space:nowrap; }
+  .materials-page .material-bulk-actions .button--icon { width:36px; min-width:36px; padding-inline:0; }
+}
 .confirm-dialog.preview-edit-dialog { width:min(620px,calc(100vw - 24px)); max-height:90dvh; overflow:auto; border:1px solid var(--border); border-radius:16px; padding:20px; color:var(--text); }
 .preview-edit-dialog h2 { margin:0 0 10px; }
 .preview-edit-dialog p { font-size:12px; margin:8px 0; }

@@ -7,10 +7,12 @@ import { Icon } from "../components/Icon";
 import { useNavigationGuard } from "../navigationGuard";
 
 export function SettingsPage({ navigate }: { navigate: (path: string) => void }) {
-  const admin = useSession()?.session.user.role === "ADMIN";
+  const role = useSession()?.session.user.role;
+  const admin = role === "ADMIN";
+  const manages = admin || role === "PRODUCTION_LEAD";
   const destinations = [
     ...(admin ? [{ title: "Paths", description: "Set folders for templates, orders and material data.", href: "/settings/paths", icon: "folder" }] : []),
-    ...(admin ? [{ title: "Imports", description: "Review and import source records into the database.", href: "/settings/imports", icon: "imports" }] : []),
+    ...(manages ? [{ title: "Imports", description: "Review AI results JSON; administrators can also import historical CSV/XLSX records.", href: "/settings/imports", icon: "imports" }] : []),
     { title: "Automatic ZIP packaging", description: "Set the shared date rule for material packaging.", href: "/settings/packaging", icon: "archive" },
     ...(admin ? [{ title: "Accounts", description: "Manage workspace accounts and access.", href: "/settings/users", icon: "users" }] : []),
   ];

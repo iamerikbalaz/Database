@@ -18,7 +18,7 @@ function brief(): AiBrief { return { schema_version: "reawote-ai-brief-v1", batc
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
   vi.spyOn(aiBriefClient, "generate").mockResolvedValue(brief());
-  vi.spyOn(aiBriefClient, "review").mockImplementation(async (_results, ids) => ({ batch_id: batch, items: ids.map(id => row(id)) }));
+  vi.spyOn(aiBriefClient, "review").mockImplementation(async (results, ids = results.items.map(item => item.material_id)) => ({ batch_id: batch, items: ids.map(id => row(id)) }));
   vi.spyOn(aiBriefClient, "apply").mockImplementation(async id => receipt(id));
   Object.defineProperty(URL, "createObjectURL", { configurable: true, writable: true, value: vi.fn(() => "blob:test-ai-brief") });
   Object.defineProperty(URL, "revokeObjectURL", { configurable: true, writable: true, value: vi.fn() });
@@ -151,4 +151,47 @@ it("rejects empty, duplicate or oversized selections before exporting", () => {
   const duplicate = mount([first, first]); expect(screen.getByRole("button", { name: "Download JSON brief" })).toBeDisabled(); duplicate.unmount();
   mount(Array.from({ length: 101 }, () => first)); expect(screen.getByRole("button", { name: "Download JSON brief" })).toBeDisabled();
   expect(aiBriefClient.generate).not.toHaveBeenCalled();
+});
+
+it("imports a self-contained file after closing and reopening without a material selection", async () => {
+  const old = mount(); await importResults(); old.unmount();
+  render(<MaterialAiBriefDialog onChanged={vi.fn()} onClose={vi.fn()} />);
+  expect(screen.queryByRole("button", { name: "Download JSON brief" })).not.toBeInTheDocument();
+  await importResults([first.id, second.id]);
+  expect(aiBriefClient.review).toHaveBeenLastCalledWith(expect.objectContaining({ batch_id: batch }), [first.id, second.id]);
+  expect(screen.getByRole("button", { name: "Accept all 2 changes" })).toBeEnabled();
+  expect(aiBriefClient.apply).not.toHaveBeenCalled();
+});
+
+it("uses matching buttons for upload and download and shows proposed tags without removing existing tags", async () => {
+  vi.mocked(aiBriefClient.review).mockResolvedValue({ batch_id: batch, items: [{ ...row(), current_tags: ["existing"], proposed_tags: ["matte", "ceramic"], merged_tags: ["ceramic", "existing", "matte"] }] });
+  mount(); await importResults();
+  expect(screen.getByRole("button", { name: "Import AI results" }).className).toBe(screen.getByRole("button", { name: "Download JSON brief" }).className);
+  expect(screen.getByText("matte, ceramic")).toBeInTheDocument(); expect(screen.getByText("existing")).toBeInTheDocument();
+});
+
+it("accepts all eligible proposals in one explicit action including described replacements, and skips blocked rows", async () => {
+  vi.mocked(aiBriefClient.review).mockResolvedValue({ batch_id: batch, items: [
+    { ...row(), current_description: "Old description", requires_overwrite: true, status: "OVERWRITE_REQUIRED" },
+    row(second.id), { ...row(third.id), applicable: false, status: "STALE_CONTEXT" },
+  ] });
+  mount(materials); await importResults(materials.map(item => item.id));
+  fireEvent.click(screen.getByRole("button", { name: "Accept all 2 changes (replace 1 existing description)" }));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("2 saved"));
+  expect(aiBriefClient.apply).toHaveBeenCalledTimes(2);
+  expect(aiBriefClient.apply).toHaveBeenCalledWith(first.id, expect.objectContaining({ overwrite: true }));
+  expect(aiBriefClient.apply).toHaveBeenCalledWith(second.id, expect.objectContaining({ overwrite: false }));
+});
+
+it("resumes a partially saved file after restart without applying completed or unavailable rows again", async () => {
+  vi.mocked(aiBriefClient.review).mockResolvedValue({ batch_id: batch, items: [
+    { ...row(), status: "ALREADY_APPLIED", applicable: false }, row(second.id),
+    { ...row(third.id), status: "MATERIAL_UNAVAILABLE", applicable: false },
+  ] });
+  render(<MaterialAiBriefDialog onChanged={vi.fn()} onClose={vi.fn()} />);
+  await importResults(materials.map(item => item.id));
+  expect(screen.getByText(/Already applied from this JSON file/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Accept all 1 changes" }));
+  await screen.findByText("Saved");
+  expect(aiBriefClient.apply).toHaveBeenCalledExactlyOnceWith(second.id, expect.any(Object));
 });

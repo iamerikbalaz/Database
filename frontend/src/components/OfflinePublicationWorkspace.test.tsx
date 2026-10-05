@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { mockApiClient } from "../api/client";
 import { ApiError } from "../api/errors";
@@ -9,6 +9,8 @@ import { SessionContext } from "../auth/context";
 import { requestNavigation } from "../navigationGuard";
 import { materialDto, processorDto } from "../test/materialFixtures";
 import { OfflinePublicationWorkspace } from "./OfflinePublicationWorkspace";
+
+vi.mock("./PublicationMaterialsTable", () => ({ PublicationMaterialsTable: ({ onChanged, onBusyChange }: { onChanged: () => void; onBusyChange: (value: boolean) => void }) => <div aria-label="Batch editor"><button onClick={onChanged}>Save batch data</button><button onClick={() => onBusyChange(true)}>Begin batch editing</button></div> }));
 
 const first = materialFromDto({ ...materialDto, material_name: "FIRST-MATERIAL" });
 const second = { ...first, id: "50000000-0000-4000-8000-000000000002", materialName: "SECOND-MATERIAL" };
@@ -82,6 +84,45 @@ it("does not review or prepare after an optional file check fails", async () => 
   fireEvent.click(screen.getByRole("button", { name: "Review materials" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("could not be reviewed");
   expect(localPublicationClient.preview).not.toHaveBeenCalled(); expect(localPublicationClient.create).not.toHaveBeenCalled();
+});
+
+it("checks only records without an automatic result by default, using their current state", async () => {
+  const { getMaterial } = setup();
+  getMaterial.mockImplementation(async id => ({ ...selection.find(item => item.id === id)!, automaticFileCheckStatus: id === first.id ? "NOT_CHECKED" : "ISSUES", updatedAt: "2026-10-05T12:00:00Z" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Run automatic file check" }));
+  expect(screen.getByRole("combobox", { name: "Check scope" })).toHaveValue("unchecked");
+  await review();
+  expect(vi.mocked(materialLocalClient.checkMany).mock.calls[0][0].map(item => item.id)).toEqual([first.id]);
+  expect(localPublicationClient.preview).toHaveBeenCalledWith(ids);
+});
+
+it("can explicitly recheck every material in the publication batch", async () => {
+  const { getMaterial } = setup();
+  getMaterial.mockImplementation(async id => ({ ...selection.find(item => item.id === id)!, automaticFileCheckStatus: "OK", updatedAt: "2026-10-05T12:00:00Z" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Run automatic file check" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Check scope" }), { target: { value: "all" } });
+  await review();
+  expect(vi.mocked(materialLocalClient.checkMany).mock.calls[0][0].map(item => item.id)).toEqual(ids);
+});
+
+it("reviews without starting an empty check job when all records have results", async () => {
+  const { getMaterial } = setup();
+  getMaterial.mockImplementation(async id => ({ ...selection.find(item => item.id === id)!, automaticFileCheckStatus: "OK", updatedAt: "2026-10-05T12:00:00Z" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Run automatic file check" }));
+  await review();
+  expect(materialLocalClient.checkMany).not.toHaveBeenCalled();
+  expect(screen.getByRole("status")).toHaveTextContent("No checks were repeated");
+});
+
+it("invalidates an export review after library data changes and freezes export while editing", async () => {
+  setup(); await review();
+  fireEvent.click(screen.getByRole("button", { name: "Save batch data" }));
+  expect(screen.queryByRole("region", { name: "Publication review" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Prepare publication" })).toBeDisabled();
+  await review();
+  fireEvent.click(screen.getByRole("button", { name: "Begin batch editing" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Prepare publication" })).toBeDisabled());
+  expect(screen.getByRole("button", { name: "Review materials" })).toBeDisabled();
 });
 
 it("keeps file-check recovery enabled outside the frozen publication controls", async () => {

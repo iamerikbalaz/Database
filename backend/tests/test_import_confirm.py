@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import event, func, select
 from sqlalchemy.exc import IntegrityError
 
-from app.db.models import MaterialFileOperation, MaterialImportBatch, MaterialImportRow, MaterialNumberReservation, PBRMaterial, PBRMaterialMetadata, PublishedBrand
+from app.db.models import MaterialFileOperation, MaterialImportBatch, MaterialImportRow, MaterialNumberReservation, PBRMaterial, PBRMaterialMetadata, Project, PublishedBrand
 from test_application_access import access_case
 from test_import_preview import plan_payload
 
@@ -18,6 +18,24 @@ def confirmation(client, body):
     assert result.status_code == 200 and result.json()["can_confirm"]
     return {**body, "expected_preview_hash": result.json()["preview_hash"], "idempotency_key": str(uuid4()),
             "acknowledge_unverified": True, "reason": "Verified synthetic historical import mapping"}
+
+
+def test_order_customer_reassignment_after_preview_prevents_any_import(access_case):
+    case = access_case; material = case.materials[0]
+    with case.client("ADMIN") as client:
+        payload = confirmation(client, plan_payload(case))
+        with case.database.session() as session:
+            customer = session.get(PublishedBrand, material.published_brand_id)
+            other = PublishedBrand(company_id=customer.company_id, name="Other Customer", folder_prefix="OTHER", brand_identifier="other-customer")
+            session.add(other); session.flush()
+            session.get(Project, material.project_id).customer_id = other.id
+            session.commit()
+        response = client.post(ROOT + "/confirm", json=payload)
+        assert response.status_code == 409 and response.json()["detail"]["code"] == "IMPORT_BLOCKED"
+        assert "IMPORT_ORDER_CUSTOMER_MISMATCH" in {item["code"] for item in response.json()["detail"]["findings"]}
+    with case.database.session() as session:
+        assert session.scalar(select(func.count()).select_from(MaterialImportBatch)) == 0
+        assert session.scalar(select(func.count()).select_from(PBRMaterial)) == 2
 
 
 @pytest.mark.parametrize("collision", ["same_casefold", "parent", "child", "active_operation"])

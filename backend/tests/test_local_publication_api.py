@@ -157,6 +157,46 @@ def test_missing_fields_mismatching_source_and_stale_review_block_all_output(exp
     assert not adapter.calls
 
 
+@pytest.mark.parametrize('draft_count', [1, 2])
+def test_draft_missing_identities_return_findings_and_never_collide_or_export(export_case, draft_count):
+    case, adapter = export_case
+    with case.database.session() as session:
+        for entry in case.materials[:draft_count]:
+            material = session.get(PBRMaterial, entry.id)
+            material.is_draft = True; material.technical_identity = None; material.sequence_number = None
+            material.published_brand_id = None; material.main_category_code = None; material.folder_path = None
+            material.workflow_status = 'IN_PROGRESS'; material.is_published = False
+        session.commit()
+    with case.client('ADMIN') as client:
+        result = preview(client, case)
+        assert not result['can_prepare']
+        draft_ids = {str(entry.id) for entry in case.materials[:draft_count]}
+        for item in result['items']:
+            if item['material_id'] in draft_ids:
+                assert item['identity_name'] is None and item['row'] is None
+                assert {'MATERIAL_IDENTITY_INCOMPLETE', 'CONTENT_BRAND_REQUIRED', 'FOLDER_REQUIRED'} <= set(item['errors'])
+            assert 'PUBLICATION_IDENTITY_COLLISION' not in item['errors']
+        response = client.post(PATH + '/exports', json={'material_ids': [str(item.id) for item in case.materials],
+            'expected_preview_hash': result['preview_hash'], 'idempotency_key': str(uuid4()), 'destination_token': 'x' * 43})
+        assert response.status_code == 409
+    assert adapter.calls == []
+
+
+def test_case_insensitive_complete_identity_collisions_still_block_export(export_case):
+    case, adapter = export_case
+    with case.database.session() as session:
+        first = session.get(PBRMaterial, case.materials[0].id)
+        second = session.get(PBRMaterial, case.materials[1].id)
+        second.technical_identity = first.technical_identity.lower()
+        second.folder_path = 'Brand/' + second.technical_identity
+        session.commit()
+    with case.client('ADMIN') as client:
+        result = preview(client, case)
+        assert not result['can_prepare']
+        assert all('PUBLICATION_IDENTITY_COLLISION' in item['errors'] for item in result['items'])
+    assert adapter.calls == []
+
+
 def test_mark_published_is_atomic_audited_and_replayable(export_case):
     case, adapter = export_case
     with case.client("ADMIN") as client:

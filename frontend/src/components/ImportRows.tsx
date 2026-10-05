@@ -5,10 +5,9 @@ import { NavigationLink } from "./NavigationLink";
 export function ImportRows({ data, navigate }: { data: ImportPreview | ImportResult; navigate: (path: string) => void }) {
   const [page, setPage] = useState(0);
   const references = data.references;
-  const company = (id: string) => references.companies.find((item) => item.id === id)?.name ?? "Unavailable company";
   return <div className="import-rows">
     <div className="table-scroll" tabIndex={0} role="region" aria-label="Imported material rows"><table>
-      <thead><tr><th>Source row</th><th>Material</th><th>Project / company</th><th>Brand / company</th><th>Processor</th>{data.rows.some((row) => row.properties) && <th>Imported properties</th>}</tr></thead>
+      <thead><tr><th>Source row</th><th>Material</th><th>Order</th><th>Customer</th><th>Processor</th>{data.rows.some((row) => row.properties) && <th>Imported properties</th>}</tr></thead>
       <tbody>{data.rows.slice(page * 50, (page + 1) * 50).map((row) => {
         const project = references.projects.find((item) => item.id === row.projectId);
         const brand = references.brands.find((item) => item.id === row.brandId);
@@ -16,8 +15,8 @@ export function ImportRows({ data, navigate }: { data: ImportPreview | ImportRes
           {"materialId" in row && typeof row.materialId === "string"
             ? <NavigationLink href={`/materials/${row.materialId}`} navigate={navigate}>{row.identity}</NavigationLink> : <strong>{row.identity}</strong>}
           <small>{row.name}</small>{row.folderPath && <small>Unverified folder reference: {row.folderPath}</small>}</td>
-          <td>{row.projectId === null ? "No order assigned" : project?.name ?? "Unavailable order"}<small>{project ? company(project.companyId) : ""}</small></td>
-          <td>{brand?.name ?? "Unavailable brand"}<small>{brand ? company(brand.companyId) : ""}</small></td>
+          <td>{row.projectId === null ? "No order assigned" : project?.name ?? "Unavailable order"}<small>{project?.number}</small></td>
+          <td>{brand?.name ?? "Unavailable customer"}<small>{brand?.prefix}</small></td>
           <td>{references.processors.find((item) => item.id === row.processorId)?.name ?? "Unavailable processor"}</td>
           {data.rows.some((item) => item.properties) && <td>{row.properties && Object.entries(row.properties).map(([key, value]) => <small key={key}>{key.replaceAll("_", " ")}: {value ?? "Empty"}</small>)}</td>}</tr>;
       })}</tbody>

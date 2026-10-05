@@ -29,7 +29,7 @@ def test_explicit_mapping_preserves_identity_and_resolves_only_supplied_resource
     assert not findings and len(rows) == 1
     item = rows[0]
     assert item.technical_identity == "RWT_0007_G03" and item.sequence_number == 7 and item.prefix == "RWT"
-    assert item.material_name == "Dub" and item.project_id == links.projects["Project A"]
+    assert item.material_name == "DUB" and item.project_id == links.projects["Project A"]
     assert item.brand_id == links.brands["Brand A"] and item.processor_id == links.processors["Processor A"]
     assert "Dub" not in repr(item)
 
@@ -83,7 +83,7 @@ def test_named_identity_is_authoritative_over_shortened_or_missing_spreadsheet_n
     assert rows[0].folder_path == "library/ROUBAL_0001_TILES-ORANGE_B01"
 
 
-@pytest.mark.parametrize("folder", ["../RWT_0021_GOLD_K03", "R:/library/RWT_0021_GOLD_K03", "/library/RWT_0021_GOLD_K03", "library/OTHER_0021_GOLD_K03", "library\\RWT_0021_GOLD_K03", "", "library//RWT_0021_GOLD_K03"])
+@pytest.mark.parametrize("folder", ["../RWT_0021_GOLD_K03", "R:/library/RWT_0021_GOLD_K03", "/library/RWT_0021_GOLD_K03", "library/OTHER_0021_GOLD_K03", "library\\RWT_0021_GOLD_K03", "library//RWT_0021_GOLD_K03"])
 def test_import_folder_references_must_be_relative_and_bound_to_the_exact_identity(folder):
     data = source("RWT_0021_GOLD_K03;Gold;Project A;Brand A;Processor A;" + folder, extra=";Folder")
     rows, findings = prepare_rows(read_csv(data, delimiter=";"), ImportColumns(**COLUMNS, folder="Folder"), mapping())
@@ -155,8 +155,44 @@ def test_confirmation_requires_explicit_acknowledgement_reason_and_exact_hash():
             ConfirmImport.model_validate_json(json.dumps({**value, **change}))
 
 
-@pytest.mark.parametrize("label", ["", "\"Project\nA\"", "Project\tA"])
+@pytest.mark.parametrize("label", ["\"Project\nA\"", "Project\tA"])
 def test_unmappable_source_reference_labels_are_reported_without_reflection(label):
     data = source("RWT_0007_G03;Dub;" + label + ";Brand A;Processor A")
     with pytest.raises(ImportSourceError, match="^IMPORT_REFERENCE_LABEL$"):
         inspect_source(InspectImport(source=csv_payload(data), columns=ImportColumns(**COLUMNS)))
+
+
+def test_mixed_optional_orders_and_folders_preserve_exact_named_identities():
+    data = source("RWT_0007_TILES-ORANGE_B01;Orange;;Brand A;Processor A;\n"
+                  "RWT_0008_G03;Blue stone;Project A;Brand A;Processor A;library/RWT_0008_G03", extra=";Folder")
+    columns = ImportColumns(**COLUMNS, folder="Folder")
+    inspected = inspect_source(InspectImport(source=csv_payload(data), columns=columns))
+    assert inspected["mapping_values"]["project"] == ["Project A"]
+    rows, findings = prepare_rows(read_csv(data, delimiter=";"), columns, mapping())
+    assert not findings
+    assert (rows[0].project_id, rows[0].folder_path, rows[0].material_name) == (None, None, "TILES-ORANGE")
+    assert rows[1].project_id is not None and rows[1].folder_path == "library/RWT_0008_G03"
+    assert rows[1].material_name == "BLUE-STONE" and rows[1].technical_identity == "RWT_0008_G03"
+
+
+def test_downloadable_template_matches_the_real_import_mapping_and_defaults():
+    from pathlib import Path
+    # The backend-only container has no frontend assets. Always parse the contract
+    # fixture; in a repository checkout also bind it to the actual download.
+    data = ("\ufeffIdentity;Name;Order;Customer;Processor;Folder;Color;Sample size (cm);Done;Checked;Note;Brand identifier\n"
+            "EXAMPLE_0001_TILES-ORANGE_B01;TILES-ORANGE;;Example Customer;Example Processor;;#AABBCC;10x20-cm;NO;no;Replace this example before importing;\n").encode()
+    template = Path(__file__).resolve().parents[2] / "frontend/src/assets/material-import-template.csv"
+    if template.exists():
+        assert template.read_bytes().decode("utf-8").splitlines() == data.decode("utf-8").splitlines()
+        data = template.read_bytes()
+    assert data.startswith(b"\xef\xbb\xbf")
+    columns = ImportColumns(identity="Identity", name="Name", project="Order", brand="Customer", processor="Processor",
+        folder="Folder", color="Color", sample_size="Sample size (cm)", done="Done", checked="Checked", note="Note", brand_identifier="Brand identifier")
+    links = ImportLinks(projects={}, brands={"Example Customer": uuid4()}, processors={"Example Processor": uuid4()})
+    inspected = inspect_source(InspectImport(source=csv_payload(data), columns=columns))
+    assert inspected["mapping_values"] == {"project": [], "brand": ["Example Customer"], "processor": ["Example Processor"]}
+    rows, findings = prepare_rows(read_csv(data, delimiter=";"), columns, links)
+    assert not findings and len(rows) == 1
+    assert rows[0].material_name == "TILES-ORANGE" and rows[0].project_id is None and rows[0].folder_path is None
+    assert rows[0].properties == {"hex_color": "#AABBCC", "width_cm": "10", "height_cm": "20", "workflow_status": "IN_PROGRESS",
+        "checked_status": "no", "note": "Replace this example before importing"}

@@ -43,7 +43,7 @@ def parse_properties(values):
         else: properties["note"] = note or None
     if "brand_identifier" in values:
         identifier = unicodedata.normalize("NFC", values["brand_identifier"]).strip()
-        if not identifier or len(identifier) > 255 or any(unicodedata.category(char).startswith("C") for char in identifier):
+        if len(identifier) > 255 or any(unicodedata.category(char).startswith("C") for char in identifier):
             issue("brand_identifier", "IMPORT_BRAND_IDENTIFIER_INVALID")
-        else: properties["brand_identifier"] = identifier
+        elif identifier: properties["brand_identifier"] = identifier
     return properties, findings

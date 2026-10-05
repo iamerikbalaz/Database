@@ -6,6 +6,7 @@ import { ApiError } from "../api/errors";
 import { SessionContext } from "../auth/context";
 import { processorDto } from "../test/materialFixtures";
 import { requestNavigation } from "../navigationGuard";
+import { restrictedDestination } from "../auth/permissions";
 
 const initial = { version: 0, cutoffDate: "2026-03-04", storageTimezone: "Europe/Prague" };
 afterEach(() => vi.restoreAllMocks());
@@ -22,6 +23,15 @@ it("groups imports, packaging and accounts in Settings without loading packaging
   expect(screen.getByRole("link", { name: /Automatic ZIP packaging/ })).toHaveAttribute("href", "/settings/packaging");
   expect(screen.getByRole("link", { name: /Accounts/ })).toHaveAttribute("href", "/settings/users");
   expect(current).not.toHaveBeenCalled();
+});
+
+it.each(["ADMIN", "PRODUCTION_LEAD", "PROCESSOR", "LEADERSHIP"] as const)("exposes Imports only to catalog managers in both menu and route guard (%s)", role => {
+  render(<SessionContext.Provider value={{ session: { user: { ...processorDto, role }, must_change_password: false, csrf_token: "t".repeat(43) }, pending: false, logout: vi.fn(), changePassword: vi.fn() }}><SettingsPage navigate={vi.fn()} /></SessionContext.Provider>);
+  const allowed = role === "ADMIN" || role === "PRODUCTION_LEAD";
+  expect(Boolean(screen.queryByRole("link", { name: /Imports/ }))).toBe(allowed);
+  expect(restrictedDestination("/imports", role)).toBe(!allowed);
+  expect(restrictedDestination("/settings/imports", role)).toBe(!allowed);
+  expect(restrictedDestination("/settings/users", role)).toBe(role !== "ADMIN");
 });
 
 it("shows the global automatic methods and edits with the current version", async () => {

@@ -1,6 +1,8 @@
 # Historical PBR import
 
-The administrator-only `/imports` page and API provide inspection, preview,
+The `/imports` page includes standalone AI results review for administrators and
+production leads above the administrator-only historical CSV/XLSX workflow.
+The historical import API provides inspection, preview,
 atomic confirmation and immutable batch history. Synthetic CSV/XLSX sources are
 tested, including actual browser uploads and a restart with retained data. This
 is not evidence of a production migration. A separate 100-row real-data catalog
@@ -8,15 +10,18 @@ acceptance is documented in [the R-drive test](historical-r100-acceptance.md).
 
 ## Browser workflow
 
-Choose a file and its explicit CSV delimiter or XLSX worksheet, select the source
-source columns, and map each literal label to an existing record. Review the
+Download the CSV template, replace its example row, then choose a file and its
+explicit CSV delimiter or XLSX worksheet. The template is UTF-8 with a BOM and
+uses semicolons. Select source columns and map each literal label to an existing record. Review the
 preview, provide a reason and acknowledge that the imported records still need
 normal source checks and approval. Any source or mapping change invalidates the
-preview. Tables show project company and brand company separately and paginate
+preview. Tables show Orders and Customers without legacy company nesting and paginate
 large batches. Batch history is also paginated and links to current materials.
 
 An unknown confirmation outcome freezes the exact request and its original
-idempotency key for retry. The UI validates the returned batch against that
+idempotency key for retry. A later rejected retry, including a 403, retains this
+unknown state because the original request may already have committed.
+The UI validates the returned batch against that
 preview before reporting success. A definite rejected request requires another
 preview. Source bytes remain in page memory; leaving or reloading the page loses
 that local retry state. Check saved batch history before starting a replacement
@@ -25,17 +30,18 @@ import after such a navigation.
 ## Source and mapping
 
 See [source limits and unsupported workbook structures](historical-import-plan.md).
-Choose identity, name, brand and processor columns explicitly. A project column
-is optional for historical records; omit it and supply an empty project mapping
-to preserve an unassigned project. A project can subsequently be assigned through
-the ordinary audited material edit. New ordinary material creation still requires
-a project. Every selected column must have a distinct header. Map each literal
-project/brand/processor label to an existing UUID. No resources, companies,
+Choose identity, name, Customer and Processor columns explicitly. An Order column
+is optional; omit it and supply an empty order mapping, or leave individual Order
+cells blank to preserve unassigned rows. An Order can subsequently be assigned
+through the ordinary audited material edit. Every selected column must have a
+distinct header. Map each literal Order/Customer/Processor label to an existing UUID. No resources, companies,
 folders or online assets are inferred.
-Project company and brand company may differ and are shown separately in preview.
-Both associated companies, the brand and the assigned processor must be active;
-the selected processor must have the PROCESSOR role. Historical project status
-is not imported and does not itself prevent import into an existing project.
+The selected Customer must be active and identified as a Customer; the Processor
+must be active and have the PROCESSOR role. An Order's explicitly assigned Customer
+must match the material Customer. Legacy Orders without a Customer remain usable,
+matching the ordinary assignment rule. Internal legacy company records must still
+be active, but they do not establish the Order/Customer relationship. Order status
+is not imported and does not itself prevent import into an existing Order.
 
 ### Spreadsheet properties (2026-09-27)
 
@@ -50,11 +56,16 @@ Checked accepts YES/OK, NO or Correction. OK requires Done; Correction cannot
 remain Done. Imported Done/Checked are historical user values: technical validation
 stays NOT_CHECKED and no approval record or source inspection is manufactured.
 Color and dimensions append an internal WARNING snapshot with spreadsheet
-provenance and no source-file proof. The importer never creates metadata.txt.
+provenance and no source-file proof. Automatic file-check status remains NOT_CHECKED,
+with no report, timestamp or completed check. No metadata file is created or edited.
 
-All rows of one brand must agree on its identifier; another brand's identifier
-cannot be reused. Confirmation atomically updates the explicitly mapped brand
-identifiers with normal audit/invalidation. Preview shows these values before
+All nonblank identifiers for one Customer must agree; blank leaves the identifier
+unchanged. Another Customer's identifier cannot be reused, including legacy aliases.
+Confirmation atomically updates both the Customer-visible Brand identifier and
+its legacy alias, with local Customer history and review invalidation. An actual
+Customer change also records the normal transactional Notion sync outbox entry;
+confirmation makes no external call. Unchanged values, legacy-alias-only repairs
+and exact retries do not enqueue another Customer update. Preview shows these values before
 confirmation. Schema-2 receipts store the mapped properties; existing schema-1
 receipt hashes and exact replays remain compatible.
 
@@ -68,7 +79,8 @@ For a named identity, the complete middle product segment is authoritative for
 the material name and is stored uppercase: `ROUBAL_0001_TILES-ORANGE_B01` yields
 `TILES-ORANGE`, even if the spreadsheet Name cell contains only `ORANGE`.
 Hyphens and numeric product segments such as `20-08` are preserved. The mapped
-Name cell remains the fallback for legacy three-part identities. New ordinary
+Name cell remains the fallback for legacy three-part identities and is normalized
+to the same uppercase product token (for example `Blue stone` becomes `BLUE-STONE`). New ordinary
 materials and unlinked name edits store the same canonical uppercase product
 name that appears in their generated identity; renaming a linked source still
 requires a controlled identity operation.
@@ -77,18 +89,52 @@ ledger. Duplicate brand numbers inside a file and active brand identity operatio
 block the whole batch. Unused columns are identified but their values are ignored.
 
 Imported materials receive new UUIDs, preserve their historical identities and
-start IN_PROGRESS / NOT_CHECKED / NOT_PUBLISHED, with empty NOT_SCANNED metadata.
+start IN_PROGRESS / NOT_CHECKED / NOT_PUBLISHED, with empty NOT_SCANNED metadata,
+unless explicitly mapped historical Done/Checked or metadata values override the
+corresponding fields as described above. Validation and publication remain unchanged.
 An optional `folder` column records an existing path relative to the configured
-library root. The final component must exactly match the identity. Absolute paths,
+library root; a blank cell leaves the reference empty. The final component must exactly match the identity. Absolute paths,
 traversal, overlapping catalog references and active source owners are rejected.
 The import does not read, create, rename or modify any source file, and therefore
-marks these references explicitly unverified. Missing metadata.txt does not block
+marks these references explicitly unverified. Missing metadata files do not block
 catalog import. Source inventory and approval remain separate operations.
 Numbers below a brand's counter may be imported only if never reserved or used.
 Each counter advances to max(current, highest imported number + 1); 9999 exhausts
 ordinary allocation at 10000. Counters never move backwards.
 
+## Supported fields and limits (2026-10-05 audit)
+
+| Field | Import behavior |
+| --- | --- |
+| Identity, Name, category | Exact historical identity retained; full named product or normalized legacy Name; category read from identity suffix. |
+| Customer, Processor, optional Order | Explicit links to existing records; no resource creation or inferred matching. |
+| Folder | Optional relative reference only; never read or written by import. |
+| Color, Sample size | Internal unverified metadata, six HEX digits and centimetres. |
+| Done, Checked, Note | Explicit historical values; checked `no`, `OK`, or `Correction`; no automatic check or approval. |
+| Brand identifier | Customer-visible identifier and legacy alias, with collisions checked and local history. Blank leaves unchanged. |
+| Description, tags, citations | Use AI results JSON review above CSV for existing materials. CSV/XLSX ignores unmapped columns. |
+| Credits, collections, publication, approval, automatic file checks | Not imported by this workflow. |
+
+CSV/XLSX sources remain bounded to 4 MiB, 2,000 records, 32 columns and 2,048
+characters per cell, with at most 64 distinct labels per reference group. UTF-8
+CSV delimiter and XLSX worksheet are explicit. Formula cells, formula-prefixed
+CSV values, macros, external links and unsupported workbook structures are rejected.
+The downloadable example is synthetic: replace it before mapping and confirmation.
+
+The October audit adds regression coverage for mixed blank Orders/folders,
+Order/Customer conflicts after preview, customer identifiers/aliases, complete
+uppercase names, actual template compatibility, property receipt comparison,
+standalone AI access, and unchanged unverified technical state. Existing tests
+continue to cover authorization, atomic rollback, receipts, duplicates and
+permanently reserved numbers. No production import or filesystem operation was
+performed for this audit.
+
 ## API
+
+The internal mapping keys `project`, `brand`, `projects`, `brands` and
+`published_brand_id` are retained for API/receipt compatibility; the interface
+uses the unified Orders and Customers directory. Preview hashes also bind the
+explicit Order/Customer relationship and Customer-visible identifier.
 
 All routes require an active ADMIN session with completed password change.
 POST routes also require the existing CSRF and allowed-Origin contract. API

@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapte
 
 from app.import_sources import ImportSourceError, MAX_UPLOAD_BYTES, SourceTable, check_upload, read_csv
 from app.import_workbooks import read_xlsx, xlsx_sheets
-from app.material_naming import match_identity, material_name_from_identity
+from app.material_naming import match_identity, material_name_from_identity, name_component
 from app.import_properties import PROPERTY_COLUMNS, parse_properties
 from app.inventory_client import validate_relative_path
 from app.schemas import Name, CategoryCode, Sha256
@@ -159,6 +159,8 @@ def inspect_source(payload: InspectImport):
         positions = column_indices(table, payload.columns)
         values = {name: sorted({mapping_key(row.values[positions[name]]) for row in table.rows}) if name in positions else []
                   for name in ("project", "brand", "processor")}
+        # An explicitly mapped Order column may mix assigned and unassigned rows.
+        values["project"] = [value for value in values["project"] if value]
         if any(len(group) > MAX_REFERENCE_VALUES for group in values.values()):
             raise ImportSourceError("IMPORT_REFERENCE_LIMIT")
         if any(not value or any(unicodedata.category(char).startswith("C") for char in value)
@@ -212,13 +214,13 @@ def prepare_rows(table: SourceTable, columns: ImportColumns, links: ImportLinks)
         try:
             # Named folder identities carry the full product name. Spreadsheet
             # labels can be shortened (ORANGE versus TILES-ORANGE).
-            name = NAME.validate_python(material_name_from_identity(identity) or row.values[positions["name"]])
-        except ValidationError:
+            name = NAME.validate_python(material_name_from_identity(identity) or name_component(NAME.validate_python(row.values[positions["name"]])))
+        except (ValidationError, ValueError):
             name = ""
             issue("name", "IMPORT_MATERIAL_NAME")
         references = {}
         folder = None
-        if "folder" in positions:
+        if "folder" in positions and row.values[positions["folder"]].strip():
             folder = row.values[positions["folder"]].strip()
             try:
                 if len(folder) > 2048:
@@ -233,6 +235,9 @@ def prepare_rows(table: SourceTable, columns: ImportColumns, links: ImportLinks)
                 references[group] = None
                 continue
             key = mapping_key(row.values[positions[group]])
+            if group == "project" and not key:
+                references[group] = None
+                continue
             identifier = mapping.get(key)
             if identifier is None:
                 issue(group, "IMPORT_REFERENCE_UNMAPPED")

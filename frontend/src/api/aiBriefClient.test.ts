@@ -69,3 +69,27 @@ it("sends exact per-material packets and verifies save receipts", async () => {
   respond({ ...receipt, material_id: second });
   await expect(aiBriefClient.apply(id, payload)).rejects.toThrow("verified");
 });
+
+it("accepts v2 tags with canonical whitespace while retaining strict v1 compatibility", () => {
+  const v2 = { ...results(), schema_version: "reawote-ai-results-v2", items: [{ ...item(), tags: ["  fine   grain ", "Matte"] }] };
+  expect(parseAiBriefResults(v2).items[0].tags).toEqual(["fine grain", "Matte"]);
+  expect(parseAiBriefResults(results()).items[0]).not.toHaveProperty("tags");
+  expect(() => parseAiBriefResults({ ...v2, items: [item()] })).toThrow();
+  for (const tags of [null, ["a:b"], ["hidden\u200btag"], ["x".repeat(101)], [""]]) {
+    expect(() => parseAiBriefResults({ ...v2, items: [{ ...item(), tags }] })).toThrow();
+  }
+});
+
+it("reviews JSON IDs without any remembered selection and accepts durable already-applied receipts", async () => {
+  const data = { ...results(), schema_version: "reawote-ai-results-v2" as const, items: [{ ...item(), tags: ["matte"] }] };
+  const fetcher = respond({ batch_id: batch, items: [{ ...row(), status: "ALREADY_APPLIED", applicable: false, current_description: "Later human edit", requires_overwrite: true, current_tags: ["human"], proposed_tags: ["matte"], merged_tags: ["human", "matte"], result: data.items[0] }] });
+  const reviewed = await aiBriefClient.review(data);
+  expect(reviewed.items[0].status).toBe("ALREADY_APPLIED");
+  expect(fetcher).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ body: JSON.stringify({ results: data, selected_ids: [id] }) }));
+});
+
+it("rejects a v2 review whose proposed tags differ from the imported file", async () => {
+  const data = { ...results(), schema_version: "reawote-ai-results-v2" as const, items: [{ ...item(), tags: ["matte"] }] };
+  respond({ batch_id: batch, items: [{ ...row(), current_tags: [], proposed_tags: ["unexpected"], merged_tags: ["unexpected"], result: data.items[0] }] });
+  await expect(aiBriefClient.review(data)).rejects.toThrow("tags do not match");
+});

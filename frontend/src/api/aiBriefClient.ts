@@ -3,16 +3,16 @@ import { boolean, record, string, uuid } from "./dto";
 
 export const AI_BRIEF_MAX_BYTES = 5 * 1024 * 1024;
 export type AiBriefSelection = { id: string; expected_updated_at: string }[];
-export type AiBriefResultItem = { material_id: string; context_hash: string; content_revision: number; description: string | null; source_urls: string[]; needs_review: boolean; note: string };
-export type AiBriefResults = { schema_version: "reawote-ai-results-v1"; batch_id: string; items: AiBriefResultItem[] };
-export type AiBrief = { schema_version: "reawote-ai-brief-v1"; batch_id: string; generated_at: string; instructions: string; result_json_schema: Record<string, unknown>; result_template: AiBriefResults;
-  items: { material_id: string; context_hash: string; content_revision: number; context: { name: string; customer: { id: string; name: string; website: string | null }; categories: { id: string; value: string }[]; collections: { id: string; value: string }[]; source_urls: { id: string; url: string }[]; current_description: string | null } }[];
+export type AiBriefResultItem = { material_id: string; context_hash: string; content_revision: number; description: string | null; source_urls: string[]; needs_review: boolean; note: string; tags?: string[] };
+export type AiBriefResults = { schema_version: "reawote-ai-results-v1" | "reawote-ai-results-v2"; batch_id: string; items: AiBriefResultItem[] };
+export type AiBrief = { schema_version: "reawote-ai-brief-v1" | "reawote-ai-brief-v2"; batch_id: string; generated_at: string; instructions: string; result_json_schema: Record<string, unknown>; result_template: AiBriefResults;
+  items: { material_id: string; context_hash: string; content_revision: number; context: { name: string; customer: { id: string; name: string; website: string | null }; categories: { id: string; value: string }[]; collections: { id: string; value: string }[]; source_urls: { id: string; url: string }[]; current_description: string | null; current_tags?: string[] } }[];
   skipped: { material_id: string; code: string; message: string }[] };
-const reviewStatuses = ["READY", "OVERWRITE_REQUIRED", "STALE_CONTEXT", "NEEDS_REVIEW", "EMPTY_DESCRIPTION", "MISSING_RESULT", "MATERIAL_IDENTITY_INCOMPLETE", "CUSTOMER_REQUIRED", "CUSTOMER_INACTIVE", "MATERIAL_BUSY"] as const;
-export type AiBriefReviewItem = { material_id: string; name: string; current_description: string | null; proposed_description: string | null; source_urls: string[]; needs_review: boolean; note: string; status: typeof reviewStatuses[number]; applicable: boolean; requires_overwrite: boolean; result: AiBriefResultItem | null };
+const reviewStatuses = ["READY", "OVERWRITE_REQUIRED", "STALE_CONTEXT", "NEEDS_REVIEW", "EMPTY_DESCRIPTION", "MISSING_RESULT", "MATERIAL_IDENTITY_INCOMPLETE", "CUSTOMER_REQUIRED", "CUSTOMER_INACTIVE", "MATERIAL_BUSY", "ALREADY_APPLIED", "MATERIAL_UNAVAILABLE", "TAG_LIMIT_EXCEEDED"] as const;
+export type AiBriefReviewItem = { material_id: string; name: string; current_description: string | null; proposed_description: string | null; current_tags?: string[]; proposed_tags?: string[]; merged_tags?: string[]; source_urls: string[]; needs_review: boolean; note: string; status: typeof reviewStatuses[number]; applicable: boolean; requires_overwrite: boolean; result: AiBriefResultItem | null };
 export type AiBriefReview = { batch_id: string; items: AiBriefReviewItem[] };
 export type AiBriefApply = { idempotency_key: string; batch_id: string; result: AiBriefResultItem; overwrite: boolean };
-export type AiBriefReceipt = { material_id: string; batch_id: string; draft_id: string; status: "APPLIED"; content_revision: number; description: string };
+export type AiBriefReceipt = { material_id: string; batch_id: string; draft_id: string; status: "APPLIED"; content_revision: number; description: string; tags?: string[] };
 
 function bounded(value: unknown, max: number) { const result = string(value); if (result.length > max) throw new Error("AI brief text is too long."); return result; }
 function description(value: unknown) { return value === null ? null : bounded(value, 10000); }
@@ -38,16 +38,17 @@ function publicUrl(value: unknown) {
   } catch { throw new Error("AI sources must be public HTTPS addresses without credentials, query strings or fragments."); }
 }
 function plainText(value: unknown, max: number) { const text = bounded(value, max).trim(); if ([...text].some(char => /\p{C}/u.test(char) && !"\n\r\t".includes(char))) throw new Error("AI results contain unsupported control characters."); return text.normalize("NFC").replace(/\r\n?/g, "\n"); }
-function resultItem(value: unknown): AiBriefResultItem {
-  const item = record(value); exactKeys(item, ["material_id", "context_hash", "content_revision", "description", "source_urls", "needs_review", "note"]);
+function tags(value: unknown, max = 100) { return list(value, value => { const text = string(value); if (/[\p{C}:]/u.test(text)) throw new Error("AI tags cannot contain colons or control characters."); const normalized = text.normalize("NFC").trim().replace(/\s+/g, " "); if (!normalized || normalized.length > 100) throw new Error("AI tags must contain 1–100 characters."); return normalized; }, max); }
+function resultItem(value: unknown, withTags = Object.hasOwn(record(value), "tags")): AiBriefResultItem {
+  const item = record(value); exactKeys(item, ["material_id", "context_hash", "content_revision", "description", "source_urls", "needs_review", "note", ...(withTags ? ["tags"] : [])]);
   const sources = list(item.source_urls, publicUrl, 20);
   if (new Set(sources).size !== sources.length) throw new Error("AI results contain duplicate source URLs.");
-  return { material_id: uuid(item.material_id), context_hash: hash(item.context_hash), content_revision: integer(item.content_revision), description: item.description === null ? null : plainText(item.description, 10000), source_urls: sources, needs_review: boolean(item.needs_review), note: plainText(item.note, 2000) };
+  return { material_id: uuid(item.material_id), context_hash: hash(item.context_hash), content_revision: integer(item.content_revision), description: item.description === null ? null : plainText(item.description, 10000), source_urls: sources, needs_review: boolean(item.needs_review), note: plainText(item.note, 2000), ...(withTags ? { tags: tags(item.tags) } : {}) };
 }
 export function parseAiBriefResults(value: unknown): AiBriefResults {
   const item = record(value); exactKeys(item, ["schema_version", "batch_id", "items"]);
-  if (item.schema_version !== "reawote-ai-results-v1") throw new Error("This file is not an AI results JSON file.");
-  const items = list(item.items, resultItem); unique(items.map(row => row.material_id));
+  if (item.schema_version !== "reawote-ai-results-v1" && item.schema_version !== "reawote-ai-results-v2") throw new Error("This file is not an AI results JSON file.");
+  const items = list(item.items, value => resultItem(value, item.schema_version === "reawote-ai-results-v2")); unique(items.map(row => row.material_id));
   return { schema_version: item.schema_version, batch_id: uuid(item.batch_id), items };
 }
 export function parseAiBriefResultsText(value: string) {
@@ -65,14 +66,14 @@ function matchingIds(actual: string[], expected: string[]) { unique(actual); if 
 function named(value: unknown) { const item = record(value); return { id: uuid(item.id), value: bounded(item.value, 255) }; }
 function parseBrief(value: unknown, ids: string[]): AiBrief {
   const item = record(value);
-  if (item.schema_version !== "reawote-ai-brief-v1") throw new Error("Invalid AI brief format.");
+  if (item.schema_version !== "reawote-ai-brief-v1" && item.schema_version !== "reawote-ai-brief-v2") throw new Error("Invalid AI brief format.");
   const batchId = uuid(item.batch_id), template = parseAiBriefResults(item.result_template);
   if (template.batch_id !== batchId) throw new Error("The AI brief template belongs to a different batch.");
   const items = list(item.items, value => {
     const row = record(value), context = record(row.context), customer = record(context.customer);
     return { material_id: uuid(row.material_id), context_hash: hash(row.context_hash), content_revision: integer(row.content_revision), context: {
       name: bounded(context.name, 255), customer: { id: uuid(customer.id), name: bounded(customer.name, 255), website: customer.website === null ? null : publicUrl(customer.website) },
-      categories: list(context.categories, named), collections: list(context.collections, named), source_urls: list(context.source_urls, value => { const source = record(value); return { id: uuid(source.id), url: publicUrl(source.url) }; }, 20), current_description: description(context.current_description),
+      categories: list(context.categories, named), collections: list(context.collections, named), source_urls: list(context.source_urls, value => { const source = record(value); return { id: uuid(source.id), url: publicUrl(source.url) }; }, 20), current_description: description(context.current_description), ...(context.current_tags !== undefined ? { current_tags: tags(context.current_tags) } : {}),
     } };
   });
   const skipped = list(item.skipped, value => { const row = record(value); return { material_id: uuid(row.material_id), code: bounded(row.code, 100), message: bounded(row.message, 2000) }; });
@@ -95,7 +96,9 @@ function parseReview(value: unknown, results: AiBriefResults, ids: string[]): Ai
       (applicable !== ["READY", "OVERWRITE_REQUIRED"].includes(status)) || (applicable && (!result || needsReview || !proposed?.trim())) ||
       (result && (proposed !== result.description || needsReview !== result.needs_review || note !== result.note || JSON.stringify(sources) !== JSON.stringify(result.source_urls))) ||
       (applicable && overwrite !== Boolean(current?.trim())) || (status === "OVERWRITE_REQUIRED" && !overwrite)) throw new Error("The AI review does not match the imported results.");
-    return { material_id: id, name: bounded(row.name, 255), current_description: current, proposed_description: proposed, source_urls: sources, needs_review: needsReview, note, status, applicable, requires_overwrite: overwrite, result };
+    const tagFields = row.current_tags !== undefined ? { current_tags: tags(row.current_tags), proposed_tags: tags(row.proposed_tags), merged_tags: tags(row.merged_tags, 200) } : {};
+    if (result?.tags && JSON.stringify(tagFields.proposed_tags) !== JSON.stringify(result.tags)) throw new Error("The AI review tags do not match the imported results.");
+    return { material_id: id, name: bounded(row.name, 255), current_description: current, proposed_description: proposed, ...tagFields, source_urls: sources, needs_review: needsReview, note, status, applicable, requires_overwrite: overwrite, result };
   });
   matchingIds(items.map(row => row.material_id), ids);
   return { batch_id: batchId, items };
@@ -105,7 +108,7 @@ export const aiBriefClient = {
     const ids = selectedIds(selection.map(row => row.id));
     return parseBrief(await request("/material-ai/brief", "POST", { selection }), ids);
   },
-  async review(results: AiBriefResults, selection: string[]) {
+  async review(results: AiBriefResults, selection = results.items.map(item => item.material_id)) {
     const ids = selectedIds(selection), parsed = parseAiBriefResults(results);
     if (parsed.items.some(item => !ids.includes(item.material_id))) throw new Error("The AI results include a material outside this selection.");
     return parseReview(await request("/material-ai/review", "POST", { results: parsed, selected_ids: ids }), parsed, ids);
@@ -113,6 +116,6 @@ export const aiBriefClient = {
   async apply(id: string, payload: AiBriefApply): Promise<AiBriefReceipt> {
     const value = record(await request(`/materials/${uuid(id)}/ai-brief-result`, "POST", payload));
     if (uuid(value.material_id) !== id || uuid(value.batch_id) !== payload.batch_id || value.status !== "APPLIED" || integer(value.content_revision) !== payload.result.content_revision + 1 || description(value.description) !== payload.result.description) throw new Error("The AI save response could not be verified.");
-    return { material_id: id, batch_id: payload.batch_id, draft_id: uuid(value.draft_id), status: "APPLIED", content_revision: value.content_revision as number, description: string(value.description) };
+    return { material_id: id, batch_id: payload.batch_id, draft_id: uuid(value.draft_id), status: "APPLIED", content_revision: value.content_revision as number, description: string(value.description), ...(value.tags !== undefined ? { tags: tags(value.tags) } : {}) };
   },
 };

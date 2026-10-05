@@ -1,5 +1,6 @@
 """Offline CSV + ZIP publication, explicitly installed on the local desktop."""
 from datetime import datetime, timezone
+from collections import Counter
 from contextlib import contextmanager
 from typing import Annotated
 from uuid import UUID
@@ -98,9 +99,13 @@ def prepare_local_publication(session, selection, access, settings, library, ori
         materials.append({"material_id": str(identifier), "identity_name": material.technical_identity,
             "folder_path": material.folder_path, "metadata_sha256": source.sha256 if source else None,
             "original_master_modified_at": snapshot["original_master_modified_at"]})
-    identities = [item["identity_name"].casefold() for item in items]
+    # Drafts intentionally have no identity until their Customer/Main category
+    # is assigned. Their missing-data findings must survive batch review, and
+    # multiple drafts must not be treated as a shared output filename.
+    identities = Counter(item["identity_name"].casefold() for item in items if item["identity_name"])
     for item in items:
-        if identities.count(item["identity_name"].casefold()) != 1: item["errors"].append("PUBLICATION_IDENTITY_COLLISION")
+        identity = item["identity_name"]
+        if identity and identities[identity.casefold()] > 1: item["errors"].append("PUBLICATION_IDENTITY_COLLISION")
     digest = canonical_hash({"snapshots": snapshots, "settings": config})
     preview = {"items": items, "can_prepare": all(not item["errors"] for item in items), "preview_hash": digest}
     request = {"schema_version": 1, "materials": materials, "material_versions": versions,

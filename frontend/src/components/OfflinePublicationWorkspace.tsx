@@ -11,6 +11,7 @@ import { FileCheckProgress } from "./FileCheckProgress";
 import { useFileCheckProgress } from "./useFileCheckProgress";
 import { FileCheckJobUnavailableError } from "../api/materialCheckJobs";
 import { NavigationLink } from "./NavigationLink";
+import { PublicationMaterialsTable } from "./PublicationMaterialsTable";
 import "./offlinePublication.css";
 
 function finding(code: string, fields: string[] = []) {
@@ -40,6 +41,8 @@ export function OfflinePublicationWorkspace({ client, navigate, initialSelection
 }) {
   const [materialIds] = useState(() => initialSelection.map(item => item.id));
   const [automatic, setAutomatic] = useState(false), [busy, setBusy] = useState(false);
+  const [checkScope, setCheckScope] = useState<"unchecked" | "all">("unchecked");
+  const [checkTotal, setCheckTotal] = useState(0), [editorBusy, setEditorBusy] = useState(false), [refreshKey, setRefreshKey] = useState(0);
   const [preview, setPreview] = useState<LocalPublicationPreview | null>(null), [checkReport, setCheckReport] = useState<CheckReport | null>(null);
   const [job, setJob] = useState<LocalPublicationJob | null>(null), [uncertain, setUncertain] = useState(false), [pollPaused, setPollPaused] = useState(false);
   const [error, setError] = useState(""), [notice, setNotice] = useState("");
@@ -49,7 +52,8 @@ export function OfflinePublicationWorkspace({ client, navigate, initialSelection
   const dialog = useRef<HTMLDialogElement>(null), generation = useRef(sessionGeneration());
   const checkProgress = useFileCheckProgress();
   const live = () => mounted.current && generation.current === sessionGeneration();
-  const frozen = busy || uncertain || job?.status === "RUNNING" || markBusy || markUncertain;
+  const exportBusy = busy || uncertain || job?.status === "RUNNING" || markBusy || markUncertain;
+  const frozen = exportBusy || editorBusy;
   useNavigationGuard(() => operating.current || pending.current !== null || markKey.current !== null);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => { onBusyChange?.(frozen); return () => onBusyChange?.(false); }, [frozen, onBusyChange]);
@@ -88,10 +92,15 @@ export function OfflinePublicationWorkspace({ client, navigate, initialSelection
       if (automatic) {
         const current = await Promise.all(materialIds.map(id => client.getMaterial(id)));
         if (!live()) return;
-        const checked = await materialLocalClient.checkMany(current, true, checkProgress.begin());
-        checkProgress.finish();
-        if (!live()) return;
-        setCheckReport(checked); onChanged?.();
+        const candidates = checkScope === "all" ? current : current.filter(item => item.automaticFileCheckStatus === "NOT_CHECKED");
+        setCheckTotal(candidates.length);
+        if (candidates.length) {
+          const checked = await materialLocalClient.checkMany(candidates, true, checkProgress.begin());
+          checkProgress.finish();
+          if (!live()) return;
+          setCheckReport(checked); onChanged?.();
+        } else setNotice("All materials already have an automatic check result. No checks were repeated.");
+        setRefreshKey(value => value + 1);
       }
       const result = await localPublicationClient.preview(materialIds);
       if (live()) setPreview(result);
@@ -137,19 +146,22 @@ export function OfflinePublicationWorkspace({ client, navigate, initialSelection
     } finally { operating.current = false; if (mounted.current) setMarkBusy(false); }
   };
   return <div className="offline-publication">
-    <fieldset className="panel" disabled={frozen}><legend>Selected materials ({materialIds.length}/100)</legend>
-      <details><summary>Show selected materials</summary><ul>{initialSelection.map(item => <li key={item.id}>{item.materialName} <small>{item.technicalIdentity}</small></li>)}</ul></details>
+    <fieldset className="panel publication-review-controls" disabled={frozen}><legend>Publication batch ({materialIds.length}/100)</legend>
       <label className="checkbox-label"><input type="checkbox" checked={automatic} onChange={event => { setAutomatic(event.target.checked); setPreview(null); setCheckReport(null); }} />Run automatic file check</label>
+      {automatic && <label className="form-field">Check scope<select value={checkScope} onChange={event => { setCheckScope(event.target.value as "unchecked" | "all"); setPreview(null); setCheckReport(null); }}><option value="unchecked">Only not checked materials</option><option value="all">All materials in this batch</option></select></label>}
       {automatic && <p className="muted">Review includes the full map, metadata and preview checks. The TXT report lists materials with issues. Large selections may take several minutes.</p>}
       <button type="button" className="button" disabled={!materialIds.length || materialIds.length > 100} onClick={() => void review()}>{busy ? "Working…" : "Review materials"}</button>
     </fieldset>
-    {checkProgress.running && <FileCheckProgress progress={checkProgress.progress} resume={checkProgress.resume} total={materialIds.length} />}
+    {checkProgress.running && <FileCheckProgress progress={checkProgress.progress} resume={checkProgress.resume} total={checkTotal} />}
     {error && <p role="alert" className="form-error">{error}</p>}{notice && <p role="status" className="success-notice">{notice}</p>}
     {job?.status === "FAILED" && job.issues.length > 0 && <section className="panel" aria-label="Export file issues"><h3>File issues</h3>
       {job.issues.map((group, index) => <article key={`${group.materialId}-${index}`}><h4>{initialSelection.find(item => item.id === group.materialId)?.materialName ?? group.materialId}</h4>
         <ul>{group.issues.map((issue, index) => <li key={index}>{finding(issue.code)}{issue.path && <> · <code>{issue.path}</code></>}</li>)}</ul>
       </article>)}
     </section>}
+    <PublicationMaterialsTable materials={initialSelection} client={client} navigate={navigate} preview={preview} refreshKey={refreshKey}
+      disabled={Boolean(exportBusy || job?.status === "COMPLETED")} onBusyChange={setEditorBusy}
+      onChanged={() => { setPreview(null); setJob(null); onChanged?.(); }} />
     {checkReport && <CheckReportView result={checkReport} />}
     {preview && <section className="panel" aria-label="Publication review"><h3>Material review</h3>
       <p>{preview.canPrepare ? "The required publication data is complete. Review any warnings before preparing the files." : "Complete the required publication data before preparing the files."}</p>

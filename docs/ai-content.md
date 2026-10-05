@@ -1,5 +1,37 @@
 # AI context and immutable proposal intake
 
+## Current JSON brief workflow (2026-10-05)
+
+Materials and the offline publication table expose **AI descriptions** for up to
+100 explicitly checked materials. The **Download JSON brief** and **Import AI
+results** buttons share the same styling. JSON brief v2 requests English
+descriptions and useful search tags with public sources and explicit uncertainty;
+the application does not contact an AI provider itself. Returned tags are appended
+and deduplicated with existing tags, with the existing 100-tag limit. Credits,
+categories, collections and source metadata remain independent.
+
+**Settings → Imports → Upload AI results JSON** can review a saved result file
+without the original dialog or selection. Admins and production leads can use
+this section; historical CSV imports remain admin-only. Result JSON carries
+material IDs, batch ID, context digest and content revision. A new login or browser
+restart does not invalidate an otherwise current file. Version 1 description-only
+results remain supported; maximum input is 5 MiB and 100 items.
+
+Review shows descriptions, additive tags, sources and blocked/stale rows. **Accept
+all changes** applies eligible rows and explicitly labels how many existing
+descriptions will be replaced. Individual selection/replacement consent remains
+available. Already applied proposals are recognized from durable audit receipts
+across dialogs/sessions, including after later manual edits; replay cannot restore
+old AI content over those edits. Missing/deleted records and stale or uncertain
+proposals remain blocked. Unknown write results retain the exact request for retry.
+Every accepted result records immutable AI provenance and the applying person.
+
+SQLite/API, component, strict JSON parser and real PostgreSQL tests cover v2 tags,
+legacy compatibility, new-session reimport, interrupted-save recovery and preserved
+later human edits. No external AI calls or live content mutations were used in
+verification. The sections below describe the earlier proposal/source architecture
+retained behind the simplified JSON workflow.
+
 This delivery slice adds human-authenticated source approvals, minimal publishing
 context and storage of externally prepared AI proposals. It does not contact an
 AI provider, fetch a source URL, grant a service credential or publish content.

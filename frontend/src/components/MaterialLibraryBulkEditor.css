@@ -1,0 +1,13 @@
+.material-library-bulk-value { display: grid; gap: 4px; min-width: 0; width: 180px; font-size: 12px; }
+.material-library-bulk-value > input, .material-library-bulk-size > input { box-sizing: border-box; width: 100%; min-width: 0; height: 40px; border: 1px solid var(--color-border, #dde0ed); border-radius: 10px; padding: 7px 10px; background: white; color: inherit; font: inherit; }
+.material-library-bulk-value .material-color-field { min-width: 0; }
+.material-library-bulk-value .material-color-field > label { display: none; }
+.material-library-bulk-value .material-color-select { min-height: 40px; height: 40px; width: 100%; }
+.material-library-bulk-size { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 4px; align-items: center; }
+.material-library-bulk-error { flex-basis: 100%; }
+.material-library-bulk-dialog { box-sizing: border-box; width: min(680px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; margin: auto; padding: 24px; border: 1px solid var(--color-border, #dde0ed); border-radius: 16px; color: var(--color-text, #1f2444); background: white; }
+.material-library-bulk-dialog::backdrop { background: rgb(10 13 39 / 55%); }
+.material-library-bulk-dialog h2 { margin-top: 0; font-size: 20px; }
+.material-library-bulk-report { margin: 16px 0; padding: 0; list-style: none; }
+.material-library-bulk-report li { display: grid; gap: 5px; padding: 12px 0; border-bottom: 1px solid var(--color-border, #dde0ed); overflow-wrap: anywhere; }
+.material-library-bulk-dialog .form-actions { justify-content: flex-end; }

@@ -3,14 +3,17 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select, tuple_
+from sqlalchemy import func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models import Company, InternalUser, MaterialFileOperation, MaterialNumberReservation, PBRMaterial, Project, PublishedBrand
 from app.db.models import MaterialImportBatch, MaterialImportRow, PBRMaterialMetadata
+from app.db.directory_models import DirectoryChangeEvent
+from app.customer_orders import directory_snapshot
 from app.material_identity import ACTIVE_STATUSES, lock_folder_catalog, require_folder_idle, require_brand_idle
 from app.material_review import canonical_hash, invalidate_review
 from app.metadata_saves import persist_metadata_snapshot
+from app.notion_outbound import enqueue_customer_sync
 from app.resource_history import resource_snapshot, append_resource_change
 
 
@@ -81,8 +84,13 @@ def build_preview(session, payload, table, rows, findings):
         identifier = (item.properties or {}).get("brand_identifier")
         if identifier is not None:
             brand_identifiers.setdefault(item.brand_id, set()).add(identifier)
-    identifier_owners = {item.brand_identifier: item.id for item in session.scalars(select(PublishedBrand).where(
-        PublishedBrand.brand_identifier.in_({value for values in brand_identifiers.values() for value in values})))}
+    requested_identifiers = {value for values in brand_identifiers.values() for value in values}
+    identifier_owners = {}
+    for owner in session.scalars(select(PublishedBrand).where(or_(PublishedBrand.brand_identifier.in_(requested_identifiers),
+            PublishedBrand.customer_brand_identifier.in_(requested_identifiers)))):
+        for identifier in (owner.brand_identifier, owner.customer_brand_identifier):
+            if identifier in requested_identifiers:
+                identifier_owners.setdefault(identifier, set()).add(owner.id)
     for source, target in session.execute(select(MaterialFileOperation.source_brand_id,
             MaterialFileOperation.target_brand_id).where(MaterialFileOperation.status.in_(ACTIVE_STATUSES),
                 or_(MaterialFileOperation.source_brand_id.in_(brands), MaterialFileOperation.target_brand_id.in_(brands)))):
@@ -92,8 +100,12 @@ def build_preview(session, payload, table, rows, findings):
             findings.append({"row": item.source_row, "field": field, "code": code})
         project, brand, processor = projects.get(item.project_id), brands.get(item.brand_id), processors.get(item.processor_id)
         if item.project_id is not None and project is None: issue("project", "IMPORT_PROJECT_MISSING")
-        if brand is None: issue("brand", "IMPORT_BRAND_MISSING")
+        if brand is None or not brand.is_customer: issue("brand", "IMPORT_BRAND_MISSING")
         elif not brand.is_active: issue("brand", "IMPORT_BRAND_INACTIVE")
+        # Same compatibility rule as ordinary assignment: legacy Orders without
+        # a Customer remain usable; an explicit relationship must match.
+        if project is not None and project.customer_id is not None and project.customer_id != item.brand_id:
+            issue("project", "IMPORT_ORDER_CUSTOMER_MISMATCH")
         if brand is not None and brand.folder_prefix != item.prefix:
             issue("identity", "IMPORT_BRAND_PREFIX_MISMATCH")
         if item.brand_id in active_brands: issue("brand", "IMPORT_BRAND_OPERATION_ACTIVE")
@@ -102,7 +114,7 @@ def build_preview(session, payload, table, rows, findings):
         identifier = (item.properties or {}).get("brand_identifier")
         if identifier is not None:
             if len(brand_identifiers[item.brand_id]) != 1: issue("brand_identifier", "IMPORT_BRAND_IDENTIFIER_INCONSISTENT")
-            if (identifier_owners.get(identifier, item.brand_id) != item.brand_id or
+            if (identifier_owners.get(identifier, set()) - {item.brand_id} or
                 any(other != item.brand_id and identifier in values for other, values in brand_identifiers.items())):
                 issue("brand_identifier", "IMPORT_BRAND_IDENTIFIER_CONFLICT")
         if processor is None or not processor.is_active or processor.role != "PROCESSOR":
@@ -124,8 +136,8 @@ def build_preview(session, payload, table, rows, findings):
             except HTTPException:
                 issue("identity", "IMPORT_FOLDER_REFERENCE_BUSY")
     references = {
-        "projects": _snapshots(projects, ("name", "project_number", "company_id", "status")),
-        "brands": _snapshots(brands, ("name", "folder_prefix", "brand_identifier", "company_id", "is_active", "next_sequence_number")),
+        "projects": _snapshots(projects, ("name", "project_number", "company_id", "customer_id", "status")),
+        "brands": _snapshots(brands, ("name", "folder_prefix", "brand_identifier", "customer_brand_identifier", "company_id", "is_customer", "is_active", "next_sequence_number")),
         "processors": _snapshots(processors, ("display_name", "role", "is_active")),
         "companies": _snapshots(companies, ("name", "is_active")),
     }
@@ -187,13 +199,27 @@ def confirm_import(session, actor_id, payload, table, rows, findings):
             identifier = next(((row.properties or {})["brand_identifier"] for row in rows
                 if row.brand_id == brand_id and "brand_identifier" in (row.properties or {})), None)
             brand = brands[brand_id]
-            if identifier is not None and identifier != brand.brand_identifier:
+            if identifier is not None and (identifier != brand.brand_identifier or identifier != brand.customer_brand_identifier):
                 before = resource_snapshot(brand)
+                customer_before = directory_snapshot(brand)
                 for existing_material in session.scalars(select(PBRMaterial).where(PBRMaterial.published_brand_id == brand_id)
                         .order_by(PBRMaterial.id).with_for_update()):
                     invalidate_review(session, existing_material, actor_id, "BRAND_FIELDS_CHANGED")
                 brand.brand_identifier = identifier
-                append_resource_change(session, brand, actor_id, before)
+                brand.customer_brand_identifier = identifier
+                session.flush()
+                customer_after = directory_snapshot(brand)
+                if customer_before != customer_after:
+                    version = (session.scalar(select(func.max(DirectoryChangeEvent.version)).where(
+                        DirectoryChangeEvent.customer_id == brand_id)) or 0) + 1
+                    session.add(DirectoryChangeEvent(kind="CUSTOMER", customer_id=brand_id, actor_id=actor_id,
+                        version=version, action="UPDATED", before_snapshot=customer_before, after_snapshot=customer_after,
+                        before_hash=canonical_hash(customer_before), after_hash=canonical_hash(customer_after)))
+                    enqueue_customer_sync(session, brand, actor_id)
+                else:
+                    # A legacy-alias repair still needs history, but a normal
+                    # Customer change must appear only once in the unified feed.
+                    append_resource_change(session, brand, actor_id, before)
         materials = []
         for row in rows:
             material = PBRMaterial(project_id=row.project_id, published_brand_id=row.brand_id,

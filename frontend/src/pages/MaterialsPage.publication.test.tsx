@@ -36,7 +36,7 @@ it("prepares only checked materials and preserves filters on return", async () =
   fireEvent.click(await screen.findByRole("checkbox", { name: `Select ${first.materialName}` }));
   fireEvent.click(screen.getByRole("button", { name: "Prepare for publication (1)" }));
   expect(screen.getByRole("heading", { name: "Materials" }).closest("section")).not.toHaveClass("database-page--workspace");
-  expect(screen.getByRole("searchbox")).toBeDisabled();
+  expect(screen.getByRole("searchbox", { name: "Search materials" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Review materials" }));
   await waitFor(() => expect(preview).toHaveBeenCalledWith([first.id]));
   await waitFor(() => expect(screen.getByRole("button", { name: "Back to material list" })).toBeEnabled());

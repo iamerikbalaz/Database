@@ -6,10 +6,12 @@ connects to Google Storage, performs an upload, or marks Published implicitly.
 
 ## User flow
 
-1. Select materials and open **Prepare selected for publication**.
+1. Select materials and open **Prepare for publication**.
 2. Run **Review materials**. The optional automatic file check uses the separate
    complete `PBR_FILES_V1` check/report workflow; it does not change human Checked
    or technical approval. Its TXT report lists only materials with issues.
+   When enabled, the default scope checks only materials whose current automatic
+   status is Not checked. An explicit All materials option repeats every check.
 3. Resolve missing publication fields. Done, an active brand/catalog selection,
    credits, a color and sample dimensions are required. Empty descriptions and
    tags are warnings. Existing legacy technical/content approval records are
@@ -22,6 +24,37 @@ connects to Google Storage, performs an upload, or marks Published implicitly.
    materials Published. Declining preserves their current values. A later
    database or source-file change blocks the entire confirmation and requires
    a new export; no subset is marked silently.
+
+## Publication workspace (2026-10-05)
+
+The frozen batch has a table of descriptions, tags, credits, source color and
+sample size, categories, Customer/identifier and review/status properties.
+Search, attention filtering, sorting, column visibility and click/Shift/Ctrl
+highlighting operate inside this batch. Checkboxes choose the rows to edit;
+publication always includes the entire original batch, never an implicit subset.
+Red rows indicate missing required data or unavailable data, yellow rows warnings.
+Review materials remains the authoritative source/database eligibility check.
+
+Select rows to set Color, append Tags, set Credits, sample size, Status or Checked.
+Categories/collections and AI descriptions work on the same explicit subset.
+Each row opens a compact library editor without leaving the batch. Expanding
+Preview offers the same full-quality image inspection as Materials.
+
+Color/sample edits use durable metadata.json saves, preserving other fields.
+Tags/credits use the timestamp- and content-revision-checked library-field endpoint;
+tags append without removing existing values. Frozen per-row commands and exact
+receipts handle partial success and an uncertain response. Pending edits block
+review/export. Any completed edit invalidates the old export review, requiring a
+new Review materials before generating files. Completed exported batches are not
+editable in this workspace; prepare a new batch for subsequent changes.
+
+Verification for this iteration: 1,397 frontend tests, focused backend suites,
+and real PostgreSQL AI/library-field/import concurrency checks passed. The local
+test application passed 31 read-only endpoint/page checks and AI v2 export/review
+for all 50 current materials, including standalone review in a fresh login session.
+No AI proposal was applied and no source file was changed by those live checks.
+Desktop layout uses compact controls at wide viewport sizes; browser visual
+inspection was not performed in this iteration.
 
 The CSV retains the existing UTF-8 BOM, semicolon delimiter and columns:
 `identity_name;name;description;credits;dimension;brand_identifier;categories;color;tags`.

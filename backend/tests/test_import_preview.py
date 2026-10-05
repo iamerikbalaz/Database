@@ -51,6 +51,44 @@ def test_preview_is_read_only_exact_stable_and_separates_project_and_brand_compa
         assert session.get(PublishedBrand, case.materials[0].published_brand_id).next_sequence_number == 3
 
 
+@pytest.mark.parametrize("relationship", ["same", "legacy_unassigned", "different", "not_customer"])
+def test_order_customer_consistency_matches_ordinary_assignments(access_case, relationship):
+    case = access_case
+    with case.database.session() as session:
+        customer = session.get(PublishedBrand, case.materials[0].published_brand_id)
+        order = session.get(Project, case.materials[0].project_id)
+        if relationship == "different":
+            other = PublishedBrand(company_id=customer.company_id, name="Other Customer", folder_prefix="OTHER", brand_identifier="other-customer")
+            session.add(other); session.flush(); order.customer_id = other.id
+        else:
+            order.customer_id = None if relationship == "legacy_unassigned" else customer.id
+        if relationship == "not_customer": customer.is_customer = False
+        session.commit()
+    with case.client("ADMIN") as client:
+        response = client.post(PATH, json=plan_payload(case))
+        assert response.status_code == 200
+        preview = response.json()
+        assert preview["can_confirm"] is (relationship in {"same", "legacy_unassigned"})
+        if relationship == "different":
+            assert "IMPORT_ORDER_CUSTOMER_MISMATCH" in {item["code"] for item in preview["findings"]}
+        if relationship == "not_customer":
+            assert "IMPORT_BRAND_MISSING" in {item["code"] for item in preview["findings"]}
+
+
+@pytest.mark.parametrize("change", ["order_customer", "customer_identifier"])
+def test_preview_hash_binds_unified_directory_fields(access_case, change):
+    case = access_case; material = case.materials[0]
+    with case.client("ADMIN") as client:
+        before = client.post(PATH, json=plan_payload(case)).json()
+        with case.database.session() as session:
+            if change == "order_customer": session.get(Project, material.project_id).customer_id = material.published_brand_id
+            else: session.get(PublishedBrand, material.published_brand_id).customer_brand_identifier = "new-public-identifier"
+            session.commit()
+        after = client.post(PATH, json=plan_payload(case)).json()
+        assert before["can_confirm"] and after["can_confirm"]
+        assert before["preview_hash"] != after["preview_hash"]
+
+
 @pytest.mark.parametrize("change,code", [
     ("project_missing", "IMPORT_PROJECT_MISSING"), ("brand_missing", "IMPORT_BRAND_MISSING"),
     ("brand_inactive", "IMPORT_BRAND_INACTIVE"), ("prefix", "IMPORT_BRAND_PREFIX_MISMATCH"),

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
+import importTemplateUrl from "../assets/material-import-template.csv?url&no-inline";
 import { ApiError } from "../api/errors";
+import { directoryClient } from "../api/directoryClient";
 import { importClient, importFailureMessage, importFindingMessage, readImportFile, type ImportColumns, type ImportConfirmation,
   type ImportField, type ImportGroup, type ImportInspection, type ImportLinks, type ImportPlanRequest,
   type ImportPreview, type ImportResult, type ImportSource } from "../api/importClient";
@@ -8,11 +10,12 @@ import { useResource } from "../api/useResource";
 import { useSession } from "../auth/context";
 import { ImportHistory } from "../components/ImportHistory";
 import { ImportRows } from "../components/ImportRows";
+import { MaterialAiBriefDialog } from "../components/MaterialAiBriefDialog";
 import { ErrorState, LoadingState } from "../components/PageState";
 
 const fields: { key: ImportField; label: string }[] = [
   { key: "identity", label: "Technical identity" }, { key: "name", label: "Material name" },
-  { key: "project", label: "Project label" }, { key: "brand", label: "Brand label" }, { key: "processor", label: "Processor label" },
+  { key: "project", label: "Order label" }, { key: "brand", label: "Customer label" }, { key: "processor", label: "Processor label" },
   { key: "folder", label: "Existing folder path" },
 ];
 const groups: ImportGroup[] = ["project", "brand", "processor"];
@@ -22,13 +25,24 @@ const propertyFields = [
   { key: "brand_identifier", label: "Brand identifier" },
 ] as const;
 const groupKeys = { project: "projects", brand: "brands", processor: "processors" } as const;
+const groupLabels = { project: "Order", brand: "Customer", processor: "Processor" } as const;
 const blankColumns = (): ImportColumns => ({ identity: "", name: "", project: "", brand: "", processor: "", folder: null,
   color: null, sample_size: null, done: null, checked: null, note: null, brand_identifier: null });
 const blankLinks = (): ImportLinks => ({ projects: {}, brands: {}, processors: {} });
 
 export function ImportsPage(props: { client: ApiClient; navigate: (path: string) => void }) {
-  if (useSession()?.session.user.role !== "ADMIN") return <section><h1>Access restricted</h1><p>Historical imports require an administrator.</p></section>;
-  return <ImportWorkspace {...props} />;
+  const role = useSession()?.session.user.role;
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiChanged, setAiChanged] = useState(false);
+  if (role !== "ADMIN" && role !== "PRODUCTION_LEAD") return <section><h1>Access restricted</h1><p>Imports require an administrator or production lead. Historical CSV/XLSX imports require an administrator.</p></section>;
+  return <section className="imports-page"><div className="page-heading"><div><p className="eyebrow">Material library</p><h1>Import materials</h1></div></div>
+    <article className="panel"><h2>Import AI results</h2><p>Upload the completed AI results JSON to review descriptions, tags and cited sources for existing materials before applying changes.</p>
+      <button className="button button--primary" onClick={() => setAiOpen(true)}>Upload AI results JSON</button>
+      {aiChanged && <p role="status">Reviewed AI results saved to the material library.</p>}
+    </article>
+    {aiOpen && <MaterialAiBriefDialog onClose={() => setAiOpen(false)} onChanged={() => setAiChanged(true)} />}
+    {role === "ADMIN" ? <ImportWorkspace {...props} /> : <p>Historical CSV/XLSX imports require an administrator.</p>}
+  </section>;
 }
 function ImportWorkspace({ client, navigate }: { client: ApiClient; navigate: (path: string) => void }) {
   const [file, setFile] = useState<File>();
@@ -44,8 +58,8 @@ function ImportWorkspace({ client, navigate }: { client: ApiClient; navigate: (p
   const planned = useRef<ImportPlanRequest | undefined>(undefined); const confirmation = useRef<ImportConfirmation | undefined>(undefined);
   const fileInput = useRef<HTMLInputElement>(null);
   const load = useCallback(async () => {
-    const [projects, brands, companies, processors] = await Promise.all([client.getProjects(), client.getBrands(), client.getCompanies(), client.getInternalUsers()]);
-    return { projects, brands, companies, processors };
+    const [orders, customers, processors] = await Promise.all([directoryClient.orders(), directoryClient.customers(), client.getInternalUsers()]);
+    return { orders, customers, processors };
   }, [client]);
   const references = useResource(load);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -65,7 +79,9 @@ function ImportWorkspace({ client, navigate }: { client: ApiClient; navigate: (p
     try { await operation(); }
     catch (cause) {
       if (!mounted.current) return;
-      if (confirming && (!(cause instanceof ApiError) || cause.status >= 500)) {
+      // A later rejection cannot prove that an earlier lost response did not
+      // commit. Keep the original packet until its receipt is recovered.
+      if (confirming && (uncertain || !(cause instanceof ApiError) || cause.status >= 500)) {
         setUncertain(true); setError("The import outcome is unknown. Retry the same confirmation before starting another import. Completed batches can also be checked in import history.");
       } else {
         if (confirming) { confirmation.current = undefined; setUncertain(false); invalidatePreview(); }
@@ -110,7 +126,9 @@ function ImportWorkspace({ client, navigate }: { client: ApiClient; navigate: (p
     if (!mounted.current) return;
     if (!preview || value.sourceHash !== preview.sourceHash || value.rowCount !== preview.rowCount || value.rows.some((row, index) => {
       const expected = preview.rows[index];
-      return !expected || Object.entries(expected).some(([key, value]) => row[key as keyof typeof expected] !== value);
+      return !expected || Object.entries(expected).some(([key, value]) => key === "properties"
+        ? JSON.stringify(Object.entries(row.properties ?? {}).sort()) !== JSON.stringify(Object.entries(value ?? {}).sort())
+        : row[key as keyof typeof expected] !== value);
     })) throw new Error("The confirmed rows do not match the reviewed batch");
     confirmation.current = undefined; setUncertain(false); setResult(value); setHistoryVersion((value) => value + 1);
   }, true);
@@ -118,14 +136,21 @@ function ImportWorkspace({ client, navigate }: { client: ApiClient; navigate: (p
   const mappedValues = inspection?.requiresSheet === false ? inspection.mappingValues : undefined;
   const mappingsComplete = mappedValues && groups.every((group) => mappedValues[group].every((label) =>
     Object.hasOwn(links[groupKeys[group]], label) && Boolean(links[groupKeys[group]][label])));
-  const company = (id: string) => references.data?.companies.find((item) => item.id === id)?.name ?? "Unavailable company";
-  const activeCompany = (id: string) => references.data?.companies.some((item) => item.id === id && item.status === "active");
-  return <section className="imports-page"><div className="page-heading"><div><p className="eyebrow">Historical PBR records</p><h1>Import materials</h1></div></div>
-    <p>Keep historical identities and select the existing brand and processor for each source label. Historical materials can have no project; a project can be assigned later. Imported materials start in progress and require normal source checks and approval.</p>
+  return <section aria-label="Historical CSV and XLSX import"><h2>Import historical materials from CSV or XLSX</h2>
+    <p>Keep historical identities and map each source label to an existing Customer, optional Order and Processor. An Order with an assigned Customer must match the material Customer. Imported materials require normal source checks and approval; imported Done and Checked values do not perform these checks.</p>
     {error && <p className="field-error" role="alert">{error}</p>}
     {pending && <p role="status">{confirming ? "Confirming import…" : "Checking import…"}</p>}
     {uncertain && <button className="button button--primary" disabled={pending} onClick={confirm}>Retry same import confirmation</button>}
     <article className="panel"><h2>1. Inspect source</h2>
+      <a className="button" href={importTemplateUrl} download="material-import-template.csv">Download CSV template</a>
+      <p>The template is UTF-8 CSV with a semicolon (;) delimiter. Replace the example row with your records, using existing Customer prefixes and unused historical numbers. Keep literal values when saving from Excel; for XLSX, choose a worksheet explicitly.</p>
+      <details><summary>Template fields and accepted values</summary><ul>
+        <li>Identity: PREFIX_0001_FULL-MATERIAL-NAME_B01. Use the real category code. The full product segment supplies the uppercase material name; Name is required for older three-part identities.</li>
+        <li>Customer and Processor: your source labels, mapped to existing records in step 3. Order and Folder may be blank per row. Folder is relative to the library and must end with the exact identity.</li>
+        <li>Color: six HEX digits, for example #AABBCC. Sample size: positive width × height in cm, for example 10x20-cm, with up to four decimal places.</li>
+        <li>Done: YES or NO. Checked: no, OK or Correction. OK requires Done YES; Correction requires Done NO. Blanks mean In progress and no.</li>
+        <li>Note: literal text, up to 2,048 characters per source cell. Brand identifier: optional customer identifier; blank leaves it unchanged. All nonblank values for one Customer must agree.</li>
+      </ul><p>Map only the optional columns you want to import. Blank Color or Sample size means empty metadata. Description, tags, credits, collections, publication, approvals and automatic file-check results are not imported from CSV/XLSX. No folders or metadata files are created or changed.</p></details>
       <p>UTF-8 CSV or XLSX · up to 4 MiB, 2,000 records, 32 columns. Use literal values; formulas, macros and external links are rejected. XLSX formatting is not interpreted.</p>
       <form onSubmit={(event) => { event.preventDefault(); inspect(); }}><fieldset disabled={locked}><legend>Source file and reading options</legend>
         <label>Historical source file<input ref={fileInput} type="file" accept=".csv,.xlsx" required onChange={(event) => {
@@ -150,15 +175,16 @@ function ImportWorkspace({ client, navigate }: { client: ApiClient; navigate: (p
       <form onSubmit={(event) => { event.preventDefault(); mapColumns(); }}><fieldset disabled={locked}><legend>Choose distinct source columns</legend>
         <label><input type="checkbox" checked={columns.project === null} onChange={(event) => {
           setColumns({ ...columns, project: event.target.checked ? null : "" }); setInspection({ ...inspection, mappingValues: undefined }); setLinks(blankLinks()); invalidatePreview();
-        }} />Import historical materials without a project</label>
+        }} />Import all rows without an Order column</label>
         <label><input type="checkbox" checked={columns.folder !== null} onChange={(event) => {
           setColumns({ ...columns, folder: event.target.checked ? "" : null }); setInspection({ ...inspection, mappingValues: undefined }); setLinks(blankLinks()); invalidatePreview();
         }} />Record existing folder references without creating or changing folders</label>
-        {columns.folder !== null && <p>Use paths relative to the configured material library. References remain unverified until a source check succeeds.</p>}
+        <p>A blank cell in a mapped Order column leaves that row without an Order.</p>
+        {columns.folder !== null && <p>Use paths relative to the configured material library; blank means no folder reference. References remain unverified until a source check succeeds.</p>}
         {fields.filter(({ key }) => (key !== "project" || columns.project !== null) && (key !== "folder" || columns.folder !== null)).map(({ key, label }) => <label key={key}>{label} column<select required value={columns[key] ?? ""} onChange={(event) => {
           setColumns({ ...columns, [key]: event.target.value }); setInspection({ ...inspection, mappingValues: undefined }); setLinks(blankLinks()); invalidatePreview();
         }}><option value="">Choose column</option>{inspection.headers.map((header) => <option key={header} disabled={Object.entries(columns).some(([field, value]) => field !== key && value === header)}>{header}</option>)}</select></label>)}
-        <p>Optional spreadsheet properties. Done and Checked are historical values; importing them does not perform a technical source check. Brand identifiers will update the mapped brands.</p>
+        <p>Optional spreadsheet properties. Done and Checked are historical values; importing them does not perform a technical source check. Nonblank Brand identifiers update the mapped Customers.</p>
         {propertyFields.map(({ key, label }) => <label key={key}>{label} column<select value={columns[key] ?? ""} onChange={(event) => {
           setColumns({ ...columns, [key]: event.target.value || null }); setInspection({ ...inspection, mappingValues: undefined }); setLinks(blankLinks()); invalidatePreview();
         }}><option value="">Do not import</option>{inspection.headers.map((header) => <option key={header} disabled={Object.entries(columns).some(([field, value]) => field !== key && value === header)}>{header}</option>)}</select></label>)}
@@ -166,16 +192,16 @@ function ImportWorkspace({ client, navigate }: { client: ApiClient; navigate: (p
       </fieldset></form>
     </article>}
     {mappedValues && <article className="panel"><h2>3. Select existing records</h2>
-      <p>Project company and brand company can differ. Compare both companies before confirming.</p>
+      <p>Select existing Customers and optional Orders. The preview checks that each Order belongs to its material Customer; older Orders without a Customer remain usable.</p>
       {references.error ? <ErrorState message="Existing records could not be loaded." retry={references.retry} /> : !references.data ? <LoadingState label="Loading existing records…" /> :
         <form onSubmit={(event) => { event.preventDefault(); prepare(); }}><fieldset disabled={locked}><legend>Explicit source label mappings</legend>
           {groups.map((group) => <section key={group} aria-label={`${group} mappings`}><h3>{group === "project" ? "Orders" : group === "brand" ? "Customers" : "Processors"}</h3>
-            {mappedValues[group].map((label) => <label key={label}>{group[0].toUpperCase() + group.slice(1)}: {label}
+            {mappedValues[group].map((label) => <label key={label}>{groupLabels[group]}: {label}
               <select required value={links[groupKeys[group]][label] ?? ""} onChange={(event) => {
                 setLinks({ ...links, [groupKeys[group]]: { ...links[groupKeys[group]], [label]: event.target.value } }); invalidatePreview();
-              }}><option value="">Choose existing {group}</option>
-                {group === "project" ? references.data!.projects.filter((item) => activeCompany(item.companyId)).map((item) => <option value={item.id} key={item.id}>{item.name} · {item.number} · {company(item.companyId)}</option>) :
-                  group === "brand" ? references.data!.brands.filter((item) => item.isActive && activeCompany(item.companyId)).map((item) => <option value={item.id} key={item.id}>{item.name} · {item.folderPrefix} · {company(item.companyId)}</option>) :
+              }}><option value="">Choose existing {groupLabels[group]}</option>
+                {group === "project" ? references.data!.orders.map((item) => <option value={item.id} key={item.id}>{item.generatedName} · {item.number}</option>) :
+                  group === "brand" ? references.data!.customers.filter((item) => item.isActive).map((item) => <option value={item.id} key={item.id}>{item.name} · {item.folderPrefix}</option>) :
                     references.data!.processors.filter((item) => item.isActive && item.role === "PROCESSOR").map((item) => <option value={item.id} key={item.id}>{item.displayName} · {item.email}</option>)}
               </select></label>)}
           </section>)}

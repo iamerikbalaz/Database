@@ -3,7 +3,8 @@
 .material-ai-brief-dialog h2 { margin: 0 0 12px; font-size: 1.25rem; letter-spacing: -.025em; }
 .material-ai-brief-dialog p { line-height: 1.6; font-size: .85rem; }
 .material-ai-brief-dialog .form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 20px; }
-.material-ai-brief-tools { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px; margin-block: 20px; }
+.material-ai-brief-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-block: 20px; }
+.material-ai-brief-tools small { color: #626781; font-size: .75rem; }
 .material-ai-brief-tools label { display: flex; flex-direction: column; gap: 7px; font-size: .8rem; }
 .material-ai-brief-tools input { max-width: 100%; font: inherit; }
 .material-ai-brief-row { padding: 18px; margin-block: 12px; border: 1px solid #dde0ed; border-radius: 10px; overflow-wrap: anywhere; }

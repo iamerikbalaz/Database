@@ -14,11 +14,11 @@ function dimension(value: unknown) { const result = text(value, 32); if (!/^\d+(
 export function localPublicationPreview(value: unknown, selected: string[]) {
   const dto = record(value);
   const items = list(dto.items, 100, value => {
-    const item = record(value), materialId = uuid(item.material_id), name = text(item.name, 255), identity = text(item.identity_name, 512);
+    const item = record(value), materialId = uuid(item.material_id), name = text(item.name, 255), identity = nullableText(item.identity_name, 512);
     let row = null;
     if (item.row !== null) {
       const source = record(item.row), color = text(source.color, 7);
-      if (!/^#[A-F0-9]{6}$/.test(color) || uuid(source.material_id) !== materialId || source.name !== name || source.identity_name !== identity) throw new Error("Invalid export row");
+      if (!identity || !/^#[A-F0-9]{6}$/.test(color) || uuid(source.material_id) !== materialId || source.name !== name || source.identity_name !== identity) throw new Error("Invalid export row");
       row = { description: nullableText(source.description), credits: integer(source.credits, 2147483647), widthCm: dimension(source.width_cm), heightCm: dimension(source.height_cm),
         brandIdentifier: text(source.brand_identifier, 255), categories: list(source.categories, 100, value => text(value, 255)), color, tags: list(source.tags, 100, value => text(value, 100)) };
       if (!row.categories.length) throw new Error("Missing export category");
@@ -29,7 +29,7 @@ export function localPublicationPreview(value: unknown, selected: string[]) {
   });
   sameSelection(ids(items.map(item => item.materialId)), ids(selected));
   const canPrepare = boolean(dto.can_prepare);
-  if (canPrepare !== items.every(item => !item.errors.length) || canPrepare && items.some(item => !item.row)) throw new Error("Invalid export review");
+  if (items.some(item => item.identity === null && !item.errors.length) || canPrepare !== items.every(item => !item.errors.length) || canPrepare && items.some(item => !item.row)) throw new Error("Invalid export review");
   return { items, canPrepare, previewHash: digest(dto.preview_hash) };
 }
 export type LocalPublicationPreview = ReturnType<typeof localPublicationPreview>;

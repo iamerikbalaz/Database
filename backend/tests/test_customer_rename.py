@@ -26,6 +26,26 @@ def prepare(client, customer_id, **changes):
     return path, {**body, "confirmed": True, "expected_proposal_hash": plan.json()["proposal_hash"]}
 
 
+@pytest.mark.parametrize("rename_history", [False, True])
+def test_customer_rename_leaves_drafts_incomplete_and_later_assigns_new_identity(access_case, rename_history):
+    case = access_case
+    brand_id = case.materials[0].published_brand_id
+    with case.client("ADMIN") as client:
+        created = client.post("/api/material-create-batches", json={"idempotency_key": str(uuid4()),
+            "published_brand_id": str(brand_id), "names": ["Future Surface"]})
+        assert created.status_code == 200, created.text
+        identifier = created.json()["items"][0]["material_id"]
+        path, body = prepare(client, brand_id, rename_materials=rename_history)
+        renamed = write(client, "post", path + "/rename", body)
+        assert renamed.status_code == 200, renamed.text
+        draft = client.get("/api/materials/" + identifier).json()
+        assert draft["is_draft"] and draft["technical_identity"] is None and draft["sequence_number"] is None
+        completed = client.patch("/api/materials/" + identifier, json={"main_category_code": "G03"})
+        assert completed.status_code == 200, completed.text
+        assert completed.json()["technical_identity"] == "NEW-CUSTOMER_0003_FUTURE-SURFACE_G03"
+        assert completed.json()["folder_path"] is None
+
+
 def test_rename_future_only_keeps_historical_identity_metadata_and_counter(access_case):
     case = access_case
     with case.database.session() as session:

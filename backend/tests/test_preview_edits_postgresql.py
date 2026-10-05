@@ -180,7 +180,7 @@ def test_0042_upgrade_preserves_0041_materials_and_blocks_history_loss():
                     before = deepcopy(connection.execute(text("SELECT to_jsonb(m) FROM pbr_materials m ORDER BY id")).scalars().all())
                 command.upgrade(config, "head"); command.check(config)
                 with case.database.engine.connect() as connection:
-                    assert connection.execute(text("SELECT to_jsonb(m) FROM pbr_materials m ORDER BY id")).scalars().all() == before
+                    assert connection.execute(text("SELECT to_jsonb(m)-'is_draft'-'deleted_at' FROM pbr_materials m ORDER BY id")).scalars().all() == before
                     assert connection.scalar(text("SELECT count(*) FROM preview_edit_operations")) == 0
                 command.downgrade(config, "20261001_0041")
                 assert not inspect(case.database.engine).has_table("preview_edit_operations")
@@ -190,7 +190,7 @@ def test_0042_upgrade_preserves_0041_materials_and_blocks_history_loss():
                 with pytest.raises(RuntimeError, match="history or recovery ownership"):
                     command.downgrade(config, "20261001_0041")
                 with case.database.engine.connect() as connection:
-                    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20261001_0042"
+                    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20261005_0044"
                     assert connection.scalar(text("SELECT count(*) FROM preview_edit_operations")) == 1
         finally:
             get_settings.cache_clear()

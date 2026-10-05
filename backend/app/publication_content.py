@@ -58,7 +58,7 @@ def content_review(session, material, *, draft=None):
     state = session.get(MaterialReviewState, material.id)
     snapshot = {"schema_version": 1, "content": draft, "material": material_context(material),
         "brand": {"id": str(brand.id), "company_id": str(brand.company_id), "name": brand.name,
-                  "brand_identifier": brand.brand_identifier, "folder_prefix": brand.folder_prefix, "is_active": brand.is_active},
+                  "brand_identifier": brand.brand_identifier, "folder_prefix": brand.folder_prefix, "is_active": brand.is_active} if brand else None,
         "source_review": {"generation": state.generation if state else 0,
                           "revision_hash": state.revision_hash if state else None}}
     context_hash = canonical_hash(snapshot)
@@ -67,12 +67,14 @@ def content_review(session, material, *, draft=None):
     if not draft["revision"]: errors.append("CONTENT_DRAFT_REQUIRED")
     if draft["credits"] is None: errors.append("CONTENT_CREDITS_REQUIRED")
     if not draft["categories"]: errors.append("CONTENT_CATEGORIES_REQUIRED")
-    if not brand.is_active: errors.append("CONTENT_BRAND_INACTIVE")
-    if not brand.customer_brand_identifier or brand.brand_identifier.startswith("unassigned-"):
+    if material.is_draft: errors.append("MATERIAL_IDENTITY_INCOMPLETE")
+    if brand is None: errors.append("CONTENT_BRAND_REQUIRED")
+    elif not brand.is_active: errors.append("CONTENT_BRAND_INACTIVE")
+    if brand is None or not brand.customer_brand_identifier or brand.brand_identifier.startswith("unassigned-"):
         errors.append("CONTENT_BRAND_IDENTIFIER_REQUIRED")
     if any(not item["is_active"] for item in draft["categories"] + draft["collections"]):
         errors.append("CONTENT_CATALOG_VALUE_INACTIVE")
-    if any(item["brand_id"] != str(brand.id) for item in draft["collections"]):
+    if any(brand is None or item["brand_id"] != str(brand.id) for item in draft["collections"]):
         errors.append("CONTENT_COLLECTION_BRAND_MISMATCH")
     if not draft["description"]: warnings.append("CONTENT_DESCRIPTION_EMPTY")
     if not draft["tags"]: warnings.append("CONTENT_TAGS_EMPTY")

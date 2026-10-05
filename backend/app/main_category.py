@@ -16,6 +16,8 @@ _NAMESPACE = UUID("ab6b96dc-52e5-4f72-a325-0f832dfaf180")
 
 def required_category(session, material):
     code = material.main_category_code
+    if code is None:
+        return {"id": None, "catalog_id": None, "code": None}
     path = CATEGORY_PATHS.get(code, code)
     alias = session.get(OnlineCategoryCode, code)
     catalog = session.get(OnlineCategory, alias.category_id) if alias else session.scalar(select(OnlineCategory).where(OnlineCategory.abbreviation == code))
@@ -65,9 +67,10 @@ def normalize_category_ids(session, material, category_ids):
 
 
 def effective_category_ids(session, material, category_ids):
-    return sorted({str(identifier) for identifier in normalize_category_ids(session, material, category_ids)} | {required_category(session, material)["id"]})
+    required_id = required_category(session, material)["id"]
+    return sorted({str(identifier) for identifier in normalize_category_ids(session, material, category_ids)} | ({required_id} if required_id else set()))
 
 
 def effective_categories(session, material, categories):
     required = required_category(session, material)
-    return [required, *[item for item in categories if item["id"] != required["id"]]]
+    return [required, *[item for item in categories if item["id"] != required["id"]]] if required["id"] else categories

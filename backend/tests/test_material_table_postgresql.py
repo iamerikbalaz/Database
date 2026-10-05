@@ -41,10 +41,9 @@ def test_migration_preserves_legacy_rows_and_seeds_exact_vocabulary():
                     assert client.patch(case.path + "/table", json=payload, headers={"Idempotency-Key": key}).json() == saved.json()
                     assert client.get(case.path + "/history").json()["items"][0]["after"]["note"] == payload["note"]
                     assert client.get("/api/resource-commands/" + key).json()["response"] == saved.json()
-                # The current response contains automatic-check fields, so 0033
-                # now protects the immutable receipt before reaching 0027's
-                # human-check/Note protection.
-                with pytest.raises(RuntimeError, match="Automatic file check receipt history exists"):
+                # The current response includes is_draft, so 0043 now protects
+                # its immutable receipt before reaching the older guards.
+                with pytest.raises(RuntimeError, match="draft-aware material receipts exist"):
                     command.downgrade(config, "20260925_0026")
         finally:
             get_settings.cache_clear()

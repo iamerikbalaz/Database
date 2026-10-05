@@ -104,7 +104,9 @@ def _contexts(session, material, payload, *, lock=False):
         "folder_prefix": target_prefix, "sequence_number": number, "main_category_code": payload.main_category_code,
         "technical_identity": identity, "folder_path": folder, "material_name": next_name}
     # Another linked material must never be contained in either moving tree.
-    for other in session.scalars(select(PBRMaterial).where(PBRMaterial.id != material.id)):
+    # Deleted records retain their identity/path reservation for audit recovery.
+    for other in session.scalars(select(PBRMaterial).where(PBRMaterial.id != material.id)
+                                 .execution_options(include_deleted_materials=True)):
         if other.technical_identity == identity: _conflict("IDENTITY_ALREADY_USED", "The target identity is already allocated.")
         if other.folder_path:
             for path in (folder, material.folder_path):

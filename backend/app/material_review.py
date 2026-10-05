@@ -18,7 +18,7 @@ def material_context(material: PBRMaterial) -> dict:
     return {"material_id": str(material.id), "technical_identity": material.technical_identity,
             "folder_path": material.folder_path, "material_name": material.material_name,
             "main_category_code": material.main_category_code, "project_id": str(material.project_id) if material.project_id is not None else None,
-            "published_brand_id": str(material.published_brand_id), "assigned_processor_id": str(material.assigned_processor_id)}
+            "published_brand_id": str(material.published_brand_id) if material.published_brand_id else None, "assigned_processor_id": str(material.assigned_processor_id) if material.assigned_processor_id else None}
 
 
 class ReviewRead(BaseModel):

@@ -282,8 +282,6 @@ class PBRMaterialUpdate(ApiSchema):
     def required_fields_cannot_be_null(self) -> Self:
         for field_name in (
             "material_name",
-            "main_category_code",
-            "assigned_processor_id",
         ):
             if field_name in self.model_fields_set and getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} cannot be null")
@@ -291,6 +289,10 @@ class PBRMaterialUpdate(ApiSchema):
 
 
 class PBRMaterialRead(PBRMaterialFields):
+    is_draft: bool = False
+    published_brand_id: UUID | None
+    main_category_code: CategoryCode | None
+    assigned_processor_id: UUID | None
     automatic_file_check_status: Literal["NOT_CHECKED", "OK", "ISSUES"] = "NOT_CHECKED"
     automatic_file_checked_at: datetime | None = None
     automatic_file_check_profile: str | None = None
@@ -299,8 +301,8 @@ class PBRMaterialRead(PBRMaterialFields):
     note: str | None = None
     project_id: UUID | None
     id: UUID
-    sequence_number: int = Field(ge=1, le=9999)
-    technical_identity: str
+    sequence_number: int | None = Field(ge=1, le=9999)
+    technical_identity: str | None
     folder_path: FolderPath | None
     workflow_status: MaterialWorkflowStatus
     validation_status: MaterialValidationStatus

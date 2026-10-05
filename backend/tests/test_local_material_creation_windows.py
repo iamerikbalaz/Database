@@ -19,7 +19,7 @@ def setup(tmp_path, legacy_resolution=None):
     context = {"materials_root": str(root), "customer_folder": "CUSTOMER", "template_name":"base.sbs", "template_sha256":hashlib.sha256(raw).hexdigest()}
     if legacy_resolution is not None:
         context["resolution"] = legacy_resolution
-    item = {"material_id":str(uuid4()),"folder_path":"CUSTOMER/CUSTOMER_0001_NEW-MATERIAL_F01"}
+    item = {"material_id":str(uuid4()),"folder_path":"CUSTOMER/CUSTOMER_0001_NEW-MATERIAL_F01", "technical_identity": "CUSTOMER_0001_NEW-MATERIAL_F01"}
     creator.capture_template(batch, context, raw)
     return library,creator,batch,context,item,raw
 
@@ -95,3 +95,28 @@ def test_template_above_metadata_read_limit_is_copied_and_recovered(tmp_path, mo
     monkeypatch.setattr(library.journal,"rename_handle",rename)
     creator.create_folder(batch,item,context)
     assert library.fs.path(item["folder_path"]).joinpath("SOURCE/base.sbs").read_bytes() == raw
+
+
+def test_no_template_creates_empty_preview_and_source_without_template_snapshot(tmp_path):
+    root = tmp_path / "materials"; root.mkdir()
+    library = LocalMaterialLibrary(root, tmp_path / "journal")
+    creator = LocalMaterialCreator(library)
+    context = {"materials_root": str(root), "customer_folder": "CUSTOMER", "template_name": None, "template_sha256": None}
+    item = {"material_id": str(uuid4()), "technical_identity": "CUSTOMER_0001_NEW_F", "folder_path": "CUSTOMER/CUSTOMER_0001_NEW_F"}
+    batch = uuid4()
+    creator.create_folder(batch, item, context)
+    folder = library.fs.path(item["folder_path"])
+    assert {path.name for path in folder.iterdir()} == {"SOURCE", "PREVIEW"}
+    assert not list((folder / "SOURCE").iterdir())
+    assert creator.create_folder(batch, item, context) == item["folder_path"]
+
+
+def test_incomplete_identity_refuses_before_any_public_or_journal_folder_io(tmp_path):
+    root = tmp_path / "materials"; root.mkdir()
+    library = LocalMaterialLibrary(root, tmp_path / "journal")
+    creator = LocalMaterialCreator(library)
+    before = list(library.journal.root.iterdir())
+    with pytest.raises(LocalFilesError, match="MATERIAL_IDENTITY_INCOMPLETE"):
+        creator.create_folder(uuid4(), {"material_id": str(uuid4()), "technical_identity": None, "folder_path": None}, {})
+    assert not list(root.iterdir())
+    assert list(library.journal.root.iterdir()) == before

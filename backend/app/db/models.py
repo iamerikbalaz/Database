@@ -501,6 +501,7 @@ class Project(TimestampMixin, Base):
 class PBRMaterial(TimestampMixin, Base):
     __tablename__ = "pbr_materials"
     __table_args__ = (
+        CheckConstraint("(is_draft AND technical_identity IS NULL AND sequence_number IS NULL AND folder_path IS NULL AND NOT is_published AND workflow_status = 'IN_PROGRESS' AND (published_brand_id IS NULL OR main_category_code IS NULL)) OR (NOT is_draft AND published_brand_id IS NOT NULL AND main_category_code IS NOT NULL AND sequence_number IS NOT NULL AND technical_identity IS NOT NULL)", name="ck_pbr_materials_draft_identity"),
         CheckConstraint("checked_status IN ('no', 'OK', 'Correction')", name="ck_pbr_materials_checked_status"),
         CheckConstraint("automatic_file_check_status IN ('NOT_CHECKED', 'OK', 'ISSUES')", name="ck_material_automatic_file_check_status"),
         CheckConstraint(
@@ -537,25 +538,27 @@ class PBRMaterial(TimestampMixin, Base):
         nullable=True,
         index=True,
     )
-    published_brand_id: Mapped[UUID] = mapped_column(
+    published_brand_id: Mapped[UUID | None] = mapped_column(
         Uuid,
         ForeignKey("published_brands.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
-    sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    sequence_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_draft: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     material_name: Mapped[str] = mapped_column(String(255), nullable=False)
     # Historical on-disk manufacturer is independent of the current Customer
     # display name. A confirmed identity operation updates this snapshot.
     source_brand_name: Mapped[str | None] = mapped_column(String(255))
-    main_category_code: Mapped[str] = mapped_column(String(100), nullable=False)
-    assigned_processor_id: Mapped[UUID] = mapped_column(
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    main_category_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    assigned_processor_id: Mapped[UUID | None] = mapped_column(
         Uuid,
         ForeignKey("internal_users.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
-    technical_identity: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    technical_identity: Mapped[str | None] = mapped_column(String(512), nullable=True, unique=True)
     folder_path: Mapped[str | None] = mapped_column(String(2048), unique=True)
     checked_status: Mapped[str] = mapped_column(String(16), nullable=False, default="no", server_default=text("'no'"), index=True)
     note: Mapped[str | None] = mapped_column(Text)
@@ -1899,3 +1902,18 @@ from app.db import customer_rename_models as _customer_rename_models  # noqa: E4
 from app.db import material_creation_models as _material_creation_models  # noqa: E402,F401
 from app.db import path_settings_models as _path_settings_models  # noqa: E402,F401
 from app.db import preview_edit_models as _preview_edit_models  # noqa: E402,F401
+from app.db import material_deletion_models as _material_deletion_models  # noqa: E402,F401
+
+
+@event.listens_for(PBRMaterial, "before_update")
+def _deleted_material_is_retained(_mapper, _connection, material):
+    from sqlalchemy import inspect
+    state = inspect(material).attrs.deleted_at.history
+    if any(value is not None for value in state.deleted) or (not state.has_changes() and material.deleted_at is not None):
+        raise ValueError("Deleted material records are immutable audit records.")
+
+
+@event.listens_for(PBRMaterial, "before_delete")
+def _deleted_material_cannot_be_purged(_mapper, _connection, material):
+    if material.deleted_at is not None:
+        raise ValueError("Deleted material records are immutable audit records.")

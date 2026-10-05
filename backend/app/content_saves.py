@@ -62,7 +62,7 @@ def apply_material_content(session, material, payload, actor_id, *, source_draft
         body = draft_view(session, material)
         if provenance: body["ai_provenance"] = provenance
         if source_draft_id is not None: body["content_status"] = "AI_DRAFT"
-        snapshot = {**body, "published_brand_id": str(material.published_brand_id), "material_name": material.material_name}
+        snapshot = {**body, "published_brand_id": str(material.published_brand_id) if material.published_brand_id else None, "material_name": material.material_name}
         session.add(MaterialContentRevision(material_id=material.id, revision=content.revision, actor_id=actor_id,
             snapshot=snapshot, snapshot_hash=canonical_hash(snapshot), reason=audit_reason))
         invalidate_review(session, material, actor_id, "CONTENT_CHANGED", record_event=False)

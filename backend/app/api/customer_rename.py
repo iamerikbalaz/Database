@@ -47,14 +47,17 @@ def _read_context(session, customer_id, payload, *, lock=False):
     if not re.fullmatch(r"[A-Z0-9][A-Z0-9-]{0,254}", prefix):
         raise HTTPException(422, "Folder prefix must contain uppercase letters, numbers and hyphens.")
     require_available_customer_prefix(session, prefix, customer.id)
-    query = select(PBRMaterial).where(PBRMaterial.published_brand_id == customer.id).order_by(PBRMaterial.id)
+    # Drafts have no historical identity to rename. Completing them later uses
+    # the customer's then-current name and prefix.
+    query = select(PBRMaterial).where(PBRMaterial.published_brand_id == customer.id,
+        PBRMaterial.is_draft.is_(False)).order_by(PBRMaterial.id)
     materials = list(session.scalars(query.with_for_update() if lock else query))
     orders_query = select(Project).where(Project.customer_id == customer.id).order_by(Project.id)
     orders = list(session.scalars(orders_query.with_for_update() if lock else orders_query))
     for order in orders:
         _folder_idle(session, order)
     rows = []
-    all_materials = list(session.scalars(select(PBRMaterial))) if payload.rename_materials else []
+    all_materials = list(session.scalars(select(PBRMaterial).execution_options(include_deleted_materials=True))) if payload.rename_materials else []
     for material in materials:
         require_material_idle(session, material.id)
         source = _context(material, customer)

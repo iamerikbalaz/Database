@@ -1,6 +1,6 @@
 """Database ownership of source mutations. Mutators hold the material row lock."""
 from fastapi import HTTPException
-from sqlalchemy import or_, select, text
+from sqlalchemy import String, or_, select, text
 
 from app.db.models import MaterialFileOperation, MaterialMetadataOperation, MaterialPackagingExecution, MaterialPackagingState, PACKAGING_ACTIVE_STATUSES
 from app.db.models import PublicationStagingItem, PublicationStagingOwner
@@ -24,7 +24,14 @@ def lock_folder_catalog(session):
         session.execute(text("SELECT pg_advisory_xact_lock(737824903)"))
 
 
-def require_folder_idle(session, folder, *, packaging_execution_id=None, staging_job_id=None, preview_operation_id=None):
+def require_folder_idle(session, folder, *, packaging_execution_id=None, staging_job_id=None, preview_operation_id=None, deletion_operation_id=None):
+    from app.db.material_deletion_models import MaterialDeletionOwner
+    deletion_owners = select(MaterialDeletionOwner).where(MaterialDeletionOwner.folder_path.is_not(None))
+    if deletion_operation_id is not None: deletion_owners = deletion_owners.where(MaterialDeletionOwner.operation_id != deletion_operation_id)
+    for owner in session.scalars(deletion_owners):
+        a, b = folder.casefold(), owner.folder_path.casefold()
+        if a == b or a.startswith(b + "/") or b.startswith(a + "/"):
+            raise HTTPException(409, {"code":"MATERIAL_OPERATION_ACTIVE", "message":"Finish the active material deletion first."})
     from app.db.preview_edit_models import PreviewEditOwner
     owners = select(PreviewEditOwner)
     if preview_operation_id is not None: owners = owners.where(PreviewEditOwner.operation_id != preview_operation_id)
@@ -65,7 +72,18 @@ def identity_context(material):
     return {**material_context(material), "sequence_number": material.sequence_number}
 
 
-def require_material_idle(session, material_id, *, packaging_execution_id=None, staging_job_id=None, preview_operation_id=None):
+def require_material_idle(session, material_id, *, packaging_execution_id=None, staging_job_id=None, preview_operation_id=None, deletion_operation_id=None, creation_batch_id=None):
+    from app.db.material_creation_models import MaterialCreationBatch
+    creation = select(MaterialCreationBatch.id).where(MaterialCreationBatch.status != "COMPLETED",
+        MaterialCreationBatch.items.cast(String).contains(str(material_id)))
+    if creation_batch_id is not None:
+        creation = creation.where(MaterialCreationBatch.id != creation_batch_id)
+    if session.scalar(creation.limit(1)):
+        raise HTTPException(409, {"code": "MATERIAL_CREATION_ACTIVE", "message": "Recover the pending material folder creation first."})
+    from app.db.material_deletion_models import MaterialDeletionOwner
+    deletion_owner = session.get(MaterialDeletionOwner, material_id)
+    if deletion_owner is not None and deletion_owner.operation_id != deletion_operation_id:
+        raise HTTPException(409, {"code":"MATERIAL_OPERATION_ACTIVE", "message":"Finish the active material deletion first."})
     from app.db.models import PBRMaterial
     from app.db.preview_edit_models import PreviewEditOwner
     preview_owner = session.get(PreviewEditOwner, material_id)
@@ -98,6 +116,9 @@ def require_material_idle(session, material_id, *, packaging_execution_id=None, 
 
 
 def require_brand_idle(session, brand_id):
+    from app.db.material_deletion_models import MaterialDeletionOwner
+    if session.scalar(select(MaterialDeletionOwner.material_id).where(MaterialDeletionOwner.brand_id == brand_id).limit(1)):
+        raise HTTPException(409, {"code":"BRAND_OPERATION_ACTIVE", "message":"Finish active material deletions first."})
     from app.db.preview_edit_models import PreviewEditOwner
     if session.scalar(select(PreviewEditOwner.material_id).where(PreviewEditOwner.brand_id == brand_id).limit(1)):
         raise HTTPException(409, {"code": "BRAND_OPERATION_ACTIVE", "message": "Finish active preview file edits first."})

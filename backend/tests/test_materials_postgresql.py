@@ -1985,6 +1985,8 @@ def test_material_creation_first_blocks_prefix_patch_and_returns_conflict(
 def test_concurrent_material_creation_allocates_distinct_numbers(
     migrated_postgresql_url: str,
 ) -> None:
+    from app.auth.access import CATALOG_MANAGERS
+    from domain_support import DomainTestAccess
     setup_engine = create_engine(migrated_postgresql_url)
     suffix = uuid4().hex
     with Session(setup_engine) as session:
@@ -2008,6 +2010,10 @@ def test_concurrent_material_creation_allocates_distinct_numbers(
             role="PROCESSOR",
         )
         session.add_all([project, brand, processor])
+        # DomainTestAccess lazily persists its synthetic audit actor. Seed it
+        # before the race, so this test exercises material number allocation
+        # independently of test order or concurrent fixture initialization.
+        DomainTestAccess().check(session, CATALOG_MANAGERS)
         session.commit()
         project_id = project.id
         brand_id = brand.id
@@ -2365,7 +2371,7 @@ def _persist_material_at_schema(session, material):
     # Older migration fixtures use their historical schema, before the current
     # ORM's additive tracking columns exist.
     from sqlalchemy import Table, MetaData
-    if "source_brand_name" in {column["name"] for column in inspect(session.connection()).get_columns("pbr_materials")}:
+    if set(PBRMaterial.__table__.columns.keys()).issubset({column["name"] for column in inspect(session.connection()).get_columns("pbr_materials")}):
         material.metadata_state = PBRMaterialMetadata(); session.add(material)
     else:
         legacy = Table("pbr_materials", MetaData(), autoload_with=session.connection())

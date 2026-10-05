@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Protocol
 import asyncio
+import os
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -60,10 +61,12 @@ from app.api.material_archives import build_material_archives_router
 from app.api.material_table import build_material_table_router
 from app.api.local_files import build_local_files_router
 from app.api.preview_edits import build_preview_edits_router
+from app.api.material_deletions import build_material_deletions_router
 from app.api.local_publication import build_local_publication_router
 from app.api.directory import build_directory_router
 from app.api.customer_rename import build_customer_rename_router
 from app.api.notion_outbound import build_notion_outbound_router
+from app.api.order_desktop import build_order_desktop_router, open_order_folder
 from app.outbound_dispatcher import run_outbound_dispatcher
 
 
@@ -129,9 +132,12 @@ def create_app(
         identity_client or WorkerIdentityClient(app_settings.worker_base_url, app_settings.worker_mutation_token,
                                                app_settings.source_mutations_enabled), app_settings))
     application.include_router(build_notion_outbound_router(app_database, app_settings))
+    application.include_router(build_order_desktop_router(app_database, app_settings,
+        opener=open_order_folder if local_library is not None and os.name == "nt" else None))
     application.include_router(build_material_table_router(app_database, app_worker_client))
     application.include_router(build_local_files_router(app_database, local_library))
     application.include_router(build_preview_edits_router(app_database, app_settings, local_library))
+    application.include_router(build_material_deletions_router(app_database, app_settings, local_library))
     application.include_router(build_local_publication_router(app_database, app_settings, local_publication))
     application.include_router(build_catalog_router(app_database))
     application.include_router(build_material_imports_router(app_database))

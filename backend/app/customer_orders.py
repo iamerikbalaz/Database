@@ -34,8 +34,9 @@ def require_available_customer_prefix(session, prefix, customer_id=None):
     for identifier, stored in session.execute(select(PublishedBrand.id, PublishedBrand.folder_prefix)):
         if identifier != customer_id and stored.casefold() == prefix.casefold():
             raise HTTPException(409, {"code": "CUSTOMER_PREFIX_USED", "message": "Another customer already uses this prefix."})
-    for owner, identity in session.execute(select(PBRMaterial.published_brand_id, PBRMaterial.technical_identity)):
-        parsed = match_identity(identity)
+    for owner, identity in session.execute(select(PBRMaterial.published_brand_id, PBRMaterial.technical_identity)
+                                            .execution_options(include_deleted_materials=True)):
+        parsed = match_identity(identity or "")
         if owner != customer_id and parsed and parsed["prefix"].casefold() == prefix.casefold():
             raise HTTPException(409, {"code": "CUSTOMER_PREFIX_RESERVED", "message": "Historical materials reserve this prefix for their customer."})
     from app.db.models import MaterialIdentityHistory

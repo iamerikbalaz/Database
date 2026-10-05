@@ -84,7 +84,7 @@ def test_0036_preserves_0035_materials_and_prevents_losing_historical_manufactur
             command.check(config)
             with engine.connect() as connection:
                 updated = dict(connection.execute(text("SELECT * FROM pbr_materials WHERE id=:id"), {"id": material_id}).mappings().one())
-                assert updated == {**original, "source_brand_name": manufacturer}
+                assert updated == {**original, "source_brand_name": manufacturer, "is_draft": False, "deleted_at": None}
             command.downgrade(config, "20260930_0035")
             command.upgrade(config, "head")
             with engine.begin() as connection:

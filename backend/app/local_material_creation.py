@@ -35,6 +35,8 @@ class LocalMaterialCreator:
 
     def create_folder(self, batch_id, item, context):
         library = self.library
+        if not item.get("technical_identity") or not item.get("folder_path") or not context.get("customer_folder"):
+            raise LocalFilesError("MATERIAL_IDENTITY_INCOMPLETE")
         selected_root = Path(context["materials_root"])
         if not selected_root.is_relative_to(library.fs.root):
             raise LocalFilesError("LOCAL_MATERIALS_ROOT_CHANGED")
@@ -61,8 +63,8 @@ class LocalMaterialCreator:
                     return item["folder_path"]
                 if state.get("complete"):
                     raise LocalFilesError("MATERIAL_CREATED_FOLDER_MISSING")
-                raw = library.journal.read(str(batch_id) + "/template.sbs", limit=MAX_TEMPLATE_BYTES)
-                if hashlib.sha256(raw).hexdigest() != context["template_sha256"]:
+                raw = library.journal.read(str(batch_id) + "/template.sbs", limit=MAX_TEMPLATE_BYTES) if context.get("template_name") else None
+                if raw is not None and hashlib.sha256(raw).hexdigest() != context["template_sha256"]:
                     raise LocalFilesError("MATERIAL_TEMPLATE_SNAPSHOT_CHANGED")
                 stage_relative = key + "/material"
                 stage = library.journal.path(stage_relative)
@@ -79,18 +81,20 @@ class LocalMaterialCreator:
                         with library.journal.directory(stage_relative + "/" + name):
                             pass
                 source_relative = stage_relative + "/SOURCE"
-                with library.journal.directory(source_relative) as source:
-                    template = source / context["template_name"]
-                    if template.exists():
-                        if library.journal.read(source_relative + "/" + template.name, limit=MAX_TEMPLATE_BYTES) != raw:
-                            raise LocalFilesError("MATERIAL_CREATION_STAGING_CHANGED")
-                    else:
-                        with open(template, "xb") as output:
-                            output.write(raw); output.flush(); os.fsync(output.fileno())
+                if raw is not None:
+                    with library.journal.directory(source_relative) as source:
+                        template = source / context["template_name"]
+                        if template.exists():
+                            if library.journal.read(source_relative + "/" + template.name, limit=MAX_TEMPLATE_BYTES) != raw:
+                                raise LocalFilesError("MATERIAL_CREATION_STAGING_CHANGED")
+                        else:
+                            with open(template, "xb") as output:
+                                output.write(raw); output.flush(); os.fsync(output.fileno())
                 # A previous interruption can leave the same owned staging
                 # tree. Extra files or replaced directories cannot be adopted.
                 with library.journal.tree(stage_relative, for_rename=False) as (_, entries, _):
-                    if {entry["path"] for entry in entries} != expected_dirs | {"SOURCE/" + context["template_name"]}:
+                    expected_files = {"SOURCE/" + context["template_name"]} if raw is not None else set()
+                    if {entry["path"] for entry in entries} != expected_dirs | expected_files:
                         raise LocalFilesError("MATERIAL_CREATION_STAGING_CHANGED")
                 with library.journal.directory(key), library.journal.opened(stage, directory=True, rename=True) as handle:
                     identity = library.journal.identity(handle)

@@ -19,7 +19,7 @@ class MaterialCreationBatch(Base):
     )
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     actor_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("internal_users.id", ondelete="RESTRICT"))
-    customer_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("published_brands.id", ondelete="RESTRICT"))
+    customer_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("published_brands.id", ondelete="RESTRICT"), nullable=True)
     request_key: Mapped[UUID] = mapped_column(Uuid)
     request_hash: Mapped[str] = mapped_column(String(64))
     request_payload: Mapped[dict] = mapped_column(DOCUMENT)

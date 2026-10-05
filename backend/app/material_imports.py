@@ -53,7 +53,8 @@ def build_preview(session, payload, table, rows, findings):
     accessing the filesystem.
     """
     findings = list(findings)
-    existing_paths = list(session.scalars(select(PBRMaterial.folder_path).where(PBRMaterial.folder_path.is_not(None)))) if any(row.folder_path for row in rows) else []
+    existing_paths = list(session.scalars(select(PBRMaterial.folder_path).where(PBRMaterial.folder_path.is_not(None))
+        .execution_options(include_deleted_materials=True))) if any(row.folder_path for row in rows) else []
     batch_paths = [row.folder_path for row in rows if row.folder_path]
     projects = _load(session, Project, set(payload.links.projects.values()))
     brands = _load(session, PublishedBrand, set(payload.links.brands.values()))
@@ -66,7 +67,8 @@ def build_preview(session, payload, table, rows, findings):
         existing = session.execute(select(PBRMaterial.published_brand_id, PBRMaterial.sequence_number,
             PBRMaterial.technical_identity).where(or_(
                 tuple_(PBRMaterial.published_brand_id, PBRMaterial.sequence_number).in_(pairs),
-                PBRMaterial.technical_identity.in_([item.technical_identity for item in rows]))))
+                PBRMaterial.technical_identity.in_([item.technical_identity for item in rows])))
+                .execution_options(include_deleted_materials=True))
         for brand_id, number, identity in existing:
             existing_numbers.add((brand_id, number))
             existing_identities.add(identity)

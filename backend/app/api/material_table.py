@@ -19,6 +19,7 @@ from app.resource_history import resource_snapshot
 from app.schemas import PBRMaterialRead
 from app.material_assignment import require_order_customer
 from app.main_category import require_current_category_code
+from app.material_drafts import finish_draft_identity
 
 
 def build_material_table_router(database, worker_client):
@@ -59,6 +60,8 @@ def build_material_table_router(database, worker_client):
             if replay is not None:
                 return replay
             expected = _revision(material)
+            if material.is_draft and ((field == "is_published" and value) or (field == "workflow_status" and value == "DONE")):
+                raise HTTPException(409, {"code": "MATERIAL_IDENTITY_INCOMPLETE", "message": "Complete the Customer and Main category before completing or publishing this material."})
             completing = field == "workflow_status" and value == "DONE" and material.workflow_status != "DONE"
             if completing and material.folder_path is None:
                 raise HTTPException(409, "Link a source folder before marking this material Done.")
@@ -80,15 +83,30 @@ def build_material_table_router(database, worker_client):
             before = resource_snapshot(material)
             if field in {"project_id", "published_brand_id"} and getattr(material, field) != value:
                 require_order_customer(session, value if field == "project_id" else material.project_id,
-                    value if field == "published_brand_id" else material.published_brand_id)
-            if field == "assigned_processor_id":
+                    value if field == "published_brand_id" else material.published_brand_id, allow_unassigned=material.is_draft)
+            if field == "assigned_processor_id" and value is not None:
                 _require_active_internal_user(session, value)
             if field == "checked_status" and value == "OK" and material.workflow_status != "DONE":
                 raise HTTPException(409, "Mark the material Done before checking it OK.")
             changed = getattr(material, field) != value
-            if changed and field == "main_category_code":
+            if changed and field in {"main_category_code", "published_brand_id"} and value is None and not material.is_draft:
+                raise HTTPException(422, "A completed identity must retain its Customer and Main category.")
+            if changed and field == "main_category_code" and value is not None:
                 require_current_category_code(session, value)
-            if changed and field in {"main_category_code", "published_brand_id"}:
+            if changed and material.is_draft and field in {"main_category_code", "published_brand_id"}:
+                if field == "published_brand_id" and value is not None:
+                    brand = session.scalar(select(PublishedBrand).where(PublishedBrand.id == value).with_for_update())
+                    if brand is None or not brand.is_active or not brand.is_customer:
+                        raise HTTPException(409, "Choose an active Customer.")
+                    require_brand_idle(session, brand.id)
+                if field == "published_brand_id":
+                    from app.db.models import MaterialCollection
+                    if session.scalar(select(MaterialCollection.material_id).where(MaterialCollection.material_id == material_id).limit(1)):
+                        raise HTTPException(409, "Remove brand collections before changing the Customer.")
+                setattr(material, field, value)
+                with session.no_autoflush:
+                    finish_draft_identity(session, material, actor.id)
+            elif changed and field in {"main_category_code", "published_brand_id"}:
                 if material.folder_path is not None:
                     raise HTTPException(409, "Use a controlled identity plan for a linked folder.")
                 if material.workflow_status != "IN_PROGRESS" or material.is_published:

@@ -739,6 +739,24 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
             old_identity = identity_context(material)
             if access.user.role == "PROCESSOR" and set(values) - {"material_name"}:
                 raise HTTPException(403, "Only a production lead or administrator can change material assignment or identity.")
+            if material.is_draft:
+                from app.material_drafts import finish_draft_identity
+                from app.material_review import invalidate_review
+                if "material_name" in values:
+                    values["material_name"] = name_component(values["material_name"])
+                if values.get("main_category_code") is not None:
+                    require_current_category_code(session, values["main_category_code"])
+                if values.get("assigned_processor_id") is not None:
+                    _require_active_internal_user(session, values["assigned_processor_id"])
+                if "project_id" in values:
+                    require_order_customer(session, values["project_id"], material.published_brand_id, allow_unassigned=True)
+                with session.no_autoflush:
+                    _apply_update(material, values)
+                    finish_draft_identity(session, material, actor.id)
+                invalidate_review(session, material, actor.id, "MATERIAL_FIELDS_CHANGED")
+                return _commit_resource(session, material, actor.id, before, command=command)
+            if "main_category_code" in values and values["main_category_code"] is None:
+                raise HTTPException(422, "A completed identity must retain its Main category.")
             if (material.folder_path is not None and "material_name" in values
                     and values["material_name"] != material.material_name):
                 raise HTTPException(409, {"code": "IDENTITY_PLAN_REQUIRED",
@@ -752,7 +770,7 @@ def build_resources_router(database: SessionDatabase) -> APIRouter:
                         "message": "The material name must contain a usable product name."}) from None
             if "project_id" in values and values["project_id"] != material.project_id:
                 require_order_customer(session, values["project_id"], material.published_brand_id)
-            if "assigned_processor_id" in values:
+            if values.get("assigned_processor_id") is not None:
                 _require_active_internal_user(session, values["assigned_processor_id"])
             category_changed = "main_category_code" in values and values["main_category_code"] != material.main_category_code
             if category_changed:

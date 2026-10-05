@@ -27,7 +27,7 @@ class MaterialTableUpdate(ApiSchema):
         if len(fields) != 1:
             raise ValueError("Submit exactly one changed property.")
         field = next(iter(fields))
-        if field not in {"project_id", "note"} and getattr(self, field) is None:
+        if field not in {"project_id", "note", "assigned_processor_id", "published_brand_id", "main_category_code"} and getattr(self, field) is None:
             raise ValueError(f"{field} cannot be null")
         return self
 

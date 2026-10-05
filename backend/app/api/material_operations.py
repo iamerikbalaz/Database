@@ -63,6 +63,8 @@ def _get_material_revision(
                 detail="PBR material not found.",
             )
         access.require_material(material)
+        if material.is_draft:
+            raise HTTPException(409, {"code": "MATERIAL_IDENTITY_INCOMPLETE", "message": "Complete the Customer and Main category before accessing a material folder."})
         require_material_idle(session, material_id)
         return _revision(material)
 

@@ -8,10 +8,13 @@ import { materialBrand, materialProject, processorDto } from "../test/materialFi
 import { importBatch, importCompanies, importInspection, importMappings, importPreview } from "../test/importFixtures";
 import { ImportsPage } from "./ImportsPage";
 import { MaterialAiBriefDialog } from "../components/MaterialAiBriefDialog";
+import { CustomerAiBriefDialog } from "../components/CustomerAiBriefDialog";
 import importTemplateUrl from "../assets/material-import-template.csv?url&no-inline";
 
 vi.mock("../components/MaterialAiBriefDialog", () => ({ MaterialAiBriefDialog: vi.fn(({ onClose, onChanged }) =>
   <div role="dialog" aria-label="Standalone AI results"><button onClick={() => { onChanged(); onClose(); }}>Save reviewed results</button></div>) }));
+vi.mock("../components/CustomerAiBriefDialog", () => ({ CustomerAiBriefDialog: vi.fn(({ onClose, onChanged }) =>
+  <div role="dialog" aria-label="Standalone Customer AI results"><button onClick={() => { onChanged(); onClose(); }}>Save reviewed customer results</button></div>) }));
 
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
 afterEach(() => { vi.unstubAllGlobals(); setSessionToken(null); });
@@ -187,12 +190,25 @@ it("offers a downloadable UTF-8 semicolon template with explicit mapping help", 
 it("allows production leads to review standalone AI JSON without accessing historical CSV", async () => {
   const { fetch } = setup("PRODUCTION_LEAD");
   expect(screen.queryByLabelText("Historical source file")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Upload AI results JSON" }));
+  fireEvent.click(screen.getByRole("button", { name: "Upload Material AI results JSON" }));
   expect(screen.getByRole("dialog", { name: "Standalone AI results" })).toBeVisible();
   expect(vi.mocked(MaterialAiBriefDialog).mock.calls.at(-1)?.[0].materials).toBeUndefined();
   fireEvent.click(screen.getByRole("button", { name: "Save reviewed results" }));
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   expect(screen.getByRole("status")).toHaveTextContent("Reviewed AI results saved");
+  await waitFor(() => expect(fetch).not.toHaveBeenCalled());
+});
+
+it("separates Customer and Material JSON imports and derives Customer IDs from the standalone file", async () => {
+  const { fetch } = setup("PRODUCTION_LEAD");
+  expect(screen.getByRole("heading", { name: "Import Material AI results" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Import Customer AI results" })).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Upload Customer AI results JSON" }));
+  expect(screen.getByRole("dialog", { name: "Standalone Customer AI results" })).toBeVisible();
+  expect(vi.mocked(CustomerAiBriefDialog).mock.calls.at(-1)?.[0].customers).toBeUndefined();
+  fireEvent.click(screen.getByRole("button", { name: "Save reviewed customer results" }));
+  expect(screen.getByRole("status")).toHaveTextContent("saved to Customer profiles");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   await waitFor(() => expect(fetch).not.toHaveBeenCalled());
 });
 

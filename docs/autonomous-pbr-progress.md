@@ -1,6 +1,40 @@
 # Autonomous PBR completion
 
-## Latest checkpoint (2026-10-05, batch AI JSON and deletion confirmation)
+## Latest checkpoint (2026-10-06, stored check reports and Customer AI)
+
+The owned test at `http://127.0.0.1:53033` serves this version. Schema remains
+0044. No migration or source-file change was needed.
+
+- Materials and material cards open durable automatic check evidence through
+  the **issues** / **OK** status. The card also offers **Last report** after
+  invalidation, clearly labelled historical. Single/bulk results survive server
+  restarts; opening a report never scans files or calls the worker.
+- Returning from a material card restores checked rows and filter/sort context.
+  The in-memory state is isolated per active/archive view and cleared on
+  account, role or session changes. Fresh results prune unavailable selected IDs.
+- Customers list/detail provide a JSON AI brief for description and official
+  website research. Results can be imported later from Settings → Imports.
+  Per-field overwrite consent, Accept all, stale-result checks and durable
+  replay receipts protect later human edits and interrupted saves. This is the
+  same external-AI handoff model as Materials; no AI provider is called by the app.
+- Radek Zeman was explicitly deactivated through the local application API;
+  verification confirmed his name, email, role and existing assignments remain.
+- Verification: **1,446 frontend tests** across 118 files, lint and production
+  build passed. **72 focused backend/API tests** and **7 PostgreSQL cases**
+  passed, including concurrent Customer imports and stored reports. Two older
+  0033 migration tests were corrected to run historical assertions at that
+  revision before upgrading to HEAD; production migrations were unchanged.
+- Live acceptance read stored reports for all **50 materials**, exported and
+  reviewed **100 Customers**, and repeated JSON review from a fresh session.
+  All **31 page/API smoke checks** passed and served assets matched the build.
+  Customer/material records remained unchanged by acceptance; no AI proposal
+  was applied. Browser interactions were covered by component tests, not a
+  live visual browser run. Existing build chunk-size warning remains.
+
+See [stored reports](automatic-file-check.md#stored-reports-2026-10-06) and the
+[Customer AI workflow](customers-orders-version.md).
+
+## Previous checkpoint (2026-10-05, batch AI JSON and deletion confirmation)
 
 The owned test at `http://127.0.0.1:53033` serves the new version. Schema remains
 0044; no migration, source-file change or external AI request was required.

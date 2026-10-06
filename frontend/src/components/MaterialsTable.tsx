@@ -27,6 +27,7 @@ import { OpenRecordFolderButton } from "./OpenRecordFolderButton";
 import { ColoredSelect, ColoredValue } from "./ColoredSelect";
 import { materialStatusColors, materialCheckedColors } from "../data/choiceColors";
 import { MaterialLibraryBulkEditor } from "./MaterialLibraryBulkEditor";
+import { AutomaticFileCheckStatus } from "./AutomaticFileCheckStatus";
 import { libraryFieldLabels, type LibraryField } from "../api/materialLibraryClient";
 
 const columns = [
@@ -281,8 +282,7 @@ export function MaterialsTable({ materials, store, client, projects, brands, use
     if (key === "created") return new Date(row.createdAt).toLocaleString();
     if (key === "updated") return new Date(row.updatedAt).toLocaleString();
     if (key === "uuid") return row.id;
-    const status = row.automaticFileCheckStatus ?? "NOT_CHECKED";
-    return <span className={`automatic-file-check automatic-file-check--${status.toLowerCase()}`}>{status === "NOT_CHECKED" ? "not checked" : status === "OK" ? "OK" : "issues"}</span>;
+    return <AutomaticFileCheckStatus material={row} allowLastReport={detail} />;
   };
   const numberColumn = layout.find(c => c.key === "number" && c.visible);
   const visible = layout.filter(c => c.key !== "number" && (c.visible || archivedView && c.key === "archivedAt"));

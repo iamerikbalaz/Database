@@ -10,11 +10,21 @@ from app.preview_client import PreviewClientError
 from app.discovery_client import DiscoveryClientError
 from app.automatic_file_check import BulkFileCheck, CheckSelection, check_materials, save_combined_report
 from app.file_check_jobs import FileCheckJobs
+from app.stored_file_check import last_file_check
 
 
 def build_local_files_router(database, library=None):
     router=APIRouter(prefix="/api/materials",tags=["local material files"])
     jobs = FileCheckJobs(database, library)
+
+    @router.get("/{material_id}/automatic-file-check-report")
+    def stored_check_report(material_id: UUID, access: AccessDependency):
+        # Durable evidence is available without desktop/worker connectivity.
+        # Archived reads follow the same scope as other local material reads.
+        with database.session() as session:
+            access.check(session)
+            material = _material(session, material_id, access, historical=access.user.role == "ADMIN")
+            return last_file_check(session, material)
 
     def context(session, material_id, access, *, manage=False, lock=False):
         if manage: access.check(session,CATALOG_MANAGERS)

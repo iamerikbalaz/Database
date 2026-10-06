@@ -11,6 +11,7 @@ import { useSession } from "../auth/context";
 import { ImportHistory } from "../components/ImportHistory";
 import { ImportRows } from "../components/ImportRows";
 import { MaterialAiBriefDialog } from "../components/MaterialAiBriefDialog";
+import { CustomerAiBriefDialog } from "../components/CustomerAiBriefDialog";
 import { ErrorState, LoadingState } from "../components/PageState";
 
 const fields: { key: ImportField; label: string }[] = [
@@ -34,13 +35,19 @@ export function ImportsPage(props: { client: ApiClient; navigate: (path: string)
   const role = useSession()?.session.user.role;
   const [aiOpen, setAiOpen] = useState(false);
   const [aiChanged, setAiChanged] = useState(false);
+  const [customerAiOpen, setCustomerAiOpen] = useState(false), [customerAiChanged, setCustomerAiChanged] = useState(false);
   if (role !== "ADMIN" && role !== "PRODUCTION_LEAD") return <section><h1>Access restricted</h1><p>Imports require an administrator or production lead. Historical CSV/XLSX imports require an administrator.</p></section>;
-  return <section className="imports-page"><div className="page-heading"><div><p className="eyebrow">Material library</p><h1>Import materials</h1></div></div>
-    <article className="panel"><h2>Import AI results</h2><p>Upload the completed AI results JSON to review descriptions, tags and cited sources for existing materials before applying changes.</p>
-      <button className="button button--primary" onClick={() => setAiOpen(true)}>Upload AI results JSON</button>
+  return <section className="imports-page"><div className="page-heading"><div><p className="eyebrow">Material library and Customers</p><h1>Imports</h1></div></div>
+    <article className="panel"><h2>Import Material AI results</h2><p>Upload Material AI results JSON to review descriptions, tags and cited sources for existing materials before applying changes.</p>
+      <button className="button button--primary" onClick={() => setAiOpen(true)}>Upload Material AI results JSON</button>
       {aiChanged && <p role="status">Reviewed AI results saved to the material library.</p>}
     </article>
+    <article className="panel"><h2>Import Customer AI results</h2><p>Upload Customer AI results JSON to review company descriptions, official manufacturer websites and cited sources. Customer and Material files use separate formats.</p>
+      <button className="button button--primary" onClick={() => setCustomerAiOpen(true)}>Upload Customer AI results JSON</button>
+      {customerAiChanged && <p role="status">Reviewed AI results saved to Customer profiles.</p>}
+    </article>
     {aiOpen && <MaterialAiBriefDialog onClose={() => setAiOpen(false)} onChanged={() => setAiChanged(true)} />}
+    {customerAiOpen && <CustomerAiBriefDialog onClose={() => setCustomerAiOpen(false)} onChanged={() => setCustomerAiChanged(true)} />}
     {role === "ADMIN" ? <ImportWorkspace {...props} /> : <p>Historical CSV/XLSX imports require an administrator.</p>}
   </section>;
 }

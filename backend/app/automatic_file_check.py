@@ -131,9 +131,9 @@ def check_materials(database, library, access, selections, *, progress=None):
             material.automatic_file_check_profile = result["profile"]
             material.automatic_file_check_complete = result["complete"]
             session.add(MaterialAuditEvent(material_id=material.id, actor_id=access.user.id,
-                event_type="AUTOMATIC_FILE_CHECK", generation=0, revision_hash=None,
+                event_type="AUTOMATIC_FILE_CHECK", generation=0, revision_hash=None, created_at=checked_at,
                 result={"audit": {"values": {"automatic_file_check_status": result["status"]},
-                    "profile": result["profile"], "complete": result["complete"], "issues": result["issues"],
+                    "checked_at": _aware(checked_at).isoformat(), "profile": result["profile"], "complete": result["complete"], "issues": result["issues"],
                     "warnings": result["warnings"], "report": result["report"]}}))
             result.update(material_id=str(material.id), checked_at=_aware(checked_at).isoformat(),
                 identity=material.technical_identity, folder_path=material.folder_path)

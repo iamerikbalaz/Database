@@ -1,0 +1,17 @@
+.automatic-file-check-link { border: 0; font: inherit; font-size: .75rem; cursor: pointer; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.automatic-file-check-link:hover { filter: brightness(.94); }
+.automatic-file-check-link:focus-visible { outline: 2px solid var(--color-primary, #394173); outline-offset: 3px; }
+.stored-file-check-last { display: inline; border: 0; padding: 0 0 0 8px; color: var(--color-primary, #394173); background: transparent; font: inherit; font-size: 11px; text-decoration: underline; cursor: pointer; }
+.stored-file-check-dialog { box-sizing: border-box; width: min(900px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 24px; border: 1px solid var(--color-border, #dde0ed); border-radius: 16px; margin: auto; background: white; color: var(--color-text, #1f2444); }
+.stored-file-check-dialog::backdrop { background: rgb(10 13 39 / 55%); }
+.stored-file-check-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.stored-file-check-heading h2 { font-size: 20px; margin: 0; }
+.stored-file-check-material { margin: 12px 0; font-weight: 600; overflow-wrap: anywhere; }
+.stored-file-check-meta { display: flex; flex-wrap: wrap; gap: 12px 28px; margin: 12px 0; font-size: 12px; }
+.stored-file-check-meta div { display: flex; gap: 8px; }
+.stored-file-check-meta dt { font-weight: 600; }
+.stored-file-check-meta dd { margin: 0; }
+.stored-file-check-stale { padding: 12px; background: #fff0cd; border-radius: 8px; }
+.stored-file-check-caption { font-size: 12px; }
+.stored-file-check-dialog .material-check-summary { margin-top: 12px; }
+.stored-file-check-dialog .material-check-report-text { min-height: 280px; max-height: 55dvh; font: 12px/1.5 ui-monospace, Consolas, monospace; }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ApiClient } from "../api/client";
 import { materialLoadError, type MaterialFilters } from "../api/materialClient";
 import { automaticFileCheckStatuses, checkedStatuses, statusLabel, workflowStatuses, type Material } from "../api/materialDto";
@@ -29,6 +29,7 @@ import { MaterialAiBriefDialog } from "../components/MaterialAiBriefDialog";
 import { MaterialLibraryBulkEditor } from "../components/MaterialLibraryBulkEditor";
 import { ColoredSelect } from "../components/ColoredSelect";
 import { materialCheckedColors, materialStatusColors } from "../data/choiceColors";
+import { MaterialListMemoryContext } from "../components/materialListMemory";
 
 const sizes: GallerySize[] = ["small", "medium", "large", "extra-large"];
 const filterDefaults = { search: "", main_category_code: "", published_brand_id: "", project_id: "", workflow_status: "", assigned_processor_id: "", checked_status: "", is_published: "", automatic_file_check_status: "", color_hex: [] as string[], sort: "created-desc" };
@@ -36,6 +37,9 @@ function preference(key: string) { try { return localStorage.getItem(key); } cat
 function savePreference(key: string, value: string) { try { localStorage.setItem(key, value); } catch { /* The view also works with browser storage disabled. */ } }
 
 export function MaterialsPage({ client, navigate, initialView, archived = false }: { client: ApiClient; navigate: (path: string) => void; initialView?: "gallery"; archived?: boolean }) {
+  const scope = archived ? "material-archives" : "materials";
+  const listMemory = useContext(MaterialListMemoryContext);
+  const [returnState] = useState(() => listMemory?.read(scope));
   const [tableBusy, setTableBusy] = useState(false);
   const [publicationSelection, setPublicationSelection] = useState<Material[] | null>(null);
   const compact = useDatabaseWorkspace() && publicationSelection === null;
@@ -53,10 +57,13 @@ export function MaterialsPage({ client, navigate, initialView, archived = false 
   const canCheck = !archived && (role === "ADMIN" || role === "PRODUCTION_LEAD" || role === "PROCESSOR");
   const canSelect = role === "ADMIN" || role === "PRODUCTION_LEAD" || role === "PROCESSOR";
   const busy = tableBusy || checkBusy || contentBusy || libraryBusy || publicationSelection !== null || previewSelection !== null || nameSelection !== null || deleteSelection !== null || aiSelection !== null;
-  const { filters: savedFilters, setFilters: setSavedFilters, keepFilters, setKeepFilters } = useDatabaseFilters(archived ? "material-archives" : "materials", filterDefaults);
+  const { filters: savedFilters, setFilters: setSavedFilters, keepFilters, setKeepFilters } = useDatabaseFilters(scope, { ...filterDefaults, ...returnState?.filters } as typeof filterDefaults);
   const queryKey = JSON.stringify(Object.fromEntries(Object.entries(savedFilters).filter(([key, value]) => key !== "sort" && (Array.isArray(value) ? value.length > 0 : Boolean(value)))));
   const filters = useMemo<MaterialFilters>(() => JSON.parse(queryKey), [queryKey]);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(returnState?.selectedIds));
+  useEffect(() => {
+    listMemory?.write(scope, { selectedIds: [...selectedIds], filters: savedFilters });
+  }, [listMemory, scope, selectedIds, savedFilters]);
   const [overrides, setOverrides] = useState<Record<string, Material>>({});
   const [view, setView] = useState<"list" | "gallery">(() => initialView ?? (preference("materials.view") === "gallery" ? "gallery" : "list"));
   const [size, setSize] = useState<GallerySize>(() => { const saved = preference("materials.gallerySize"); return sizes.find(value => value === saved) ?? "medium"; });

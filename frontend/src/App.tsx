@@ -6,8 +6,10 @@ import { lazy, Suspense, useEffect, useState, useRef } from "react";
 import { apiClient, type ApiClient } from "./api/client";
 import { AppShell } from "./components/AppShell";
 import { NavigationLink } from "./components/NavigationLink";
+import { MaterialListMemoryProvider } from "./components/MaterialListMemoryProvider";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { useSession } from "./auth/context";
+import { sessionGeneration } from "./auth/sessionTransport";
 import { restrictedDestination } from "./auth/permissions";
 import { AccountsPage } from "./pages/AccountsPage";
 import { PackagingSettingsPage, SettingsPage } from "./pages/SettingsPage";
@@ -38,7 +40,8 @@ const normalizePath = (path: string) => {
 };
 
 function App({ client = apiClient, initialPath }: AppProps) {
-  const role = useSession()?.session.user.role;
+  const user = useSession()?.session.user;
+  const role = user?.role;
   const [notice, setNotice] = useState("");
   const [navigationError, setNavigationError] = useState("");
   const [path, setPath] = useState(() =>
@@ -165,6 +168,7 @@ function App({ client = apiClient, initialPath }: AppProps) {
     );
   }
   return (
+    <MaterialListMemoryProvider key={`${user?.id ?? "anonymous"}:${role ?? "none"}:${sessionGeneration()}`}>
     <AppShell currentPath={path} navigate={navigate}>
       {navigationError && <p role="alert" className="form-error">{navigationError}</p>}
       {notice && (
@@ -179,6 +183,7 @@ function App({ client = apiClient, initialPath }: AppProps) {
       )}
       {page}
     </AppShell>
+    </MaterialListMemoryProvider>
   );
 }
 export default App;

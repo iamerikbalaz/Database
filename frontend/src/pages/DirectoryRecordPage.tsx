@@ -8,6 +8,7 @@ import { sessionGeneration } from "../auth/sessionTransport";
 import { NavigationLink } from "../components/NavigationLink";
 import { DirectoryHistory } from "../components/DirectoryHistory";
 import { CustomerRenamePanel } from "../components/CustomerRenamePanel";
+import { CustomerAiBriefDialog } from "../components/CustomerAiBriefDialog";
 import { DirectorySync } from "../components/DirectorySync";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { NasFolderReference } from "../components/NasFolderReference";
@@ -53,6 +54,7 @@ function DirectoryRecordEditor({ kind, id, item, customers, users, orders, folde
   useEffect(() => { if (error) summary.current?.focus(); }, [error]);
   const [file, setFile] = useState<File>(), [folderAction, setFolderAction] = useState<"CREATE" | "RENAME" | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const packet = useRef<{ key: string; generation: number; run: (key: string) => Promise<unknown>; done: (result: unknown) => void } | null>(null), sending = useRef(false), alive = useRef(true), dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { if (folderAction) dialog.current?.showModal(); }, [folderAction]);
@@ -93,16 +95,19 @@ function DirectoryRecordEditor({ kind, id, item, customers, users, orders, folde
     { key: "responsible_id", label: "Responsible", options: [{ value: "", label: "Not assigned" }, ...users.filter(value => value.role === "PROCESSOR" && value.isActive || value.id === order?.responsibleId).map(value => ({ value: value.id, label: value.displayName + (value.isActive ? "" : " (inactive)"), disabled: !value.isActive || value.role !== "PROCESSOR" }))] },
     { key: "notes", label: "Note", type: "textarea" },
   ];
-  const locked = busy || uncertain || renameBusy || !canEdit;
+  const locked = busy || uncertain || renameBusy || aiOpen || !canEdit;
+  const dirty = Object.keys(initial).some(key => values[key] !== initial[key]);
   const title = id ? kind === "customer" ? customer!.name : `Order ${order!.number}` : `Add ${kind}`;
   const date = String(values.starting_date ?? "");
   const generatedPreview = [order?.number ?? String(values.number || "0000"), customers.find(value => value.id === values.customer_id)?.name ?? "", values.project_type ?? "", /^\d{4}-\d{2}-\d{2}$/.test(date) ? date.slice(5, 7) + date.slice(0, 4) : ""].join("_").toUpperCase();
   return <section className="directory-record directory-record--compact"><NavigationLink className="back-link" href={`/${kind}s`} navigate={navigate}>Back to {kind}s</NavigationLink>
     <div className="page-heading"><div><p className="eyebrow">{kind === "customer" ? "Directory" : "Production"}</p><div className="directory-record-name"><h1>{title}</h1>
-      {customer && canEdit && <CustomerRenamePanel customer={customer} disabled={busy || uncertain} onChanged={refresh} onBusyChange={setRenameBusy} />}
+      {customer && canEdit && <CustomerRenamePanel customer={customer} disabled={busy || uncertain || aiOpen} onChanged={refresh} onBusyChange={setRenameBusy} />}
     </div>{order && <p>{order.generatedName}</p>}</div>{item && <DirectorySync detailed sync={item.sync} notionPageId={item.notionPageId} />}</div>
     {error && <p ref={summary} tabIndex={-1} role="alert" className="form-error">{error}</p>}{notice && <p role="status">{notice}</p>}
     {uncertain && <button className="button" disabled={busy || requestGeneration !== sessionGeneration()} onClick={() => void submit()}>Retry same request</button>}
+    {customer && canEdit && <div className="material-ai-brief-tools"><button className="button" disabled={locked || dirty || Boolean(file)} onClick={() => setAiOpen(true)}>Generate Customer AI brief</button>{(dirty || file) && <small>Save your current edits before preparing an AI brief.</small>}</div>}
+    {customer && aiOpen && <CustomerAiBriefDialog customers={[customer]} onClose={() => setAiOpen(false)} onChanged={refresh} />}
     <form noValidate className="panel record-form" aria-label={`${id ? "Edit" : "Add"} ${kind}`} onSubmit={event => {
       event.preventDefault();
       const errors: Record<string, string> = {};

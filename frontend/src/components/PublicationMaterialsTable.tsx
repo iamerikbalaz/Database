@@ -17,6 +17,7 @@ import { MaterialBulkContent } from "./MaterialBulkContent";
 import { MaterialAiBriefDialog } from "./MaterialAiBriefDialog";
 import { MaterialsTable } from "./MaterialsTable";
 import { ColoredValue } from "./ColoredSelect";
+import { AutomaticFileCheckStatus } from "./AutomaticFileCheckStatus";
 import { materialCheckedColors, materialStatusColors } from "../data/choiceColors";
 import { highlightMaterial, isInteractiveTarget, type HighlightState } from "./materialHighlight";
 import { NavigationLink } from "./NavigationLink";
@@ -115,7 +116,7 @@ export function PublicationMaterialsTable({ materials, client, navigate, preview
     const material = row.material, content = row.content, values = row.source?.values;
     if (name === "Status") return <ColoredValue value={material.workflowStatus} colors={materialStatusColors} label={material.workflowStatus === "DONE" ? "Done" : "In progress"} />;
     if (name === "Checked") return <ColoredValue value={material.checkedStatus} colors={materialCheckedColors} />;
-    if (name === "Automatic check") return material.automaticFileCheckStatus === "NOT_CHECKED" ? "Not checked" : material.automaticFileCheckStatus === "ISSUES" ? "Issues" : "OK";
+    if (name === "Automatic check") return <AutomaticFileCheckStatus material={material} />;
     if (name === "Description") return content?.description || "Missing description";
     if (name === "Tags") return content?.tags.join(", ") || "No tags";
     if (name === "Credits") return content?.credits ?? "Missing credits";

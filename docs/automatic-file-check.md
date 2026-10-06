@@ -7,6 +7,26 @@ run the same inspection and append the actor to material activity.
 The **Automatic check** filter selects not checked, OK or issues and combines
 with the other Materials filters in the list, gallery and archive.
 
+## Stored reports (2026-10-06)
+
+Click the **issues** or **OK** status in Materials, the material card, or the
+publication preparation table to open the last saved report and download its
+TXT version. The dialog shows its recorded time and inspection profile. This
+read does not run another check or require a connected desktop file adapter.
+
+Reports from single and bulk checks remain in the database after an application
+restart. If a material change invalidates its automatic status, the card's
+**Last report** action opens the retained evidence with a **Historical report**
+notice. It does not certify the changed files. Editing files outside the app
+still requires a fresh check; merely opening a saved report does not detect it.
+
+`GET /api/materials/{id}/automatic-file-check-report` follows ordinary material
+visibility, requires authentication, and permits archived reads only for ADMIN.
+Deleted records are unavailable. Responses are not cached; the UI displays
+bounded plain text and removes absolute desktop/NAS locations. Existing durable
+material fields and audit events supply the evidence; no schema migration is
+needed.
+
 ## Full validation profile
 
 `PBR_FILES_V1` is the complete automatic file check used by the material card and

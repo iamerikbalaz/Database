@@ -232,6 +232,17 @@ workflow, Checked and identity need restore. The migration preserves old lifecyc
 history, active-job fences and recorded external-dispatch blocks. See the
 [archive contract](material-archive-contract.md) for state/recovery details.
 
+### Returning from a material card (2026-10-06)
+
+Checked row selections and the current filter/sort settings survive opening a
+material card and returning with **Back to materials** or browser Back. This
+navigation memory belongs to the current signed-in application; **Keep filters**
+is only needed for persisting filters across reloads/sign-ins. Selections are
+not persisted to browser storage. Account, role or session changes clear them.
+Active and archived lists have separate memories. Returning reloads current
+records and removes selected IDs no longer present in the filtered result;
+changing filters explicitly still clears selection.
+
 ## AI description handoff (2026-10-05)
 
 In Materials list or gallery, select 1–100 materials and choose **AI descriptions**

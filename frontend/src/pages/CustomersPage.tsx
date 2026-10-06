@@ -14,6 +14,7 @@ import { useDatabaseFilters, sortDatabaseRecords } from "../components/useDataba
 import { DatabaseResultsToolbar } from "../components/DatabaseResultsToolbar";
 import { KeepFiltersControl, ResponsiveFilters, type PriorityFilter } from "../components/ResponsiveFilters";
 import { CustomerCsvExport } from "../components/CustomerCsvExport";
+import { CustomerAiBriefDialog } from "../components/CustomerAiBriefDialog";
 
 const defaults = { search: "", status: "", category: "", published: "", createdFrom: "", createdTo: "", updatedFrom: "", updatedTo: "", sort: "name-asc" };
 
@@ -22,7 +23,8 @@ export function CustomersPage({ navigate }: { navigate: (path: string) => void }
   const catalog = useResource(catalogClient.categories);
   const categoryLabels = catalogMaterialCategoryLabels(catalog.data ?? []);
   const categoryKey = (code: string) => categoryLabels.find(item => item.code === code || item.aliases?.includes(code))?.code || code;
-  const [busy, setBusy] = useState(false);
+  const [tableBusy, setTableBusy] = useState(false), [aiCustomers, setAiCustomers] = useState<Customer[] | null>(null), [tableVersion, setTableVersion] = useState(0);
+  const busy = tableBusy || aiCustomers !== null;
   const { filters, setFilters, keepFilters, setKeepFilters, resetFilters } = useDatabaseFilters("customers", defaults);
   const { search, status, category, published, sort } = filters, dates = filters;
   const set = (key: keyof typeof defaults, value: string) => setFilters(previous => ({ ...previous, [key]: value }));
@@ -64,9 +66,10 @@ export function CustomersPage({ navigate }: { navigate: (path: string) => void }
     <DatabaseResultsToolbar count={`${filtered.length} customers`} sort={sort} sortLabel="Sort by" disabled={busy} onSortChange={value => set("sort", value)} />
     {resource.error ? <ErrorState message="Customers could not be loaded." retry={resource.retry} /> : !resource.data ? <LoadingState label="Loading customers…" /> : <>
       {!filtered.length && <p>No customers match these filters.</p>}
-      <EditableResourceTable rows={filtered} columns={columns} label={item => item.name} canEdit={canEdit} storageKey="customers.columns.v1" refresh={resource.retry} onBusyChange={setBusy} scrollMode={compact ? "contained" : "page"}
-        selectionActions={canEdit ? (rows, active) => <CustomerCsvExport rows={rows} disabled={active} /> : undefined}
+      <EditableResourceTable key={tableVersion} rows={filtered} columns={columns} label={item => item.name} canEdit={canEdit} storageKey="customers.columns.v1" refresh={resource.retry} onBusyChange={setTableBusy} scrollMode={compact ? "contained" : "page"}
+        selectionActions={canEdit ? (rows, active) => <><button className="button" disabled={active || busy || rows.length < 1 || rows.length > 100} onClick={() => setAiCustomers(rows.map(row => ({ ...row })))}>Generate AI brief ({rows.length})</button>{rows.length > 100 && <small>Select at most 100 customers for one AI brief.</small>}<CustomerCsvExport rows={rows} disabled={active || busy} /></> : undefined}
         save={(item, field, value, key) => directoryClient.saveCustomer(item.id, { [field]: value, expected_updated_at: item.updatedAt }, key)} />
     </>}
+    {aiCustomers && <CustomerAiBriefDialog customers={aiCustomers} onClose={() => setAiCustomers(null)} onChanged={() => { setTableVersion(value => value + 1); resource.retry(); }} />}
   </section>;
 }

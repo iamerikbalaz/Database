@@ -1,5 +1,33 @@
 # Customers / Orders — testovací verze
 
+## Customer AI brief (6. 10. 2026)
+
+- V Customers vyberte 1–100 firem a zvolte **Generate AI brief**. Stejná funkce
+  je na uložené kartě Customer; před spuštěním je potřeba uložit rozpracované změny.
+- **Download JSON brief** vytvoří zadání, schéma a vzor odpovědi pro externí AI.
+  Obsahuje názvy firem, dosavadní popisy a veřejné webové adresy. Kontakty,
+  interní poznámky a cesty ke složkám se do něj nepřenášejí.
+- AI má dohledat doložený anglický popis a oficiální web konkrétního výrobce,
+  uvést zdroje a označit nejisté návrhy. Aplikace sama externí AI nevolá.
+- Výsledný JSON načtěte přes **Import AI results**, případně po zavření dialogu
+  či restartu přes **Settings → Imports → Upload Customer AI results JSON**.
+  Materiály a Customers používají oddělené formáty. Limit je 5 MiB / 100 firem.
+- Návrhy lze přijmout jednotlivě nebo tlačítkem **Accept all**. Přepsání
+  dosavadního popisu a webu má samostatné potvrzení; hromadné tlačítko uvádí
+  počty přepisovaných údajů. Prázdný/null návrh zachová původní údaj.
+- Změněné záznamy, neaktivní firmy a nejisté návrhy se nepoužijí. Přijatý návrh
+  je trvale rozpoznán i po restartu nebo pozdější ruční editaci. Nejasný výsledek
+  síťového požadavku nabízí opakování stejného uložení.
+- Ukládají se pouze description a website, běžná historie změn a fronta
+  jednosměrné synchronizace. Published ani jiné údaje se tím nemění. Zdroje jsou
+  zachované jako neověřená provenance. Funkce je pro ADMIN a PRODUCTION_LEAD.
+
+API: `POST /api/customer-ai/brief`, `POST /api/customer-ai/review`,
+`POST /api/customers/{id}/ai-brief-result`. Používá existující schéma 0044.
+
+Radek Zeman byl podle pokynu deaktivován v místní testovací aplikaci. Historická
+přiřazení materiálů a role PROCESSOR zůstala zachována.
+
 ## Doplnění GUI a identit Customers (30. 9. 2026)
 
 - Customers mají rozsahy Created a Updated (od/do, včetně koncového dne v UTC).

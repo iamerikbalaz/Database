@@ -14,6 +14,7 @@ import { previewClient } from "../api/previewClient";
 import { projectFromDto, publishedBrandFromDto } from "../api/dto";
 import { SessionContext } from "../auth/context";
 import { materialDto, materialBrand, materialProject, processorDto } from "../test/materialFixtures";
+import { storedFileCheckClient } from "../api/storedFileCheckClient";
 
 const first = materialFromDto(materialDto);
 const second = { ...first, id: "00000000-0000-4000-8000-000000000023", materialName: "Second material" };
@@ -34,6 +35,15 @@ function bulk() {
   fireEvent.click(screen.getByRole("button", { name: "Review bulk change" }));
   return screen.getByRole("dialog", { name: "Change 2 materials" });
 }
+it.each([false, true])("opens a stored Issues report from the material list/card without checking files (detail=%s)", async detail => {
+  const get = vi.spyOn(storedFileCheckClient, "get").mockResolvedValue({ materialId: first.id, currentStatus: "ISSUES", report: {
+    status: "ISSUES", checkedAt: "2026-10-06T08:30:00Z", profile: "PBR_FILES_V1", complete: true, isCurrent: true,
+    issues: ["NRM missing"], warnings: [], text: "Stored report from a bulk check" } });
+  setup([{ ...first, automaticFileCheckStatus: "ISSUES", automaticFileCheckedAt: "2026-10-06T08:30:00Z" }], detail);
+  fireEvent.click(screen.getByRole("button", { name: `Open automatic file check report for ${first.materialName}` }));
+  expect((await screen.findByRole("textbox", { name: "Automatic file check report" }) as HTMLTextAreaElement).value).toContain("Stored report from a bulk check");
+  expect(get).toHaveBeenCalledOnce();
+});
 it("offers library properties in the existing bulk selector only after selection", () => {
   setup();
   expect(screen.queryByRole("combobox", { name: "Property" })).not.toBeInTheDocument();
